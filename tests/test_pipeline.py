@@ -9,7 +9,9 @@ import pytest
 import cache
 import config
 import core_video
-import main
+import pipeline
+import review
+import state
 import prompt_engine
 import vocal_sep
 from queue_manager import Job
@@ -37,7 +39,7 @@ def fakes(monkeypatch, tmp_path):
 
     async def fake_transcribe(audio):
         return " ".join(t for *_, t in ORIG), list(ORIG)
-    monkeypatch.setattr(main, "transcribe_segments", fake_transcribe)
+    monkeypatch.setattr(pipeline, "transcribe_segments", fake_transcribe)
 
     async def fake_timed(title, desc, mode, segs, out_dur, images_for=None):
         calls["llm"] += 1
@@ -72,7 +74,7 @@ def test_stretch_review_approve_flow(fakes, tmp_path):
     job = Job(url="", mode="cook", duration=10, voice=config.CAPCUT_VOICE_FEMALE, local=src, review=True)
     tmp1 = tmp_path / "w1"
     tmp1.mkdir()
-    assert asyncio.run(main.process(job, str(tmp1))) == "REVIEW"
+    assert asyncio.run(pipeline.process(job, str(tmp1))) == "REVIEW"
     assert fakes["llm"] == 1 and fakes["tts"] == 0
     # mốc lời nhân theo hệ số kéo dài 10/8 = 1.25; đoạn quảng cáo cuối (5.0s gốc = 6.25s) bị cắt
     assert job.cut_at == pytest.approx(5.0 * 1.25 - 0.05, abs=0.02)
@@ -80,11 +82,11 @@ def test_stretch_review_approve_flow(fakes, tmp_path):
     assert job.approved[1]["start"] == pytest.approx(2.0 * 1.25, abs=0.2)
 
     job.status = "review"
-    main.queue.jobs[job.id] = job
-    new = main.approve_job(job, {1: "Đảo đều tay cho thịt săn lại nha"})
+    state.queue.jobs[job.id] = job
+    new = review.approve_job(job, {1: "Đảo đều tay cho thịt săn lại nha"})
     tmp2 = tmp_path / "w2"
     tmp2.mkdir()
-    out = asyncio.run(main.process(new, str(tmp2)))
+    out = asyncio.run(pipeline.process(new, str(tmp2)))
     assert fakes["llm"] == 1                              # bản duyệt không gọi AI lần nữa
     assert fakes["tts"] == 3                              # 3 đoạn, chưa có cache
     dur = asyncio.run(core_video.probe_duration(out))
@@ -92,10 +94,10 @@ def test_stretch_review_approve_flow(fakes, tmp_path):
     assert fakes["sep_windows"] and fakes["sep_windows"][0][0] == pytest.approx(0.2, abs=0.01)   # cửa sổ theo giờ GỐC
 
     # render lại lần nữa: đoạn không đổi lấy từ cache giọng
-    again = main.approve_job(job, {1: "Đảo đều tay cho thịt săn lại nha"})
+    again = review.approve_job(job, {1: "Đảo đều tay cho thịt săn lại nha"})
     tmp3 = tmp_path / "w3"
     tmp3.mkdir()
-    asyncio.run(main.process(again, str(tmp3)))
+    asyncio.run(pipeline.process(again, str(tmp3)))
     assert fakes["tts"] == 3
 
 
@@ -113,7 +115,7 @@ def test_stretch_happens_inside_render(fakes, tmp_path, monkeypatch):
     job = Job(url="", mode="review", duration=10, voice=config.CAPCUT_VOICE_FEMALE, local=src)
     tmp = tmp_path / "w"
     tmp.mkdir()
-    out = asyncio.run(main.process(job, str(tmp)))
+    out = asyncio.run(pipeline.process(job, str(tmp)))
     assert seen["stretch"] == pytest.approx(1.25)
     assert not any(f.startswith("input_slow") for f in os.listdir(tmp))   # không còn file mã hoá trung gian
     assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(10.0, abs=0.15)
@@ -136,12 +138,12 @@ def test_review_keeps_downloaded_source(fakes, tmp_path, monkeypatch):
               voice=config.CAPCUT_VOICE_FEMALE, review=True)
     tmp1 = tmp_path / "w1"
     tmp1.mkdir()
-    assert asyncio.run(main.process(job, str(tmp1))) == "REVIEW"
+    assert asyncio.run(pipeline.process(job, str(tmp1))) == "REVIEW"
     assert job.local.startswith(config.UPLOAD_DIR) and os.path.exists(job.local)
     assert job.source_meta["uploader"] == "Bếp Nhà"
     job.status = "review"
-    new = main.approve_job(job)
+    new = review.approve_job(job)
     tmp2 = tmp_path / "w2"
     tmp2.mkdir()
-    asyncio.run(main.process(new, str(tmp2)))
+    asyncio.run(pipeline.process(new, str(tmp2)))
     assert downloads["n"] == 1 and new.source_meta["uploader"] == "Bếp Nhà"

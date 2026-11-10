@@ -9,7 +9,9 @@ import pytest
 
 import config
 import core_video
-import main
+import pipeline
+import review
+import state
 import prompt_engine
 from queue_manager import Job
 
@@ -45,7 +47,7 @@ def test_ost_windows_levels():
 
 
 def test_parse_review_reply_ost_commands():
-    e = main.parse_review_reply("1: gốc\n2: Lời mới cho đoạn hai\n3: lót gốc\n4: mới\nkhông phải lệnh")
+    e = review.parse_review_reply("1: gốc\n2: Lời mới cho đoạn hai\n3: lót gốc\n4: mới\nkhông phải lệnh")
     assert e == {1: {"ost": "orig"}, 2: "Lời mới cho đoạn hai", 3: {"ost": "both"}, 4: {"ost": "new"}}
 
 
@@ -53,8 +55,8 @@ def test_approve_keeps_ost_and_allows_empty_text_for_orig():
     src = Job(url="https://youtu.be/x", mode="cook", duration=0, voice="", status="review",
               approved=[{"i": 0, "start": 0.0, "slot": 2.0, "text": "Một", "ost": "new"},
                         {"i": 1, "start": 2.0, "slot": 2.0, "text": "Hai", "ost": "new"}])
-    main.queue.jobs[src.id] = src
-    new = main.approve_job(src, {1: {"ost": "orig", "text": ""}, 0: {"ost": "khong-hop-le"}})
+    state.queue.jobs[src.id] = src
+    new = review.approve_job(src, {1: {"ost": "orig", "text": ""}, 0: {"ost": "khong-hop-le"}})
     assert [s["ost"] for s in new.approved] == ["new", "orig"]
     assert new.script == "Một"
 
@@ -83,7 +85,7 @@ def test_ai_may_propose_orig_when_enabled(monkeypatch):
 def test_final_timeline_shape():
     segs = [{"start": 0.0, "text": "a", "orig": "x", "ost": "new"}, {"start": 2.0, "text": "", "ost": "orig"}]
     plan = [{"start": 0.1, "end": 1.5, "factor": 1.0}, {"start": 2.0, "end": 2.0, "factor": 0.92}]
-    tl = main.final_timeline(segs, plan, 4.0)
+    tl = pipeline.final_timeline(segs, plan, 4.0)
     assert tl[0]["voice"] == {"start": 0.1, "end": 1.5, "speed": 1.0} and tl[1]["voice"] is None
     assert tl[1]["end"] == 4.0
 
@@ -139,7 +141,7 @@ def test_pipeline_skips_tts_for_orig(tmp_path, monkeypatch):
     async def fake_tr(audio):
         return "", []
     monkeypatch.setattr(core_video, "synth_clip", fake_synth)
-    monkeypatch.setattr(main, "transcribe_segments", fake_tr)
+    monkeypatch.setattr(pipeline, "transcribe_segments", fake_tr)
     src = str(tmp_path / "in.mp4")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=d=6:s=320x568:r=25", "-f", "lavfi",
                     "-i", "sine=f=800:d=6", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", src],
@@ -149,7 +151,7 @@ def test_pipeline_skips_tts_for_orig(tmp_path, monkeypatch):
                         {"i": 1, "start": 2.0, "slot": 2.0, "span": 2.0, "text": "", "ost": "orig"},
                         {"i": 2, "start": 4.0, "slot": 2.0, "span": 2.0, "text": "Kết thúc nha", "ost": "both"}])
     (tmp_path / "w").mkdir()
-    out = asyncio.run(main.process(job, str(tmp_path / "w")))
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
     assert os.path.exists(out) and calls == ["Mở đầu nè", "Kết thúc nha"]
     assert [s["ost"] for s in job.final_segments] == ["new", "orig", "both"] and job.final_segments[1]["voice"] is None
     assert "Mở" in job.srt and "Kết" in job.srt

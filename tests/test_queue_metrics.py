@@ -122,16 +122,16 @@ def test_health_monitor_alerts_only_on_change(monkeypatch):
 
 
 def test_source_allowlist(monkeypatch):
-    import main
+    import pipeline
     import pytest
     monkeypatch.setattr(config, "ALLOWED_SOURCES", "@kenhcuatoi, Bếp Nhà Mình")
     ok = _mk(source_meta={"uploader": "Bếp nhà mình", "uploader_id": "@bepnha"})
-    main.check_source_allowed(ok)
+    pipeline.check_source_allowed(ok)
     bad = _mk(source_meta={"uploader": "Kênh Lạ", "uploader_id": "kenhla"})
     with pytest.raises(RuntimeError, match="ALLOWED_SOURCES"):
-        main.check_source_allowed(bad)
+        pipeline.check_source_allowed(bad)
     monkeypatch.setattr(config, "ALLOWED_SOURCES", "")
-    main.check_source_allowed(bad)                    # trống = không giới hạn
+    pipeline.check_source_allowed(bad)                    # trống = không giới hạn
 
 
 def test_job_roundtrip_json():
@@ -155,17 +155,17 @@ def test_ffmpeg_threads(monkeypatch):
 
 
 def test_credit_line_in_post(monkeypatch):
-    import main
+    import pipeline
     import prompt_engine
     monkeypatch.setattr(config, "SOURCE_CREDIT", "1")
     job = _mk(source_meta={"uploader": "Bếp Nhà Mình"})
-    credit = main.credit_line(job)
+    credit = pipeline.credit_line(job)
     assert credit == "🎬 Nguồn: Bếp Nhà Mình · 🔊 Giọng đọc AI"
     post = prompt_engine.platform_post("Gà rang", "Ngon lắm", "#a #b", credit)
     assert post.count(credit) == 3                         # có ở cả TikTok, Facebook, YouTube
-    assert main.credit_line(_mk(mode="music", source_meta={})) == ""
+    assert pipeline.credit_line(_mk(mode="music", source_meta={})) == ""
     monkeypatch.setattr(config, "SOURCE_CREDIT", "0")
-    assert main.credit_line(job) == ""
+    assert pipeline.credit_line(job) == ""
 
 
 def test_cancelled_and_failed_states_persist_across_restart(tmp_path):

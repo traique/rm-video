@@ -64,24 +64,25 @@ def test_long_video_retries_only_failed_batch(monkeypatch):
 
 def test_promo_cut_kept_after_review(monkeypatch):
     """Lỗi N1: bản đã duyệt phải cắt đúng mốc quảng cáo đã quyết lúc viết kịch bản."""
-    import main
+    import pipeline
     from queue_manager import Job
     monkeypatch.setattr(config, "CUT_PROMO", "1")
     approved = Job(url="", mode="cook", duration=0, voice="", approved=[{"i": 0, "text": "x"}], cut_at=41.5)
-    assert main.promo_cut(approved, [], 60.0) == 41.5
+    assert pipeline.promo_cut(approved, [], 60.0) == 41.5
     approved.cut_at = 0.0
-    assert main.promo_cut(approved, [], 60.0) is None
+    assert pipeline.promo_cut(approved, [], 60.0) is None
     segs = [(0.0, 5.0, "cho thịt vào chảo"), (35.0, 40.0, "bà con bấm vào giỏ hàng góc trái màn hình"),
             (40.0, 45.0, "giá đang rất tốt nha"), (45.0, 50.0, "mua ngay kẻo hết")]
     fresh = Job(url="", mode="cook", duration=0, voice="")
-    assert main.promo_cut(fresh, segs, 50.0) == pytest.approx(34.95)
+    assert pipeline.promo_cut(fresh, segs, 50.0) == pytest.approx(34.95)
 
 
 def test_approve_when_queue_full_keeps_script(monkeypatch):
     """Lỗi #4: duyệt lúc hàng đợi đầy vẫn render được; kịch bản rỗng thì job cũ vẫn chờ duyệt."""
-    import main
+    import review
+    import state
     from queue_manager import Job
-    q = main.queue
+    q = state.queue
     while q.pending < config.MAX_QUEUE:
         q.put(Job(url="https://youtu.be/x", mode="cook", duration=0, voice=""))
     src = Job(url="https://youtu.be/y", mode="cook", duration=0, voice="", status="review", cut_at=12.0,
@@ -89,9 +90,9 @@ def test_approve_when_queue_full_keeps_script(monkeypatch):
                         {"i": 1, "start": 2.0, "slot": 2.0, "span": 2.0, "text": "Lời hai"}])
     q.jobs[src.id] = src
     with pytest.raises(ValueError):
-        main.approve_job(src, {0: "", 1: " "})
+        review.approve_job(src, {0: "", 1: " "})
     assert src.status == "review"
-    new = main.approve_job(src, {1: "Lời hai đã sửa"})
+    new = review.approve_job(src, {1: "Lời hai đã sửa"})
     assert src.status == "approved" and new.status == "queued"
     assert new.cut_at == 12.0 and new.approved[1]["text"] == "Lời hai đã sửa"
 
