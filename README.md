@@ -14,7 +14,8 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
    - `ADMIN_CHAT_ID` — nơi nhận cảnh báo dịch vụ ngoài hỏng (trống = người đầu tiên trong `ALLOWED_USERS`).
 3. Biến môi trường khác (key AI nhập sau từ web cũng được):
    - `GEMINI_API_KEY` — viết kịch bản (thiếu thì dùng kịch bản mẫu)
-   - `GROQ_API_KEY` — Whisper bóc lời thoại gốc (thiếu thì dùng STT CapCut)
+   - `GROQ_API_KEY` — Whisper bóc lời thoại gốc. Không có thì bóc bằng Gemini `gemini-3.5-transcribe` (dùng chung
+     `GEMINI_API_KEY`, mốc từng từ, ~1.5s cho 11s audio), cuối cùng mới tới STT CapCut. Thứ tự đổi bằng `ASR_ORDER`.
    - `OPENROUTER_API_KEY` — provider AI thứ 2, tự dùng khi Gemini thiếu key hoặc lỗi; `OPENROUTER_MODEL` (mặc định auto)
    - `OPENROUTER_BASE_URL`, `POT_SERVER` — **chỉ đặt qua biến môi trường** (web không sửa được: lộ mật khẩu web
      không kéo theo lộ key bằng cách trỏ base URL sang máy lạ)
@@ -40,7 +41,9 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 - Đăng nhập, rồi dán link video **hoặc tải file video lên trực tiếp** để remake, chọn chế độ / thời lượng / giọng.
 - **⚙️ Cài đặt ngay trên web**: key, model, cookies YouTube, giọng đọc, `ALLOWED_USERS`, `ALLOWED_SOURCES`... lưu vào
   `settings.json`, áp dụng ngay. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.
-- Theo dõi hàng đợi theo thời gian thực; tải video kết quả về trực tiếp.
+- Theo dõi hàng đợi theo thời gian thực (Server-Sent Events `/api/events`, mất kết nối thì tự quay về hỏi lại);
+  tải video kết quả, phụ đề `.srt` và `timeline.json` (từng đoạn: thời điểm, cờ tiếng gốc, lời gốc, lời mới, chỗ
+  giọng thật sự nằm) để dựng tay trong CapCut/Premiere.
 - `/health` cho uptime-check.
 
 ## Telegram
@@ -79,7 +82,7 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Kiểm tra định kỳ** (mỗi `HEALTH_CHECK_HOURS` giờ): ffmpeg, ổ đĩa, YouTube, Gemini, Groq, CapCut TTS, edge-tts; khâu nào hỏng, hoặc tỉ lệ rơi dự phòng 24 giờ > 20%, thì nhắn `ADMIN_CHAT_ID` (chỉ khi trạng thái đổi).
 - **Cache theo bước** (`cache/`, trần `CACHE_MAX_MB`): đoạn giọng, kết quả dò cảnh/dải chữ, tiếng nền đã tách giọng. Duyệt kịch bản xong render lại không tải lại video, không gọi AI, chỉ đọc lại đoạn đã sửa.
 - **Ước tính thời gian** hiện trên web, tự học tốc độ máy sau mỗi job (`speed.json`).
-- **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt. Hàng đợi đầy vẫn duyệt được (job đã duyệt được vượt giới hạn); đoạn quảng cáo cuối đã cắt lúc viết kịch bản vẫn được cắt khi render bản duyệt.
+- **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt. Mỗi đoạn chọn được **lời mới / giữ tiếng gốc (không đọc) / đọc lời mới lót tiếng gốc** (web: ô chọn dưới mỗi đoạn; Telegram: "số: gốc", "số: lót gốc", "số: mới"); `OST_AUTO=1` cho AI tự đề xuất (tối đa 1/5 số đoạn, chỉ đoạn không có bước/nguyên liệu/con số). Hàng đợi đầy vẫn duyệt được (job đã duyệt được vượt giới hạn); đoạn quảng cáo cuối đã cắt lúc viết kịch bản vẫn được cắt khi render bản duyệt.
 - **Ghi nguồn** (`SOURCE_CREDIT=1`, mặc định): nội dung đăng có dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI". `ALLOWED_SOURCES`: chỉ remake video của các kênh trong danh sách (kênh của bạn / đã được cấp phép).
 - **Nhiều link một lúc**: mỗi link một dòng (web) hoặc nhiều link trong một tin (Telegram), tối đa 10.
 - **Kiểm con số bằng máy**: số có đơn vị (2 quả, 200g, 15 phút, 35k) phải khớp lời gốc, như kiểm nguyên liệu (~270 nhóm). Vi phạm → AI viết lại.
@@ -91,7 +94,7 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 ## Video dài
 
 - **🎞 Remake nguyên (≤5 phút):** AI viết lời theo lô ~28 đoạn, lô sau nối mạch lô trước (không mở hook lại). Video >100s tự xuất 720p và bỏ tách giọng AI (quá chậm trên Botkeep), dùng cổng tắt tiếng nền lúc người gốc nói.
-- **✂️ Cắt phần 60s/90s (nguồn ≤10 phút):** chọn điểm cắt ưu tiên chỗ vừa ngưng nói vừa chuyển cảnh → chỗ ngưng nói → chuyển cảnh; phần cuối <20s gộp vào phần trước. Mỗi phần remake riêng, xong phần nào gửi phần đó (Telegram + nút tải riêng trên web). Chế độ "Chỉ tải về" + cắt phần = chỉ cắt, không remake.
+- **✂️ Cắt phần 60s/90s (nguồn ≤10 phút):** chọn điểm cắt ưu tiên chỗ vừa ngưng nói vừa chuyển cảnh → chỗ ngưng nói → chuyển cảnh; phần cuối <20s gộp vào phần trước. Điểm cắt dời về khung khoá gần nhất (≤ 0.4s) để chép luồng, không mã hoá lại (đoạn 70s 1080p: 0.4s thay vì 17.7s). Mỗi phần remake riêng, xong phần nào gửi phần đó (Telegram + nút tải riêng trên web); bot khởi động lại giữa chừng thì không giao lại phần đã giao. Chế độ "Chỉ tải về" + cắt phần = chỉ cắt, không remake.
 - Tải/upload tới 300MB cho chế độ video dài (video thường vẫn 90s/50MB). Web giữ ~700MB video gần nhất.
 - File >48MB không gửi được qua Telegram: bot gửi link tải nếu đã đặt `PUBLIC_URL` trong Cài đặt.
 - Thời gian ước tính trên Botkeep: ~15–20 lần thời lượng video (video 5 phút ≈ 1–1.5 giờ); cắt phần nhận được phần đầu sau ~10–15 phút.
@@ -110,7 +113,7 @@ Kết quả: bước nhảy rơi đúng beat nhạc mới. Telegram: chọn 🎵
 
 ## Giọng KHỚP hình (mặc định)
 
-1. **Bóc lời gốc kèm mốc từng từ** (Groq Whisper hoặc STT CapCut, không cần key) và chia đoạn theo **thao tác**: ngắt trước các từ mở đầu việc mới ("cho", "lật", "đảo", "sau đó"…).
+1. **Bóc lời gốc kèm mốc từng từ** (Groq Whisper → Gemini gemini-3.5-transcribe → STT CapCut, theo `ASR_ORDER`) và chia đoạn theo **thao tác**: ngắt trước các từ mở đầu việc mới ("cho", "lật", "đảo", "sau đó"…).
 2. **Tách cảnh** (bộ dò scene của FFmpeg) và dời đầu mỗi đoạn về đúng điểm chuyển cảnh gần nhất: câu mới vang lên ngay khi cảnh mới xuất hiện, khớp hơn cả người nói gốc (thường lệch cảnh 0.4–0.9s).
 3. **AI xem ảnh từng đoạn** (Gemini) khi viết lời, để nói đúng thứ đang thấy; người gốc đọc lệch hình thì AI chuyển bước đó về đúng cảnh nhưng vẫn giữ đủ bước và số liệu. Model không nhận ảnh thì tự viết không kèm ảnh.
 4. **Xếp lịch giọng không bao giờ cắt cụt chữ**: đoạn dài thì lần lượt mượn khoảng lặng phía trước (≤0.5s), nói nhanh (≤1.25x), lấn sang sau (≤0.35s); vẫn dài thì AI viết ngắn lại rồi đọc lại.
@@ -159,8 +162,26 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 ```
 pip install pytest ruff
 ruff check .
-pytest -q            # ~95 test: đơn vị, bảo mật, hàng đợi, chạy trọn pipeline với provider giả, render thật
+pytest -q            # ~120 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
+LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử với Gemini thật (tốn vài token)
 ```
+
+## Cấu trúc mã
+
+| Tệp | Vai trò |
+| --- | --- |
+| `main.py` | Điểm chạy: nối worker, web, Telegram, console; Telegram lỗi mạng thì thử lại, web vẫn chạy |
+| `state.py` | Hàng đợi, bot, job đang chạy; gửi tin không bao giờ ném lỗi |
+| `tg_bot.py` | Handler Telegram (`setup(bot)`), chặn người ngoài `ALLOWED_USERS` |
+| `web_panel.py`, `static/index.html` | Web: đăng nhập cookie, CSRF, SSE, duyệt kịch bản, cài đặt |
+| `jobs.py` | Worker, hạn giờ, huỷ, dọn file đầu vào |
+| `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần video dài |
+| `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |
+| `core_video.py`, `scenes.py`, `textzone.py`, `beat.py`, `vocal_sep.py`, `subs.py`, `align.py` | FFmpeg, dò cảnh/chữ/beat, tách giọng, phụ đề, căn chữ |
+| `transcribe.py`, `prompt_engine.py`, `tts_capcut.py` | Bóc lời, viết kịch bản (Gemini/OpenRouter), giọng CapCut |
+| `queue_manager.py`, `metrics.py`, `cache.py`, `storage.py` | SQLite (jobs, steps, events, sources), cache theo bước, ổ đĩa |
+| `healthcheck.py`, `admin.py`, `ytdlp_update.py`, `potoken_setup.py` | Kiểm tra định kỳ, console, cập nhật yt-dlp, PO token |
+| `url_guard.py`, `config.py` | Chặn link lạ/IP nội bộ, cài đặt |
 
 ## Lưu ý
 

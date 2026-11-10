@@ -87,8 +87,18 @@ async def _gemini(audio_path: str):
                 raise
             await asyncio.sleep(3)
     units = gemini_units(resp)
-    text = (resp.text or "").strip() or " ".join(u[2] for u in units)
+    text = gemini_text(resp) or " ".join(u[2] for u in units)
     return text, chunk_units(units)
+
+
+def gemini_text(resp) -> str:
+    """Ghép chữ từ các phần text (resp.text in cảnh báo vì kết quả có phần audio_transcription)."""
+    out = []
+    for cand in (getattr(resp, "candidates", None) or [])[:1]:
+        for part in getattr(getattr(cand, "content", None), "parts", None) or []:
+            if getattr(part, "text", None):
+                out.append(part.text)
+    return "".join(out).strip()
 
 
 def _capcut_sync(audio_path: str):
