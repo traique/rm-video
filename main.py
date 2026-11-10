@@ -155,12 +155,9 @@ if config.BOT_TOKEN:
             return
         edits = {}
         if m.text.strip().lower() not in ("ok", "oke", "duyệt", "render", "được"):
-            for line in m.text.splitlines():            # "3: lời mới" -> sửa đoạn 3
-                mm = re.match(r"\s*(\d+)\s*[:.)-]\s*(.+)", line)
-                if mm:
-                    edits[int(mm.group(1))] = mm.group(2).strip()
+            edits = parse_review_reply(m.text)
             if not edits:
-                await m.answer("Trả lời \"ok\" để render, hoặc gửi các dòng dạng \"số: lời mới\" để sửa đoạn đó.")
+                await m.answer(REVIEW_HELP)
                 return
         try:
             new = approve_job(job, edits)
@@ -424,6 +421,8 @@ async def process_split(job: Job, tmp: str):
     dur = min(await core_video.probe_duration(src), config.SPLIT_MAX)
     job.step = "Tìm điểm cắt (chỗ ngưng nói + chuyển cảnh)"
     bounds = scenes.split_points(dur, part_len, await scenes.detect_cuts(src), await core_video.silences(src))
+    kfs = await core_video.keyframe_times(src)
+    bounds = core_video.snap_to_keyframes(bounds, kfs)        # cắt đúng khung khoá -> chép luồng, không mã hoá lại
     n = len(bounds) - 1
     ok, fails = 0, []
     delivered = {p["label"] for p in job.parts}       # chạy lại sau khi bot khởi động lại: bỏ qua phần đã giao
@@ -437,7 +436,8 @@ async def process_split(job: Job, tmp: str):
         os.makedirs(part_dir, exist_ok=True)
         piece = os.path.join(part_dir, "piece.mp4")
         job.step = f"{label}: cắt {a:.0f}s-{b:.0f}s"
-        await core_video.cut(src, piece, a, b)
+        how = await core_video.cut(src, piece, a, b, copy=core_video.is_keyframe(a, kfs))
+        logging.info("%s: cắt %.1f-%.1fs (%s)", label, a, b, "chép luồng" if how == "copy" else "mã hoá lại")
         sub = Job(url="", mode=job.mode, duration=0, voice=job.voice, subs=job.subs, cover=job.cover,
                   local=piece, title_hint=f"{title} ({label})", source=job.source, chat_id=job.chat_id,
                   source_meta=job.source_meta)
@@ -475,6 +475,51 @@ async def process_split(job: Job, tmp: str):
         job.error = "; ".join(fails)
     if ok == 0:
         raise RuntimeError("Không phần nào thành công. " + "; ".join(fails))
+
+
+OST_CHOICES = ("new", "orig", "both")
+OST_TAG = {"orig": "[giữ tiếng gốc] ", "both": "[lót tiếng gốc] "}
+REVIEW_HELP = ("Trả lời \"ok\" để render. Sửa thì gửi mỗi dòng một đoạn: \"số: lời mới\"; "
+               "\"số: gốc\" = giữ nguyên tiếng gốc đoạn đó (không đọc); \"số: lót gốc\" = đọc lời mới, lót tiếng gốc; "
+               "\"số: mới\" = bỏ giữ tiếng gốc.")
+
+
+def parse_review_reply(text: str) -> dict:
+    """Tin trả lời duyệt kịch bản trên Telegram -> edits cho approve_job."""
+    edits = {}
+    for line in (text or "").splitlines():
+        mm = re.match(r"\s*(\d+)\s*[:.)-]\s*(.+)", line)
+        if not mm:
+            continue
+        k, body = int(mm.group(1)), mm.group(2).strip()
+        low = body.lower()
+        if low in ("gốc", "giữ gốc", "tiếng gốc"):
+            edits[k] = {"ost": "orig"}
+        elif low in ("lót gốc", "cả hai"):
+            edits[k] = {"ost": "both"}
+        elif low in ("mới", "lời mới"):
+            edits[k] = {"ost": "new"}
+        else:
+            edits[k] = body
+    return edits
+
+
+def spoken_script(segs: list) -> str:
+    """Lời sẽ được đọc (bỏ các đoạn giữ nguyên tiếng gốc)."""
+    return " ".join(s["text"] for s in segs if s.get("ost") != "orig" and s.get("text"))
+
+
+def final_timeline(segs: list, plan: list, out_dur: float) -> list:
+    """Timeline cuối của video (xuất timeline.json để dựng tay / lưu trữ): mỗi đoạn có khe thời gian, cờ tiếng
+    gốc, lời gốc, lời mới và chỗ giọng mới thật sự nằm (đầu, cuối, hệ số tốc độ)."""
+    out = []
+    for k, (sg, p) in enumerate(zip(segs, plan)):
+        nxt = segs[k + 1]["start"] if k + 1 < len(segs) else out_dur
+        spoken = sg.get("ost") != "orig"
+        out.append({"i": k, "start": round(sg["start"], 2), "end": round(min(nxt, out_dur), 2),
+                    "ost": sg.get("ost", "new"), "orig": sg.get("orig", ""), "text": sg.get("text", ""),
+                    "voice": ({"start": p["start"], "end": p["end"], "speed": p["factor"]} if spoken else None)})
+    return out
 
 
 def credit_line(job: Job) -> str:
@@ -666,7 +711,7 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
     segs = [s for s in segs if s[0] < out_dur - 0.5]
     timed = None
     if job.approved:                                    # kịch bản đã duyệt: bỏ qua bước AI
-        timed = {"segments": job.approved, "script": " ".join(s["text"] for s in job.approved),
+        timed = {"segments": job.approved, "script": spoken_script(job.approved),
                  "title": "", "caption": "", "hashtags": "", "fresh": 1.0}
     elif len(segs) >= 2:
         segs = scenes.snap_to_cuts(segs, cuts)          # câu mới vang lên đúng lúc chuyển cảnh
@@ -679,12 +724,13 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
         timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc, await keyframes_for(sc), out_dur)
     if timed:
-        job.script = timed["script"]
+        job.script = spoken_script(timed["segments"]) or timed["script"]
         if not job.approved:
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"], credit_line(job))
         if allow_review and (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
-                             "text": s["text"], "orig": s.get("orig", "")} for s in timed["segments"]]
+                             "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")}
+                            for s in timed["segments"]]
             if not job.local:        # nguồn từ link/Telegram: giữ lại để render sau khi duyệt KHÔNG phải tải lại (#8)
                 keep = os.path.join(config.UPLOAD_DIR, f"review_{job.id}{os.path.splitext(inp)[1] or '.mp4'}")
                 await asyncio.to_thread(shutil.move, inp, keep)
@@ -694,13 +740,17 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         sem = asyncio.Semaphore(3)
 
         async def _one(seg):
+            if seg.get("ost") == "orig":                 # đoạn giữ nguyên tiếng gốc: không đọc lời mới
+                return {"path": None, "words": []}
             p = os.path.join(tmp, f"clip_{seg['i']}_{cache.key('clip', seg['text'])[:10]}.mp3")
             async with sem:
                 w = await core_video.synth_clip_cached(seg["text"], job.voice, p)   # đoạn không đổi: lấy từ cache
             return {"path": p, "words": w}
 
         async def _durs(cl):
-            return list(await asyncio.gather(*[core_video.probe_duration(c["path"]) for c in cl]))
+            async def one(c):
+                return await core_video.probe_duration(c["path"]) if c.get("path") else 0.0
+            return list(await asyncio.gather(*[one(c) for c in cl]))
 
         segs_t = timed["segments"]
 
@@ -719,13 +769,14 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
                     segs_t[i]["text"] = text
                     changed.append(i)
             if changed:
-                job.script = " ".join(s["text"] for s in segs_t)
+                job.script = spoken_script(segs_t)
             return changed
 
         # ước lượng độ dài TRƯỚC khi đọc (kiểu VideoLingo): đoạn chắc chắn tràn thì rút gọn luôn, đỡ một lượt
         # gọi TTS không chính thức rồi lại phải đọc lại. Ước lượng thận trọng (x0.85) để không rút gọn nhầm.
         if not job.approved:
-            est = [len(sg["text"].split()) / prompt_engine.words_per_sec() * 0.85 for sg in segs_t]
+            est = [0.0 if sg.get("ost") == "orig" else len(sg["text"].split()) / prompt_engine.words_per_sec() * 0.85
+                   for sg in segs_t]
             _, sure_long = core_video.plan_voice(est, segs_t, out_dur)
             if sure_long:
                 job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
@@ -750,8 +801,10 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         await core_video.compose_voice(clips, plan, voice_track, out_dur)
         got_subs = False
         if job.subs:
-            words = await core_video.words_for_track(clips, plan, voice_track, [s["text"] for s in segs_t])
+            words = await core_video.words_for_track(
+                clips, plan, voice_track, ["" if s.get("ost") == "orig" else s["text"] for s in segs_t])
             if words:
+                job.srt = subs_mod.to_srt(words)
                 subs_mod.write_ass(words, ass, pos_y, config.SUB_STYLE)
                 got_subs = True
         job.step = "Chờ tách giọng gốc xong" if sep["ok"] else "Render (FFmpeg)"
@@ -761,7 +814,8 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
                                 title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,
-                                stretch=stretch)
+                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur))
+        job.final_segments = final_timeline(segs_t, plan, out_dur)
         if job.mode == "cook":
             job.error = (job.error or "") + (
                 "ℹ️ Đã tách bỏ giọng gốc bằng AI. " if amb_wav else
@@ -922,9 +976,9 @@ async def _run_one(job: Job):
                 tl.cancel()
         if keep_source:
             if tg and job.status == "review":
-                lines = "\n".join(f"{s['i']}: {s['text']}" for s in job.approved)
+                lines = "\n".join(f"{s['i']}: {OST_TAG.get(s.get('ost', 'new'), '')}{s['text']}" for s in job.approved)
                 await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3500]}\n\n"
-                                           "Trả lời \"ok\" để render, hoặc gửi \"số: lời mới\" (mỗi dòng một đoạn) để sửa."))
+                                           + REVIEW_HELP))
         else:
             job.status, job.step = "done", ""
     except asyncio.TimeoutError:
@@ -958,12 +1012,20 @@ async def _run_one(job: Job):
 
 
 def approve_job(src: Job, edits: dict | None = None) -> Job:
-    """Tạo job render từ kịch bản đã duyệt (edits: {i: text mới}). Job cũ chuyển sang 'approved'."""
+    """Tạo job render từ kịch bản đã duyệt. edits: {i: "lời mới"} hoặc {i: {"text": ..., "ost": new|orig|both}}.
+    Job cũ chuyển sang 'approved'."""
     segs = []
     for s in src.approved:
-        t = (edits or {}).get(int(s["i"]), s["text"]).strip()
-        if t:
-            segs.append({"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]), "text": t})
+        e = (edits or {}).get(int(s["i"]))
+        text, ost = s["text"], s.get("ost", "new")
+        if isinstance(e, dict):
+            text, ost = e.get("text", text), e.get("ost", ost)
+        elif isinstance(e, str):
+            text = e
+        text, ost = str(text or "").strip(), (ost if ost in OST_CHOICES else "new")
+        if text or ost == "orig":
+            segs.append({"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
+                         "text": text, "orig": s.get("orig", ""), "ost": ost})
     if not segs:
         raise ValueError("Kịch bản trống: cần ít nhất một đoạn có lời.")
     job = Job(url=src.url, mode=src.mode, duration=src.duration, voice=src.voice, subs=src.subs, cover=src.cover,
@@ -972,7 +1034,7 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
               music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
               approved=segs, cut_at=src.cut_at, source_meta=src.source_meta)
     job.post = src.post
-    job.script = " ".join(s["text"] for s in segs)
+    job.script = spoken_script(segs)
     # put() TRƯỚC, đổi trạng thái job cũ SAU: lỗi gì thì kịch bản vẫn còn ở job cũ để duyệt lại (lỗi #4).
     # Job đã duyệt được vượt giới hạn hàng đợi vì người dùng đã chờ và đã sửa tay.
     queue.put(job, force=True)

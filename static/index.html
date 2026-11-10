@@ -106,7 +106,7 @@ async function doLogin(){
   const r=await fetch('/api/login',{method:'POST',headers:hdr(),body:JSON.stringify({password:$('pw').value})});
   $('pw').value='';
   $('msg').textContent=r.ok?'✅ Đã đăng nhập':'❌ '+await r.text();
-  if(r.ok){await checkAuth();loadSettings();loadVoices();refresh();}
+  if(r.ok){await checkAuth();loadSettings();loadVoices();refresh();startEvents();}
 }
 $('login_btn').onclick=doLogin;
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
@@ -176,7 +176,10 @@ async function refresh(){
   try{
     const r=await fetch('/api/jobs',{headers:hdr()});
     if(!r.ok){$('qinfo').textContent=' — '+(r.status==401?'đăng nhập ở ô trên cùng':'lỗi '+r.status);return}
-    const d=await r.json();
+    render(await r.json());
+  }catch(e){}
+}
+function render(d){
     $('qinfo').textContent=' — đang chờ: '+d.pending+'';
     $('rows').innerHTML=d.jobs.map(j=>'<tr><td>'+j.id+'</td>'+
       '<td class="st-'+esc(j.status)+'">'+esc(j.status_label)+(j.step&&['processing','review'].includes(j.status)?'<div class="mut">'+esc(j.step)+'</div>':'')+
@@ -188,18 +191,30 @@ async function refresh(){
       (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+'</td>'+
       '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<a href="'+esc(p.dl)+'">'+esc(p.label)+'</a>').join('<br>')+'<br>'
              :(j.downloadable?'<a href="'+esc(j.dl)+'">Tải về</a><br>':''))+
-      (j.post?'<a href="#" onclick="copyPost('+j.id+');return false">Copy content</a>':'')+'</td></tr>').join('');
+      (j.post?'<a href="#" onclick="copyPost('+j.id+');return false">Copy content</a><br>':'')+
+      (j.srt?'<a href="'+esc(j.srt)+'">Phụ đề .srt</a><br>':'')+
+      (j.timeline?'<a href="'+esc(j.timeline)+'">Timeline</a>':'')+'</td></tr>').join('');
   window._posts={};d.jobs.forEach(j=>{if(j.post)window._posts[j.id]=j.post;window._jobs[j.id]=j;});
-  }catch(e){}
 }
+// Cập nhật trực tiếp qua Server-Sent Events; lỗi thì tạm quay về hỏi lại mỗi 4 giây rồi thử nối lại
+let es=null;
+function startEvents(){
+  if(!window.EventSource||es)return;
+  es=new EventSource('/api/events');
+  es.onmessage=e=>{try{render(JSON.parse(e.data))}catch(_){}};
+  es.onerror=()=>{es.close();es=null;setTimeout(startEvents,8000);};
+}
+const OST=[['new','Lời mới'],['orig','Giữ tiếng gốc (không đọc)'],['both','Đọc lời mới + lót tiếng gốc']];
 window._jobs={};
 async function cancelJob(id){const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
 function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').style.display='block';$('review_card').dataset.id=id;
   $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
-  $('review_rows').innerHTML=j.approved.map(s=>'<div style="margin:8px 0;border-top:1px solid var(--line);padding-top:6px"><div class="mut">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</div><textarea data-i="'+s.i+'" rows="2" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit">'+esc(s.text)+'</textarea></div>').join('');
+  $('review_rows').innerHTML=j.approved.map(s=>'<div style="margin:8px 0;border-top:1px solid var(--line);padding-top:6px"><div class="mut">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</div><textarea data-i="'+s.i+'" rows="2" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit">'+esc(s.text)+'</textarea>'+
+    '<select data-ost="'+s.i+'" style="margin-top:4px;padding:6px">'+OST.map(o=>'<option value="'+o[0]+'"'+((s.ost||'new')==o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>').join('');
   $('review_card').scrollIntoView({behavior:'smooth'});}
 $('approve_btn').onclick=async()=>{const id=$('review_card').dataset.id;
-  const segs=[...document.querySelectorAll('#review_rows textarea')].map(t=>({i:+t.dataset.i,text:t.value}));
+  const segs=[...document.querySelectorAll('#review_rows textarea')].map(t=>({i:+t.dataset.i,text:t.value,
+    ost:(document.querySelector('[data-ost="'+t.dataset.i+'"]')||{}).value||'new'}));
   const r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:hdr(),body:JSON.stringify({segments:segs})});
   $('msg').textContent=r.ok?'✅ Đã duyệt, đang render ở job #'+(await r.json()).id:'❌ '+await r.text();$('review_card').style.display='none';refresh();};
 $('dl_probe').onclick=async()=>{const u=$('dl_url').value.trim();if(!u)return;
@@ -217,6 +232,6 @@ async function dlGo(q){const u=$('dl_url').value.trim();if(!u)return;
   if(r.ok){const d=await r.json();$('msg').textContent='✅ Đang tải (job #'+d.id+'), xem Hàng đợi bên dưới.';refresh();}
   else $('msg').textContent='❌ '+await r.text();}
 function copyPost(id){navigator.clipboard.writeText(window._posts[id]||'').then(()=>{$('msg').textContent='📋 Đã copy content đăng bài #'+id});}
-checkAuth().then(ok=>{if(ok){loadSettings();loadVoices();}refresh();});
-setInterval(()=>{if(!document.hidden)refresh()},4000);
+checkAuth().then(ok=>{if(ok){loadSettings();loadVoices();startEvents();}refresh();});
+setInterval(()=>{if(!es&&!document.hidden)refresh()},4000);
 </script></main></body></html>

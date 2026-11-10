@@ -54,6 +54,8 @@ class Job:
     timeline: list = field(default_factory=list)  # [(bước, thời điểm)] đo thời gian từng bước
     attempts: int = 0         # số lần đã chạy (bot khởi động lại giữa chừng thì chạy lại, tối đa MAX_ATTEMPTS)
     source_meta: dict = field(default_factory=dict)   # kênh/uploader/link gốc để ghi nguồn + xử lý khiếu nại
+    final_segments: list = field(default_factory=list)   # timeline cuối (xuất timeline.json)
+    srt: str = ""             # phụ đề SRT của video ra (nhập vào CapCut/Premiere để sửa tay)
     cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
 
 

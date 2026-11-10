@@ -90,3 +90,19 @@ def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"
             head = "{%s%sfad(60,40)}" % (pos, bs) if pos else "{%sfad(60,40)}" % bs
             f.write(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{head}" + " ".join(parts) + "\n")
     return len(lines)
+
+
+def _srt_ts(sec: float) -> str:
+    ms = int(round(max(0.0, sec) * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def to_srt(words) -> str:
+    """Phụ đề SRT (cùng cách chia dòng với bản burn-in) để nhập vào CapCut/Premiere sửa tay."""
+    out = []
+    for k, (start, end, ln) in enumerate(group_words(words), 1):
+        out.append(f"{k}\n{_srt_ts(start)} --> {_srt_ts(end)}\n{' '.join(w[2] for w in ln)}\n")
+    return "\n".join(out)

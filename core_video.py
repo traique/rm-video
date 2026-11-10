@@ -332,11 +332,60 @@ async def download(url: str, tmpdir: str, max_duration: int = config.MAX_DURATIO
     return await asyncio.to_thread(_download_sync, url, tmpdir, max_duration)
 
 
-async def cut(src: str, dst: str, start: float, end: float):
-    """Cắt đoạn [start, end] chính xác tới khung hình (encode lại nhanh, chất lượng cao)."""
+async def keyframe_times(path: str) -> list:
+    """Mốc các khung khoá (I-frame) của luồng hình, tính từ đầu file. Chỉ giải mã khung khoá nên nhanh."""
+    try:
+        out = await _run_ffmpeg("-v", "error", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries",
+                                "frame=pts_time", "-of", "csv=p=0", path, tool="ffprobe")
+        st = await _run_ffmpeg("-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", path,
+                               tool="ffprobe")
+        t0 = float(st.strip() or 0)
+    except (RuntimeError, ValueError):
+        return []
+    out_t = []
+    for x in out.split():
+        try:
+            out_t.append(round(float(x.strip(",")) - t0, 3))
+        except ValueError:
+            continue
+    return sorted(set(out_t))
+
+
+def snap_to_keyframes(bounds: list, kfs: list, tol: float = 0.4) -> list:
+    """Dời các điểm cắt (trừ đầu/cuối) về khung khoá gần nhất nếu lệch ≤ tol giây: cắt đúng khung khoá thì
+    chép luồng được, không phải mã hoá lại. Điểm cắt chọn ở chỗ chuyển cảnh/ngưng nói, mà bộ mã hoá thường đặt
+    khung khoá ngay chỗ chuyển cảnh, nên phần lớn điểm cắt dời rất ít."""
+    if not kfs or len(bounds) < 3:
+        return list(bounds)
+    out = [bounds[0]]
+    for b in bounds[1:-1]:
+        k = min(kfs, key=lambda x: abs(x - b))
+        out.append(k if abs(k - b) <= tol and out[-1] < k < bounds[-1] else b)
+    out.append(bounds[-1])
+    return out
+
+
+def is_keyframe(t: float, kfs: list, tol: float = 0.002) -> bool:
+    return t <= tol or any(abs(t - k) <= tol for k in kfs)
+
+
+async def cut(src: str, dst: str, start: float, end: float, copy: bool = False) -> str:
+    """Cắt đoạn [start, end]. copy=True (start là khung khoá): chép luồng, không mã hoá lại — nhanh và không mất
+    thêm một thế hệ nén; kiểm độ dài, lệch thì mã hoá lại như cũ. Trả "copy" hoặc "encode"."""
+    if copy:
+        try:
+            await _run_ffmpeg("-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}", "-map", "0:v:0",
+                              "-map", "0:a?", "-c", "copy", "-avoid_negative_ts", "make_zero",
+                              "-movflags", "+faststart", dst)
+            if abs(await probe_duration(dst) - (end - start)) < 0.5:
+                return "copy"
+            logging.warning("Cắt chép luồng lệch độ dài, mã hoá lại đoạn %.1f-%.1f", start, end)
+        except (RuntimeError, ValueError) as e:
+            logging.warning("Cắt chép luồng lỗi (%s), mã hoá lại", str(e)[:80])
     await _run_ffmpeg("-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}",
                       "-c:v", "libx264", "-preset", "veryfast", "-crf", "17", "-c:a", "aac", "-b:a", "192k",
                       "-movflags", "+faststart", dst)
+    return "encode"
 
 
 async def silences(path: str, noise_db: int = -35, min_len: float = 0.35) -> list:
@@ -505,9 +554,14 @@ def plan_voice(durs: list, segs: list, total_dur: float):
 
 
 async def compose_voice(clips: list, plan: list, out_wav: str, total_dur: float):
-    """Ghép giọng theo plan. Chỉ cắt ở cuối video (đoạn cuối), có fade để không cụt gắt."""
+    """Ghép giọng theo plan. Chỉ cắt ở cuối video (đoạn cuối), có fade để không cụt gắt.
+    Đoạn giữ tiếng gốc (không có file giọng) được bỏ qua; không còn đoạn nào thì ra track im lặng."""
+    pairs = [(cl, p) for cl, p in zip(clips, plan) if cl.get("path")]
+    if not pairs:
+        await _run_ffmpeg("-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", f"{total_dur:.2f}", out_wav)
+        return
     inputs, filters, labels = [], [], []
-    for i, (cl, p) in enumerate(zip(clips, plan)):
+    for i, (cl, p) in enumerate(pairs):
         inputs += ["-i", cl["path"]]
         trim = max(0.3, total_dur - p["start"])
         filters.append(
@@ -515,7 +569,7 @@ async def compose_voice(clips: list, plan: list, out_wav: str, total_dur: float)
             f"atrim=0:{trim:.2f},adelay={int(p['start'] * 1000)}[c{i}]")
         labels.append(f"[c{i}]")
     fc = ";".join(filters) + ";" + "".join(labels) + \
-        f"amix=inputs={len(clips)}:normalize=0,apad=whole_dur={total_dur:.2f}," \
+        f"amix=inputs={len(pairs)}:normalize=0,apad=whole_dur={total_dur:.2f}," \
         f"afade=t=out:st={max(0.0, total_dur - 0.25):.2f}:d=0.25[a]"
     await _run_ffmpeg("-y", *inputs, "-filter_complex", fc, "-map", "[a]",
                       "-ar", "44100", "-ac", "1", "-t", f"{total_dur:.2f}", out_wav)
@@ -676,6 +730,38 @@ def _gate_chain(speech: list, src: str) -> str:
             "[gf2][gh2]amix=inputs=2:normalize=0,")
 
 
+OST_LEVEL = {"orig": 1.0, "both": 0.35}     # mức tiếng gốc: giữ nguyên / lót nhỏ dưới giọng đọc mới
+OST_RAMP = 0.2
+
+
+def ost_windows(segs: list, out_dur: float) -> list:
+    """Đoạn đánh dấu giữ tiếng gốc -> [(đầu, cuối, mức)]: 'orig' = chỉ tiếng gốc (cả lời người gốc), không đọc
+    lời mới; 'both' = đọc lời mới, tiếng gốc lót nhỏ phía dưới. Cuối = đầu đoạn kế (hoặc hết video)."""
+    out = []
+    for k, sg in enumerate(segs):
+        lvl = OST_LEVEL.get(sg.get("ost", "new"))
+        if lvl is None:
+            continue
+        a = float(sg["start"])
+        b = float(segs[k + 1]["start"]) if k + 1 < len(segs) else out_dur
+        if min(b, out_dur) > a:
+            out.append((round(a, 2), round(min(b, out_dur), 2), lvl))
+    return out
+
+
+def _trap(a: float, b: float, r: float = OST_RAMP) -> str:
+    return f"clip((t-{a:.2f}+{r})/{r},0,1)*clip(({b:.2f}+{r}-t)/{r},0,1)"
+
+
+def _ost_level_expr(wins: list) -> str:
+    """Biểu thức âm lượng tiếng gốc theo thời gian (vuốt 0.2s ở hai đầu mỗi cửa sổ)."""
+    return "min(1," + ("+".join(f"{lvl}*{_trap(a, b)}" for a, b, lvl in wins) or "0") + ")"
+
+
+def _ost_any_expr(wins: list) -> str:
+    return "min(1," + ("+".join(_trap(a, b) for a, b, _ in wins) or "0") + ")"
+
+
 def out_fps(src_fps: float) -> float:
     """Tốc độ khung đầu ra: nguồn ≤30 giữ nguyên (không chèn khung lặp); >30 chia ĐỀU
     (50->25, 60->30, 48->24). Ép 50->30 phải lấy khung nhịp 2-1-2-2-1 -> chuyển động giật."""
@@ -690,7 +776,8 @@ def out_fps(src_fps: float) -> float:
 def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
-                 fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0) -> str:
+                 fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
+                 ost=None, orig_audio: bool = True) -> str:
     """Hình đẹp hơn bản gốc: khử nhiễu nén (hqdn3d) -> scale lanczos -> tương phản/sáng nhẹ ->
     vibrance (tăng màu nhạt, không làm cháy màu da) -> ấm nhẹ cho món ăn -> làm nét thích ứng (cas)."""
     cook = mode == "cook"
@@ -707,8 +794,14 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     upscale = bool(src_w and src_h) and max(W / (src_w * 0.96), H / (src_h * 0.96)) > 1.05
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
     slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
+    orig_src = "[0:a]"
     if slow:
         ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
+        orig_src += f"atempo={1 / stretch:.4f},"
+    ost = [w for w in (ost or []) if w[1] > w[0]] if orig_audio else []
+    # tiếng gốc NGUYÊN BẢN (cả lời người gốc) chỉ trong các cửa sổ được đánh dấu giữ tiếng gốc
+    ost_chain = (f"{orig_src}aformat=sample_rates=44100:channel_layouts=stereo,"
+                 f"volume='{_ost_level_expr(ost)}':eval=frame[ost];") if ost else ""
     v = f"[0:v]{slow}fps={fps:g},crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look)
     if config.QUALITY == "high":
         v += "cas=strength=0.5"              # làm nét thích ứng: đẹp nhất, tốn ~2.7x unsharp
@@ -725,10 +818,22 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
             "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() + "asplit=2[vo][sc];"
             + (_gate_chain(speech_gate, ambient_src) if speech_gate else
                f"{ambient_src}aformat=sample_rates=44100:channel_layouts=stereo,")
-            + "volume=0.8[amb];"
+            + "volume=0.8"
+            # trong cửa sổ giữ tiếng gốc thì tắt lớp tiếng nền (tiếng gốc đã có tiếng nền, tránh nghe gấp đôi)
+            + (f",volume='1-{_ost_any_expr(ost)}':eval=frame" if ost else "") + "[amb];"
             "[amb][sc]sidechaincompress=threshold=0.02:ratio=6:attack=100:release=500[ambd];"
-            "[vo][ambd]amix=inputs=2:duration=longest:weights='1 0.5',"
-            "loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000[a]"
+            + ost_chain
+            + ("[vo][ambd][ost]amix=inputs=3:duration=longest:weights='1 0.5 1'," if ost else
+               "[vo][ambd]amix=inputs=2:duration=longest:weights='1 0.5',")
+            + "loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000[a]"
+        )
+    elif ost:
+        # giọng mới + tiếng gốc trong các cửa sổ giữ tiếng gốc
+        fx = _voice_fx().rstrip(",") or "anull"
+        a = (
+            f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,{fx}[vo];" + ost_chain
+            + "[vo][ost]amix=inputs=2:duration=longest:normalize=0,"
+            f"loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000,apad=whole_dur={out_dur:.2f}[a]"
         )
     else:
         # chỉ giọng AI; apad hữu hạn đệm im lặng tới hết video
@@ -855,7 +960,7 @@ def _brand_filter(W: int, H: int, out_dur: float, title_file: str | None, outro_
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: int = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
-                 title: str = "", tmp: str | None = None, stretch: float = 1.0):
+                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -885,7 +990,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     logo_idx = (3 if ambient_wav else 2) if use_logo else None
     fc = build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
-                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch)
+                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient)
     brand = _brand_filter(W, H, out_dur, title_file, outro_file, logo_idx)
     fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)

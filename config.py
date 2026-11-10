@@ -51,6 +51,7 @@ EDITABLE = {
     "BRAND_LOGO": "1",                 # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
     "BRAND_INTRO": "1",                # 1 = hiện tiêu đề video 3 giây đầu
     "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
+    "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
     "SUB_TIMING": "spread",            # spread = rải mốc chữ theo âm tiết trong từng đoạn giọng; stt = nghe lại bằng STT CapCut
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
     "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video

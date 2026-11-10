@@ -7,6 +7,7 @@ Origin chống CSRF; sai mật khẩu nhiều lần bị khoá tạm. Link tải
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -48,6 +49,7 @@ def _pick_voice(v: str) -> str:
 
 
 # ---------------- Phiên đăng nhập ----------------
+SSE_MAX = 8
 SESSION_COOKIE = "vb_session"
 SESSION_TTL = 30 * 86400
 _KEY_FILE = os.path.join(_DIR, ".session_key")
@@ -185,6 +187,9 @@ _SETTING_OPTIONS = {
     "VOICE_SEPARATION": [["1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"], ["0", "Tắt"]],
     "VOICE_HUMANIZE": _ONOFF, "BRAND_LOGO": _ONOFF, "BRAND_INTRO": _ONOFF,
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
+    "OST_AUTO": [["0", "Tắt (chỉ khi bạn chọn trong màn duyệt)"], ["1", "AI được đề xuất đoạn giữ tiếng gốc"]],
+    "ASR_ORDER": [["groq,gemini,capcut", "Groq → Gemini → CapCut"], ["gemini,groq,capcut", "Gemini → Groq → CapCut"],
+                  ["gemini,capcut", "Gemini → CapCut"], ["groq,capcut", "Groq → CapCut"]],
     "SUB_TIMING": [["spread", "Rải theo âm tiết (nhanh, mặc định)"], ["stt", "Nghe lại bằng STT CapCut (chậm hơn)"]],
     "SOURCE_CREDIT": [["1", "Bật (ghi nguồn + Giọng đọc AI)"], ["0", "Tắt"]],
     "CUT_PROMO": [["1", "Bật (cắt quảng cáo sản phẩm của người gốc ở cuối)"], ["0", "Tắt"]],
@@ -262,10 +267,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         resp.del_cookie(SESSION_COOKIE, path="/")
         return resp
 
-    async def list_jobs(request):
-        _check(request)
+    def jobs_payload() -> dict:
         jobs = sorted(queue.jobs.values(), key=lambda j: -j.id)
-        return web.json_response({
+        return {
             "pending": queue.pending,
             "password_set": bool(config.WEB_PASSWORD),
             "jobs": [{
@@ -283,9 +287,71 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 "eta": (max(0, int(j.out_dur * hooks.get("speed", lambda m: 18.0)(j.long_mode)
                                    - (time.time() - j.started_at))) if (j.status == "processing" and j.out_dur) else None),
                 "approved": j.approved if j.status == "review" else [],
+                "timeline": f"/api/jobs/{j.id}/timeline.json" if j.final_segments else "",
+                "srt": f"/api/jobs/{j.id}/subs.srt" if j.srt else "",
                 "age": int(time.time() - j.created),
             } for j in jobs],
-        })
+        }
+
+    async def list_jobs(request):
+        _check(request)
+        return web.json_response(jobs_payload())
+
+    sse = {"clients": 0}
+
+    async def events(request):
+        """Server-Sent Events: đẩy danh sách job khi có thay đổi (thay cho trình duyệt hỏi lại mỗi vài giây).
+        Gửi khi nội dung đổi, hoặc 10 giây một lần để cập nhật thời gian chạy; tối đa SSE_MAX kết nối."""
+        _check(request)
+        if sse["clients"] >= SSE_MAX:
+            raise web.HTTPTooManyRequests(text="Quá nhiều kết nối theo dõi")
+        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache",
+                                           "X-Accel-Buffering": "no"})
+        await resp.prepare(request)
+        sse["clients"] += 1
+        last_key, last_sent = None, 0.0
+        try:
+            while True:
+                data = jobs_payload()
+                key = json.dumps([{k: v for k, v in j.items() if k not in ("elapsed", "eta", "age")}
+                                  for j in data["jobs"]] + [data["pending"]], ensure_ascii=False)
+                now = time.time()
+                if key != last_key or now - last_sent >= 10:
+                    await resp.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode())
+                    last_key, last_sent = key, now
+                await asyncio.sleep(1)
+        except (ConnectionResetError, ConnectionError, RuntimeError, asyncio.CancelledError):
+            pass
+        finally:
+            sse["clients"] -= 1
+        return resp
+
+    def _job_or_404(request):
+        try:
+            job = queue.jobs.get(int(request.match_info["id"]))
+        except ValueError:
+            raise web.HTTPNotFound() from None
+        if not job:
+            raise web.HTTPNotFound()
+        return job
+
+    async def timeline_json(request):
+        _check(request)
+        job = _job_or_404(request)
+        if not job.final_segments:
+            raise web.HTTPNotFound(text="Job này chưa có timeline")
+        body = {"job": job.id, "source": (job.source_meta or {}).get("webpage_url") or job.url, "duration": job.out_dur,
+                "cut_promo_at": job.cut_at or None, "segments": job.final_segments}
+        return web.json_response(body, dumps=lambda o: json.dumps(o, ensure_ascii=False, indent=1), headers={
+            "Content-Disposition": f'attachment; filename="timeline_{job.id}.json"'})
+
+    async def subs_srt(request):
+        _check(request)
+        job = _job_or_404(request)
+        if not job.srt:
+            raise web.HTTPNotFound(text="Job này chưa có phụ đề")
+        return web.Response(text=job.srt, content_type="application/x-subrip", headers={
+            "Content-Disposition": f'attachment; filename="video_{job.id}.srt"'})
 
     async def _guard(url: str) -> str:
         try:
@@ -458,7 +524,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         job = queue.jobs.get(int(request.match_info["id"]))
         if not job or job.status != "review":
             raise web.HTTPBadRequest(text="Job không ở trạng thái chờ duyệt")
-        edits = {int(x["i"]): str(x.get("text", "")) for x in d.get("segments", []) if "i" in x}
+        edits = {int(x["i"]): {"text": str(x.get("text", "")), "ost": str(x.get("ost", "new"))}
+                 for x in d.get("segments", []) if "i" in x}
         try:
             new = hooks["approve"](job, edits)
         except QueueFull as e:
@@ -490,6 +557,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/jobs", list_jobs)
+    app.router.add_get("/api/events", events)
+    app.router.add_get("/api/jobs/{id}/timeline.json", timeline_json)
+    app.router.add_get("/api/jobs/{id}/subs.srt", subs_srt)
     app.router.add_post("/api/jobs", add_job)
     app.router.add_get("/download/{id}", download)
     app.router.add_get("/download/{id}/{k}", download_part)

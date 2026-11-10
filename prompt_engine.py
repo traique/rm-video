@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import time
+from typing import Literal
 
 import aiohttp
 
@@ -41,8 +42,19 @@ try:
         title: str
         caption: str
         hashtags: str
+
+    class SegOstOut(BaseModel):
+        i: int
+        text: str
+        ost: Literal["new", "orig", "both"]
+
+    class TimedOstOut(BaseModel):
+        segments: list[SegOstOut]
+        title: str
+        caption: str
+        hashtags: str
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
-    TimedOut = ShortOut = ScriptOut = None
+    TimedOut = ShortOut = ScriptOut = TimedOstOut = None
 
 _STYLE = {
     "mien_tay": """
@@ -322,6 +334,10 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
     return _fallback(title, mode)
 
 
+OST_HINT = """
+
+TIẾNG GỐC (trường "ost" của mỗi đoạn): mặc định "new" (đọc lời mới). Chỉ đặt "orig" (GIỮ NGUYÊN tiếng gốc, không đọc lời mới, "text" để trống) khi tiếng gốc của đoạn đó là điểm nhấn không cần lời: tiếng xèo, tiếng giòn rụm khi cắn, một câu cảm thán ngắn tự nhiên; VÀ lời gốc đoạn đó KHÔNG có bước làm, nguyên liệu hay con số nào. Đặt "both" khi muốn đọc lời mới mà vẫn lót tiếng gốc nhỏ phía dưới. Tối đa 1/5 số đoạn là "orig" hoặc "both"; không chắc thì để "new"."""
+
 IMAGE_HINT = """
 
 ẢNH: kèm theo là ảnh chụp giữa từng đoạn ("Ảnh đoạn k"). Dùng ảnh để lời mới KHỚP HÌNH: nói về đúng điều người xem đang thấy trong ảnh của đoạn đó. Nếu lời gốc của đoạn nói một bước KHÔNG thấy trong ảnh (người làm video đọc lệch hình), hãy chuyển bước đó sang đoạn có ảnh thể hiện nó, nhưng vẫn giữ ĐỦ mọi bước và NGUYÊN VĂN mọi số liệu trong toàn bài, và thứ tự bước trong toàn bài vẫn hợp lý. Ưu tiên khớp hình hơn khớp lời gốc."""
@@ -396,6 +412,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     desc_lines = "\n".join(f"{k} | {st:.1f}s | khoảng {mx} từ | {tx}" for k, st, slot, mx, tx, _ in slots)
     prompt = TIMED_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
+    ost_auto = config.OST_AUTO == "1"
+    if ost_auto:
+        prompt += OST_HINT
     images = None
     if images_for and genai and config.GEMINI_API_KEY:
         try:
@@ -406,31 +425,40 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     providers = []
     if genai and config.GEMINI_API_KEY:
         async def _gem(pr, _imgs=images):
+            schema = TimedOstOut if ost_auto else TimedOut
             try:
-                return await _call_gemini(pr, _imgs, schema=TimedOut)
+                return await _call_gemini(pr, _imgs, schema=schema)
             except Exception as e:
                 if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
                     raise
                 logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
-                return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=TimedOut)
+                return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
         providers.append(("Gemini", _gem))
     if config.OPENROUTER_API_KEY:
         providers.append(("OpenRouter", lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, ""))))
     def _parse(raw):
         d = loads_lenient(raw)
-        got = {}
+        got, osts = {}, {}
         for x in d.get("segments", []):
             try:
+                k = int(x["i"])
                 if (x.get("text") or "").strip():
-                    got[int(x["i"])] = x["text"].strip()
+                    got[k] = x["text"].strip()
+                if ost_auto and x.get("ost") in ("orig", "both"):
+                    osts[k] = x["ost"]
             except Exception:
                 continue
+        for k in sorted(osts)[max(1, len(slots) // 5):]:   # tối đa 1/5 số đoạn giữ tiếng gốc
+            osts.pop(k)
+        d["_ost"] = osts
         return d, got
 
-    def _bad(got):
-        """Đoạn thiếu hoặc chép lời gốc (>=45% cụm 2 từ trùng)."""
+    def _bad(got, osts):
+        """Đoạn thiếu hoặc chép lời gốc (>=45% cụm 2 từ trùng). Đoạn giữ nguyên tiếng gốc không cần lời mới."""
         out = []
         for k, st, slot, mx, tx, span in slots:
+            if osts.get(k) == "orig":
+                continue
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
                     or _CTA_RE.search(got[k]):                     # lặp câu lô trước / còn quảng cáo của người gốc
@@ -442,14 +470,15 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         try:
             d, got = _parse(await call(prompt))
 
-            def _score(g):
-                """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi)"""
-                new_all = " ".join(g.get(k, "") for k, *_ in slots)
+            def _score(g, osts):
+                """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
+                Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
+                new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
                 miss, added = ingredients.check(orig_all, new_all)
                 mn, an = ingredients.check_numbers(orig_all, new_all)
-                return _bad(g), miss + mn, added + an
+                return _bad(g, osts), miss + mn, added + an
 
-            bad, miss, added = _score(got)
+            bad, miss, added = _score(got, d["_ost"])
             for attempt in range(2):                    # tối đa 2 lần bắt viết lại
                 txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
                 severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
@@ -480,7 +509,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                     ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
                 try:
                     d2, got2 = _parse(await call(fix))
-                    b2, m2, a2 = _score(got2)
+                    b2, m2, a2 = _score(got2, d2["_ost"])
                     old_err = len(bad) + 3 * (len(miss) + len(added))
                     new_err = len(b2) + 3 * (len(m2) + len(a2))
                     if new_err < old_err:
@@ -493,14 +522,16 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             d["_issues"] = (miss, added)
             out = []
             for k, st, slot, mx, tx, span in slots:
-                text = got.get(k) or tx      # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc
+                ost = d["_ost"].get(k, "new")
+                # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
+                text = got.get(k, "") if ost == "orig" else (got.get(k) or tx)
                 # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
                 # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
-                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx,
-                            "copy": round(copy_ratio(text, tx), 2)})
+                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
+                            "copy": 0.0 if ost == "orig" else round(copy_ratio(text, tx), 2)})
             for o, (k, st, slot, mx, tx, span) in zip(out, slots):
                 logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
-            script = " ".join(x["text"] for x in out)
+            script = " ".join(x["text"] for x in out if x["text"])
             fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
             metrics.record("llm", name.lower(), fallback=pk > 0)
             return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
@@ -623,7 +654,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     # chặn lặp câu ĐÚNG Ở RANH GIỚI hai lô (lỗi thấy trong log thật): đoạn đầu lô sau trùng đoạn cuối lô trước
     out = []
     for k, s in enumerate(merged):
-        if k in heads and out and same_sentence(s["text"], out[-1]["text"]) >= 0.85:
+        if k in heads and out and s["text"] and out[-1]["text"] and same_sentence(s["text"], out[-1]["text"]) >= 0.85:
             logging.warning("Bỏ đoạn lặp lại câu trước: %s", s["text"][:60])
             out[-1]["slot"] = round(s["start"] + s["slot"] - out[-1]["start"], 2)   # đoạn trước nói dài ra
             continue
@@ -631,7 +662,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     for k, s in enumerate(out):
         s["i"] = k
     merged = out
-    script = " ".join(s["text"] for s in merged)
+    script = " ".join(s["text"] for s in merged if s["text"])
     fresh = 1 - sum(s.get("copy", 0) for s in merged) / max(1, len(merged))
     return {"segments": merged, "script": script, "fresh": round(fresh, 2),
             "title": first["title"], "caption": first["caption"], "hashtags": first["hashtags"]}
