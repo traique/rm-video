@@ -154,3 +154,48 @@ def test_gemini_schema_rejected_falls_back_to_json_mode(monkeypatch):
     pack = asyncio.run(prompt_engine.generate("Tiêu đề", "", "cook", "lời gốc", 30))
     assert pack["script"] == "a" and not pack.get("fallback")
     assert "response_schema" in fake.configs[0] and "response_schema" not in fake.configs[1]
+
+
+def test_gemini_transcribe_parsing():
+    """gemini-3.5-transcribe: mốc dạng '1.600s'/'1s', dấu câu dính từ -> chia đoạn tại dấu chấm."""
+    import transcribe
+    from types import SimpleNamespace as NS
+    words = [("Cho", "0.2s", "0.4s"), ("300g", "0.4s", "1s"), ("thịt.", "1s", "1.300s"), ("Đảo", "2.100s", "2.400s"),
+             ("đều", "2.400s", "2.700s"), ("", "2.7s", "2.8s")]
+    tr = NS(words=[NS(word=w, start_offset=a, end_offset=b) for w, a, b in words])
+    resp = NS(candidates=[NS(content=NS(parts=[NS(audio_transcription=tr), NS(audio_transcription=None)]))])
+    units = transcribe.gemini_units(resp)
+    assert units[1] == (0.4, 1.0, "300g") and len(units) == 5
+    assert [t for *_, t in transcribe.chunk_units(units)] == ["Cho 300g thịt.", "Đảo đều"]
+    assert transcribe.parse_offset("2s") == 2.0 and transcribe.parse_offset(None) == 0.0
+
+
+def test_asr_order_skips_missing_keys(monkeypatch):
+    import transcribe
+    monkeypatch.setattr(config, "ASR_ORDER", "groq,gemini,capcut")
+    monkeypatch.setattr(config, "GROQ_API_KEY", "")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    assert transcribe.asr_order() == ["gemini", "capcut"]
+    with pytest.raises(ValueError):
+        config.save_settings({"ASR_ORDER": "groq,whisper"})
+
+
+def test_asr_falls_through_to_next_provider(monkeypatch):
+    import transcribe
+    monkeypatch.setattr(config, "ASR_ORDER", "gemini,capcut")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    seen = []
+
+    async def fake(name, path):
+        seen.append(name)
+        if name == "gemini":
+            raise RuntimeError("503 UNAVAILABLE")
+        return "lời", [(0.0, 1.0, "lời")]
+    monkeypatch.setattr(transcribe, "_run_provider", fake)
+    assert asyncio.run(transcribe._transcribe_uncached("x.mp3")) == ("lời", [(0.0, 1.0, "lời")])
+    assert seen == ["gemini", "capcut"]
+
+
+def test_hashtags_always_have_hash():
+    post = prompt_engine.platform_post("T", "C", "amthuc #monngon, nauan")
+    assert "#amthuc #monngon #nauan" in post

@@ -34,6 +34,8 @@ EDITABLE = {
     "OPENROUTER_MODEL": "auto",          # auto = tự dò model free đang hoạt động
     "GROQ_API_KEY": "",
     "GROQ_WHISPER_MODEL": "whisper-large-v3-turbo",
+    "GEMINI_ASR_MODEL": "gemini-3.5-transcribe",   # bóc lời bằng Gemini (mốc từng từ), dùng chung GEMINI_API_KEY
+    "ASR_ORDER": "groq,gemini,capcut",             # thứ tự nguồn bóc lời; nguồn thiếu key tự bỏ qua
     "YTDLP_COOKIES": "",
     "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
     "TTS_RATE": "+8%",
@@ -129,6 +131,8 @@ def save_settings(updates: dict):
                 raise ValueError("SPEECH_STYLE chỉ nhận: mien_tay, mien_nam, pho_thong")
             if k == "TTS_PITCH" and not re.fullmatch(r"[+-]\d{1,3}Hz", v):
                 raise ValueError("TTS_PITCH phải dạng +2Hz hoặc -3Hz")
+            if k == "ASR_ORDER" and (not v or any(x.strip() not in ("groq", "gemini", "capcut") for x in v.split(","))):
+                raise ValueError("ASR_ORDER là danh sách groq, gemini, capcut cách nhau dấu phẩy")
             if k == "SUB_TIMING" and v not in ("spread", "stt"):
                 raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
             if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):

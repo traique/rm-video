@@ -1,5 +1,7 @@
 """Bóc lời thoại gốc KÈM mốc thời gian từng câu, để kịch bản mới được đặt đúng lúc hình đang diễn ra.
-Nguồn: Groq Whisper (verbose_json) nếu có key, không thì STT của CapCut (không cần key).
+Nguồn theo ASR_ORDER (mặc định groq,gemini,capcut): Groq Whisper (verbose_json, cần key), Gemini
+gemini-3.5-transcribe (mốc từng từ, có dấu câu, tự viết số "300g"; dùng key Gemini sẵn có), STT CapCut
+(không cần key, API không chính thức).
 Trả về (text, segments) với segments = [(start_s, end_s, text)]. Lỗi gì cũng trả ("", [])."""
 import asyncio
 import hashlib
@@ -41,6 +43,52 @@ async def _groq(audio_path: str):
         return (d.get("text") or "").strip(), chunk_units(units)
     finally:
         f.close()
+
+
+def parse_offset(v) -> float:
+    """'1.600s' / '1s' / 1.6 -> 1.6"""
+    if v is None:
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
+    return float(str(v).strip().rstrip("s") or 0)
+
+
+def gemini_units(resp) -> list:
+    """Kết quả gemini-3.5-transcribe -> [(start, end, word)] (bỏ từ rỗng, giữ dấu câu dính kèm từ)."""
+    units = []
+    for cand in getattr(resp, "candidates", None) or []:
+        for part in getattr(getattr(cand, "content", None), "parts", None) or []:
+            tr = getattr(part, "audio_transcription", None)
+            for w in getattr(tr, "words", None) or []:
+                word = (w.word or "").strip()
+                if word:
+                    units.append((parse_offset(w.start_offset), parse_offset(w.end_offset), word))
+    return sorted(units, key=lambda u: u[0])
+
+
+async def _gemini(audio_path: str):
+    """gemini-3.5-transcribe với mốc từng từ. Gọi API v1beta: google-genai 3.x mặc định v1, mà v1 (11/2026)
+    chưa có trường audio_transcription_config (lỗi 400 'Unknown name audioTranscriptionConfig')."""
+    from google import genai
+    from google.genai import types
+    with open(audio_path, "rb") as f:
+        data = f.read()
+    client = genai.Client(api_key=config.GEMINI_API_KEY, http_options={"api_version": "v1beta"})
+    cfg = {"audio_transcription_config": {"word_timestamp": True, "language_codes": ["vi-VN"]}}
+    for attempt in range(2):
+        try:
+            resp = await asyncio.wait_for(client.aio.models.generate_content(
+                model=config.GEMINI_ASR_MODEL, contents=[types.Part.from_bytes(data=data, mime_type="audio/mpeg")],
+                config=cfg), 120)
+            break
+        except Exception as e:
+            if attempt or not any(x in str(e) for x in ("503", "UNAVAILABLE", "500")):
+                raise
+            await asyncio.sleep(3)
+    units = gemini_units(resp)
+    text = (resp.text or "").strip() or " ".join(u[2] for u in units)
+    return text, chunk_units(units)
 
 
 def _capcut_sync(audio_path: str):
@@ -112,23 +160,34 @@ async def transcribe_segments(audio_path: str):
     return text, segs
 
 
+def asr_order() -> list:
+    """Thứ tự nguồn bóc lời từ ASR_ORDER (bỏ nguồn thiếu key)."""
+    order = [x.strip() for x in (config.ASR_ORDER or "groq,gemini,capcut").split(",") if x.strip()]
+    have = {"groq": bool(config.GROQ_API_KEY), "gemini": bool(config.GEMINI_API_KEY), "capcut": True}
+    return [x for x in order if have.get(x)]
+
+
+async def _run_provider(name: str, audio_path: str):
+    if name == "groq":
+        return await _groq(audio_path)
+    if name == "gemini":
+        return await _gemini(audio_path)
+    return await asyncio.to_thread(_capcut_sync, audio_path)
+
+
 async def _transcribe_uncached(audio_path: str):
-    """Groq Whisper (có key) -> STT CapCut (không cần key). Video không lời thì trả ("", [])."""
-    if config.GROQ_API_KEY:
+    """Thử lần lượt theo ASR_ORDER; nguồn trả lời rỗng hoặc lỗi thì sang nguồn sau.
+    Video không lời thì trả ("", [])."""
+    for k, name in enumerate(asr_order()):
         try:
-            text, segs = await _groq(audio_path)
+            text, segs = await _run_provider(name, audio_path)
+            if name != "groq":                         # groq tự ghi số liệu trong _groq (có mã lỗi HTTP)
+                metrics.record("asr", name, fallback=k > 0)
             if text:
                 return text, segs
         except Exception as e:
-            metrics.record("asr", "groq", ok=False, detail=str(e))
-            logging.exception("Groq Whisper lỗi, thử STT CapCut")
-    try:
-        text, segs = await asyncio.to_thread(_capcut_sync, audio_path)
-        metrics.record("asr", "capcut", fallback=bool(config.GROQ_API_KEY))
-        return text, segs
-    except Exception as e:
-        metrics.record("asr", "capcut", ok=False, detail=str(e))
-        logging.exception("Bóc lời thoại lỗi, bỏ qua transcript")
+            metrics.record("asr", name, ok=False, fallback=k > 0, detail=str(e))
+            logging.warning("Bóc lời bằng %s lỗi (%s), thử nguồn kế", name, str(e)[:120])
     return "", []
 
 

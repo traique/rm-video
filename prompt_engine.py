@@ -699,7 +699,7 @@ def same_sentence(a: str, b: str) -> float:
 def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> str:
     """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag. credit: dòng ghi nguồn + nhãn giọng AI
     (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại)."""
-    tags = hashtags.split()
+    tags = ["#" + t.lstrip("#") for t in hashtags.replace(",", " ").split() if t.strip("#")]   # AI đôi khi quên dấu #
     tiktok = (caption.strip() + " " + " ".join(tags[:6])).strip()
     if len(tiktok) > 150:                      # TikTok hiển thị tốt dưới ~150 ký tự
         tiktok = (caption.strip()[:110].rsplit(" ", 1)[0] + "… " + " ".join(tags[:4])).strip()

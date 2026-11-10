@@ -8,8 +8,9 @@ yt-dlp[default,deno,curl-cffi]
 aiogram>=3.20,<4
 aiohttp>=3.9,<4
 edge-tts>=7.2,<8
-# google-genai 3.0 (06/11/2026) đổi API mặc định sang v1 và client HTTP sang httpx2: chưa kiểm với bot.
-google-genai>=1.0,<3
+# google-genai: đã kiểm với key thật trên 2.34 và 3.0.0 (3.0 đổi API mặc định sang v1, client HTTP sang httpx2;
+# riêng bóc lời gemini-3.5-transcribe vẫn gọi v1beta). Python 3.10 thì pip tự chọn bản 2.x.
+google-genai>=1.0,<4
 static-ffmpeg>=2.5,<4
 numpy>=1.26,<3
 requests>=2.31,<3
