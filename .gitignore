@@ -13,3 +13,7 @@ assets/logo.png
 potoken/
 tools/
 work/
+.session_key
+settings.json.tmp
+cache/
+.pytest_cache/
