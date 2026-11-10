@@ -471,6 +471,19 @@ async def process_split(job: Job, tmp: str):
         raise RuntimeError("Không phần nào thành công. " + "; ".join(fails))
 
 
+def credit_line(job: Job) -> str:
+    """'🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI' cho nội dung đăng (tắt bằng SOURCE_CREDIT=0)."""
+    if config.SOURCE_CREDIT == "0":
+        return ""
+    parts = []
+    uploader = (job.source_meta or {}).get("uploader")
+    if uploader:
+        parts.append(f"🎬 Nguồn: {uploader}")
+    if job.mode != "music":
+        parts.append("🔊 Giọng đọc AI")
+    return " · ".join(parts)
+
+
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
 SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 
@@ -553,7 +566,7 @@ async def process(job: Job, tmp: str):
         await core_video.render_music(inp, music, out, job.duration, **sync)
 
         pack = await prompt_engine.generate(title, desc, "music", "", job.duration)
-        job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"])
+        job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
         return out
 
     src_dur = await core_video.probe_duration(inp)
@@ -653,7 +666,7 @@ async def process(job: Job, tmp: str):
     if timed:
         job.script = timed["script"]
         if not job.approved:
-            job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"])
+            job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"], credit_line(job))
         if (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                              "text": s["text"], "orig": s.get("orig", "")} for s in timed["segments"]]
@@ -756,7 +769,7 @@ async def process(job: Job, tmp: str):
     if pack.get("fallback"):
         job.error = "⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt."
     job.script = pack["script"]
-    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"])
+    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
 
     job.step = "Đọc giọng AI + phụ đề"
     voice_mp3 = os.path.join(tmp, "voice.mp3")
@@ -770,7 +783,7 @@ async def process(job: Job, tmp: str):
         pack2 = await prompt_engine.generate(title, desc, job.mode, text, scaled)
         if not pack2.get("fallback") and len(pack2["script"].split()) > len(job.script.split()):
             job.script = pack2["script"]
-            job.post = prompt_engine.platform_post(pack2["title"], pack2["caption"], pack2["hashtags"])
+            job.post = prompt_engine.platform_post(pack2["title"], pack2["caption"], pack2["hashtags"], credit_line(job))
             got_subs = await core_video.tts(job.script, voice_mp3, job.voice,
                                             ass if job.subs else None, pos_y)
 

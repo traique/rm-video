@@ -4,24 +4,43 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 
 ## Triển khai trên Botkeep
 
-1. Upload toàn bộ thư mục này (Python Runtime), lệnh chạy: `python main.py`.
-2. Biến môi trường (tất cả key AI có thể nhập sau từ web panel thay vì env):
-   - `BOT_TOKEN` — token @BotFather (bỏ trống = chạy chỉ-web)
+1. Upload toàn bộ thư mục này (Python Runtime **3.11 trở lên**; 3.12 khuyên dùng), lệnh chạy: `python main.py`.
+   `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (google-genai < 3, yt-dlp kèm Deno qua pip).
+2. Biến môi trường **bắt buộc cho bảo mật**:
+   - `WEB_PASSWORD` — **bắt buộc**. Thiếu thì web panel KHOÁ mọi chức năng (link web Botkeep là công khai).
+   - `BOT_TOKEN` — token @BotFather (bỏ trống = chạy chỉ-web).
+   - `ALLOWED_USERS` — chat_id Telegram được dùng bot, cách nhau dấu phẩy (đặt được cả trong Cài đặt web).
+     Chưa đặt thì bot từ chối mọi người; nhắn bot một tin là nó báo chat id của bạn.
+   - `ADMIN_CHAT_ID` — nơi nhận cảnh báo dịch vụ ngoài hỏng (trống = người đầu tiên trong `ALLOWED_USERS`).
+3. Biến môi trường khác (key AI nhập sau từ web cũng được):
    - `GEMINI_API_KEY` — viết kịch bản (thiếu thì dùng kịch bản mẫu)
-   - `GROQ_API_KEY` — Whisper bóc lời thoại gốc (thiếu thì bỏ qua)
-   - `OPENROUTER_API_KEY` — provider AI thứ 2 (chuẩn OpenRouter/OpenAI-compatible), tự dùng khi Gemini thiếu key hoặc lỗi; `OPENROUTER_MODEL` (mặc định deepseek/deepseek-chat), `OPENROUTER_BASE_URL` đổi được sang Groq LLM/Together...
-   - `YTDLP_COOKIES` — dán nguyên nội dung cookies.txt (Netscape format, xuất bằng extension "Get cookies.txt") để tải YouTube bị chặn
-   - `TTS_RATE` / `TTS_PITCH` — tinh chỉnh giọng đọc (mặc định +8% / +0Hz)
-   - `WEB_PASSWORD` — **nên đặt!** Link web Botkeep là công khai, không mật khẩu thì ai cũng dùng được quota của bạn
+   - `GROQ_API_KEY` — Whisper bóc lời thoại gốc (thiếu thì dùng STT CapCut)
+   - `OPENROUTER_API_KEY` — provider AI thứ 2, tự dùng khi Gemini thiếu key hoặc lỗi; `OPENROUTER_MODEL` (mặc định auto)
+   - `OPENROUTER_BASE_URL`, `POT_SERVER` — **chỉ đặt qua biến môi trường** (web không sửa được: lộ mật khẩu web
+     không kéo theo lộ key bằng cách trỏ base URL sang máy lạ)
+   - `YTDLP_COOKIES`, `YTDLP_PROXY` — vượt chặn YouTube (xem dưới)
+   - `ALLOWED_DOMAINS` — thêm tên miền được phép gửi link (mặc định: TikTok, Douyin, YouTube, Facebook, Instagram, SoundCloud)
+   - `FFMPEG_THREADS` (0 = theo số lõi container), `CACHE_MAX_MB` (mặc định 500), `HEALTH_CHECK_HOURS` (mặc định 6, 0 = tắt)
    - `PORT` — Botkeep thường tự cấp; mặc định 8080
-3. Lần chạy đầu static-ffmpeg tự tải binary ~70MB (1 lần duy nhất).
+4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần).
+
+## Bảo mật
+
+- **Telegram**: chỉ người trong `ALLOWED_USERS` tạo được job; người lạ nhận câu từ chối kèm chat id của họ.
+- **Web**: đăng nhập một lần bằng mật khẩu → cookie phiên ký HMAC (HttpOnly, SameSite=Strict, 30 ngày, sống qua
+  restart; đổi `WEB_PASSWORD` là mọi phiên cũ hết hiệu lực). Sai 5 lần/phút bị khoá tạm. POST từ trang khác bị chặn
+  (CSRF). Không còn nhận mật khẩu qua `?auth=` hay lưu trong trình duyệt. Script/curl dùng header `X-Auth`.
+- **Link**: chỉ nhận link của các nền tảng trên; link trỏ vào IP nội bộ (127.0.0.1, 10.x, 169.254.169.254...) bị chặn;
+  yt-dlp tắt extractor "generic" (tải được mọi URL bất kỳ).
+- **Model và mã tải về**: model tách giọng kiểm SHA-256; server PO token build đúng tag phiên bản plugin, `npm ci`.
+- `settings.json` (chứa key) ghi quyền 600; `/health` công khai chỉ trả `ok` và số job chờ.
 
 ## Web panel (link web của Botkeep)
 
-- Nhập mật khẩu + link video **hoặc tải file video lên trực tiếp (≤ 80MB)** để remake, chọn chế độ / thời lượng (30s, 60s, 90s, giữ nguyên) / giọng nam-nữ.
-- **⚙️ Cài đặt API ngay trên web**: Gemini/OpenRouter/Groq key, model, base URL, cookies YouTube, rate/pitch giọng đọc — lưu vào `settings.json`, áp dụng ngay không cần restart. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.
-- Theo dõi hàng đợi theo thời gian thực (từng bước: tải → Whisper → kịch bản → giọng → render).
-- Tải video kết quả về trực tiếp (server chỉ giữ 3 video gần nhất để không tràn disk 2GB).
+- Đăng nhập, rồi dán link video **hoặc tải file video lên trực tiếp** để remake, chọn chế độ / thời lượng / giọng.
+- **⚙️ Cài đặt ngay trên web**: key, model, cookies YouTube, giọng đọc, `ALLOWED_USERS`, `ALLOWED_SOURCES`... lưu vào
+  `settings.json`, áp dụng ngay. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.
+- Theo dõi hàng đợi theo thời gian thực; tải video kết quả về trực tiếp.
 - `/health` cho uptime-check.
 
 ## Telegram
@@ -30,7 +49,7 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 
 ## Giọng đọc CapCut/TikTok (mặc định)
 
-24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Phụ đề khớp từng từ lấy từ STT của CapCut trên chính file giọng. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
+24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo âm tiết trong từng đoạn giọng (1–4 giây nên đủ khớp, không tốn thêm lượt mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ. Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 
@@ -40,7 +59,7 @@ H.264 High 4.1, yuv420p, bt709, 30 fps CFR, GOP 2s, faststart; AAC 192 kbps **48
 
 ## Trình tải video (kiểu vidssave)
 
-Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook → **Xem định dạng** hiện ảnh bìa, tiêu đề, thời lượng và các nút MP4 2160p→360p kèm dung lượng ước tính + MP3; bấm là tải vào hàng đợi, xong hiện link. Telegram: gửi link → "⬇️ Chỉ tải về" → bàn phím chọn chất lượng/MP3; file ≤48MB gửi thẳng (MP3 gửi dạng audio), lớn hơn gửi link. Giới hạn 60 phút / 450MB; % tải hiện trong bước của job. Nhãn theo cạnh ngắn (video dọc 1080×1920 = 1080p). **Lệnh console Botkeep**: gõ thẳng vào ô console của server (bot đọc stdin): `help`, `status`, `setup_potoken`, `remove_potoken`, `yt_test <link>` (xem + tải thật), `cancel <số job>`.
+Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook → **Xem định dạng** hiện ảnh bìa, tiêu đề, thời lượng và các nút MP4 2160p→360p kèm dung lượng ước tính + MP3; bấm là tải vào hàng đợi, xong hiện link. Telegram: gửi link → "⬇️ Chỉ tải về" → bàn phím chọn chất lượng/MP3; file ≤48MB gửi thẳng (MP3 gửi dạng audio), lớn hơn gửi link. Giới hạn 60 phút / 450MB; % tải hiện trong bước của job. Nhãn theo cạnh ngắn (video dọc 1080×1920 = 1080p). **Lệnh console Botkeep**: gõ thẳng vào ô console của server (bot đọc stdin): `help`, `status` (kèm tỉ lệ rơi dự phòng 24 giờ), `health` (kiểm tra dịch vụ ngoài ngay), `update_ytdlp` (cập nhật yt-dlp, thử YouTube trong tiến trình riêng, hỏng thì tự quay về bản cũ; xong thì khởi động lại bot), `setup_potoken`, `remove_potoken`, `yt_test <link>` (xem + tải thật), `cancel <số job>`.
 
 **YouTube bị chặn (403 / đòi đăng nhập)?** Ba cách theo thứ tự nên thử: (1) **không cần cookies**: gõ `setup_potoken` vào console Botkeep — bot tự tải Node qua pip nếu máy không có, cài bộ sinh PO token bgutil (~270MB, ~1 phút), dùng ngay không cần restart; rồi `yt_test <link>` để thử tải thật. Không ăn thì `remove_potoken` để lấy lại đĩa; (2) điền `YTDLP_PROXY` (proxy dân dụng, `http://user:pass@ip:port` hoặc `socks5://...`) trong Cài đặt, hoặc `POT_SERVER` trỏ tới server token chạy ở máy khác; (3) dán cookies YouTube vào `YTDLP_COOKIES`. Nếu IP máy chủ bị YouTube gắn cờ quá nặng thì PO token cũng không đủ, khi đó chỉ còn cookies. TikTok dùng tikwm nên không bị ảnh hưởng.
 
@@ -55,15 +74,19 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Dung lượng**: khi khởi động và lệnh `status` in ổ bot + `/tmp` còn trống và thư mục nào chiếm chỗ. Mỗi job ước lượng chỗ cần (file nguồn ×3 + 300MB), tự chọn `/tmp` hay `work/` trong ổ bot (chỗ nào đủ), thiếu thì xóa video kết quả cũ nhất vừa đủ; không đủ thì báo lỗi kèm số liệu. `OUT_MAX_MB` mặc định 400.
 
 - **Timeout toàn cục**: 25 phút/job thường, 3 giờ/video dài; quá hạn tự hủy, giết FFmpeg, chạy job kế. **Hủy** bằng nút trên web hoặc `/cancel` Telegram.
-- **Lịch sử job lưu SQLite** (`jobs.db`), sống qua restart; link tải vẫn tra được. Job dở dang lúc restart được đánh dấu lỗi.
+- **Lịch sử job lưu SQLite** (`jobs.db`), sống qua restart; link tải vẫn tra được. Job đang chờ lúc restart được chạy tiếp; job đang chạy dở được chạy lại một lần (chết lần nữa thì dừng, tránh vòng lặp). Job chờ duyệt vẫn duyệt được sau restart, hết hạn sau 24 giờ.
+- **Đo đạc**: bảng `steps` (thời gian từng bước mỗi job), `events` (dịch vụ nào được dùng, có rơi về dự phòng không), `sources` (link nguồn ↔ video ra, để xử lý khiếu nại).
+- **Kiểm tra định kỳ** (mỗi `HEALTH_CHECK_HOURS` giờ): ffmpeg, ổ đĩa, YouTube, Gemini, Groq, CapCut TTS, edge-tts; khâu nào hỏng, hoặc tỉ lệ rơi dự phòng 24 giờ > 20%, thì nhắn `ADMIN_CHAT_ID` (chỉ khi trạng thái đổi).
+- **Cache theo bước** (`cache/`, trần `CACHE_MAX_MB`): đoạn giọng, kết quả dò cảnh/dải chữ, tiếng nền đã tách giọng. Duyệt kịch bản xong render lại không tải lại video, không gọi AI, chỉ đọc lại đoạn đã sửa.
 - **Ước tính thời gian** hiện trên web, tự học tốc độ máy sau mỗi job (`speed.json`).
-- **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt.
+- **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt. Hàng đợi đầy vẫn duyệt được (job đã duyệt được vượt giới hạn); đoạn quảng cáo cuối đã cắt lúc viết kịch bản vẫn được cắt khi render bản duyệt.
+- **Ghi nguồn** (`SOURCE_CREDIT=1`, mặc định): nội dung đăng có dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI". `ALLOWED_SOURCES`: chỉ remake video của các kênh trong danh sách (kênh của bạn / đã được cấp phép).
 - **Nhiều link một lúc**: mỗi link một dòng (web) hoặc nhiều link trong một tin (Telegram), tối đa 10.
 - **Kiểm con số bằng máy**: số có đơn vị (2 quả, 200g, 15 phút, 35k) phải khớp lời gốc, như kiểm nguyên liệu (~270 nhóm). Vi phạm → AI viết lại.
 - **Thương hiệu** (Cài đặt): `BRAND_NAME` màn kết 2.2s cuối, logo PNG upload trong Cài đặt (góc phải trên), `BRAND_INTRO` tiêu đề 3s đầu. `SUB_STYLE`: karaoke | box | outline | plain.
 - **Caption 3 nền tảng** (TikTok / Facebook / YouTube Shorts) trong nội dung đăng.
-- Tốc độ: bóc lời, dò chữ, tách cảnh chạy song song; tách giọng AI chỉ cho video ≤45s và chạy song song với tạo giọng; cache nghe lời gốc (`stt_cache.json`).
-- CI: `.github/workflows/test.yml` chạy test mỗi lần push.
+- Tốc độ: bóc lời, dò chữ, tách cảnh chạy song song; tách giọng AI chỉ chạy các khúc có lời gốc (bật khi tổng thời gian có lời ≤ 45s và video ≤ 2 phút) và chạy song song với tạo giọng; cache nghe lời gốc (`stt_cache.json`). Kéo dài video (chọn thời lượng dài hơn gốc) làm ngay trong lần render cuối, không mã hoá trung gian. Số luồng FFmpeg/x264 theo số lõi container.
+- CI: `.github/workflows/test.yml` chạy ruff + pytest (Python 3.11 và 3.12) mỗi lần push.
 
 ## Video dài
 
@@ -102,7 +125,7 @@ Kết quả: bước nhảy rơi đúng beat nhạc mới. Telegram: chọn 🎵
 
 ## Bỏ hẳn giọng người nói gốc (chế độ nấu ăn)
 
-Tiếng xèo xèo được giữ, giọng người gốc bị **tách bỏ bằng AI**: model MDX-Net Kim_Vocal_2 (của dự án UVR) chạy ONNX trên CPU, không cần PyTorch. Model ~66MB tự tải lần đầu vào `models/`. Chạy trong tiến trình riêng (~1.3GB RAM đỉnh, trả lại ngay khi xong), mất ~30–60s mỗi video. Kiểm thử: giọng gốc giảm ~21 dB, máy nhận dạng không còn nghe ra chữ nào.
+Tiếng xèo xèo được giữ, giọng người gốc bị **tách bỏ bằng AI**: model MDX-Net Kim_Vocal_2 (của dự án UVR) chạy ONNX trên CPU, không cần PyTorch. Model ~66MB tự tải lần đầu vào `models/` và được kiểm SHA-256. Chỉ các khúc ~5.7 giây có lời gốc mới chạy qua model. Chạy trong tiến trình riêng (~1.3GB RAM đỉnh, trả lại ngay khi xong), mất ~30–60s mỗi video. Kiểm thử: giọng gốc giảm ~21 dB, máy nhận dạng không còn nghe ra chữ nào.
 Dự phòng khi RAM trống < 1.45GB hoặc lỗi: tắt hẳn tiếng nền đúng những lúc người gốc nói (theo mốc từng từ), giữ tiếng xèo ở khoảng nghỉ. Tắt tách AI bằng `VOICE_SEPARATION=0` trong Cài đặt.
 
 ## Hình đẹp hơn bản gốc
@@ -115,7 +138,7 @@ Font **Be Vietnam Pro ExtraBold** (OFL, thiết kế cho tiếng Việt, đóng 
 
 ## AI viết kịch bản
 
-Gemini (mặc định `gemini-3.5-flash-lite`, thử lại 1 lần khi 503 quá tải) → OpenRouter (`OPENROUTER_MODEL=auto`: tự liệt kê model free đang có, thử lần lượt 4 model lớn nhất, mỗi model timeout 45s để không treo) → kịch bản mẫu.
+Gemini (mặc định `gemini-3.5-flash-lite`, trả JSON theo schema cố định; quá tải 503 hoặc hết hạn mức 429 thì chờ theo `retryDelay` rồi thử lại tới 3 lần; video dài chạy tối đa 2 lô song song, lô lỗi được gọi lại riêng) → OpenRouter (`OPENROUTER_MODEL=auto`: tự liệt kê model free đang có, thử lần lượt 4 model lớn nhất, mỗi model timeout 45s để không treo) → kịch bản mẫu.
 
 ## Che phụ đề in cứng của video gốc
 
@@ -134,12 +157,14 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 ## Test không cần token
 
 ```
-python tests/test_render.py
+pip install pytest ruff
+ruff check .
+pytest -q            # ~95 test: đơn vị, bảo mật, hàng đợi, chạy trọn pipeline với provider giả, render thật
 ```
 
 ## Lưu ý
 
-- static-ffmpeg ghi binary vào site-packages; nếu Botkeep chặn ghi, thay bằng `imageio-ffmpeg`.
+- Có ffmpeg trên máy thì bot dùng luôn; static-ffmpeg chỉ tải khi thiếu (tải lỗi bot vẫn khởi động, báo lỗi rõ khi cần).
 - YouTube trên IP datacenter có thể đòi cookies; TikTok thường ổn. Cần thì thêm `cookiefile` vào ydl_opts trong core_video.py.
 - Video nguồn không có tiếng: chế độ Nấu ăn tự bỏ lớp tiếng nền, vẫn chạy bình thường.
 - Hàng đợi tối đa 5 video (chống tràn RAM/disk), 1 worker duy nhất.

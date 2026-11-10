@@ -14,7 +14,7 @@ def _fake_gemini(monkeypatch, reply_for):
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
     monkeypatch.setattr(prompt_engine, "genai", object())
 
-    async def fake(prompt, images=None):
+    async def fake(prompt, images=None, **kw):
         return reply_for(prompt)
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
 
@@ -112,3 +112,45 @@ def test_model_checksum(monkeypatch, tmp_path):
     monkeypatch.setattr(vocal_sep, "MODEL_SHA256", vocal_sep.hashlib.sha256(b"model bi tao").hexdigest())
     p = vocal_sep._model_path()
     assert open(p, "rb").read() == b"model bi tao"
+
+
+class _FakeGenai:
+    """Giả google.genai.Client: ghi lại config mỗi lần gọi; có thể giả lỗi theo thứ tự."""
+    def __init__(self, replies):
+        self.replies, self.configs = list(replies), []
+        outer = self
+
+        class _Models:
+            async def generate_content(self, model, contents, config):
+                outer.configs.append(config)
+                r = outer.replies.pop(0)
+                if isinstance(r, Exception):
+                    raise r
+                return type("R", (), {"text": r})()
+
+        class _Client:
+            def __init__(self, api_key):
+                self.aio = type("A", (), {"models": _Models()})()
+        self.Client = _Client
+
+
+def test_gemini_uses_schema(monkeypatch):
+    """Structured output: Gemini nhận schema pydantic, trả JSON đúng khuôn."""
+    fake = _FakeGenai(['{"segments": [{"i": 0, "text": "Ngắn gọn nè"}]}'])
+    monkeypatch.setattr(prompt_engine, "genai", fake)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+    out = asyncio.run(prompt_engine.shorten([(0, "Một câu dài thật là dài", 3)]))
+    assert out == {0: "Ngắn gọn nè"}
+    assert fake.configs[0]["response_schema"] is prompt_engine.ShortOut
+
+
+def test_gemini_schema_rejected_falls_back_to_json_mode(monkeypatch):
+    fake = _FakeGenai([RuntimeError("400 INVALID_ARGUMENT: response_schema not supported"),
+                       '{"script": "a", "title": "t", "caption": "c", "hashtags": "#x"}'])
+    monkeypatch.setattr(prompt_engine, "genai", fake)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+    pack = asyncio.run(prompt_engine.generate("Tiêu đề", "", "cook", "lời gốc", 30))
+    assert pack["script"] == "a" and not pack.get("fallback")
+    assert "response_schema" in fake.configs[0] and "response_schema" not in fake.configs[1]

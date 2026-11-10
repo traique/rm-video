@@ -152,3 +152,17 @@ def test_ffmpeg_threads(monkeypatch):
     args = core_video.encode_args(1280)
     assert args[:2] == ["-threads", "1"]
 
+
+
+def test_credit_line_in_post(monkeypatch):
+    import main
+    import prompt_engine
+    monkeypatch.setattr(config, "SOURCE_CREDIT", "1")
+    job = _mk(source_meta={"uploader": "Bếp Nhà Mình"})
+    credit = main.credit_line(job)
+    assert credit == "🎬 Nguồn: Bếp Nhà Mình · 🔊 Giọng đọc AI"
+    post = prompt_engine.platform_post("Gà rang", "Ngon lắm", "#a #b", credit)
+    assert post.count(credit) == 3                         # có ở cả TikTok, Facebook, YouTube
+    assert main.credit_line(_mk(mode="music", source_meta={})) == ""
+    monkeypatch.setattr(config, "SOURCE_CREDIT", "0")
+    assert main.credit_line(job) == ""

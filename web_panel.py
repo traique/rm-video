@@ -174,9 +174,11 @@ _SETTING_OPTIONS = {
     "SUB_STYLE": [["karaoke", "Karaoke (sáng dần theo giọng)"], ["box", "Hộp nền đen"], ["outline", "Chữ trắng viền đen"], ["plain", "Vàng gọn"]],
     "QUALITY": [["fast", "Nhanh (superfast, crf 23)"], ["balanced", "Cân bằng (mặc định)"], ["high", "Chuẩn TVC (chậm ~2x)"]],
     "OPENROUTER_MODEL": [["auto", "auto (tự dò model miễn phí)"]],
-    "VOICE_SEPARATION": [["1", "Bật (tách giọng AI, video ≤45s)"], ["0", "Tắt"]],
+    "VOICE_SEPARATION": [["1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"], ["0", "Tắt"]],
     "VOICE_HUMANIZE": _ONOFF, "BRAND_LOGO": _ONOFF, "BRAND_INTRO": _ONOFF,
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
+    "SUB_TIMING": [["spread", "Rải theo âm tiết (nhanh, mặc định)"], ["stt", "Nghe lại bằng STT CapCut (chậm hơn)"]],
+    "SOURCE_CREDIT": [["1", "Bật (ghi nguồn + Giọng đọc AI)"], ["0", "Tắt"]],
     "CUT_PROMO": [["1", "Bật (cắt quảng cáo sản phẩm của người gốc ở cuối)"], ["0", "Tắt"]],
 }
 

@@ -18,6 +18,32 @@ try:
 except Exception:
     genai = None
 
+# Schema đầu ra cho Gemini (structured output): API trả JSON ĐÚNG khuôn, không còn phải cứu JSON hỏng bằng regex.
+# loads_lenient vẫn giữ cho OpenRouter (model free không hỗ trợ schema).
+try:
+    from pydantic import BaseModel
+
+    class SegOut(BaseModel):
+        i: int
+        text: str
+
+    class TimedOut(BaseModel):
+        segments: list[SegOut]
+        title: str
+        caption: str
+        hashtags: str
+
+    class ShortOut(BaseModel):
+        segments: list[SegOut]
+
+    class ScriptOut(BaseModel):
+        script: str
+        title: str
+        caption: str
+        hashtags: str
+except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
+    TimedOut = ShortOut = ScriptOut = None
+
 _STYLE = {
     "mien_tay": """
 
@@ -105,14 +131,14 @@ def _build_prompt(title, desc, mode, transcript, duration):
     )
 
 
-def _contents(prompt: str, images=None):
+def _contents(prompt: str, images=None, label: str = "Ảnh đoạn"):
     if not images:
         return prompt
     from google.genai import types
     parts = [prompt]
     for k, img in enumerate(images):
         if img:
-            parts += [f"Ảnh đoạn {k}:", types.Part.from_bytes(data=img, mime_type="image/jpeg")]
+            parts += [f"{label} {k}:", types.Part.from_bytes(data=img, mime_type="image/jpeg")]
     return parts
 
 
@@ -131,24 +157,39 @@ def retry_delay(err: str, attempt: int) -> float | None:
 GEMINI_TRIES = 3
 
 
-async def _call_gemini(prompt: str, images=None) -> str:
+def _schema_rejected(err: str) -> bool:
+    return "400" in err or "INVALID_ARGUMENT" in err or "schema" in err.lower()
+
+
+async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ảnh đoạn", timeout: float = 60) -> str:
+    """Gọi Gemini: thử lại khi quá tải/hết hạn mức, tự đổi model khi model cũ bị ngừng (404).
+    schema (lớp pydantic): bật structured output; model không nhận schema thì lùi về JSON mode thường."""
     client = genai.Client(api_key=config.GEMINI_API_KEY)  # key đọc lúc gọi: đổi từ web là ăn ngay
-    # prompt đòi JSON -> bật chế độ JSON của Gemini: API tự bảo đảm JSON hợp lệ (log thật: "Expecting ','
-    # delimiter" làm mất lượt viết lại)
-    cfg = {"response_mime_type": "application/json"} if "JSON" in prompt else None
-    try:
+    contents = _contents(prompt, images, label)
+    json_only = {"response_mime_type": "application/json"} if "JSON" in prompt else None
+    cfg = {"response_mime_type": "application/json", "response_schema": schema} if schema else json_only
+
+    async def _gen(model: str, cfg):
         for attempt in range(GEMINI_TRIES):
             try:
-                resp = await asyncio.wait_for(
-                    client.aio.models.generate_content(model=config.GEMINI_MODEL, contents=_contents(prompt, images),
-                                                      config=cfg), 60)
-                break
+                return await asyncio.wait_for(
+                    client.aio.models.generate_content(model=model, contents=contents, config=cfg), timeout)
             except Exception as e1:
                 wait = retry_delay(str(e1), attempt)
                 if wait is None or attempt == GEMINI_TRIES - 1:
                     raise
                 logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", str(e1)[:80], wait)
                 await asyncio.sleep(wait)
+
+    try:
+        try:
+            resp = await _gen(config.GEMINI_MODEL, cfg)
+        except Exception as e:
+            if not (schema and _schema_rejected(str(e))):
+                raise
+            logging.warning("Gemini không nhận schema (%s), dùng JSON mode thường", str(e)[:80])
+            cfg = json_only or {"response_mime_type": "application/json"}
+            resp = await _gen(config.GEMINI_MODEL, cfg)
     except Exception as e:
         # Google ngừng model cũ và ghi tên model thay thế ngay trong lỗi 404
         m = re.search(r"use models/([\w.\-]+)", str(e))
@@ -158,7 +199,7 @@ async def _call_gemini(prompt: str, images=None) -> str:
         logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt",
                         config.GEMINI_MODEL, new_model)
         config.save_settings({"GEMINI_MODEL": new_model})
-        resp = await client.aio.models.generate_content(model=new_model, contents=_contents(prompt, images), config=cfg)
+        resp = await _gen(new_model, cfg)
     return resp.text or ""
 
 
@@ -259,7 +300,7 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
     prompt = _build_prompt(title, desc, mode, transcript, duration)
     providers = []
     if genai and config.GEMINI_API_KEY:
-        providers.append(("Gemini", _call_gemini))
+        providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=ScriptOut)))
     if config.OPENROUTER_API_KEY:
         providers.append(("OpenRouter", _call_openrouter))
     for k, (name, call) in enumerate(providers):
@@ -359,12 +400,12 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     if genai and config.GEMINI_API_KEY:
         async def _gem(pr, _imgs=images):
             try:
-                return await _call_gemini(pr, _imgs)
+                return await _call_gemini(pr, _imgs, schema=TimedOut)
             except Exception:
                 if not _imgs:
                     raise
                 logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
-                return await _call_gemini(pr.replace(IMAGE_HINT, ""))
+                return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=TimedOut)
         providers.append(("Gemini", _gem))
     if config.OPENROUTER_API_KEY:
         providers.append(("OpenRouter", lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, ""))))
@@ -477,13 +518,12 @@ async def shorten(items: list) -> dict:
     prompt = SHORTEN_PROMPT.format(items="\n".join(f"{i} | tối đa {mx} từ | {t}" for i, t, mx in items)) + style_block()
     providers = []
     if genai and config.GEMINI_API_KEY:
-        providers.append(_call_gemini)
+        providers.append(lambda pr: _call_gemini(pr, schema=ShortOut))
     if config.OPENROUTER_API_KEY:
         providers.append(_call_openrouter)
     for call in providers:
         try:
-            raw = await call(prompt)
-            d = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+            d = loads_lenient(await call(prompt))
             return {int(x["i"]): x["text"].strip() for x in d.get("segments", []) if x.get("text")}
         except Exception:
             logging.exception("shorten lỗi")
@@ -502,22 +542,14 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
     """Video không lời: AI (Gemini, nhìn ảnh) viết lời cho từng cảnh. Trả về pack như generate_timed hoặc None."""
     if not (genai and config.GEMINI_API_KEY) or not segs:
         return None
-    from google.genai import types
     lines = []
     for k, (st, en, _) in enumerate(segs):
         lines.append(f"Cảnh {k} | {st:.1f}s-{en:.1f}s | tối đa {max(3, int((en - st) * _rate() * 0.85))} từ")
     prompt = SCENE_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], scenes="\n".join(lines)) + style_block()
-    parts = [prompt]
-    for k, img in enumerate(images):
-        if img:
-            parts += [f"Ảnh cảnh {k}:", types.Part.from_bytes(data=img, mime_type="image/jpeg")]
     try:
-        client = genai.Client(api_key=config.GEMINI_API_KEY)
-        resp = await asyncio.wait_for(
-            client.aio.models.generate_content(model=config.GEMINI_MODEL, contents=parts), 90)
-        raw = resp.text or ""
-        d = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
+        raw = await _call_gemini(prompt, images, schema=TimedOut, label="Ảnh cảnh", timeout=90)
+        d = loads_lenient(raw)
         got = {int(x["i"]): (x.get("text") or "").strip() for x in d.get("segments", [])}
         out = []
         for k, (st, en, _) in enumerate(segs):
@@ -527,10 +559,12 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
         if not out:
             return None
         script = " ".join(x["text"] for x in out)
+        metrics.record("llm", "gemini")
         return {"segments": out, "script": script, "title": (d.get("title") or title or script[:80]).strip(),
                 "caption": (d.get("caption") or script).strip(),
                 "hashtags": (d.get("hashtags") or "#viral #fyp").strip()}
-    except Exception:
+    except Exception as e:
+        metrics.record("llm", "gemini", ok=False, detail=str(e))
         logging.exception("generate_scenes lỗi (model có thể không nhận ảnh)")
         return None
 
@@ -655,12 +689,15 @@ def same_sentence(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, w(a), w(b)).ratio()
 
 
-def platform_post(title: str, caption: str, hashtags: str) -> str:
-    """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag."""
+def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> str:
+    """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag. credit: dòng ghi nguồn + nhãn giọng AI
+    (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại)."""
     tags = hashtags.split()
     tiktok = (caption.strip() + " " + " ".join(tags[:6])).strip()
     if len(tiktok) > 150:                      # TikTok hiển thị tốt dưới ~150 ký tự
         tiktok = (caption.strip()[:110].rsplit(" ", 1)[0] + "… " + " ".join(tags[:4])).strip()
     facebook = f"{caption.strip()}\n\n{' '.join(tags[:3])}"
     youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:8])}"
+    if credit:
+        tiktok, facebook, youtube = f"{tiktok}\n{credit}", f"{facebook}\n\n{credit}", f"{youtube}\n\n{credit}"
     return (f"📌 {title.strip()}\n\n▶ TikTok:\n{tiktok}\n\n▶ Facebook:\n{facebook}\n\n▶ YouTube Shorts:\n{youtube}")
