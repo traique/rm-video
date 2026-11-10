@@ -1,0 +1,11 @@
+aiogram>=3.0.0
+yt-dlp
+edge-tts
+static-ffmpeg
+google-genai
+aiofiles
+numpy
+curl_cffi
+requests
+onnxruntime
+bgutil-ytdlp-pot-provider

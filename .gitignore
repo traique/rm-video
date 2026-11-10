@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+settings.json
+outputs/
+uploads_in/
+nohup.out
+.env
+models/
+jobs.db
+stt_cache.json
+speed.json
+assets/logo.png
+potoken/
+tools/
+work/
