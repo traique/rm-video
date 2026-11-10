@@ -318,6 +318,11 @@ def _rate() -> float:
     return WORDS_PER_SEC.get(config.TTS_PROVIDER, 2.8)
 
 
+def words_per_sec() -> float:
+    """Tốc độ đọc đo thực tế của provider giọng đang dùng (từ/giây)."""
+    return _rate()
+
+
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
                          images_for=None, extra: str = "", avoid: list | None = None) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].

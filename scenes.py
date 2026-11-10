@@ -63,6 +63,24 @@ async def analyze(path: str, tmpdir: str, dur: float, want_gray: bool):
         return await detect_cuts(path), (await textzone.detect_text_bands(path) if want_gray else [])
 
 
+async def analyze_cached(path: str, tmpdir: str, dur: float, want_gray: bool, src_hash: str,
+                         need_thumbs: bool = True):
+    """analyze() có cache theo hash nguồn. Lần render sau khi duyệt không cần ảnh cho AI nên dùng thẳng
+    kết quả cũ (điểm cảnh + dải chữ), không giải mã lại cả video."""
+    import cache
+    k = cache.key("scenes", src_hash, want_gray)
+    if not need_thumbs:
+        d = cache.get_json("scenes", k)
+        if d:
+            return d["cuts"], [tuple(b) for b in d["bands"]]
+    cuts, bands = await analyze(path, tmpdir, dur, want_gray)
+    try:
+        cache.put_json("scenes", k, {"cuts": cuts, "bands": [list(b) for b in bands]})
+    except OSError:
+        pass
+    return cuts, bands
+
+
 def _cuts_sync(path: str, threshold: float = 0.3, min_gap: float = 0.8) -> list[float]:
     err = subprocess.run(
         ["ffmpeg", "-hide_banner", "-i", path, "-an", "-vf",

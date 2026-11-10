@@ -3,6 +3,7 @@ Không cần PyTorch: STFT/ISTFT viết bằng numpy. Model ~66MB tự tải l�
 Dùng cho chế độ nấu ăn: giữ tiếng xèo xèo, bỏ hẳn giọng người nói gốc."""
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import subprocess
@@ -98,8 +99,18 @@ def _istft(spec: np.ndarray, length: int) -> np.ndarray:
     return out[:, pad:pad + length]
 
 
-def _separate(mix: np.ndarray) -> np.ndarray:
-    """mix: (2, n) float32 -> vocals (2, n)."""
+def chunks_needed(n: int, gen: int, windows, sr: int = SR) -> list:
+    """Chỉ số các khúc (mỗi khúc `gen` mẫu) có chạm vào khoảng người gốc nói. windows=None: mọi khúc."""
+    starts = list(range(0, n + (gen - n % gen), gen))
+    if windows is None:
+        return [True] * len(starts)
+    return [any(a * sr < i + gen and b * sr > i for a, b in windows) for i in starts]
+
+
+def _separate(mix: np.ndarray, windows=None) -> np.ndarray:
+    """mix: (2, n) float32 -> vocals (2, n). windows=[(giây đầu, giây cuối)] lúc người gốc nói: các khúc ~5.7s
+    không chạm khoảng nào thì bỏ qua (giọng = 0), vì chỗ đó không có lời để tách — nhanh hơn hẳn với video
+    nấu ăn nhiều đoạn chỉ có tiếng xèo."""
     sess = _get_session()
     chunk = HOP * (DIM_T - 1)
     trim = N_FFT // 2
@@ -109,10 +120,15 @@ def _separate(mix: np.ndarray) -> np.ndarray:
     mp = np.concatenate([np.zeros((2, trim), np.float32), mix, np.zeros((2, pad + trim), np.float32)], 1)
     outs = []
     starts = list(range(0, n + pad, gen))
+    need = chunks_needed(n, gen, windows)
+    todo = sum(need)
     budget = float(os.environ.get("SEP_BUDGET", "180"))
     import time
-    t0 = time.time()
+    t0, done = time.time(), 0
     for idx, i in enumerate(starts):
+        if not need[idx]:
+            outs.append(np.zeros((2, gen), np.float32))
+            continue
         tc = time.time()
         w = mp[:, i:i + chunk]
         sp = _stft(w)[:, :DIM_F]                        # (2, 3072, 256)
@@ -123,10 +139,11 @@ def _separate(mix: np.ndarray) -> np.ndarray:
         full[1, :DIM_F] = y[2] + 1j * y[3]
         outs.append(_istft(full, chunk)[:, trim:-trim])
         dt = time.time() - tc
+        done += 1
         print(f"khúc {idx + 1}/{len(starts)}: {dt:.1f}s", file=sys.stderr, flush=True)
-        if idx == 0 and dt * len(starts) > budget:   # đo khúc đầu: quá chậm thì dừng ngay, không chờ vô ích
-            raise RuntimeError(f"máy quá chậm: {dt:.0f}s/khúc x {len(starts)} khúc > ngân sách {budget:.0f}s")
-    print(f"xong {len(starts)} khúc trong {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
+        if done == 1 and dt * todo > budget:     # đo khúc đầu: quá chậm thì dừng ngay, không chờ vô ích
+            raise RuntimeError(f"máy quá chậm: {dt:.0f}s/khúc x {todo} khúc > ngân sách {budget:.0f}s")
+    print(f"xong {todo}/{len(starts)} khúc có lời trong {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
     return np.concatenate(outs, 1)[:, :n]
 
 
@@ -142,11 +159,11 @@ def _write_wav(path: str, x: np.ndarray):
                    input=pcm, check=True)
 
 
-def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0):
+def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None):
     mix = _decode(src, max_sec)
     if mix.shape[1] < SR:
         raise RuntimeError("audio quá ngắn")
-    vocals = _separate(mix) * 1.035                    # hệ số bù chuẩn của Kim_Vocal_2
+    vocals = _separate(mix, windows) * 1.035           # hệ số bù chuẩn của Kim_Vocal_2
     _write_wav(ambient_wav, mix - vocals)
 
 
@@ -172,7 +189,7 @@ def free_mb() -> int:
     return 99999
 
 
-async def remove_voice(src: str, ambient_wav: str, timeout: float = 0) -> bool:
+async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None) -> bool:
     """Ghi tiếng nền ĐÃ BỎ GIỌNG NGƯỜI ra ambient_wav. Chạy trong TIẾN TRÌNH RIÊNG để ~1.3GB RAM
     của model được trả lại ngay khi xong. False nếu thiếu RAM/lỗi -> caller dùng cách dự phòng."""
     free = free_mb()
@@ -182,7 +199,7 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0) -> bool:
     try:
         await asyncio.to_thread(_model_path)            # tải model (lần đầu) ngoài tiến trình con
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, os.path.abspath(__file__), src, ambient_wav,
+            sys.executable, os.path.abspath(__file__), src, ambient_wav, json.dumps(windows),
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
         import core_video
         core_video.RUNNING.add(proc)
@@ -209,4 +226,4 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0) -> bool:
 
 
 if __name__ == "__main__":
-    _split_sync(sys.argv[1], sys.argv[2])
+    _split_sync(sys.argv[1], sys.argv[2], windows=json.loads(sys.argv[3]) if len(sys.argv) > 3 else None)

@@ -16,6 +16,7 @@ import healthcheck
 import metrics
 import ytdlp_update
 import beat
+import cache
 import scenes
 import ingredients
 import vocal_sep
@@ -310,7 +311,7 @@ def disk_report() -> str:
     """Ổ bot + /tmp còn trống bao nhiêu, thư mục nào chiếm chỗ (in lúc khởi động và lệnh status)."""
     tmp = tempfile.gettempdir()
     parts = [f"ổ bot trống {_free_mb(BASE_DIR)}MB", f"{tmp} trống {_free_mb(tmp)}MB"]
-    for name in ("outputs", "uploads_in", "work", "models", "potoken", "tools"):
+    for name in ("outputs", "uploads_in", "work", "cache", "models", "potoken", "tools"):
         p = os.path.join(BASE_DIR, name)
         if os.path.exists(p):
             parts.append(f"{name} {_size_mb(p)}MB")
@@ -323,6 +324,8 @@ def make_room(need_mb: int, keep: set = frozenset()) -> int:
     for f in sorted((os.path.join(config.UPLOAD_DIR, x) for x in os.listdir(config.UPLOAD_DIR)), key=os.path.getmtime):
         if f not in busy and time.time() - os.path.getmtime(f) > 3600:
             os.remove(f)
+    if _free_mb(BASE_DIR) < need_mb:
+        cache.prune(max_mb=0)              # cache tạo lại được, video kết quả thì không: bỏ cache trước
     for f in sorted((os.path.join(OUT_DIR, x) for x in os.listdir(OUT_DIR)), key=os.path.getmtime):
         if _free_mb(BASE_DIR) >= need_mb:
             break
@@ -406,13 +409,13 @@ async def process_split(job: Job, tmp: str):
     """Chế độ ✂️: cắt video dài (≤10 phút) thành các phần ~60/90s tại chỗ ngưng nói/chuyển cảnh,
     remake từng phần, xong phần nào giao phần đó."""
     part_len = 90 if job.long_mode == "split90" else 60
-    if job.tg_file_id:
+    if job.local:
+        src = job.local                       # dùng file tải lên tại chỗ (không chép), worker xoá khi job xong
+        title = job.title_hint
+    elif job.tg_file_id:
         job.step = "Tải file từ Telegram"
         src = os.path.join(tmp, "source.mp4")
         await bot.download(job.tg_file_id, destination=src)
-        title = job.title_hint
-    elif job.local:
-        src = job.local                       # dùng file tải lên tại chỗ (không chép), worker xoá khi job xong
         title = job.title_hint
     else:
         job.step = "Tải video dài"
@@ -468,6 +471,10 @@ async def process_split(job: Job, tmp: str):
         raise RuntimeError("Không phần nào thành công. " + "; ".join(fails))
 
 
+SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
+SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
+
+
 def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
     """Mốc cắt đoạn quảng cáo cuối của người gốc. Bản đã duyệt dùng lại ĐÚNG mốc đã quyết lúc viết kịch bản
     (kịch bản duyệt không có đoạn đó; trước đây bản duyệt render lại nguyên đoạn quảng cáo — lỗi N1)."""
@@ -479,16 +486,16 @@ def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
 
 
 async def process(job: Job, tmp: str):
-    if job.tg_file_id:
+    if job.local:
+        # dùng file tại chỗ (file tải lên, hoặc nguồn đã giữ lại lúc chờ duyệt): không chép/chuyển; bot chết
+        # giữa chừng thì file còn nguyên để chạy lại; worker xoá file khi job xong (trừ job chờ duyệt)
+        job.step = "Dùng file nguồn đã có" if job.approved else "Nhận file tải lên"
+        inp = job.local
+        title, desc = job.title_hint, ""
+    elif job.tg_file_id:
         job.step = "Tải file từ Telegram"
         inp = os.path.join(tmp, "input.mp4")
         await bot.download(job.tg_file_id, destination=inp)
-        title, desc = job.title_hint, ""
-    elif job.local:
-        # dùng file tải lên tại chỗ: không chép/chuyển (trước đây chép tới 300MB ngay trong vòng lặp sự kiện),
-        # bot chết giữa chừng thì file còn nguyên để chạy lại; worker xoá file khi job xong (trừ job chờ duyệt)
-        job.step = "Nhận file tải lên"
-        inp = job.local
         title, desc = job.title_hint, ""
     elif job.mode == "download" and job.quality:
         lbl = "MP3" if job.quality == "mp3" else (job.quality + "p" if job.quality.isdigit() else "tốt nhất")
@@ -550,44 +557,66 @@ async def process(job: Job, tmp: str):
         return out
 
     src_dur = await core_video.probe_duration(inp)
+    stretch = 1.0
     if job.duration and job.duration > src_dur + 1:
-        f = min(job.duration / src_dur, 1.4)
-        job.step = f"Kéo dài video gốc {src_dur:.0f}s -> {src_dur * f:.0f}s (chậm {1 / f:.2f}x)"
-        slow = os.path.join(tmp, "input_slow.mp4")
-        await core_video.stretch(inp, slow, f)
-        inp = slow
-        if f < job.duration / src_dur:
-            job.error = (f"ℹ️ Video gốc chỉ {src_dur:.0f}s; kéo chậm tối đa 1.4x được {src_dur * f:.0f}s "
+        # làm chậm NGAY TRONG lần render cuối thay vì mã hoá riêng cả video một lần (lỗi #7: thêm một thế hệ nén
+        # và cả một lượt mã hoá); bóc lời, dò cảnh, tách giọng chạy trên bản gốc rồi nhân mốc thời gian lên
+        stretch = min(job.duration / src_dur, 1.4)
+        job.step = f"Kéo dài video gốc {src_dur:.0f}s -> {src_dur * stretch:.0f}s (chậm {1 / stretch:.2f}x)"
+        if stretch < job.duration / src_dur:
+            job.error = (f"ℹ️ Video gốc chỉ {src_dur:.0f}s; kéo chậm tối đa 1.4x được {src_dur * stretch:.0f}s "
                          f"(chậm hơn sẽ lộ). ")
 
-    vid_dur = await core_video.probe_duration(inp)
+    vid_dur = src_dur * stretch
     limit = config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION
     out_dur = min(vid_dur, job.duration or vid_dur, limit)
     job.out_dur = out_dur
     render_dur = job.duration or (int(limit) if vid_dur > limit + 0.5 else 0)
     is_long = out_dur > 100                             # video dài: 720p
-    sep_ok = config.VOICE_SEPARATION != "0" and out_dur <= 45   # tách giọng AI chỉ khi ngắn (chậm trên Botkeep)
     if vid_dur > limit + 0.5 and not job.duration:
         job.error = (job.error or "") + f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {limit}s đầu (chọn chế độ video dài để làm hết). "
     target = job.duration or int(vid_dur)
 
     job.step = "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)"
+    src_hash = await asyncio.to_thread(cache.file_hash, inp)
     audio_mp3 = os.path.join(tmp, "audio.mp3")
     await core_video.extract_audio(inp, audio_mp3)
-    (text, segs), (cuts, bands) = await asyncio.gather(
+    (text, raw_segs), (cuts, bands) = await asyncio.gather(
         transcribe_segments(audio_mp3),                                  # ("", []) nếu không có nguồn STT
-        scenes.analyze(inp, tmp, vid_dur, bool(job.subs and job.cover)))  # 1 lượt giải mã: cảnh + ảnh + dải chữ
+        scenes.analyze_cached(inp, tmp, src_dur, bool(job.subs and job.cover), src_hash,
+                              need_thumbs=not job.approved))             # 1 lượt giải mã: cảnh + ảnh + dải chữ
+    segs = [(round(a * stretch, 2), round(b * stretch, 2), t) for a, b, t in raw_segs]   # trục thời gian đã làm chậm
+    cuts = [round(c * stretch, 2) for c in cuts]
     speech = [(a, b) for a, b, _ in segs]               # lúc người gốc đang nói
+    sep_windows = core_video.speech_windows([(a, b) for a, b, _ in raw_segs], src_dur) if raw_segs else None
+    speech_secs = sum(b - a for a, b in sep_windows) if sep_windows else src_dur
+    # tách giọng AI chỉ chạy trên những đoạn người gốc nói: giới hạn theo SỐ GIÂY CÓ LỜI, không theo độ dài video
+    sep_ok = (config.VOICE_SEPARATION != "0" and job.mode == "cook" and out_dur <= SEP_MAX_VIDEO
+              and speech_secs <= SEP_MAX_SPEECH)
+
+    def keyframes_for(sg):                              # ảnh cho AI: đổi mốc về trục thời gian của video gốc
+        return scenes.keyframes(inp, [(a / stretch, b / stretch, t) for a, b, t in sg])
 
     async def _ambient():
-        """Chế độ nấu ăn: tiếng nền KHÔNG còn giọng người gốc. Ưu tiên tách giọng AI (video ≤45s);
+        """Chế độ nấu ăn: tiếng nền KHÔNG còn giọng người gốc. Ưu tiên tách giọng AI (chỉ các đoạn có lời);
         không được -> tắt tiếng nền đúng lúc người gốc nói; không có mốc -> bỏ tiếng nền."""
         if job.mode != "cook":
             return None, None
         if sep_ok:
+            k = cache.key("ambient", src_hash, sep_windows)
+            hit = cache.get("ambient", k, ".wav")
+            if hit:
+                return hit, None
             p = os.path.join(tmp, "ambient.wav")
-            if await vocal_sep.remove_voice(inp, p):
+            if await vocal_sep.remove_voice(inp, p, windows=sep_windows):
+                metrics.record("sep", "onnx")
+                try:
+                    cache.put("ambient", k, p, ".wav")
+                except OSError:
+                    pass
                 return p, None
+            metrics.record("sep", "onnx", ok=False)
+            metrics.record("sep", "gate", fallback=True)
         return None, (speech or [(0.0, 99999.0)])
 
     pos_y = None
@@ -616,12 +645,11 @@ async def process(job: Job, tmp: str):
         job.step = f"Viết lại {len(segs)} đoạn theo mốc lời + {len(cuts)} điểm chuyển cảnh (AI)"
         timed = await prompt_engine.generate_timed_any(
             title, desc, job.mode, segs, out_dur,
-            images_for=lambda sg: scenes.keyframes(inp, sg))   # AI nhìn ảnh từng đoạn để lời khớp hình
+            images_for=keyframes_for)                   # AI nhìn ảnh từng đoạn để lời khớp hình
     elif len(cuts) >= 2:                                # video không lời: AI nhìn ảnh từng cảnh
         sc = scenes.scene_segments(cuts, out_dur)
         job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
-        timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc,
-                                                    await scenes.keyframes(inp, sc), out_dur)
+        timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc, await keyframes_for(sc), out_dur)
     if timed:
         job.script = timed["script"]
         if not job.approved:
@@ -629,39 +657,67 @@ async def process(job: Job, tmp: str):
         if (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                              "text": s["text"], "orig": s.get("orig", "")} for s in timed["segments"]]
+            if not job.local:        # nguồn từ link/Telegram: giữ lại để render sau khi duyệt KHÔNG phải tải lại (#8)
+                keep = os.path.join(config.UPLOAD_DIR, f"review_{job.id}{os.path.splitext(inp)[1] or '.mp4'}")
+                await asyncio.to_thread(shutil.move, inp, keep)
+                job.local = keep
             job.status, job.step = "review", "Chờ bạn duyệt/sửa kịch bản rồi bấm Render"
             return "REVIEW"
         sem = asyncio.Semaphore(3)
 
         async def _one(seg):
-            p = os.path.join(tmp, f"clip_{seg['i']}_{len(seg['text'])}.mp3")
+            p = os.path.join(tmp, f"clip_{seg['i']}_{cache.key('clip', seg['text'])[:10]}.mp3")
             async with sem:
-                w = await core_video.synth_clip(seg["text"], job.voice, p)
+                w = await core_video.synth_clip_cached(seg["text"], job.voice, p)   # đoạn không đổi: lấy từ cache
             return {"path": p, "words": w}
 
-        amb_task = asyncio.create_task(_ambient())      # tách giọng (CPU) chạy song song với tạo giọng (mạng)
-        job.step = f"Đọc giọng {len(timed['segments'])} đoạn song song" + (" + tách giọng gốc" if sep_ok else "")
+        async def _durs(cl):
+            return list(await asyncio.gather(*[core_video.probe_duration(c["path"]) for c in cl]))
+
         segs_t = timed["segments"]
+
+        async def _shorten(idx: list, durs: list) -> list:
+            """AI rút gọn các đoạn idx (nguyên câu, không mất nguyên liệu/con số). Trả chỉ số đoạn đã đổi."""
+            items = []
+            for i in idx:
+                room = (segs_t[i + 1]["start"] if i + 1 < len(segs_t) else out_dur) - segs_t[i]["start"]
+                n = len(segs_t[i]["text"].split())
+                items.append((i, segs_t[i]["text"], max(3, int(n * room / max(durs[i], 0.1) * 0.95))))
+            changed = []
+            for i, text in (await prompt_engine.shorten(items)).items():
+                if 0 <= i < len(segs_t) and len(text.split()) < len(segs_t[i]["text"].split()) \
+                        and ingredients.find(text) >= ingredients.find(segs_t[i]["text"]) \
+                        and not ingredients.check_numbers(segs_t[i]["text"], text)[0]:   # không được mất nguyên liệu/số
+                    segs_t[i]["text"] = text
+                    changed.append(i)
+            if changed:
+                job.script = " ".join(s["text"] for s in segs_t)
+            return changed
+
+        # ước lượng độ dài TRƯỚC khi đọc (kiểu VideoLingo): đoạn chắc chắn tràn thì rút gọn luôn, đỡ một lượt
+        # gọi TTS không chính thức rồi lại phải đọc lại. Ước lượng thận trọng (x0.85) để không rút gọn nhầm.
+        if not job.approved:
+            est = [len(sg["text"].split()) / prompt_engine.words_per_sec() * 0.85 for sg in segs_t]
+            _, sure_long = core_video.plan_voice(est, segs_t, out_dur)
+            if sure_long:
+                job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
+                await _shorten(sure_long, est)
+
+        amb_task = asyncio.create_task(_ambient())      # tách giọng (CPU) chạy song song với tạo giọng (mạng)
+        job.step = f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep_ok else "")
         clips = list(await asyncio.gather(*[_one(s) for s in segs_t]))
-        durs = [await core_video.probe_duration(c["path"]) for c in clips]
+        durs = await _durs(clips)
         plan, too_long = core_video.plan_voice(durs, segs_t, out_dur)
         if too_long:                                     # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
             job.step = f"Rút gọn {len(too_long)} đoạn quá dài"
-            items = []
-            for i in too_long:
-                room = (segs_t[i + 1]["start"] if i + 1 < len(segs_t) else out_dur) - segs_t[i]["start"]
-                n = len(segs_t[i]["text"].split())
-                items.append((i, segs_t[i]["text"], max(3, int(n * room / durs[i] * 0.95))))
-            short = await prompt_engine.shorten(items)
-            for i, text in short.items():
-                if 0 <= i < len(segs_t) and len(text.split()) < len(segs_t[i]["text"].split()) \
-                        and ingredients.find(text) >= ingredients.find(segs_t[i]["text"]) \
-                        and not ingredients.check_numbers(segs_t[i]["text"], text)[0]:   # rút gọn không được mất nguyên liệu/số
-                    segs_t[i]["text"] = text
-                    clips[i] = await _one(segs_t[i])
-                    durs[i] = await core_video.probe_duration(clips[i]["path"])
+            changed = await _shorten(too_long, durs)
+            if changed:
+                redo = await asyncio.gather(*[_one(segs_t[i]) for i in changed])
+                for i, c in zip(changed, redo):
+                    clips[i] = c
+                for i, d in zip(changed, await _durs(redo)):
+                    durs[i] = d
             plan, too_long = core_video.plan_voice(durs, segs_t, out_dur)
-            job.script = " ".join(s["text"] for s in segs_t)
         voice_track = os.path.join(tmp, "voice.wav")
         await core_video.compose_voice(clips, plan, voice_track, out_dur)
         got_subs = False
@@ -676,12 +732,13 @@ async def process(job: Job, tmp: str):
         out = os.path.join(tmp, "output.mp4")
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
-                                title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp)
+                                title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,
+                                stretch=stretch)
         if job.mode == "cook":
             job.error = (job.error or "") + (
                 "ℹ️ Đã tách bỏ giọng gốc bằng AI. " if amb_wav else
                 "ℹ️ Tách giọng AI đang tắt (VOICE_SEPARATION=0): tắt tiếng nền lúc người gốc nói. " if config.VOICE_SEPARATION == "0" else
-                "ℹ️ Video >45s: bỏ tách giọng AI cho nhanh, tắt tiếng nền lúc người gốc nói. " if not sep_ok else
+                f"ℹ️ Người gốc nói {speech_secs:.0f}s (>{SEP_MAX_SPEECH}s): bỏ tách giọng AI cho nhanh, tắt tiếng nền lúc người gốc nói. " if not sep_ok else
                 "ℹ️ Tách giọng AI không chạy được (máy chậm/thiếu RAM): tắt tiếng nền lúc người gốc nói. ")
         fast = sum(1 for p in plan if p["factor"] > 1.12)
         drift = max(abs(p["start"] - s["start"]) for p, s in zip(plan, segs_t))
@@ -722,7 +779,8 @@ async def process(job: Job, tmp: str):
     amb_wav, gate = await _ambient()
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
-                            title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp)
+                            title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,
+                            stretch=stretch)
     if bands:
         job.error = f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."
     return out
@@ -870,7 +928,7 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
               long_mode=src.long_mode, local=src.local if src.local and os.path.exists(src.local) else "",
               tg_file_id=src.tg_file_id, title_hint=src.title_hint, music_url=src.music_url,
               music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
-              approved=segs, cut_at=src.cut_at)
+              approved=segs, cut_at=src.cut_at, source_meta=src.source_meta)
     job.post = src.post
     job.script = " ".join(s["text"] for s in segs)
     # put() TRƯỚC, đổi trạng thái job cũ SAU: lỗi gì thì kịch bản vẫn còn ở job cũ để duyệt lại (lỗi #4).
@@ -1021,6 +1079,7 @@ async def maintenance():
                 if job.source == "tg":
                     await notify(job.chat_id, f"⌛ Kịch bản job #{job.id} đã quá 24 giờ chưa duyệt nên hết hạn.")
             metrics.prune()
+            await asyncio.to_thread(cache.prune)
             await monitor.tick()
         except Exception:
             logging.exception("Bảo trì định kỳ lỗi")

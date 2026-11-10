@@ -12,6 +12,7 @@ import yt_dlp
 import edge_tts
 
 import align
+import cache
 import config
 import metrics
 import subs as subs_mod
@@ -349,16 +350,6 @@ async def silences(path: str, noise_db: int = -35, min_len: float = 0.35) -> lis
     return list(zip(st, en))
 
 
-async def stretch(src: str, dst: str, factor: float):
-    """Làm chậm cả hình lẫn tiếng theo hệ số (1.4 = dài thêm 40%), để đạt thời lượng đã chọn."""
-    has_a = await has_audio(src)
-    args = ["-y", "-i", src, "-vf", f"setpts=PTS*{factor:.4f}"]
-    if has_a:
-        args += ["-af", f"atempo={1 / factor:.4f}"]
-    args += ["-c:v", "libx264", "-preset", "superfast", "-crf", "18", "-c:a", "aac", "-b:a", "160k", dst]
-    await _run_ffmpeg(*args)
-
-
 async def remux(src: str, dst: str):
     """Chế độ chỉ tải về: không encode lại, chỉ đóng gói mp4 + faststart để xem/gửi được ngay."""
     await _run_ffmpeg("-y", "-i", src, "-c", "copy", "-movflags", "+faststart", dst)
@@ -449,6 +440,41 @@ async def synth_clip(text: str, voice: str, path: str):
             metrics.record("tts", "capcut", ok=False, detail=str(e))
             logging.warning("CapCut lỗi đoạn (%s), dùng edge-tts", str(e)[:100])
     return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut)
+
+
+async def synth_clip_cached(text: str, voice: str, path: str):
+    """synth_clip có cache: cùng chữ + giọng + tốc độ + cao độ thì dùng lại file cũ (render lại sau khi duyệt
+    chỉ đọc lại các đoạn đã sửa). Chỉ cache khi provider CHÍNH đọc được: đoạn rơi về edge-tts vì CapCut lỗi
+    sẽ được đọc lại bằng CapCut ở lần sau, không bị kẹt giọng dự phòng."""
+    primary = "capcut" if (config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES) else "edge"
+    tune = (config.TTS_RATE, config.TTS_PITCH) if primary == "edge" else ()
+    k = cache.key("tts", primary, voice, tune, text)
+    hit, meta = cache.get("tts", k, ".mp3"), cache.get_json("tts", k)
+    if hit and meta is not None:
+        await asyncio.to_thread(shutil.copyfile, hit, path)
+        return meta.get("words")
+    words = await synth_clip(text, voice, path)
+    used = "capcut" if words is None else "edge"
+    if used == primary and os.path.exists(path) and os.path.getsize(path) > 0:
+        try:
+            cache.put("tts", k, path, ".mp3")
+            cache.put_json("tts", k, {"words": words})
+        except OSError:
+            pass
+    return words
+
+
+def speech_windows(speech: list, total: float, pad: float = 0.3, merge: float = 0.8) -> list:
+    """Khoảng người gốc nói (đệm `pad`, gộp các khoảng cách nhau < `merge`), cắt trong [0, total]."""
+    out = []
+    for a, b in sorted((max(0.0, a - pad), min(total, b + pad)) for a, b in speech):
+        if b <= a:
+            continue
+        if out and a - out[-1][1] < merge:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return [(round(a, 2), round(b, 2)) for a, b in out]
 
 
 def plan_voice(durs: list, segs: list, total_dur: float):
@@ -663,7 +689,7 @@ def out_fps(src_fps: float) -> float:
 def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
-                 fps: float = 30.0, src_w: int = 0, src_h: int = 0) -> str:
+                 fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0) -> str:
     """Hình đẹp hơn bản gốc: khử nhiễu nén (hqdn3d) -> scale lanczos -> tương phản/sáng nhẹ ->
     vibrance (tăng màu nhạt, không làm cháy màu da) -> ấm nhẹ cho món ăn -> làm nét thích ứng (cas)."""
     cook = mode == "cook"
@@ -678,7 +704,11 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
     upscale = bool(src_w and src_h) and max(W / (src_w * 0.96), H / (src_h * 0.96)) > 1.05
-    v = f"[0:v]fps={fps:g},crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look)
+    # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
+    slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
+    if slow:
+        ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
+    v = f"[0:v]{slow}fps={fps:g},crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look)
     if config.QUALITY == "high":
         v += "cas=strength=0.5"              # làm nét thích ứng: đẹp nhất, tốn ~2.7x unsharp
     else:
@@ -824,12 +854,14 @@ def _brand_filter(W: int, H: int, out_dur: float, title_file: str | None, outro_
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: int = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
-                 title: str = "", tmp: str | None = None):
+                 title: str = "", tmp: str | None = None, stretch: float = 1.0):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
-    [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc)."""
-    """duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
+    [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
+    duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
+    stretch: làm chậm hình + tiếng nền (1.4 = dài thêm 40%) NGAY TRONG lần mã hoá này; mọi mốc thời gian
+    (phụ đề, cổng tiếng nền, giọng) là theo trục thời gian ĐÃ làm chậm.
     Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền)."""
-    vid_dur = await probe_duration(input_mp4)
+    vid_dur = await probe_duration(input_mp4) * stretch
     out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
     out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
     ambient = await has_audio(input_mp4)
@@ -852,7 +884,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     logo_idx = (3 if ambient_wav else 2) if use_logo else None
     fc = build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
-                      fps=fps, src_w=src_w, src_h=src_h)
+                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch)
     brand = _brand_filter(W, H, out_dur, title_file, outro_file, logo_idx)
     fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
