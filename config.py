@@ -32,30 +32,34 @@ EDITABLE = {
     "GEMINI_MODEL": "gemini-3.5-flash-lite",
     "OPENROUTER_API_KEY": "",
     "OPENROUTER_MODEL": "auto",          # auto = tự dò model free đang hoạt động
-    "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
     "GROQ_API_KEY": "",
     "GROQ_WHISPER_MODEL": "whisper-large-v3-turbo",
     "YTDLP_COOKIES": "",
+    "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
     "TTS_RATE": "+8%",
     "TTS_PITCH": "+0Hz",
     "TTS_PROVIDER": "capcut",          # capcut | edge
     "CAPCUT_VOICE_FEMALE": "multi_female_yangguangnv_uranus_bigtts",
     "CAPCUT_VOICE_MALE": "multi_male_felipe_uranus_bigtts",
-    "VOICE_SEPARATION": "1",
-    "PUBLIC_URL": "",
-    "BRAND_NAME": "",                 # tên kênh cho màn kết (để trống = không có màn kết)
-    "BRAND_LOGO": "1",                # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
-    "BRAND_INTRO": "1",               # 1 = hiện tiêu đề video 3 giây đầu
-    "SUB_STYLE": "karaoke",           # karaoke | box | outline | plain
-    "REVIEW_SCRIPT": "0",
-    "CUT_PROMO": "1",                 # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
-    "QUALITY": "balanced",
-    "POT_SERVER": "",
-    "YTDLP_PROXY": "",                # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://... (vượt chặn IP YouTube)                 # URL server bgutil POT chạy ở máy khác (http://ip:4416); để trống nếu dùng script            # fast (nhanh nhất) | balanced (mặc định) | high (chuẩn TVC, chậm ~2x)             # 1 = luôn dừng cho duyệt kịch bản trước khi render                 # link web Botkeep (vd https://okx.bot-keep.xyz) để Telegram gửi link tải file lớn
-    "SPEECH_STYLE": "mien_tay",       # mien_tay | mien_nam | pho_thong: giọng văn lời thoại
-    "VOICE_HUMANIZE": "1",            # 1 = xử lý giọng cho bớt chất AI (ấm, bớt chói, có không gian phòng)          # 1 = tách giọng gốc bằng AI (chế độ nấu ăn); 0 = chỉ tắt tiếng nền lúc người gốc nói
+    "VOICE_SEPARATION": "1",           # 1 = tách giọng gốc bằng AI (chế độ nấu ăn); 0 = chỉ tắt tiếng nền lúc người gốc nói
+    "VOICE_HUMANIZE": "1",             # 1 = xử lý giọng cho bớt chất AI (ấm, bớt chói, có không gian phòng)
+    "SPEECH_STYLE": "mien_tay",        # mien_tay | mien_nam | pho_thong: giọng văn lời thoại
+    "PUBLIC_URL": "",                  # link web Botkeep (vd https://okx.bot-keep.xyz) để Telegram gửi link tải file lớn
+    "BRAND_NAME": "",                  # tên kênh cho màn kết (để trống = không có màn kết)
+    "BRAND_LOGO": "1",                 # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
+    "BRAND_INTRO": "1",                # 1 = hiện tiêu đề video 3 giây đầu
+    "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
+    "SUB_TIMING": "spread",            # spread = rải mốc chữ theo âm tiết trong từng đoạn giọng; stt = nghe lại bằng STT CapCut
+    "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
+    "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
+    "QUALITY": "balanced",             # fast (nhanh nhất) | balanced (mặc định) | high (chuẩn TVC, chậm ~2x)
+    "SOURCE_CREDIT": "1",              # 1 = thêm dòng ghi nguồn + "Giọng đọc AI" vào nội dung đăng
+    "ALLOWED_SOURCES": "",             # kênh nguồn được phép (tên kênh/uploader, cách nhau dấu phẩy); trống = mọi kênh
+    "ALLOWED_USERS": "",               # chat_id/user_id Telegram được dùng bot, cách nhau dấu phẩy
+    "ADMIN_CHAT_ID": "",               # nơi nhận cảnh báo (dịch vụ ngoài hỏng); trống = người đầu tiên trong ALLOWED_USERS
 }
 SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES"}
+_ID_LIST = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
 # ===== Chỉ đặt qua biến môi trường =====
@@ -64,6 +68,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 # Botkeep (Pterodactyl) cấp cổng qua SERVER_PORT; nền tảng khác thường dùng PORT
 PORT = int(os.environ.get("PORT") or os.environ.get("SERVER_PORT") or "8080")
 WEB_PASSWORD = os.environ.get("WEB_PASSWORD", "")
+# Hai địa chỉ dưới đây KHÔNG cho sửa từ web: lộ mật khẩu web sẽ không kéo theo lộ key (đổi base URL để hứng key)
+OPENROUTER_BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+POT_SERVER = os.environ.get("POT_SERVER", "")   # URL server bgutil POT chạy ở máy khác (http://ip:4416)
+# Số luồng FFmpeg: 0 = tự theo số lõi container (cgroup)
+FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", "0") or 0)
+CACHE_MAX_MB = int(os.environ.get("CACHE_MAX_MB", "500"))   # trần ổ đĩa cho cache theo bước
+HEALTH_CHECK_HOURS = float(os.environ.get("HEALTH_CHECK_HOURS", "6"))   # 0 = tắt kiểm tra định kỳ
 
 VOICE_FEMALE = "vi-VN-HoaiMyNeural"
 VOICE_MALE = "vi-VN-NamMinhNeural"
@@ -78,7 +89,6 @@ OUT_MAX_MB = int(os.environ.get("OUT_MAX_MB", "400"))  # tổng video giữ cho 
 MAX_FILESIZE = 50 * 1024 * 1024    # chặn file nguồn yt-dlp > 50MB
 MAX_UPLOAD = 300 * 1024 * 1024     # upload trực tiếp qua web tối đa 300MB (video dài)
 MAX_QUEUE = 5
-KEEP_WEB_OUTPUTS = 3
 OUTPUT_HD = os.environ.get("OUTPUT_HD", "1") != "0"   # 1080p khi nguồn đủ nét; đặt 0 nếu Botkeep thiếu RAM
 
 
@@ -119,9 +129,21 @@ def save_settings(updates: dict):
                 raise ValueError("SPEECH_STYLE chỉ nhận: mien_tay, mien_nam, pho_thong")
             if k == "TTS_PITCH" and not re.fullmatch(r"[+-]\d{1,3}Hz", v):
                 raise ValueError("TTS_PITCH phải dạng +2Hz hoặc -3Hz")
+            if k == "SUB_TIMING" and v not in ("spread", "stt"):
+                raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
+            if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):
+                raise ValueError(f"{k} phải là các số chat_id cách nhau dấu phẩy")
+            if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge"):
+                raise ValueError("TTS_PROVIDER chỉ nhận: capcut, edge")
             cur[k] = v
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+    tmp = SETTINGS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:          # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang
         json.dump(cur, f, ensure_ascii=False, indent=1)
+    try:
+        os.chmod(tmp, 0o600)                              # chứa key API: chỉ chủ tiến trình đọc được
+    except OSError:
+        pass
+    os.replace(tmp, SETTINGS_FILE)
     _apply()
 
 
@@ -142,3 +164,21 @@ def describe_settings() -> dict:
 
 
 _apply()
+
+
+def id_set(value: str) -> set[int]:
+    """'123, -456' -> {123, -456}."""
+    return {int(x) for x in re.findall(r"-?\d+", value or "")}
+
+
+def allowed_ids() -> set[int]:
+    return id_set(globals()["ALLOWED_USERS"])
+
+
+def admin_chat_id() -> int | None:
+    """Nơi nhận cảnh báo: ADMIN_CHAT_ID, không đặt thì người ĐẦU TIÊN trong ALLOWED_USERS."""
+    for src in (globals()["ADMIN_CHAT_ID"], globals()["ALLOWED_USERS"]):
+        ids = re.findall(r"-?\d+", src or "")
+        if ids:
+            return int(ids[0])
+    return None

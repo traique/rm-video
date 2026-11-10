@@ -2,6 +2,7 @@
 Không cần PyTorch: STFT/ISTFT viết bằng numpy. Model ~66MB tự tải lần đầu vào thư mục models/.
 Dùng cho chế độ nấu ăn: giữ tiếng xèo xèo, bỏ hẳn giọng người nói gốc."""
 import asyncio
+import hashlib
 import logging
 import os
 import subprocess
@@ -14,19 +15,41 @@ _DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 MODEL_NAME = "Kim_Vocal_2.onnx"
 MODEL_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
              "all_public_uvr_models/" + MODEL_NAME)
+# SHA-256 của bản đã kiểm (66.759.214 byte, tải ngày 10/11/2026). File khác hash = bị thay/hỏng -> không chạy.
+MODEL_SHA256 = "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b"
+_verified: set = set()
 N_FFT, HOP, DIM_F, DIM_T = 7680, 1024, 3072, 256
 SR = 44100
 _session = None
 
 
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _model_path() -> str:
+    """Tải model (lần đầu) và kiểm SHA-256 mỗi lần khởi động: file bị tráo hay tải dở đều bị từ chối."""
     os.makedirs(_DIR, exist_ok=True)
     p = os.path.join(_DIR, MODEL_NAME)
-    if not os.path.exists(p) or os.path.getsize(p) < 60_000_000:
+    if p in _verified:
+        return p
+    if os.path.exists(p) and sha256_file(p) != MODEL_SHA256:
+        logging.warning("Model %s sai checksum (hỏng hoặc bị thay), tải lại", MODEL_NAME)
+        os.remove(p)
+    if not os.path.exists(p):
         logging.info("Tải model tách giọng %s (~66MB, chỉ lần đầu)...", MODEL_NAME)
         tmp = p + ".part"
         urllib.request.urlretrieve(MODEL_URL, tmp)
+        got = sha256_file(tmp)
+        if got != MODEL_SHA256:
+            os.remove(tmp)
+            raise RuntimeError(f"Model tải về sai checksum ({got[:12]}…), đã xoá; tách giọng tạm tắt.")
         os.replace(tmp, p)
+    _verified.add(p)
     return p
 
 
@@ -175,9 +198,8 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0) -> bool:
         if proc.returncode == 0 and os.path.exists(ambient_wav):
             logging.info("Tách giọng AI: %s", log[-1] if log else "xong")
             return True
-        logging.warning("Tách giọng bỏ qua: %s", (log[-1] if log else f"mã {proc.returncode}")[-200:])
+        logging.warning("Tách giọng bỏ qua (mã %s): %s", proc.returncode, (log[-1] if log else "")[-200:])
         return False
-        logging.warning("Tách giọng lỗi (mã %s): %s", proc.returncode, err.decode(errors="ignore")[-300:])
     except asyncio.TimeoutError:
         proc.kill()
         logging.warning("Tách giọng quá %ss, bỏ qua", timeout)

@@ -17,7 +17,20 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(BASE, "tools")
 NODE_DIR = os.path.join(TOOLS, "nodejs")
 POT_DIR = os.path.join(BASE, "potoken")
-TARBALL = "https://codeload.github.com/Brainicism/bgutil-ytdlp-pot-provider/tar.gz/refs/heads/master"
+PINNED_VERSION = "2.0.2"      # phải trùng plugin pip trong requirements.txt (server và plugin cùng phiên bản)
+
+
+def _bgutil_version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("bgutil-ytdlp-pot-provider")
+    except Exception:
+        return PINNED_VERSION
+
+
+def tarball_url(ver: str) -> str:
+    """Mã nguồn server đúng TAG phiên bản (không lấy nhánh master đang thay đổi)."""
+    return f"https://codeload.github.com/Brainicism/bgutil-ytdlp-pot-provider/tar.gz/refs/tags/{ver}"
 
 
 def node_bin_dir() -> str:
@@ -75,8 +88,9 @@ async def install(log=logging.info) -> bool:
         return False
     os.makedirs(TOOLS, exist_ok=True)
     # 1) plugin yt-dlp
-    log("1/5 Cài plugin bgutil cho yt-dlp...")
-    if not await _pip(["bgutil-ytdlp-pot-provider"], log, 300):
+    ver = _bgutil_version()
+    log(f"1/5 Plugin bgutil cho yt-dlp (phiên bản {ver})...")
+    if not await _pip([f"bgutil-ytdlp-pot-provider=={ver}"], log, 300):
         return False
     # 2) Node.js
     ensure_path()
@@ -93,13 +107,15 @@ async def install(log=logging.info) -> bool:
     # 3) mã nguồn bgutil
     log("3/5 Tải mã nguồn bộ sinh token...")
     with tempfile.TemporaryDirectory(dir=TOOLS) as td:
-        data = await asyncio.to_thread(lambda: urllib.request.urlopen(TARBALL, timeout=120).read())
+        data = await asyncio.to_thread(lambda: urllib.request.urlopen(tarball_url(ver), timeout=120).read())
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tf:
             tf.extractall(td, filter="data") if sys.version_info >= (3, 12) else tf.extractall(td)
         src = os.path.join(td, os.listdir(td)[0], "server")
         # 4) build
         log("4/5 Build (npm install + tsc), mất 1-3 phút...")
-        if not await _run(npm + ["install", "--no-audit", "--no-fund"], src, log):
+        # có package-lock.json thì dùng `npm ci`: cài ĐÚNG các phiên bản đã khoá, không kéo bản mới
+        lock = os.path.exists(os.path.join(src, "package-lock.json"))
+        if not await _run(npm + (["ci"] if lock else ["install"]) + ["--no-audit", "--no-fund"], src, log):
             return False
         if not await _run([node, os.path.join(src, "node_modules", "typescript", "bin", "tsc")], src, log):
             return False
@@ -107,8 +123,10 @@ async def install(log=logging.info) -> bool:
         shutil.rmtree(POT_DIR, ignore_errors=True)
         os.makedirs(POT_DIR)
         shutil.copytree(os.path.join(src, "build"), os.path.join(POT_DIR, "build"))
-        json.dump({"type": pkg.get("type", "module"), "dependencies": pkg["dependencies"]},
-                  open(os.path.join(POT_DIR, "package.json"), "w"))
+        with open(os.path.join(POT_DIR, "package.json"), "w") as f:
+            json.dump({"type": pkg.get("type", "module"), "dependencies": pkg["dependencies"]}, f)
+        if lock:
+            shutil.copy(os.path.join(src, "package-lock.json"), os.path.join(POT_DIR, "package-lock.json"))
     log("5/5 Cài thư viện chạy (bỏ phần dev cho gọn)...")
     if not await _run(npm + ["install", "--omit=dev", "--no-audit", "--no-fund"], POT_DIR, log):
         return False

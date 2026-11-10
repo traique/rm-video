@@ -51,9 +51,10 @@ class Job:
     finished_at: float = 0.0
     out_dur: float = 0.0      # thời lượng video đang làm (để ước tính thời gian)
     timeline: list = field(default_factory=list)  # [(bước, thời điểm)] đo thời gian từng bước
+    cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
 
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")
+DB_PATH = os.environ.get("JOBS_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")
 
 
 class JobQueue:
@@ -92,8 +93,9 @@ class JobQueue:
         except Exception:
             pass
 
-    def put(self, job: Job) -> int:
-        if self.pending >= config.MAX_QUEUE:
+    def put(self, job: Job, force: bool = False) -> int:
+        """force=True: job đã duyệt kịch bản được vượt giới hạn hàng đợi (người dùng đã chờ, không được mất)."""
+        if self.pending >= config.MAX_QUEUE and not force:
             raise QueueFull(f"Hàng đợi đã đầy ({config.MAX_QUEUE} video), thử lại sau.")
         self.pending += 1
         self.jobs[job.id] = job

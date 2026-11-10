@@ -164,16 +164,12 @@ async def run():
 def test_web_js():
     """Kiểm cú pháp JS trên HTML THẬT máy chủ trả ra (sau khi Python xử lý chuỗi),
     vì lỗi dấu \\ trong chuỗi Python chỉ lộ ra ở đây, không lộ khi đọc file .py."""
-    import re
     import shutil
     import subprocess
     import tempfile
     import web_panel
-    html = web_panel.INDEX_HTML if hasattr(web_panel, "INDEX_HTML") else None
-    if html is None:
-        src = open(web_panel.__file__, encoding="utf-8").read()
-        name = re.search(r"^(\w+)\s*=\s*(?:r?f?)\"\"\"\s*<!(?:doctype|DOCTYPE)", src, re.M).group(1)
-        html = getattr(web_panel, name)
+    with open(web_panel.INDEX_HTML, encoding="utf-8") as f:
+        html = f.read()
     js = html[html.index("<script>") + 8:html.index("</script>")]
     if not shutil.which("node"):
         print("SKIP kiểm JS web (không có node)")
@@ -248,7 +244,7 @@ def test_color_recipe():
     print("OK công thức màu giữ nguyên bản đã duyệt")
 
 
-async def test_loudness():
+async def _loudness():
     """Đầu ra phải -14 LUFS ±1 và đỉnh ≤ -1 dBFS NGAY TỪ RENDER (lỗi cũ: alimiter tự khuếch đại lên 0 dBFS)."""
     import re
     import subprocess
@@ -270,9 +266,17 @@ async def test_loudness():
     print(f"OK âm lượng {lufs} LUFS, đỉnh {peak} dBFS")
 
 
+def test_smoke_render():
+    asyncio.run(run())
+
+
+def test_loudness():
+    asyncio.run(_loudness())
+
+
 if __name__ == "__main__":
     asyncio.run(run())
-    asyncio.run(test_loudness())
+    asyncio.run(_loudness())
     test_color_recipe()
     test_promo_fps_json()
     test_ingredient_false_positives()

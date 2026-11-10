@@ -115,24 +115,39 @@ def _contents(prompt: str, images=None):
     return parts
 
 
+def retry_delay(err: str, attempt: int) -> float | None:
+    """Số giây nên chờ trước khi gọi lại Gemini; None = lỗi không đáng thử lại.
+    503/UNAVAILABLE (quá tải): 3s, 6s. 429/RESOURCE_EXHAUSTED (hết hạn mức): theo retryDelay Google trả
+    về nếu có (vd "retryDelay": "17s", "retry in 17.5s"), tối đa 60s."""
+    if "429" in err or "RESOURCE_EXHAUSTED" in err:
+        m = re.search(r"retry(?:Delay|\s+in)\W*([0-9.]+)\s*s", err, re.IGNORECASE)
+        return min(60.0, float(m.group(1)) + 1) if m else min(60.0, 10.0 * (attempt + 1))
+    if "503" in err or "UNAVAILABLE" in err or "500" in err or "INTERNAL" in err:
+        return 3.0 * (attempt + 1)
+    return None
+
+
+GEMINI_TRIES = 3
+
+
 async def _call_gemini(prompt: str, images=None) -> str:
     client = genai.Client(api_key=config.GEMINI_API_KEY)  # key đọc lúc gọi: đổi từ web là ăn ngay
     # prompt đòi JSON -> bật chế độ JSON của Gemini: API tự bảo đảm JSON hợp lệ (log thật: "Expecting ','
     # delimiter" làm mất lượt viết lại)
     cfg = {"response_mime_type": "application/json"} if "JSON" in prompt else None
     try:
-        try:
-            resp = await asyncio.wait_for(
-                client.aio.models.generate_content(model=config.GEMINI_MODEL, contents=_contents(prompt, images),
-                                                  config=cfg), 60)
-        except Exception as e1:
-            if "503" not in str(e1) and "UNAVAILABLE" not in str(e1):
-                raise
-            logging.warning("Gemini quá tải (503), thử lại sau 3s")
-            await asyncio.sleep(3)
-            resp = await asyncio.wait_for(
-                client.aio.models.generate_content(model=config.GEMINI_MODEL, contents=_contents(prompt, images),
-                                                  config=cfg), 60)
+        for attempt in range(GEMINI_TRIES):
+            try:
+                resp = await asyncio.wait_for(
+                    client.aio.models.generate_content(model=config.GEMINI_MODEL, contents=_contents(prompt, images),
+                                                      config=cfg), 60)
+                break
+            except Exception as e1:
+                wait = retry_delay(str(e1), attempt)
+                if wait is None or attempt == GEMINI_TRIES - 1:
+                    raise
+                logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", str(e1)[:80], wait)
+                await asyncio.sleep(wait)
     except Exception as e:
         # Google ngừng model cũ và ghi tên model thay thế ngay trong lỗi 404
         m = re.search(r"use models/([\w.\-]+)", str(e))
@@ -302,7 +317,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                          images_for=None, extra: str = "", avoid: list | None = None) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ."""
-    # gộp đoạn có khe quá ngắn (< 1.8s) vào đoạn trước: không đủ chỗ cho một câu
+    # gộp đoạn bắt đầu quá sát đoạn trước (< 1.1s) vào đoạn trước: không đủ chỗ cho một câu
     merged = []
     for st, en, tx in segments:
         if merged and st - merged[-1][0] < 1.1:
@@ -423,7 +438,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 text = got.get(k) or tx      # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc
                 # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
                 # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
-                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text,
+                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx,
                             "copy": round(copy_ratio(text, tx), 2)})
             for o, (k, st, slot, mx, tx, span) in zip(out, slots):
                 logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
@@ -509,6 +524,7 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
 
 
 BATCH = 28
+BATCH_PARALLEL = 2
 
 
 async def generate_timed_any(title: str, desc: str, mode: str, segments: list, out_dur: float,
@@ -530,8 +546,18 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
             "chưa phải kết video" + (".\n" if b + BATCH < len(segments) else ", trừ khi đây là phần cuối.\n"))
         return await generate_timed(title, desc, mode, part, end, images_for, extra)
 
-    # các lô chạy SONG SONG (ngữ cảnh lấy từ lời gốc, không phải chờ lô trước viết xong)
-    results = await asyncio.gather(*(_one(b) for b in starts))
+    # các lô chạy song song TỐI ĐA 2 (ngữ cảnh lấy từ lời gốc, không phải chờ lô trước viết xong); nhiều hơn
+    # dễ chạm hạn mức Gemini miễn phí. Lô nào lỗi thì gọi lại riêng lô đó một lần, không bỏ cả kịch bản.
+    sem = asyncio.Semaphore(BATCH_PARALLEL)
+
+    async def _guarded(b):
+        async with sem:
+            return await _one(b)
+    results = list(await asyncio.gather(*(_guarded(b) for b in starts)))
+    for k, b in enumerate(starts):
+        if results[k] is None:
+            logging.warning("Lô %d (từ đoạn %d) lỗi, gọi lại riêng lô này", k, b)
+            results[k] = await _one(b)
     if any(r is None for r in results):
         return None
     merged, first, heads = [], results[0], set()

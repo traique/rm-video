@@ -18,6 +18,7 @@ import scenes
 import ingredients
 import vocal_sep
 import prompt_engine
+import url_guard
 from queue_manager import Job, JobQueue, QueueFull
 from transcribe import transcribe_segments
 import subs as subs_mod
@@ -39,8 +40,42 @@ if config.BOT_TOKEN:
     from aiogram.types import (CallbackQuery, FSInputFile, InlineKeyboardButton,
                                InlineKeyboardMarkup, Message)
 
+    from aiogram import BaseMiddleware
+
     bot = Bot(config.BOT_TOKEN)
     dp = Dispatcher()
+
+    class AccessMiddleware(BaseMiddleware):
+        """Chỉ người trong ALLOWED_USERS (chat_id hoặc user_id) mới dùng được bot: người lạ tìm ra bot
+        không tiêu được quota Gemini/Groq và CPU. Người lạ được báo chat id để chủ bot thêm vào nếu muốn."""
+        async def __call__(self, handler, event, data):
+            user = getattr(event, "from_user", None)
+            chat = getattr(event, "chat", None) or getattr(getattr(event, "message", None), "chat", None)
+            allowed = config.allowed_ids()
+            if (user and user.id in allowed) or (chat and chat.id in allowed):
+                return await handler(event, data)
+            uid = user.id if user else (chat.id if chat else 0)
+            logging.warning("Từ chối người dùng Telegram không có trong ALLOWED_USERS: %s", uid)
+            if isinstance(event, CallbackQuery):
+                await event.answer("🔒 Bạn không có quyền dùng bot này.", show_alert=True)
+            elif isinstance(event, Message):
+                await event.answer(f"🔒 Bot này chỉ phục vụ người được phép.\nChat id của bạn: {uid}\n"
+                                   "Chủ bot thêm số này vào ALLOWED_USERS (Cài đặt trên web) để mở quyền.")
+            return None
+
+    dp.message.outer_middleware(AccessMiddleware())
+    dp.callback_query.outer_middleware(AccessMiddleware())
+
+    async def _guard_urls(m: Message, urls: list) -> list | None:
+        """Kiểm từng link (nền tảng được hỗ trợ, không trỏ vào mạng nội bộ). Sai thì báo và trả None."""
+        out = []
+        for u in urls[:10]:
+            try:
+                out.append(await url_guard.check_url_async(u))
+            except url_guard.BlockedURL as e:
+                await m.answer(f"⛔ {e}")
+                return None
+        return out
     pending: dict[int, dict] = {}  # chat_id -> {"url":..., "urls": [...], "mode":...}
     pending_review: dict[int, int] = {}   # chat_id -> job id đang chờ duyệt
 
@@ -126,13 +161,20 @@ if config.BOT_TOKEN:
                 pending_review[m.chat.id] = jid
                 await m.answer("Trả lời \"ok\" để render, hoặc gửi các dòng dạng \"số: lời mới\" để sửa đoạn đó.")
                 return
-        new = approve_job(job, edits)
+        try:
+            new = approve_job(job, edits)
+        except Exception as e:
+            pending_review[m.chat.id] = jid          # vẫn chờ duyệt, gửi lại được
+            await m.answer(f"⚠️ Chưa render được: {e}")
+            return
         await m.answer(f"✅ Đã duyệt ({len(edits)} đoạn sửa), đang render ở job #{new.id}.")
 
     @dp.message(F.text.regexp(r"https?://\S+"))
     async def got_link(m: Message):
         p = pending.get(m.chat.id)
-        urls = re.findall(r"https?://\S+", m.text)
+        urls = await _guard_urls(m, re.findall(r"https?://\S+", m.text))
+        if not urls:
+            return
         if p and p.get("need_music"):
             p["music_url"] = urls[0]
             p["need_music"] = False
@@ -408,6 +450,16 @@ async def process_split(job: Job, tmp: str):
         raise RuntimeError("Không phần nào thành công. " + "; ".join(fails))
 
 
+def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
+    """Mốc cắt đoạn quảng cáo cuối của người gốc. Bản đã duyệt dùng lại ĐÚNG mốc đã quyết lúc viết kịch bản
+    (kịch bản duyệt không có đoạn đó; trước đây bản duyệt render lại nguyên đoạn quảng cáo — lỗi N1)."""
+    if job.approved:
+        return job.cut_at or None
+    if job.mode in ("cook", "review") and config.CUT_PROMO != "0":
+        return prompt_engine.find_promo_tail(segs, out_dur)
+    return None
+
+
 async def process(job: Job, tmp: str):
     if job.tg_file_id:
         job.step = "Tải file từ Telegram"
@@ -529,13 +581,13 @@ async def process(job: Job, tmp: str):
     ass = os.path.join(tmp, "subs.ass")
 
     # ----- Bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video (cả hình lẫn tiếng) -----
-    if job.mode in ("cook", "review") and config.CUT_PROMO != "0" and not job.approved:
-        cut = prompt_engine.find_promo_tail(segs, out_dur)
-        if cut:
-            logging.info("Cắt bỏ đoạn quảng cáo của người gốc: %.1fs -> %.1fs (%s...)", cut, out_dur,
-                         next((t for a, _, t in segs if a >= cut - 0.1), "")[:60])
-            job.error = (job.error or "") + f"ℹ️ Đã cắt bỏ {out_dur - cut:.0f}s quảng cáo sản phẩm của người gốc ở cuối. "
-            out_dur = render_dur = cut
+    cut = promo_cut(job, segs, out_dur)
+    if cut and cut < out_dur:
+        logging.info("Cắt bỏ đoạn quảng cáo của người gốc: %.1fs -> %.1fs", cut, out_dur)
+        job.cut_at = cut
+        job.error = (job.error or "") + f"ℹ️ Đã cắt bỏ {out_dur - cut:.0f}s quảng cáo sản phẩm của người gốc ở cuối. "
+        out_dur = render_dur = cut
+        job.out_dur = out_dur
 
     # ----- Đường chính: giọng KHỚP HÌNH -----
     segs = [s for s in segs if s[0] < out_dur - 0.5]
@@ -560,7 +612,7 @@ async def process(job: Job, tmp: str):
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"])
         if (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
-                             "text": s["text"], "orig": o[2]} for s, o in zip(timed["segments"], segs + [("", "", "")] * 50)]
+                             "text": s["text"], "orig": s.get("orig", "")} for s in timed["segments"]]
             job.status, job.step = "review", "Chờ bạn duyệt/sửa kịch bản rồi bấm Render"
             return "REVIEW"
         sem = asyncio.Semaphore(3)
@@ -779,16 +831,20 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
         t = (edits or {}).get(int(s["i"]), s["text"]).strip()
         if t:
             segs.append({"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]), "text": t})
+    if not segs:
+        raise ValueError("Kịch bản trống: cần ít nhất một đoạn có lời.")
     job = Job(url=src.url, mode=src.mode, duration=src.duration, voice=src.voice, subs=src.subs, cover=src.cover,
               long_mode=src.long_mode, local=src.local if src.local and os.path.exists(src.local) else "",
               tg_file_id=src.tg_file_id, title_hint=src.title_hint, music_url=src.music_url,
               music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
-              approved=segs)
+              approved=segs, cut_at=src.cut_at)
     job.post = src.post
     job.script = " ".join(s["text"] for s in segs)
+    # put() TRƯỚC, đổi trạng thái job cũ SAU: lỗi gì thì kịch bản vẫn còn ở job cũ để duyệt lại (lỗi #4).
+    # Job đã duyệt được vượt giới hạn hàng đợi vì người dùng đã chờ và đã sửa tay.
+    queue.put(job, force=True)
     src.status, src.step = "approved", f"Đã duyệt -> render ở job #{job.id}"
     queue.save(src)
-    queue.put(job)
     return job
 
 

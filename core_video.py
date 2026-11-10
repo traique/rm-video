@@ -8,15 +8,27 @@ import subprocess
 import urllib.parse
 import urllib.request
 
-import static_ffmpeg
 import yt_dlp
 import edge_tts
 
 import config
 import subs as subs_mod
+import url_guard
 
-# Nạp binary ffmpeg/ffprobe vào PATH của tiến trình (lần đầu tự tải ~70MB về site-packages)
-static_ffmpeg.add_paths()
+
+def _ensure_ffmpeg():
+    """Ưu tiên ffmpeg/ffprobe có sẵn trên máy; thiếu mới nhờ static-ffmpeg tải (~70MB, một lần).
+    Tải lỗi thì chỉ cảnh báo: bot vẫn khởi động được, job sẽ báo lỗi rõ ràng khi cần ffmpeg."""
+    if shutil.which("ffmpeg") and shutil.which("ffprobe"):
+        return
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+    except Exception as e:  # mạng chặn GitHub, ổ chỉ đọc...
+        logging.error("Không có ffmpeg trên máy và không tải được static-ffmpeg: %s", e)
+
+
+_ensure_ffmpeg()
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
@@ -74,6 +86,7 @@ def pot_status() -> str:
 
 
 def _add_cookies(opts: dict, tmpdir: str):
+    opts["allowed_extractors"] = url_guard.YTDLP_EXTRACTORS     # không bao giờ dùng extractor generic (SSRF)
     if _IMPERSONATE:
         opts["impersonate"] = _IMPERSONATE
     ea = opts.setdefault("extractor_args", {})
@@ -91,6 +104,7 @@ def _add_cookies(opts: dict, tmpdir: str):
 
 
 def _download_audio_sync(url: str, tmpdir: str) -> str:
+    url = url_guard.check_url(url)
     opts = {
         "format": "bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": os.path.join(tmpdir, "music.%(ext)s"),
@@ -121,6 +135,7 @@ _DL_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
 
 
 def _probe_formats_sync(url: str, tmpdir: str) -> dict:
+    url = url_guard.check_url(url)
     opts = {"noplaylist": True, "quiet": True, "noprogress": True, "no_warnings": True, "skip_download": True}
     _add_cookies(opts, tmpdir)
     try:
@@ -163,13 +178,14 @@ async def probe_formats(url: str, tmpdir: str) -> dict:
 
 def _download_format_sync(url: str, tmpdir: str, quality: str, on_pct=None) -> tuple:
     """quality: 'mp3' | '2160'...'360' | '' (tốt nhất). Trả (đường dẫn, tiêu đề)."""
+    url = url_guard.check_url(url)
     opts = {"outtmpl": os.path.join(tmpdir, "dl.%(ext)s"), "noplaylist": True, "quiet": True, "noprogress": True,
-            "no_warnings": True, "noprogress": True, "max_filesize": DL_MAX_SIZE,
+            "no_warnings": True, "max_filesize": DL_MAX_SIZE,
             "retries": 3, "fragment_retries": 5,
             "match_filter": yt_dlp.utils.match_filter_func(f"duration <= {DL_MAX_DUR}")}
     if on_pct:
         def _hook(d):
-            if d.get("status") == "downloading" and d.get("total_bytes") or d.get("total_bytes_estimate"):
+            if d.get("status") == "downloading":
                 total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
                 if total:
                     on_pct(min(99, int(100 * (d.get("downloaded_bytes") or 0) / total)))
@@ -240,6 +256,7 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
 
 
 def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
+    url = url_guard.check_url(url)
     try:
         path, title, desc = _ytdlp_video_sync(url, tmpdir, max_duration)
         if _has_video(path):

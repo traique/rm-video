@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Video Bot</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f5f4;--card:#fff;--text:#1c1917;--mut:#78716c;--line:#e7e5e4;--acc:#ea580c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--card:#292524;--text:#fafaf9;--mut:#a8a29e;--line:#44403c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:1.3em;margin:8px 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+label{display:block;font-size:.85em;color:var(--mut);margin:10px 0 4px}
+input,select,button{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+button{background:var(--acc);color:#fff;border:0;font-weight:600;margin-top:14px;cursor:pointer}
+button:disabled{opacity:.5}
+.row{display:flex;gap:10px}.row>div{flex:1}
+table{width:100%;border-collapse:collapse;font-size:.9em}
+td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
+.st-done{color:#16a34a}.st-error{color:#dc2626}.st-processing{color:var(--acc)}.st-review{color:#2563eb;font-weight:600}.st-cancelled{color:var(--mut)}
+a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;font-size:.9em}
+</style></head><body><main>
+<h1>🎬 Video Bot — bảng điều khiển</h1>
+<div class="card">
+  <div id="auth_box">
+    <label>Mật khẩu web (WEB_PASSWORD)</label>
+    <div style="display:flex;gap:8px"><input id="pw" type="password" autocomplete="current-password" placeholder="nhập rồi bấm Đăng nhập">
+      <button id="login_btn" style="width:auto;margin-top:0">Đăng nhập</button></div>
+  </div>
+  <div id="authed_box" class="mut" style="display:none">✅ Đã đăng nhập · <a href="#" id="logout_link">Đăng xuất</a></div>
+  <label>Link video (TikTok / Facebook / YouTube...) — nhiều link thì mỗi link một dòng — hoặc chọn file bên dưới</label>
+  <textarea id="url" rows="2" placeholder="https://..." style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit"></textarea>
+  <label>Hoặc tải video lên để remake (≤ 300MB)</label>
+  <input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v">
+  <div class="row">
+    <div><label>Chế độ</label>
+      <select id="mode"><option value="cook">🍲 Nấu ăn (giữ ASMR)</option><option value="review">📦 Review (đổi giọng)</option><option value="music">🎵 Nhảy/Nhạc (thay nhạc + khớp beat)</option><option value="download">⬇️ Chỉ tải về (TikTok không logo / Facebook / YouTube)</option></select></div>
+    <div><label>Thời lượng</label>
+      <select id="dur"><option value="0">Giữ nguyên</option><option value="30">30 giây</option><option value="60">60 giây</option><option value="90">90 giây</option><option value="full">🎞 Video dài: remake nguyên (≤5 phút)</option><option value="split60">✂️ Cắt thành phần 60s (nguồn ≤10 phút)</option><option value="split90">✂️ Cắt thành phần 90s (nguồn ≤10 phút)</option></select></div>
+    <div><label>Giọng đọc</label>
+      <select id="voice"><option value="female">Nữ mặc định</option><option value="male">Nam mặc định</option></select></div>
+  </div>
+  <div id="music_box" style="display:none">
+    <label>🎵 Link nhạc mới (YouTube/TikTok...)</label>
+    <input id="music_url" placeholder="https://...">
+    <label>Hoặc tải file nhạc lên (mp3/m4a/wav...)</label>
+    <input id="music_file" type="file" accept="audio/*,.m4a,.opus">
+    <div class="mut">Bot dò BPM của điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat cho khớp.</div>
+  </div>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:12px" id="subs_box">
+    <input type="checkbox" id="subs" checked style="width:auto"> Phụ đề tự động (khớp giọng đọc)</label>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:6px" id="cover_box">
+    <input type="checkbox" id="cover" checked style="width:auto"> Che phụ đề in cứng của video gốc, đặt phụ đề mới lên đó (tự dò vị trí)</label>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
+    <input type="checkbox" id="review" style="width:auto"> 📝 Duyệt/sửa kịch bản trước khi render</label>
+  <button id="go">Tạo video</button>
+  <div id="msg"></div>
+</div>
+<div class="card">
+  <details><summary><b>⚙️ Cài đặt API</b> <span class="mut">(key, model, base URL, cookies, giọng đọc — lưu vào settings.json)</span></summary>
+    <div id="set_fields"></div>
+    <label>Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
+    <input id="logo_file" type="file" accept="image/png">
+    <button id="save_set">Lưu cài đặt</button>
+    <div class="mut" style="margin-top:8px">Bỏ trống = không đổi · nhập <b>-</b> = xóa, quay về biến môi trường · key hiển thị dạng che bớt.</div>
+  </details>
+</div>
+<div class="card">
+  <b>⬇️ Trình tải video (YouTube / TikTok / Facebook)</b>
+  <label>Dán link rồi bấm Xem định dạng — hoặc tải thẳng chất lượng tốt nhất</label>
+  <input id="dl_url" placeholder="https://www.youtube.com/watch?v=...">
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+    <button id="dl_probe" style="flex:1">🔎 Xem định dạng</button>
+    <button id="dl_best" style="flex:1;background:var(--mut)">⭐ Tải tốt nhất</button>
+  </div>
+  <div id="dl_info" style="display:none;margin-top:12px">
+    <div style="display:flex;gap:12px;align-items:flex-start">
+      <img id="dl_thumb" style="width:110px;border-radius:8px" alt="">
+      <div style="min-width:0"><b id="dl_title" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden"></b><div class="mut" id="dl_meta"></div></div>
+    </div>
+    <div id="dl_opts" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"></div>
+  </div>
+</div>
+<div class="card" id="review_card" style="display:none">
+  <b>📝 Duyệt kịch bản</b> <span class="mut" id="review_info"></span>
+  <div id="review_rows"></div>
+  <button id="approve_btn">Render với kịch bản này</button>
+</div>
+<div class="card">
+  <b>Hàng đợi & kết quả</b> <span class="mut" id="qinfo"></span>
+  <table><thead><tr><th>#</th><th>Trạng thái</th><th>Chi tiết</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+  <div class="mut">Chỉ giữ vài video gần nhất trên server — tải về ngay khi xong. Video gửi từ Telegram trả kết quả trong chat Telegram.</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+try{localStorage.removeItem('pw')}catch(e){}   // bản cũ lưu mật khẩu ở đây: xoá đi
+const hdr=()=>({'Content-Type':'application/json'});
+async function checkAuth(){
+  try{const d=await (await fetch('/api/me')).json();
+    if(!d.password_set){$('auth_box').innerHTML='<p class="st-error">⚠️ Chưa đặt WEB_PASSWORD nên web panel đang khoá. Đặt biến môi trường WEB_PASSWORD rồi khởi động lại bot.</p>';return false;}
+    $('auth_box').style.display=d.authed?'none':'block';$('authed_box').style.display=d.authed?'block':'none';return d.authed;
+  }catch(e){return false}
+}
+async function doLogin(){
+  const r=await fetch('/api/login',{method:'POST',headers:hdr(),body:JSON.stringify({password:$('pw').value})});
+  $('pw').value='';
+  $('msg').textContent=r.ok?'✅ Đã đăng nhập':'❌ '+await r.text();
+  if(r.ok){await checkAuth();loadSettings();loadVoices();refresh();}
+}
+$('login_btn').onclick=doLogin;
+$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+$('logout_link').onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.reload();};
+$('mode').onchange=()=>{const v=$('mode').value,m=v=='music',d=v=='download';
+  $('music_box').style.display=m?'block':'none';
+  $('subs_box').style.display=(m||d)?'none':'flex';$('cover_box').style.display=(m||d)?'none':'flex';
+  $('voice').disabled=m||d;$('dur').disabled=d;};
+$('go').onclick=async()=>{
+  $('go').disabled=true;
+  try{
+    let r;
+    if($('file').files.length||$('music_file').files.length){
+      $('msg').textContent='Đang tải file lên...';
+      const fd=new FormData();
+      fd.append('mode',$('mode').value);fd.append('duration',$('dur').value);
+      fd.append('voice',$('voice').value);fd.append('subs',$('subs').checked);fd.append('cover',$('cover').checked);fd.append('review',$('review').checked);
+      fd.append('url',$('url').value);fd.append('music_url',$('music_url').value);
+      if($('file').files.length)fd.append('file',$('file').files[0]);
+      if($('music_file').files.length)fd.append('music',$('music_file').files[0]);
+      r=await fetch('/api/upload',{method:'POST',body:fd});
+    }else{
+      $('msg').textContent='Đang gửi...';
+      r=await fetch('/api/jobs',{method:'POST',headers:hdr(),body:JSON.stringify({
+        url:$('url').value,mode:$('mode').value,duration:$('dur').value,voice:$('voice').value,subs:$('subs').checked,cover:$('cover').checked,review:$('review').checked,music_url:$('music_url').value})});
+    }
+    if(!r.ok)throw new Error(await r.text());
+    const d=await r.json();$('msg').textContent='✅ Đã nhận '+((d.ids&&d.ids.length>1)?d.ids.length+' video':'')+', vị trí hàng đợi: #'+d.position;$('url').value='';$('file').value='';$('music_url').value='';$('music_file').value='';
+  }catch(e){$('msg').textContent='❌ '+e.message}
+  $('go').disabled=false;refresh();
+};
+const FIELD='width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit';
+async function loadSettings(){
+  try{
+    const r=await fetch('/api/settings',{headers:hdr()});
+    if(!r.ok){$('set_fields').innerHTML='<p class="mut">'+(r.status==403?esc(await r.text()):'Đăng nhập ở ô trên cùng để xem và sửa cài đặt.')+'</p>';return;}
+    const d=await r.json();
+    $('set_fields').innerHTML=Object.entries(d).map(([k,v])=>{
+      let f;
+      if(k=='YTDLP_COOKIES')
+        f='<textarea data-k="'+k+'" rows="3" placeholder="'+(v.set?'(đã đặt — dán mới để thay, nhập - để xóa)':'dán nội dung cookies.txt')+'" style="'+FIELD+'"></textarea>';
+      else if(v.options){
+        const cur=String(v.value||'');const known=v.options.some(o=>o[0]==cur);
+        f='<select data-k="'+k+'" style="'+FIELD+'"><option value="">— giữ nguyên'+(cur?': '+esc((v.options.find(o=>o[0]==cur)||[cur,cur])[1]):'')+' —</option>'+
+          v.options.map(o=>'<option value="'+esc(o[0])+'">'+(o[0]==cur?'✓ ':'')+esc(o[1])+'</option>').join('')+
+          (v.overridden?'<option value="-">↺ Xóa, quay về mặc định</option>':'')+'</select>';
+      }else f='<input data-k="'+k+'" placeholder="'+esc(v.value||'chưa đặt')+'">';
+      return '<label>'+esc(k)+(v.overridden?' <span class="mut">(đang đè từ web)</span>':'')+'</label>'+f;
+    }).join('');
+  }catch(e){$('set_fields').innerHTML='<p class="mut">Không tải được cài đặt: '+esc(String(e))+'</p>';}
+}
+document.querySelector('#save_set').onclick=async()=>{
+  if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
+    const lr=await fetch('/api/logo',{method:'POST',body:lf});
+    $('msg').textContent=lr.ok?'✅ Đã lưu logo':'❌ '+await lr.text();if(!lr.ok)return;$('logo_file').value='';}
+  const body={};document.querySelectorAll('[data-k]').forEach(el=>{if(el.value.trim())body[el.dataset.k]=el.value});
+  const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
+  $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();
+  if(r.ok){document.querySelectorAll('[data-k]').forEach(el=>el.value='');loadSettings();}
+};
+function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
+  const cur=$('voice').value;
+  $('voice').innerHTML=vs.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('');
+  if([...$('voice').options].some(o=>o.value===cur))$('voice').value=cur;
+}).catch(e=>{$('msg').textContent='⚠️ Không tải được danh sách giọng: '+e.message});}
+async function refresh(){
+  try{
+    const r=await fetch('/api/jobs',{headers:hdr()});
+    if(!r.ok){$('qinfo').textContent=' — '+(r.status==401?'đăng nhập ở ô trên cùng':'lỗi '+r.status);return}
+    const d=await r.json();
+    $('qinfo').textContent=' — đang chờ: '+d.pending+'';
+    $('rows').innerHTML=d.jobs.map(j=>'<tr><td>'+j.id+'</td>'+
+      '<td class="st-'+esc(j.status)+'">'+esc(j.status_label)+(j.step&&['processing','review'].includes(j.status)?'<div class="mut">'+esc(j.step)+'</div>':'')+
+      (j.status=='processing'?'<div class="mut">đã chạy '+Math.floor(j.elapsed/60)+'p'+(j.eta!=null?', còn ~'+Math.ceil(j.eta/60)+'p':'')+'</div>':'')+
+      (['queued','processing'].includes(j.status)?'<a href="#" onclick="cancelJob('+j.id+');return false" class="st-error">Hủy</a>':'')+
+      (j.status=='review'?'<a href="#" onclick="openReview('+j.id+');return false">Duyệt kịch bản</a>':'')+'</td>'+
+      '<td>'+(j.mode=='cook'?'🍲':j.mode=='music'?'🎵':j.mode=='download'?'⬇️':'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+j.source+
+      (j.error?'<div class="'+(j.status=='done'?'st-processing':'st-error')+' mut">'+esc(j.error)+'</div>':'')+
+      (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+'</td>'+
+      '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<a href="'+esc(p.dl)+'">'+esc(p.label)+'</a>').join('<br>')+'<br>'
+             :(j.downloadable?'<a href="'+esc(j.dl)+'">Tải về</a><br>':''))+
+      (j.post?'<a href="#" onclick="copyPost('+j.id+');return false">Copy content</a>':'')+'</td></tr>').join('');
+  window._posts={};d.jobs.forEach(j=>{if(j.post)window._posts[j.id]=j.post;window._jobs[j.id]=j;});
+  }catch(e){}
+}
+window._jobs={};
+async function cancelJob(id){const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
+function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').style.display='block';$('review_card').dataset.id=id;
+  $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
+  $('review_rows').innerHTML=j.approved.map(s=>'<div style="margin:8px 0;border-top:1px solid var(--line);padding-top:6px"><div class="mut">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</div><textarea data-i="'+s.i+'" rows="2" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit">'+esc(s.text)+'</textarea></div>').join('');
+  $('review_card').scrollIntoView({behavior:'smooth'});}
+$('approve_btn').onclick=async()=>{const id=$('review_card').dataset.id;
+  const segs=[...document.querySelectorAll('#review_rows textarea')].map(t=>({i:+t.dataset.i,text:t.value}));
+  const r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:hdr(),body:JSON.stringify({segments:segs})});
+  $('msg').textContent=r.ok?'✅ Đã duyệt, đang render ở job #'+(await r.json()).id:'❌ '+await r.text();$('review_card').style.display='none';refresh();};
+$('dl_probe').onclick=async()=>{const u=$('dl_url').value.trim();if(!u)return;
+  $('dl_probe').disabled=true;$('dl_probe').textContent='Đang xem...';
+  try{const r=await fetch('/api/yt/info?url='+encodeURIComponent(u),{headers:hdr()});const d=await r.json();
+    if(!r.ok||d.error){$('msg').textContent='❌ '+(d.error||await r.text());$('dl_info').style.display='none';return;}
+    $('dl_info').style.display='block';$('dl_thumb').src=d.thumbnail;$('dl_title').textContent=d.title;
+    $('dl_meta').textContent=(d.uploader?d.uploader+' · ':'')+Math.floor(d.duration/60)+':'+String(d.duration%60).padStart(2,'0')+(d.max_short?' · tối đa '+d.max_short+'p':'');
+    $('dl_opts').innerHTML=d.options.map(o=>'<button data-q="'+esc(o.key)+'" style="margin:0;padding:10px 6px'+(o.key=='mp3'?';background:var(--mut);grid-column:1/-1':'')+'">'+esc(o.label)+(o.size_mb?' · ~'+o.size_mb+'MB':'')+'</button>').join('');
+    $('dl_opts').querySelectorAll('button').forEach(b=>b.onclick=()=>dlGo(b.dataset.q));
+  }finally{$('dl_probe').disabled=false;$('dl_probe').textContent='🔎 Xem định dạng';}};
+$('dl_best').onclick=()=>dlGo('');
+async function dlGo(q){const u=$('dl_url').value.trim();if(!u)return;
+  const r=await fetch('/api/jobs',{method:'POST',headers:hdr(),body:JSON.stringify({url:u,mode:'download',quality:q})});
+  if(r.ok){const d=await r.json();$('msg').textContent='✅ Đang tải (job #'+d.id+'), xem Hàng đợi bên dưới.';refresh();}
+  else $('msg').textContent='❌ '+await r.text();}
+function copyPost(id){navigator.clipboard.writeText(window._posts[id]||'').then(()=>{$('msg').textContent='📋 Đã copy content đăng bài #'+id});}
+checkAuth().then(ok=>{if(ok){loadSettings();loadVoices();}refresh();});
+setInterval(()=>{if(!document.hidden)refresh()},4000);
+</script></main></body></html>
