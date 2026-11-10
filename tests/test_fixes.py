@@ -37,7 +37,7 @@ def test_review_shows_orig_of_merged_segment(monkeypatch):
     ("429 RESOURCE_EXHAUSTED", 1, 20.0),
     ("503 UNAVAILABLE model overloaded", 0, 3.0),
     ("400 INVALID_ARGUMENT", 0, None),
-    ('429 {"retryDelay": "900s"}', 0, 60.0),
+    ('429 {"retryDelay": "900s"}', 0, None),          # hết hạn mức ngày: không chờ, rơi sang dự phòng
 ])
 def test_gemini_retry_delay(err, attempt, want):
     """Lỗi N2: 429 phải được thử lại theo retryDelay (trần 60s); lỗi 400 không thử lại."""

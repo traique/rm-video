@@ -145,16 +145,23 @@ def _contents(prompt: str, images=None, label: str = "Ảnh đoạn"):
 def retry_delay(err: str, attempt: int) -> float | None:
     """Số giây nên chờ trước khi gọi lại Gemini; None = lỗi không đáng thử lại.
     503/UNAVAILABLE (quá tải): 3s, 6s. 429/RESOURCE_EXHAUSTED (hết hạn mức): theo retryDelay Google trả
-    về nếu có (vd "retryDelay": "17s", "retry in 17.5s"), tối đa 60s."""
+    về nếu có (vd "retryDelay": "17s", "retry in 17.5s"). Phải chờ quá 45s (thường là hết hạn mức NGÀY)
+    thì không chờ: rơi ngay sang provider/đường dự phòng thay vì ăn hết hạn giờ của job."""
     if "429" in err or "RESOURCE_EXHAUSTED" in err:
         m = re.search(r"retry(?:Delay|\s+in)\W*([0-9.]+)\s*s", err, re.IGNORECASE)
-        return min(60.0, float(m.group(1)) + 1) if m else min(60.0, 10.0 * (attempt + 1))
+        wait = float(m.group(1)) + 1 if m else 10.0 * (attempt + 1)
+        return wait if wait <= MAX_QUOTA_WAIT else None
     if "503" in err or "UNAVAILABLE" in err or "500" in err or "INTERNAL" in err:
         return 3.0 * (attempt + 1)
     return None
 
 
 GEMINI_TRIES = 3
+MAX_QUOTA_WAIT = 45.0
+
+
+def is_quota_error(err: str) -> bool:
+    return "429" in err or "RESOURCE_EXHAUSTED" in err
 
 
 def _schema_rejected(err: str) -> bool:
@@ -401,8 +408,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         async def _gem(pr, _imgs=images):
             try:
                 return await _call_gemini(pr, _imgs, schema=TimedOut)
-            except Exception:
-                if not _imgs:
+            except Exception as e:
+                if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
                     raise
                 logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
                 return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=TimedOut)

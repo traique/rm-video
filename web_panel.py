@@ -89,7 +89,7 @@ def valid_session(token: str, now: float | None = None) -> bool:
     except ValueError:
         return False
     good = hmac.new(_session_key(), exp.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, good)
+    return hmac.compare_digest(sig.encode(), good.encode())     # so bytes: chuỗi có dấu không làm lỗi 500
 
 
 def _password_ok(pw: str) -> bool:
@@ -140,24 +140,32 @@ def _check_origin(request: web.Request):
     host = urlsplit(origin).netloc.lower()
     if host not in _allowed_hosts(request):
         logging.warning("Chặn request khác nguồn: Origin=%s Host=%s", origin, request.host)
-        raise web.HTTPForbidden(text="Request từ trang khác bị chặn (CSRF). Nếu dùng tên miền riêng, "
-                                     "đặt PUBLIC_URL trong Cài đặt.")
+        raise web.HTTPForbidden(text="Request từ trang khác bị chặn (CSRF). Nếu proxy đổi tên miền, đặt biến "
+                                     "môi trường PUBLIC_URL bằng link web của bạn rồi khởi động lại bot.")
 
 
 def _authed(request: web.Request) -> bool:
-    if not config.WEB_PASSWORD:
-        return False
-    if valid_session(request.cookies.get(SESSION_COOKIE, "")):
-        return True
-    hdr = request.headers.get("X-Auth")            # cho script/curl; header tuỳ biến không gửi được từ trang khác
-    return bool(hdr) and _password_ok(hdr)
+    """Chỉ xét cookie phiên (dùng cho /api/me công khai: không được thành chỗ dò mật khẩu)."""
+    return bool(config.WEB_PASSWORD) and valid_session(request.cookies.get(SESSION_COOKIE, ""))
 
 
 def _check(request: web.Request):
     if not config.WEB_PASSWORD:
         raise web.HTTPForbidden(text="Web panel đang khoá vì chưa đặt WEB_PASSWORD. "
                                      "Đặt biến môi trường WEB_PASSWORD rồi khởi động lại bot.")
-    if request.method not in ("GET", "HEAD") and not request.headers.get("X-Auth"):
+    hdr = request.headers.get("X-Auth")
+    if hdr is not None:
+        # cho script/curl: header tuỳ biến không gửi được từ trang khác (khỏi kiểm Origin), nhưng vẫn chịu
+        # cùng giới hạn thử mật khẩu như trang đăng nhập
+        key = _client_key(request)
+        wait = login_locked(key)
+        if wait:
+            raise web.HTTPTooManyRequests(text=f"Sai mật khẩu quá nhiều lần, thử lại sau {wait} giây.")
+        if not _password_ok(hdr):
+            record_fail(key)
+            raise web.HTTPUnauthorized(text="Sai mật khẩu")
+        return
+    if request.method not in ("GET", "HEAD"):
         _check_origin(request)
     if not _authed(request):
         raise web.HTTPUnauthorized(text="Cần đăng nhập")
@@ -327,14 +335,16 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 raise web.HTTPBadRequest(text=f"File {kind} không đúng định dạng")
             path = os.path.join(config.UPLOAD_DIR, f"up_{secrets.token_hex(16)}")
             size = 0
-            with open(path, "wb") as f:
-                while chunk := await part.read_chunk(1 << 20):
-                    size += len(chunk)
-                    if size > config.MAX_UPLOAD:
-                        f.close()
-                        os.remove(path)
-                        raise web.HTTPRequestEntityTooLarge(max_size=config.MAX_UPLOAD, actual_size=size)
-                    f.write(chunk)
+            try:
+                with open(path, "wb") as f:
+                    while chunk := await part.read_chunk(1 << 20):
+                        size += len(chunk)
+                        if size > config.MAX_UPLOAD:
+                            raise web.HTTPRequestEntityTooLarge(max_size=config.MAX_UPLOAD, actual_size=size)
+                        f.write(chunk)
+            except BaseException:          # quá cỡ, đầy đĩa, người dùng ngắt, bị huỷ: không để lại file dở tới 300MB
+                _cleanup(path)
+                raise
             return path, name
 
         try:
@@ -369,7 +379,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         except QueueFull as e:
             _cleanup(saved, music_saved)
             raise web.HTTPTooManyRequests(text=str(e)) from None
-        except Exception:
+        except BaseException:
             _cleanup(saved, music_saved)
             raise
         return web.json_response({"id": job.id, "position": pos})
@@ -405,7 +415,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             job = queue.jobs.get(int(request.match_info["id"]))
         except ValueError:
             raise web.HTTPNotFound() from None
-        if not job or not hmac.compare_digest(request.query.get("t", ""), job.dl_token):
+        if not job or not hmac.compare_digest(request.query.get("t", "").encode(), job.dl_token.encode()):
             raise web.HTTPNotFound()
         if not job.output or not os.path.exists(job.output):
             raise web.HTTPNotFound(text="Video không còn (chỉ giữ vài video gần nhất)")
@@ -420,7 +430,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         if not job or not (0 <= k < len(job.parts)):
             raise web.HTTPNotFound()
         part = job.parts[k]
-        if not hmac.compare_digest(request.query.get("t", ""), part["token"]) or not os.path.exists(part["path"]):
+        if not hmac.compare_digest(request.query.get("t", "").encode(), part["token"].encode()) \
+                or not os.path.exists(part["path"]):
             raise web.HTTPNotFound(text="Video không còn (server chỉ giữ ~700MB video gần nhất)")
         return _file_response(part["path"], f"video_{job.id}_phan{k + 1}{os.path.splitext(part['path'])[1] or '.mp4'}")
 
@@ -443,10 +454,10 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def approve(request):
         _check(request)
+        d = await request.json()                 # đọc xong body rồi mới kiểm trạng thái (không có await xen giữa)
         job = queue.jobs.get(int(request.match_info["id"]))
         if not job or job.status != "review":
             raise web.HTTPBadRequest(text="Job không ở trạng thái chờ duyệt")
-        d = await request.json()
         edits = {int(x["i"]): str(x.get("text", "")) for x in d.get("segments", []) if "i" in x}
         try:
             new = hooks["approve"](job, edits)

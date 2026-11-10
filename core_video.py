@@ -246,7 +246,8 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     if (data.get("duration") or 0) > max_duration:
         raise RuntimeError(f"Video quá dài (> {max_duration}s).")
     path = os.path.join(tmpdir, "input.mp4")
-    req = urllib.request.Request(data.get("hdplay") or data.get("play"), headers={"User-Agent": "Mozilla/5.0"})
+    media = url_guard.check_url(data.get("hdplay") or data.get("play"), any_domain=True)   # không tin link bên thứ ba
+    req = urllib.request.Request(media, headers={"User-Agent": "Mozilla/5.0"})
     size = 0
     with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
         while chunk := r.read(1 << 20):

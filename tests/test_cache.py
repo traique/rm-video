@@ -47,3 +47,23 @@ def test_separation_skips_chunks_without_speech():
 def test_speech_windows_merge_and_clip():
     w = core_video.speech_windows([(0.1, 1.0), (1.2, 2.0), (5.0, 6.0), (9.8, 12.0)], 10.0)
     assert w == [(0.0, 2.3), (4.7, 6.3), (9.5, 10.0)]
+
+
+def test_separation_edges_fade_next_to_skipped_chunks(monkeypatch):
+    import numpy as np
+
+    class FakeSess:
+        def get_inputs(self):
+            return [type("I", (), {"name": "x"})()]
+
+        def run(self, _, feeds):
+            x = feeds["x"]
+            return [x]                                   # "giọng" = chính tín hiệu vào
+    monkeypatch.setattr(vocal_sep, "_get_session", lambda: FakeSess())
+    gen = vocal_sep.HOP * (vocal_sep.DIM_T - 1) - vocal_sep.N_FFT
+    sr = vocal_sep.SR
+    mix = (0.3 * np.ones((2, gen * 3), np.float32))
+    voc = vocal_sep._separate(mix, windows=[(gen / sr + 1.0, gen / sr + 2.0)])     # chỉ khúc giữa có lời
+    assert np.allclose(voc[:, :gen], 0) and np.allclose(voc[:, 2 * gen:], 0)
+    assert abs(voc[0, gen]) < 0.01 and abs(voc[0, 2 * gen - 1]) < 0.01          # mép khúc giữa đã vuốt về 0
+    assert np.abs(voc[0, gen + gen // 2]) > 0.1                                    # giữa khúc vẫn tách

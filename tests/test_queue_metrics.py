@@ -166,3 +166,32 @@ def test_credit_line_in_post(monkeypatch):
     assert main.credit_line(_mk(mode="music", source_meta={})) == ""
     monkeypatch.setattr(config, "SOURCE_CREDIT", "0")
     assert main.credit_line(job) == ""
+
+
+def test_cancelled_and_failed_states_persist_across_restart(tmp_path):
+    db = str(tmp_path / "q.db")
+    q = JobQueue(db_path=db)
+    c = _mk()
+    q.put(c)
+    c.cancel = True
+    q.save(c)
+    gone = _mk(url="", local=str(tmp_path / "mat.mp4"))
+    gone.status = "queued"
+    q.save(gone)
+    q2 = JobQueue(db_path=db)
+    assert c.id not in {j.id for j in q2.restored} and q2.jobs[c.id].status == "cancelled"
+    q3 = JobQueue(db_path=db)                                  # trạng thái mới đã được lưu, không xét lại
+    assert q3.jobs[gone.id].status == "error" and q3.jobs[c.id].status == "cancelled"
+
+
+def test_old_review_job_survives_restart(tmp_path):
+    db = str(tmp_path / "q.db")
+    q = JobQueue(db_path=db)
+    old = _mk(status="review", source="tg", chat_id=9)
+    q.jobs[old.id] = old
+    q.save(old)
+    for _ in range(60):                                        # hơn 50 job mới hơn
+        j = _mk(status="done")
+        q.save(j)
+    q2 = JobQueue(db_path=db)
+    assert q2.review_job_for(9) is not None

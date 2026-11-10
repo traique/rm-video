@@ -46,7 +46,7 @@ def _ip_public(addr: str) -> bool:
     return ip.is_global and not ip.is_multicast
 
 
-def _parse(url: str):
+def _parse(url: str, any_domain: bool = False):
     url = (url or "").strip()
     try:
         parts = urlsplit(url)
@@ -67,7 +67,7 @@ def _parse(url: str):
         is_ip = False
     if is_ip:
         raise BlockedURL("Không nhận link dạng địa chỉ IP, hãy dùng link gốc của nền tảng.")
-    if not _host_allowed(host, allowed_domains()):
+    if not any_domain and not _host_allowed(host, allowed_domains()):
         raise BlockedURL("Chỉ nhận link TikTok, YouTube, Facebook, Instagram, Douyin, SoundCloud "
                          f"(«{host}» không nằm trong danh sách; thêm vào ALLOWED_DOMAINS nếu cần).")
     return url, host
@@ -81,9 +81,10 @@ def _check_addrs(host: str, addrs) -> None:
             raise BlockedURL(f"«{host}» trỏ vào địa chỉ nội bộ ({a}), đã chặn.")
 
 
-def check_url(url: str, resolve=socket.getaddrinfo) -> str:
-    """Bản đồng bộ (dùng trong thread của yt-dlp). Trả lại URL đã gọt khoảng trắng hoặc ném BlockedURL."""
-    url, host = _parse(url)
+def check_url(url: str, resolve=socket.getaddrinfo, any_domain: bool = False) -> str:
+    """Bản đồng bộ (dùng trong thread của yt-dlp). Trả lại URL đã gọt khoảng trắng hoặc ném BlockedURL.
+    any_domain=True: không xét danh sách nền tảng, chỉ chặn IP nội bộ (link CDN do dịch vụ bên thứ ba trả về)."""
+    url, host = _parse(url, any_domain)
     try:
         addrs = {ai[4][0] for ai in resolve(host, None)}
     except OSError:

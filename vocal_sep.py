@@ -20,6 +20,7 @@ MODEL_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
 MODEL_SHA256 = "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b"
 _verified: set = set()
 N_FFT, HOP, DIM_F, DIM_T = 7680, 1024, 3072, 256
+FADE = 2048                                   # mẫu vuốt ở mép khúc (46ms ở 44.1kHz)
 SR = 44100
 _session = None
 
@@ -144,6 +145,15 @@ def _separate(mix: np.ndarray, windows=None) -> np.ndarray:
         if done == 1 and dt * todo > budget:     # đo khúc đầu: quá chậm thì dừng ngay, không chờ vô ích
             raise RuntimeError(f"máy quá chậm: {dt:.0f}s/khúc x {todo} khúc > ngân sách {budget:.0f}s")
     print(f"xong {todo}/{len(starts)} khúc có lời trong {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
+    # khúc tách giọng nằm cạnh khúc bỏ qua (giọng = 0): vuốt về 0 trong ~46ms ở mép để không có tiếng "tách"
+    ramp = np.linspace(0.0, 1.0, FADE, dtype=np.float32)
+    for idx, out in enumerate(outs):
+        if not need[idx]:
+            continue
+        if idx > 0 and not need[idx - 1]:
+            out[:, :FADE] *= ramp
+        if idx + 1 < len(outs) and not need[idx + 1]:
+            out[:, -FADE:] *= ramp[::-1]
     return np.concatenate(outs, 1)[:, :n]
 
 

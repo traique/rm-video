@@ -89,18 +89,31 @@ class JobQueue:
         self.restored: list[Job] = []    # job được đưa lại vào hàng đợi lúc khởi động (để báo người dùng)
         self._load()
 
+    def _rows(self) -> list:
+        """50 job gần nhất + MỌI job còn dở (chờ/chạy/chờ duyệt) dù cũ hơn: không được bỏ rơi job nào."""
+        rows = dict(self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC LIMIT 50").fetchall())
+        try:
+            rows.update(self._db.execute(
+                "SELECT id, data FROM jobs WHERE json_extract(data, '$.status') IN ('queued', 'processing', 'review')"
+            ).fetchall())
+        except sqlite3.Error:                     # SQLite thiếu JSON1: chỉ còn 50 job gần nhất như cũ
+            pass
+        return sorted(rows.items(), reverse=True)
+
     def _load(self):
         global _ids
         max_id, again = 0, []
-        for _jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC LIMIT 50"):
+        for _jid, data in self._rows():
             try:
                 d = json.loads(data)
-                st = d.get("status")
+                st0 = st = d.get("status")
                 if st == "processing":                     # đang chạy dở lúc bot chết
                     d["attempts"] = int(d.get("attempts", 0)) + 1
                     st = "queued" if d["attempts"] < MAX_ATTEMPTS else "error"
                     if st == "error":
                         d["error"] = "Bot khởi động lại giữa chừng 2 lần ở job này, đã dừng để tránh lặp lỗi."
+                if st == "queued" and d.get("cancel"):           # đã bấm huỷ trước khi bot khởi động lại
+                    st, d["error"] = "cancelled", "Đã hủy trước khi chạy."
                 if st == "queued" and not inputs_available(d):
                     st, d["error"] = "error", "Bot khởi động lại và file tải lên không còn, hãy gửi lại."
                 d["status"] = st
@@ -112,6 +125,8 @@ class JobQueue:
                 max_id = max(max_id, job.id)
                 if st == "queued":
                     again.append(job)
+                elif st != st0:
+                    self.save(job)                # trạng thái mới (lỗi) phải vào DB, không thì lần sau lại xét lại
             except Exception:
                 continue
         _ids = itertools.count(max_id + 1)

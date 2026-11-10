@@ -139,3 +139,30 @@ def test_login_lockout(monkeypatch, tmp_path):
             r = await c.post("/api/login", json={"password": "pw-123"})    # đúng mật khẩu cũng phải chờ
             assert r.status == 429
     asyncio.run(go())
+
+
+def test_any_domain_still_blocks_private():
+    assert url_guard.check_url("https://cdn.example.net/v.mp4", resolve=_resolver("8.8.8.8"), any_domain=True)
+    with pytest.raises(url_guard.BlockedURL):
+        url_guard.check_url("https://cdn.example.net/v.mp4", resolve=_resolver("10.1.2.3"), any_domain=True)
+
+
+def test_header_auth_respects_lockout(monkeypatch, tmp_path):
+    """Review: X-Auth từng là đường dò mật khẩu không bị khoá; /api/me từng trả authed theo header."""
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            for _ in range(web_panel.FAIL_PER_IP):
+                assert (await c.get("/api/jobs", headers={"X-Auth": "sai"})).status == 401
+            assert (await c.get("/api/jobs", headers={"X-Auth": "pw-123"})).status == 429
+            me = await (await c.get("/api/me", headers={"X-Auth": "pw-123"})).json()
+            assert me["authed"] is False
+    asyncio.run(go())
+
+
+def test_non_ascii_tokens_do_not_crash(monkeypatch, tmp_path):
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            c.session.cookie_jar.update_cookies({web_panel.SESSION_COOKIE: "9999999999.é"})
+            assert (await c.get("/api/jobs")).status == 401
+            assert (await c.get("/download/1?t=é")).status == 404
+    asyncio.run(go())
