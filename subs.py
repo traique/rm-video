@@ -85,9 +85,8 @@ def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"
                 ws, we, wt = wd[0], wd[1], wd[2]
                 nxt = ln[j + 1][0] if j + 1 < len(ln) else we
                 cs = max(1, int(round((max(nxt, we) - ws) * 100)))
-                wt = wt.replace("{", "(").replace("}", ")")
+                wt = wt.replace("\\", "/").replace("{", "(").replace("}", ")")   # \N, {\...} là lệnh ASS
                 parts.append(("{%skf%d}%s" % (bs, cs, wt)) if karaoke else wt)
-            lead = max(0, int(round((ln[0][0] - start) * 100)))
             head = "{%s%sfad(60,40)}" % (pos, bs) if pos else "{%sfad(60,40)}" % bs
             f.write(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{head}" + " ".join(parts) + "\n")
     return len(lines)

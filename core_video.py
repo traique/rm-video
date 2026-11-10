@@ -11,7 +11,9 @@ import urllib.request
 import yt_dlp
 import edge_tts
 
+import align
 import config
+import metrics
 import subs as subs_mod
 import url_guard
 
@@ -252,23 +254,31 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
                 raise RuntimeError(f"Video quá {_size_limit(max_duration) // 1048576}MB.")
             f.write(chunk)
     title = data.get("title") or ""
-    return path, title, title
+    author = data.get("author") or {}
+    meta = {"uploader": author.get("unique_id") or author.get("nickname") or "", "webpage_url": url}
+    return path, title, title, meta
 
 
 def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
+    """Trả (đường dẫn, title, description, meta). meta: uploader/kênh/link gốc để ghi nguồn."""
     url = url_guard.check_url(url)
     try:
-        path, title, desc = _ytdlp_video_sync(url, tmpdir, max_duration)
+        path, title, desc, meta = _ytdlp_video_sync(url, tmpdir, max_duration)
         if _has_video(path):
-            return path, title, desc
+            metrics.record("download", "yt-dlp")
+            return path, title, desc, meta
         os.remove(path)
         reason = "TikTok chỉ trả về nhạc, giấu video"
     except RuntimeError as e:
         reason = str(e)
+    metrics.record("download", "yt-dlp", ok=False, detail=reason)
     if "tiktok.com" in url.lower():
         try:
-            return _tikwm_sync(url, tmpdir, max_duration)
+            out = _tikwm_sync(url, tmpdir, max_duration)
+            metrics.record("download", "tikwm", fallback=True)
+            return out
         except Exception as e2:
+            metrics.record("download", "tikwm", ok=False, fallback=True, detail=str(e2))
             raise RuntimeError(
                 f"Không tải được video TikTok ({reason}; dự phòng tikwm: {e2}). "
                 "Hãy tải video về máy rồi dùng ô upload file.") from None
@@ -309,11 +319,14 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
             raise RuntimeError(f"Video nặng {size / 1048576:.0f}MB, vượt giới hạn {_size_limit(max_duration) // 1048576}MB.")
         raise RuntimeError("Tải video thất bại (link riêng tư, đã xóa, hoặc nền tảng chặn). "
                            "Hãy tải video về máy rồi upload file.")
-    return path, (info.get("title") or ""), (info.get("description") or "")
+    meta = {"uploader": info.get("uploader") or info.get("channel") or "",
+            "uploader_id": info.get("uploader_id") or info.get("channel_id") or "",
+            "webpage_url": info.get("webpage_url") or url}
+    return path, (info.get("title") or ""), (info.get("description") or ""), meta
 
 
 async def download(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
-    """Trả về (đường dẫn file, title, description). Chạy trong thread vì yt-dlp blocking."""
+    """Trả về (đường dẫn file, title, description, meta). Chạy trong thread vì yt-dlp blocking."""
     return await asyncio.to_thread(_download_sync, url, tmpdir, max_duration)
 
 
@@ -368,16 +381,21 @@ async def tts(text: str, mp3_path: str, voice: str, ass_path: str | None = None,
         try:
             import tts_capcut
             words = await tts_capcut.speak(text, voice, mp3_path, want_words=bool(ass_path))
+            metrics.record("tts", "capcut")
             if ass_path and words:
                 subs_mod.write_ass(words, ass_path, pos_y, config.SUB_STYLE)
                 return True
             return False
         except Exception as e:
+            metrics.record("tts", "capcut", ok=False, detail=str(e))
             logging.warning("Giọng CapCut lỗi (%s), chuyển sang edge-tts", str(e)[:150])
     return await _tts_edge(text, mp3_path, _edge_fallback_voice(voice), ass_path, pos_y)
 
 
-async def _edge_words(text: str, mp3_path: str, voice: str) -> list:
+EDGE_TRIES = 3
+
+
+async def _edge_once(text: str, mp3_path: str, voice: str) -> list:
     com = edge_tts.Communicate(text, voice, rate=config.TTS_RATE, pitch=config.TTS_PITCH,
                                boundary="WordBoundary")
     words = []
@@ -389,6 +407,22 @@ async def _edge_words(text: str, mp3_path: str, voice: str) -> list:
                 start = chunk["offset"] / 1e7
                 words.append((start, start + chunk["duration"] / 1e7, chunk["text"]))
     return words
+
+
+async def _edge_words(text: str, mp3_path: str, voice: str, fallback: bool = False) -> list:
+    """edge-tts có lỗi NoAudioReceived chập chờn (edge-tts 7.3.x, 10/2026): thử lại tối đa 3 lần."""
+    for attempt in range(EDGE_TRIES):
+        try:
+            words = await _edge_once(text, mp3_path, voice)
+            metrics.record("tts", "edge", fallback=fallback)
+            return words
+        except Exception as e:
+            if attempt == EDGE_TRIES - 1:
+                metrics.record("tts", "edge", ok=False, fallback=fallback, detail=str(e))
+                raise
+            logging.warning("edge-tts lỗi (%s), thử lại", str(e)[:80])
+            await asyncio.sleep(1.5 * (attempt + 1))
+    return []
 
 
 async def _tts_edge(text: str, mp3_path: str, voice: str, ass_path: str | None,
@@ -403,15 +437,18 @@ async def _tts_edge(text: str, mp3_path: str, voice: str, ass_path: str | None,
 # ---------- Giọng khớp mốc thời gian: đọc từng đoạn, đặt đúng chỗ ----------
 
 async def synth_clip(text: str, voice: str, path: str):
-    """TTS 1 đoạn. Trả về list mốc từ (edge) hoặc None (CapCut: lấy mốc sau bằng STT trên track ghép)."""
-    if config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES:
+    """TTS 1 đoạn. Trả về list mốc từ (edge) hoặc None (CapCut: không có mốc từ, phụ đề rải theo âm tiết)."""
+    capcut = config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES
+    if capcut:
         try:
             import tts_capcut
             await tts_capcut.speak(text, voice, path, want_words=False)
+            metrics.record("tts", "capcut")
             return None
         except Exception as e:
+            metrics.record("tts", "capcut", ok=False, detail=str(e))
             logging.warning("CapCut lỗi đoạn (%s), dùng edge-tts", str(e)[:100])
-    return await _edge_words(text, path, _edge_fallback_voice(voice))
+    return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut)
 
 
 def plan_voice(durs: list, segs: list, total_dur: float):
@@ -458,38 +495,24 @@ async def compose_voice(clips: list, plan: list, out_wav: str, total_dur: float)
 
 
 def _map_script(script: str, timed: list, s: float, e: float, clip: int) -> list:
-    """Gán CHỮ của kịch bản (đúng chính tả, dấu câu) lên THỜI GIAN đo được.
-    Số từ khớp -> dùng mốc từng từ; lệch -> rải theo độ dài âm tiết trong khoảng giọng thực tế."""
-    words = script.split()
-    if not words:
-        return []
-    if len(timed) == len(words):
-        return [(a, b, w, clip) for (a, b, _), w in zip(timed, words)]
-    a0 = timed[0][0] if timed else s
-    a1 = timed[-1][1] if timed else e
-    if a1 - a0 < 0.3:
-        a0, a1 = s, e
-    weight = [len(w) + (2.5 if w.endswith((",", ".", "!", "?")) else 0) + 1 for w in words]
-    tot, t, out = sum(weight), a0, []
-    for w, k in zip(words, weight):
-        d = (a1 - a0) * k / tot
-        out.append((t, t + d * 0.92, w, clip))
-        t += d
-    return out
+    """Chữ kịch bản + mốc đo được của MỘT đoạn giọng -> [(start, end, word, clip)] (xem align.map_script)."""
+    return [(a, b, w, clip) for a, b, w in align.map_script(script, timed, s, e)]
 
 
 async def words_for_track(clips: list, plan: list, track_path: str, texts: list) -> list:
     """Mốc từng từ cho phụ đề, chữ luôn lấy nguyên văn kịch bản (texts[i] của đoạn i).
-    edge-tts: mốc chính xác từng đoạn; CapCut: nghe lại track 1 lần để lấy mốc."""
+    Đoạn đọc bằng edge-tts có mốc từng từ thật. Đoạn CapCut (không có mốc): mặc định rải chữ theo âm tiết
+    trong chính đoạn đó (1-4 giây nên đủ khớp, không tốn thêm lượt mạng); SUB_TIMING=stt thì nghe lại
+    cả track bằng STT CapCut như bản cũ."""
     per_clip = [[] for _ in clips]
-    if all(cl.get("words") is not None for cl in clips):
-        for i, (cl, p) in enumerate(zip(clips, plan)):
-            per_clip[i] = [(p["start"] + a / p["factor"], p["start"] + b / p["factor"], w)
-                           for a, b, w in cl["words"]]
-    else:
+    for i, (cl, p) in enumerate(zip(clips, plan)):
+        if cl.get("words"):
+            per_clip[i] = [(p["start"] + a / p["factor"], p["start"] + b / p["factor"], w) for a, b, w in cl["words"]]
+    missing = {i for i, cl in enumerate(clips) if cl.get("words") is None}
+    if missing and config.SUB_TIMING == "stt":
         try:
             import tts_capcut
-            heard = await asyncio.to_thread(tts_capcut._words_sync, track_path)
+            heard = await asyncio.to_thread(tts_capcut.stt_words, track_path)
         except Exception as ex:
             logging.warning("Không nghe lại được track, rải phụ đề theo âm tiết: %s", str(ex)[:100])
             heard = []
@@ -497,7 +520,8 @@ async def words_for_track(clips: list, plan: list, track_path: str, texts: list)
             mid = (a + b) / 2
             for i, p in enumerate(plan):
                 if p["start"] - 0.15 <= mid <= p["end"] + 0.15:
-                    per_clip[i].append((a, b, w))
+                    if i in missing:
+                        per_clip[i].append((a, b, w))
                     break
     out = []
     for i, p in enumerate(plan):
@@ -685,39 +709,36 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     return v + a
 
 
-TARGET_LUFS = -14.0
-
-
-async def measure_lufs(path: str) -> float | None:
-    """Độ lớn tích hợp (LUFS) của phần tiếng; kết quả ebur128 nằm ở stderr."""
-    import re as _re
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-hide_banner", "-nostats", "-i", path, "-vn", "-af", "ebur128=framelog=quiet", "-f", "null", "-",
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-    RUNNING.add(proc)
+def cgroup_cpus() -> float:
+    """Số lõi CPU container thật sự được dùng (cgroup v2 cpu.max / v1 cfs_quota), không phải lõi máy chủ."""
     try:
-        _, err = await proc.communicate()
-    finally:
-        RUNNING.discard(proc)
-    m = _re.findall(r"I:\s+(-?[0-9.]+) LUFS", err.decode(errors="ignore"))
-    return float(m[-1]) if m else None
-
-
-async def fix_loudness(path: str, tol: float = 0.5):
-    """loudnorm một lượt thường lệch ~1 dB (đo được -12.9 thay vì -14). Đo lại phần tiếng (vài giây),
-    lệch quá tol thì chỉnh gain + limiter; hình copy nguyên, không mã hóa lại."""
+        q, per = open("/sys/fs/cgroup/cpu.max").read().split()[:2]
+        if q != "max":
+            return max(0.1, int(q) / int(per))
+    except (OSError, ValueError):
+        pass
     try:
-        i = await measure_lufs(path)
-        if i is None or i < -60 or abs(i - TARGET_LUFS) <= tol:
-            return
-        tmp = path + ".lufs.mp4"
-        await _run_ffmpeg("-y", "-v", "error", "-i", path, "-map", "0", "-c:v", "copy",
-                          "-af", f"volume={TARGET_LUFS - i:.2f}dB,alimiter=limit=0.89:level=false",
-                          "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", tmp)
-        os.replace(tmp, path)
-        logging.info("Chỉnh âm lượng %.1f -> %.1f LUFS", i, TARGET_LUFS)
-    except Exception as e:
-        logging.warning("Không chỉnh được âm lượng: %s", e)
+        q = int(open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read())
+        per = int(open("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read())
+        if q > 0:
+            return max(0.1, q / per)
+    except (OSError, ValueError):
+        pass
+    return float(os.cpu_count() or 1)
+
+
+def ffmpeg_threads() -> int:
+    """FFMPEG_THREADS > 0 thì dùng đúng số đó; 0 = theo số lõi container, làm tròn lên (1.5 vCPU -> 2), tối đa 8.
+    Trước đây viết cứng -threads 1: sang máy nhiều lõi vẫn chạy một lõi."""
+    if config.FFMPEG_THREADS > 0:
+        return config.FFMPEG_THREADS
+    return max(1, min(8, math.ceil(cgroup_cpus() - 0.01)))
+
+
+def thread_args() -> list:
+    """Đặt TRƯỚC -i: số luồng bộ lọc (toàn cục) + luồng giải mã đầu vào chính."""
+    n = str(ffmpeg_threads())
+    return ["-filter_complex_threads", n, "-threads", n]
 
 
 def encode_args(H: int, fps: float = 30.0) -> list:
@@ -730,7 +751,10 @@ def encode_args(H: int, fps: float = 30.0) -> list:
         maxrate, buf = {"fast": ("5000k", "8000k"), "high": ("12000k", "20000k")}.get(q, ("9000k", "14000k"))
     else:
         maxrate, buf = {"fast": ("2500k", "4000k"), "high": ("6000k", "10000k")}.get(q, ("4500k", "7000k"))
-    return ["-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-maxrate", maxrate, "-bufsize", buf,
+    # -threads ở đây là luồng của bộ mã hoá x264 (tuỳ chọn đầu ra); để mặc định x264 tự lấy theo số lõi MÁY CHỦ
+    # (container 1.5 vCPU vẫn thấy hàng chục lõi -> tốn RAM lookahead, tranh CPU)
+    return ["-threads", str(ffmpeg_threads()),
+            "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-maxrate", maxrate, "-bufsize", buf,
             "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-g", str(round(2 * fps)), "-keyint_min", str(round(2 * fps)),
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"]
@@ -767,15 +791,6 @@ async def source_info(path: str) -> tuple:
         return int(d.get("width", 0)), int(d.get("height", 0)), fps
     except ValueError:
         return 0, 0, fps
-
-
-async def source_height(path: str) -> int:
-    out = await _run_ffmpeg("-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height",
-                            "-of", "csv=p=0", path, tool="ffprobe")
-    try:
-        return int(out.strip().split()[0])
-    except Exception:
-        return 0
 
 
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
@@ -843,7 +858,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
     await _run_ffmpeg(
-        "-y", "-threads", "1",
+        "-y", *thread_args(),
         "-i", input_mp4,
         "-i", voice_mp3,
         *(["-i", ambient_wav] if ambient_wav else []),
@@ -877,7 +892,7 @@ async def render_music(input_mp4: str, music_path: str, output_mp4: str,
          "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
          f"setpts=PTS/{speed:.4f},fps=30,hqdn3d=1.2:1.2:3:3,eq=contrast=1.05:brightness=0.012:saturation=1.04,vibrance=intensity=0.12,cas=strength=0.5[v];")
     await _run_ffmpeg(
-        "-y", "-threads", "1",
+        "-y", *thread_args(),
         "-i", input_mp4,
         "-ss", f"{trim:.3f}", "-i", music_path,
         "-filter_complex", v + a,

@@ -148,7 +148,7 @@ async def run():
     assert p2["script"].startswith("văn bản trần")
     print("OK parse_pack")
 
-    q = JobQueue()
+    q = JobQueue(db_path=os.path.join(tempfile.mkdtemp(), "q.db"))
     for i in range(config.MAX_QUEUE):
         assert q.put(Job(url="u", mode="cook", duration=0, voice="v")) == i + 1
     try:

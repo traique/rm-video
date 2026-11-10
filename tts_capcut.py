@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 
+import align
 from capcut_tts_api import CapCutClient
 
 DEFAULT_FEMALE = "multi_female_yangguangnv_uranus_bigtts"   # "Ban Mai"
@@ -21,25 +22,30 @@ def list_voices() -> list[dict]:
         return []
 
 
-def _words_sync(audio_path: str) -> list:
-    """Mốc từng từ (STT CapCut) của một file giọng bất kỳ."""
-    c = CapCutClient(timeout=60)
-    stt = c.transcribe_file(audio_path, language="vi-VN", timeout=180)
-    task = (stt.get("data", {}).get("tasks") or [{}])[0]
+def parse_stt(stt: dict) -> list:
+    """Kết quả STT CapCut -> [(start_s, end_s, text)]: mốc từng từ; câu nào không có mốc từ thì lấy cả câu.
+    (Trước đây đoạn đọc kết quả này bị chép ở 3 nơi.)"""
+    task = ((stt or {}).get("data", {}).get("tasks") or [{}])[0]
     payload = task.get("payload") or "{}"
     if isinstance(payload, str):
         payload = json.loads(payload)
-    words = []
+    units = []
     for utt in payload.get("utterances", []):
-        for w in utt.get("words", []):
-            tx = (w.get("text") or "").strip()
-            if tx:
-                words.append((w["start_time"] / 1000.0, w["end_time"] / 1000.0, tx))
-    return words
+        ws = utt.get("words") or []
+        if ws:
+            for w in ws:
+                tx = (w.get("text") or "").strip()
+                if tx:
+                    units.append((w["start_time"] / 1000.0, w["end_time"] / 1000.0, tx))
+        elif (utt.get("text") or "").strip():
+            units.append((utt["start_time"] / 1000.0, utt["end_time"] / 1000.0, utt["text"].strip()))
+    return units
 
 
-async def words_of(audio_path: str, script: str) -> list:
-    return _align(script, await asyncio.to_thread(_words_sync, audio_path))
+def stt_words(audio_path: str, client: CapCutClient | None = None) -> list:
+    """Mốc từng từ (STT CapCut, không cần key) của một file âm thanh bất kỳ. Hàm đồng bộ: gọi qua to_thread."""
+    c = client or CapCutClient(timeout=60)
+    return parse_stt(c.transcribe_file(audio_path, language="vi-VN", timeout=180))
 
 
 def _speak_sync(text: str, voice: str, mp3_path: str, want_words: bool):
@@ -48,30 +54,10 @@ def _speak_sync(text: str, voice: str, mp3_path: str, want_words: bool):
     c.download_tts_audio(result, mp3_path)
     if not want_words:
         return []
-    stt = c.transcribe_file(mp3_path, language="vi-VN", timeout=180)
-    task = (stt.get("data", {}).get("tasks") or [{}])[0]
-    payload = task.get("payload") or "{}"
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-    words = []
-    for utt in payload.get("utterances", []):
-        for w in utt.get("words", []):
-            t = (w.get("text") or "").strip()
-            if t:
-                words.append((w["start_time"] / 1000.0, w["end_time"] / 1000.0, t))
-    return _align(text, words)
-
-
-def _align(script: str, stt_words: list) -> list:
-    """Dùng chữ của kịch bản (đúng hoa/thường, dấu câu) với mốc thời gian của STT khi số từ khớp;
-    lệch thì dùng luôn chữ STT để phụ đề không bị trượt."""
-    sw = script.split()
-    if stt_words and len(sw) == len(stt_words):
-        return [(s, e, w) for (s, e, _), w in zip(stt_words, sw)]
-    if stt_words and abs(len(sw) - len(stt_words)) <= 2:
-        n = min(len(sw), len(stt_words))
-        return [(stt_words[i][0], stt_words[i][1], sw[i]) for i in range(n)]
-    return stt_words
+    words = stt_words(mp3_path, c)
+    if not words:
+        return []
+    return align.map_script(text, words, words[0][0], words[-1][1])
 
 
 async def speak(text: str, voice: str, mp3_path: str, want_words: bool) -> list:

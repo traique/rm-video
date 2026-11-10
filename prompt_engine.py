@@ -11,6 +11,7 @@ import aiohttp
 
 import config
 import ingredients
+import metrics
 
 try:
     from google import genai
@@ -261,11 +262,15 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
         providers.append(("Gemini", _call_gemini))
     if config.OPENROUTER_API_KEY:
         providers.append(("OpenRouter", _call_openrouter))
-    for name, call in providers:
+    for k, (name, call) in enumerate(providers):
         try:
-            return parse_pack(await call(prompt), title)
-        except Exception:
+            pack = parse_pack(await call(prompt), title)
+            metrics.record("llm", name.lower(), fallback=k > 0)
+            return pack
+        except Exception as e:
+            metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
             logging.exception("Provider %s lỗi, thử provider kế tiếp", name)
+    metrics.record("llm", "template", fallback=True)
     return _fallback(title, mode)
 
 
@@ -379,10 +384,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 out.append(k)
         return out
 
-    for name, call in providers:
+    orig_all = " ".join(s[4] for s in slots)
+    for pk, (name, call) in enumerate(providers):
         try:
             d, got = _parse(await call(prompt))
-            orig_all = " ".join(s[4] for s in slots)
 
             def _score(g):
                 """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi)"""
@@ -444,11 +449,13 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
             script = " ".join(x["text"] for x in out)
             fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
+            metrics.record("llm", name.lower(), fallback=pk > 0)
             return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
                     "title": (d.get("title") or title or script[:80]).strip(),
                     "caption": (d.get("caption") or script).strip(),
                     "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
-        except Exception:
+        except Exception as e:
+            metrics.record("llm", name.lower(), ok=False, fallback=pk > 0, detail=str(e))
             logging.exception("generate_timed: provider %s lỗi", name)
     return None
 

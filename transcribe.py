@@ -10,6 +10,7 @@ import os
 import aiohttp
 
 import config
+import metrics
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
@@ -26,9 +27,12 @@ async def _groq(audio_path: str):
             async with s.post(GROQ_URL, headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
                               data=form, timeout=aiohttp.ClientTimeout(total=120)) as r:
                 if r.status != 200:
-                    logging.warning("Groq Whisper %s: %s", r.status, (await r.text())[:200])
+                    body = (await r.text())[:200]
+                    logging.warning("Groq Whisper %s: %s", r.status, body)
+                    metrics.record("asr", "groq", ok=False, detail=f"{r.status} {body}")
                     return "", []
                 d = await r.json()
+        metrics.record("asr", "groq")
         units = [(float(x["start"]), float(x["end"]), (x.get("word") or "").strip())
                  for x in d.get("words", []) if (x.get("word") or "").strip()]
         if not units:   # không có mốc từ -> dùng segment của Whisper
@@ -40,23 +44,8 @@ async def _groq(audio_path: str):
 
 
 def _capcut_sync(audio_path: str):
-    from capcut_tts_api import CapCutClient
-    c = CapCutClient(timeout=60)
-    stt = c.transcribe_file(audio_path, language="vi-VN", timeout=180)
-    task = (stt.get("data", {}).get("tasks") or [{}])[0]
-    payload = task.get("payload") or "{}"
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-    units = []
-    for u in payload.get("utterances", []):
-        ws = u.get("words") or []
-        if ws:
-            for w in ws:
-                tx = (w.get("text") or "").strip()
-                if tx:
-                    units.append((w["start_time"] / 1000.0, w["end_time"] / 1000.0, tx))
-        elif (u.get("text") or "").strip():
-            units.append((u["start_time"] / 1000.0, u["end_time"] / 1000.0, u["text"].strip()))
+    import tts_capcut
+    units = tts_capcut.stt_words(audio_path)
     return " ".join(x[2] for x in units), chunk_units(units)
 
 
@@ -124,14 +113,21 @@ async def transcribe_segments(audio_path: str):
 
 
 async def _transcribe_uncached(audio_path: str):
-    try:
-        if config.GROQ_API_KEY:
+    """Groq Whisper (có key) -> STT CapCut (không cần key). Video không lời thì trả ("", [])."""
+    if config.GROQ_API_KEY:
+        try:
             text, segs = await _groq(audio_path)
             if text:
                 return text, segs
-        if config.TTS_PROVIDER == "capcut":
-            return await asyncio.to_thread(_capcut_sync, audio_path)
-    except Exception:
+        except Exception as e:
+            metrics.record("asr", "groq", ok=False, detail=str(e))
+            logging.exception("Groq Whisper lỗi, thử STT CapCut")
+    try:
+        text, segs = await asyncio.to_thread(_capcut_sync, audio_path)
+        metrics.record("asr", "capcut", fallback=bool(config.GROQ_API_KEY))
+        return text, segs
+    except Exception as e:
+        metrics.record("asr", "capcut", ok=False, detail=str(e))
         logging.exception("Bóc lời thoại lỗi, bỏ qua transcript")
     return "", []
 

@@ -88,7 +88,7 @@ def _client(monkeypatch, tmp_path, password):
     monkeypatch.setattr(config, "WEB_PASSWORD", password)
     monkeypatch.setattr(web_panel, "_KEY_FILE", str(tmp_path / "key"))
     monkeypatch.setattr(web_panel, "_fails", {})
-    app = web_panel.build_app(JobQueue(), {"cancel": lambda i: "ok", "speed": lambda m: 6.0})
+    app = web_panel.build_app(JobQueue(db_path=str(tmp_path / "q.db")), {"cancel": lambda i: "ok", "speed": lambda m: 6.0})
     return TestClient(TestServer(app))
 
 

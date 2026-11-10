@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -34,7 +35,7 @@ class Job:
     source: str = "tg"        # "tg" | "web"
     chat_id: int = 0
     id: int = field(default_factory=lambda: next(_ids))
-    status: str = "queued"    # queued | processing | done | error
+    status: str = "queued"    # queued | processing | review | approved | done | error | cancelled
     step: str = ""
     error: str = ""
     script: str = ""
@@ -51,39 +52,74 @@ class Job:
     finished_at: float = 0.0
     out_dur: float = 0.0      # thời lượng video đang làm (để ước tính thời gian)
     timeline: list = field(default_factory=list)  # [(bước, thời điểm)] đo thời gian từng bước
+    attempts: int = 0         # số lần đã chạy (bot khởi động lại giữa chừng thì chạy lại, tối đa MAX_ATTEMPTS)
+    source_meta: dict = field(default_factory=dict)   # kênh/uploader/link gốc để ghi nguồn + xử lý khiếu nại
     cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
 
 
 DB_PATH = os.environ.get("JOBS_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")
+MAX_ATTEMPTS = 2            # job đang chạy lúc bot chết: chạy lại 1 lần (lần nữa thì báo lỗi, tránh vòng lặp chết)
+KEEP_IN_MEMORY = 30         # số job đã XONG giữ trong bộ nhớ cho web; job đang chờ/chạy/chờ duyệt luôn được giữ
+ACTIVE = ("queued", "processing", "review")
+REVIEW_TTL = 24 * 3600      # job chờ duyệt quá 24 giờ thì hết hạn, xoá file nguồn giữ lại
+
+
+def inputs_available(d: dict) -> bool:
+    """Job còn đủ đầu vào để chạy lại không (link, file Telegram, hoặc file tải lên còn trên đĩa)."""
+    if d.get("local"):
+        return os.path.exists(d["local"])
+    return bool(d.get("url") or d.get("tg_file_id"))
 
 
 class JobQueue:
     """Hàng đợi tuần tự: 1 worker duy nhất, không bao giờ render 2 video cùng lúc.
-    Lịch sử job lưu SQLite (jobs.db) nên sống qua restart Botkeep."""
+    Lịch sử job lưu SQLite (jobs.db) nên sống qua restart: job đang chờ được chạy tiếp, job đang chạy dở
+    được chạy lại một lần, job chờ duyệt vẫn duyệt được. Bảng steps ghi thời gian từng bước của mỗi job."""
 
-    def __init__(self):
+    def __init__(self, db_path: str | None = None):
         self._q = asyncio.Queue()
         self.jobs: dict[int, Job] = {}   # lịch sử job cho web panel
         self.pending = 0                 # số job đang chờ + đang chạy
-        self._db = sqlite3.connect(DB_PATH)
+        self._db = sqlite3.connect(db_path or DB_PATH)
         self._db.execute("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS steps (job_id INTEGER, step TEXT, start REAL, end REAL)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS sources (job_id INTEGER, created REAL, source_url TEXT, "
+                         "uploader TEXT, output TEXT, label TEXT)")
+        self._db.commit()
+        self.restored: list[Job] = []    # job được đưa lại vào hàng đợi lúc khởi động (để báo người dùng)
         self._load()
 
     def _load(self):
         global _ids
-        max_id = 0
-        for jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC LIMIT 50"):
+        max_id, again = 0, []
+        for _jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC LIMIT 50"):
             try:
                 d = json.loads(data)
-                if d.get("status") in ("queued", "processing"):   # đang làm dở lúc restart
-                    d["status"], d["error"] = "error", "Botkeep khởi động lại giữa chừng, hãy gửi lại."
+                st = d.get("status")
+                if st == "processing":                     # đang chạy dở lúc bot chết
+                    d["attempts"] = int(d.get("attempts", 0)) + 1
+                    st = "queued" if d["attempts"] < MAX_ATTEMPTS else "error"
+                    if st == "error":
+                        d["error"] = "Bot khởi động lại giữa chừng 2 lần ở job này, đã dừng để tránh lặp lỗi."
+                if st == "queued" and not inputs_available(d):
+                    st, d["error"] = "error", "Bot khởi động lại và file tải lên không còn, hãy gửi lại."
+                d["status"] = st
+                if st == "queued":
+                    d["step"] = "Chạy tiếp sau khi bot khởi động lại"
                 d["parts"] = [p for p in d.get("parts", []) if os.path.exists(p.get("path", ""))]
                 job = Job(**{k: v for k, v in d.items() if k in Job.__dataclass_fields__})
                 self.jobs[job.id] = job
                 max_id = max(max_id, job.id)
+                if st == "queued":
+                    again.append(job)
             except Exception:
                 continue
         _ids = itertools.count(max_id + 1)
+        for job in sorted(again, key=lambda j: j.id):
+            self.pending += 1
+            self._q.put_nowait(job)
+            self.save(job)
+        self.restored = again
 
     def save(self, job: Job):
         try:
@@ -91,7 +127,14 @@ class JobQueue:
                              (job.id, json.dumps(asdict(job), ensure_ascii=False)))
             self._db.commit()
         except Exception:
-            pass
+            logging.exception("Không lưu được job %s", job.id)
+
+    def _evict(self):
+        """Giữ KEEP_IN_MEMORY job đã xong gần nhất; KHÔNG bao giờ bỏ job đang chờ/chạy/chờ duyệt
+        (trước đây job chờ duyệt bị đẩy khỏi bộ nhớ sau 30 job mới là không duyệt được nữa)."""
+        done = sorted(j for j, job in self.jobs.items() if job.status not in ACTIVE)
+        for old in done[:-KEEP_IN_MEMORY]:
+            self.jobs.pop(old, None)
 
     def put(self, job: Job, force: bool = False) -> int:
         """force=True: job đã duyệt kịch bản được vượt giới hạn hàng đợi (người dùng đã chờ, không được mất)."""
@@ -99,8 +142,7 @@ class JobQueue:
             raise QueueFull(f"Hàng đợi đã đầy ({config.MAX_QUEUE} video), thử lại sau.")
         self.pending += 1
         self.jobs[job.id] = job
-        for old in sorted(self.jobs)[:-30]:   # giữ 30 job gần nhất trong bộ nhớ
-            self.jobs.pop(old, None)
+        self._evict()
         self._q.put_nowait(job)
         self.save(job)
         return self.pending
@@ -111,3 +153,46 @@ class JobQueue:
     def done(self):
         self.pending -= 1
         self._q.task_done()
+
+    def review_job_for(self, chat_id: int) -> Job | None:
+        """Job Telegram mới nhất của chat đang chờ duyệt (lưu trong jobs nên sống qua restart)."""
+        js = [j for j in self.jobs.values() if j.status == "review" and j.source == "tg" and j.chat_id == chat_id]
+        return max(js, key=lambda j: j.id) if js else None
+
+    def expire_reviews(self, now: float | None = None) -> list:
+        """Job chờ duyệt quá REVIEW_TTL: hết hạn, xoá file nguồn đang giữ. Trả về các job vừa hết hạn."""
+        now = now or time.time()
+        out = []
+        for job in list(self.jobs.values()):
+            if job.status == "review" and now - (job.finished_at or job.created) > REVIEW_TTL:
+                job.status, job.step = "error", ""
+                job.error = "Hết hạn duyệt kịch bản (24 giờ), hãy gửi lại video."
+                if job.local and os.path.exists(job.local):
+                    os.remove(job.local)
+                self.save(job)
+                out.append(job)
+        return out
+
+    def log_steps(self, job: Job):
+        """timeline [(bước, giây từ lúc bắt đầu)] -> bảng steps (bước, bắt đầu, kết thúc)."""
+        tl = [(s, float(t)) for s, t in job.timeline if s]
+        if not tl:
+            return
+        ends = [t for _, t in tl[1:]] + [max(tl[-1][1], (job.finished_at or time.time()) - (job.started_at or 0))]
+        try:
+            self._db.executemany("INSERT INTO steps (job_id, step, start, end) VALUES (?, ?, ?, ?)",
+                                 [(job.id, s, t, e) for (s, t), e in zip(tl, ends)])
+            self._db.commit()
+        except Exception:
+            logging.exception("Không ghi được bảng steps")
+
+    def log_source(self, job: Job, output: str, label: str):
+        """Nhật ký link nguồn <-> video ra, để xử lý khiếu nại bản quyền."""
+        meta = job.source_meta or {}
+        try:
+            self._db.execute("INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?)",
+                             (job.id, time.time(), meta.get("webpage_url") or job.url or job.title_hint,
+                              meta.get("uploader") or "", os.path.basename(output), label))
+            self._db.commit()
+        except Exception:
+            logging.exception("Không ghi được nhật ký nguồn")

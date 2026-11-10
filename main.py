@@ -12,8 +12,10 @@ from aiohttp import web
 
 import config
 import core_video
+import healthcheck
+import metrics
+import ytdlp_update
 import beat
-import textzone
 import scenes
 import ingredients
 import vocal_sep
@@ -37,8 +39,7 @@ bot = None
 if config.BOT_TOKEN:
     from aiogram import Bot, Dispatcher, F
     from aiogram.filters import CommandStart
-    from aiogram.types import (CallbackQuery, FSInputFile, InlineKeyboardButton,
-                               InlineKeyboardMarkup, Message)
+    from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
     from aiogram import BaseMiddleware
 
@@ -77,7 +78,6 @@ if config.BOT_TOKEN:
                 return None
         return out
     pending: dict[int, dict] = {}  # chat_id -> {"url":..., "urls": [...], "mode":...}
-    pending_review: dict[int, int] = {}   # chat_id -> job id đang chờ duyệt
 
     MODE_KB = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🍲 Nấu ăn (giữ ASMR + tăng màu)", callback_data="mode:cook")],
@@ -144,12 +144,13 @@ if config.BOT_TOKEN:
             return
         await m.answer("\n".join(cancel_job(j.id) for j in mine))
 
-    @dp.message(F.text & ~F.text.startswith("/"), lambda msg: msg.chat.id in pending_review and not re.search(r"https?://", msg.text or ""))
+    # job chờ duyệt lấy từ hàng đợi (lưu SQLite) chứ không từ bộ nhớ riêng: bot khởi động lại vẫn duyệt được
+    @dp.message(F.text & ~F.text.startswith("/"),
+                lambda msg: queue.review_job_for(msg.chat.id) is not None and not re.search(r"https?://", msg.text or ""))
     async def review_reply(m: Message):
-        jid = pending_review.pop(m.chat.id)
-        job = queue.jobs.get(jid)
-        if not job or job.status != "review":
-            await m.answer("Job đó không còn chờ duyệt.")
+        job = queue.review_job_for(m.chat.id)
+        if not job:
+            await m.answer("Không còn job nào chờ duyệt.")
             return
         edits = {}
         if m.text.strip().lower() not in ("ok", "oke", "duyệt", "render", "được"):
@@ -158,13 +159,11 @@ if config.BOT_TOKEN:
                 if mm:
                     edits[int(mm.group(1))] = mm.group(2).strip()
             if not edits:
-                pending_review[m.chat.id] = jid
                 await m.answer("Trả lời \"ok\" để render, hoặc gửi các dòng dạng \"số: lời mới\" để sửa đoạn đó.")
                 return
         try:
             new = approve_job(job, edits)
-        except Exception as e:
-            pending_review[m.chat.id] = jid          # vẫn chờ duyệt, gửi lại được
+        except Exception as e:                       # job vẫn ở trạng thái chờ duyệt, gửi lại được
             await m.answer(f"⚠️ Chưa render được: {e}")
             return
         await m.answer(f"✅ Đã duyệt ({len(edits)} đoạn sửa), đang render ở job #{new.id}.")
@@ -361,7 +360,8 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     if ext == ".mp3" and label == "Video":
         label = "MP3"
     keep = os.path.join(OUT_DIR, f"out_{job.id}_{len(job.parts)}{ext}")
-    shutil.move(path, keep)
+    await asyncio.to_thread(shutil.move, path, keep)       # /tmp -> ổ bot có thể là chép thật, không chặn vòng lặp
+    queue.log_source(job, keep, label)
     part = {"label": label, "path": keep, "token": _secrets.token_urlsafe(16)}
     job.parts.append(part)
     job.output = keep                       # tương thích: nút tải chính = file mới nhất
@@ -369,19 +369,37 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     if job.source != "tg" or not bot:
         return
     size = os.path.getsize(keep)
+    link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{len(job.parts) - 1}?t={part['token']}"
+            if config.PUBLIC_URL else "")
+    where = f"Tải tại: {link}" if link else "Mở web panel để tải (đặt PUBLIC_URL trong Cài đặt để nhận link ở đây)."
     if size <= config.TG_LIMIT:
         from aiogram.types import FSInputFile
-        if ext == ".mp3":
-            await bot.send_audio(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
-        else:
-            await bot.send_video(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
-    else:
-        link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{len(job.parts) - 1}?t={part['token']}"
-                if config.PUBLIC_URL else "")
-        await bot.send_message(job.chat_id, (
-            f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n"
-            + (f"Tải tại: {link}" if link else "Mở web panel để tải (đặt PUBLIC_URL trong Cài đặt để nhận link ở đây).")
-            + f"\n\n{caption[:800]}"))
+        try:
+            if ext == ".mp3":
+                await bot.send_audio(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
+            else:
+                await bot.send_video(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
+            return
+        except Exception as e:                  # video đã làm xong: lỗi gửi không được biến job thành lỗi
+            logging.warning("Gửi file qua Telegram lỗi: %s", e)
+            await notify(job.chat_id, f"🎬 {label} xong nhưng gửi qua Telegram lỗi ({str(e)[:80]}).\n{where}"
+                                      f"\n\n{caption[:800]}")
+            return
+    await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}"
+                              f"\n\n{caption[:800]}")
+
+
+def check_source_allowed(job: Job):
+    """ALLOWED_SOURCES (Cài đặt): chỉ remake video của các kênh đã được phép (kênh của bạn, kênh đã cấp phép).
+    Trống = không giới hạn. So khớp không phân biệt hoa thường với uploader / uploader_id."""
+    allowed = {x.strip().lstrip("@").lower() for x in config.ALLOWED_SOURCES.split(",") if x.strip()}
+    if not allowed or job.mode == "download":
+        return
+    meta = job.source_meta or {}
+    names = {str(meta.get(k) or "").lstrip("@").lower() for k in ("uploader", "uploader_id")} - {""}
+    if not names & allowed:
+        raise RuntimeError(f"Kênh nguồn «{meta.get('uploader') or '?'}» không nằm trong danh sách ALLOWED_SOURCES "
+                           "(Cài đặt). Chỉ remake video của kênh đã được phép.")
 
 
 async def process_split(job: Job, tmp: str):
@@ -394,12 +412,12 @@ async def process_split(job: Job, tmp: str):
         await bot.download(job.tg_file_id, destination=src)
         title = job.title_hint
     elif job.local:
-        src = os.path.join(tmp, "source.mp4")
-        shutil.move(job.local, src)
+        src = job.local                       # dùng file tải lên tại chỗ (không chép), worker xoá khi job xong
         title = job.title_hint
     else:
         job.step = "Tải video dài"
-        src, title, _ = await core_video.download(job.url, tmp, max_duration=config.SPLIT_MAX)
+        src, title, _, job.source_meta = await core_video.download(job.url, tmp, max_duration=config.SPLIT_MAX)
+        check_source_allowed(job)
     dur = min(await core_video.probe_duration(src), config.SPLIT_MAX)
     job.step = "Tìm điểm cắt (chỗ ngưng nói + chuyển cảnh)"
     bounds = scenes.split_points(dur, part_len, await scenes.detect_cuts(src), await core_video.silences(src))
@@ -467,12 +485,10 @@ async def process(job: Job, tmp: str):
         await bot.download(job.tg_file_id, destination=inp)
         title, desc = job.title_hint, ""
     elif job.local:
+        # dùng file tải lên tại chỗ: không chép/chuyển (trước đây chép tới 300MB ngay trong vòng lặp sự kiện),
+        # bot chết giữa chừng thì file còn nguyên để chạy lại; worker xoá file khi job xong (trừ job chờ duyệt)
         job.step = "Nhận file tải lên"
-        inp = os.path.join(tmp, "input.mp4")
-        if job.review or job.approved:      # giữ file nguồn để render sau khi duyệt
-            shutil.copy(job.local, inp)
-        else:
-            shutil.move(job.local, inp)
+        inp = job.local
         title, desc = job.title_hint, ""
     elif job.mode == "download" and job.quality:
         lbl = "MP3" if job.quality == "mp3" else (job.quality + "p" if job.quality.isdigit() else "tốt nhất")
@@ -484,11 +500,12 @@ async def process(job: Job, tmp: str):
         desc = ""
     elif job.mode == "download":
         job.step = "Tải video gốc (không logo)"
-        inp, title, desc = await core_video.download(job.url, tmp, max_duration=600)
+        inp, title, desc, job.source_meta = await core_video.download(job.url, tmp, max_duration=600)
     else:
         job.step = "Tải video (yt-dlp)"
-        inp, title, desc = await core_video.download(
+        inp, title, desc, job.source_meta = await core_video.download(
             job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION)
+        check_source_allowed(job)
 
     if job.mode == "download":
         if inp.endswith(".mp3"):
@@ -507,8 +524,7 @@ async def process(job: Job, tmp: str):
             music = os.path.join(tmp, "music.m4a")
             await bot.download(job.music_tg_file_id, destination=music)
         elif job.music_local:
-            music = os.path.join(tmp, "music_in")
-            shutil.move(job.music_local, music)
+            music = job.music_local
         elif job.music_url:
             music = await core_video.download_audio(job.music_url, tmp)
         else:
@@ -716,12 +732,6 @@ JOB_TIMEOUT = {"": 25 * 60, "full": 3 * 3600, "split60": 3 * 3600, "split90": 3 
 current: dict = {"job": None, "task": None}
 
 
-def _mark(job: Job, step: str):
-    """Ghi bước + thời điểm để đo thời gian từng bước và ước tính."""
-    job.step = step
-    job.timeline.append((step, round(time.time(), 1)))
-
-
 async def run_job(job: Job, tmp: str):
     if job.long_mode.startswith("split"):
         await process_split(job, tmp)
@@ -732,96 +742,119 @@ async def run_job(job: Job, tmp: str):
         await deliver(job, out, "Video", job.post or job.script or "")
 
 
+async def notify(chat_id: int, text: str):
+    """Gửi tin Telegram KHÔNG BAO GIỜ ném lỗi: trước đây mạng lỗi lúc báo "❌ Lỗi" làm chết luôn worker,
+    hàng đợi kẹt cho tới khi khởi động lại."""
+    if not (bot and chat_id):
+        return
+    try:
+        await bot.send_message(chat_id, text[:4000])
+    except Exception as e:
+        logging.warning("Không gửi được tin Telegram tới %s: %s", chat_id, str(e)[:120])
+
+
 async def worker():
     """Worker duy nhất (concurrency = 1). Mỗi job có timeout toàn cục và hủy được;
     hủy hoặc quá hạn thì giết mọi FFmpeg/tách giọng đang chạy, không để kẹt hàng đợi."""
     while True:
         job = await queue.get()
-        if job.cancel:
-            job.status, job.error = "cancelled", "Đã hủy trước khi chạy."
-            queue.save(job)
-            queue.done()
-            continue
-        # ước lượng chỗ cần: file nguồn x3 (nguồn + bản đang xử lý + kết quả) + 300MB cho tiếng, ảnh, phụ đề
-        src_mb = _size_mb(job.local) if job.local and os.path.exists(job.local) else 60
-        need = 300 + 3 * src_mb
-        workdir = pick_workdir(need)
-        if not workdir:
-            job.status, job.error = "error", f"Không đủ chỗ trống (cần ~{need}MB). {disk_report()}"
-            logging.error("Job %s: %s", job.id, job.error)
-            queue.save(job)
-            queue.done()
-            continue
-        job.status, job.started_at = "processing", time.time()
-        current["job"] = job
         try:
-            if job.source == "tg":
-                await bot.send_message(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
-            logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
-            with tempfile.TemporaryDirectory(dir=workdir) as tmp:
-                task = asyncio.create_task(run_job(job, tmp))
-                current["task"] = task
-
-                async def _timeline():                 # ghi lại từng bước + thời điểm để đo
-                    last = None
-                    while True:
-                        if job.step != last:
-                            last = job.step
-                            t = round(time.time() - job.started_at, 1)
-                            job.timeline.append((job.step, t))
-                            logging.info("Job %s [%4.0fs] %s", job.id, t, job.step)
-                        await asyncio.sleep(1)
-                tl = asyncio.create_task(_timeline())
-                try:
-                    while True:                       # hạn co giãn: biết độ dài video rồi thì nới ra cho đủ
-                        done, _ = await asyncio.wait({task}, timeout=5)
-                        if done:
-                            task.result()
-                            break
-                        if time.time() - job.started_at > job_budget(job):
-                            task.cancel()
-                            await asyncio.gather(task, return_exceptions=True)
-                            raise asyncio.TimeoutError
-                finally:
-                    tl.cancel()
-            if job.status == "review":
-                if job.source == "tg" and bot:
-                    pending_review[job.chat_id] = job.id
-                    lines = "\n".join(f"{s['i']}: {s['text']}" for s in job.approved)
-                    await bot.send_message(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3500]}\n\n"
-                                                         "Trả lời \"ok\" để render, hoặc gửi \"số: lời mới\" (mỗi dòng một đoạn) để sửa."))
-            else:
-                job.status, job.step = "done", ""
-        except asyncio.TimeoutError:
-            core_video.kill_running()
-            logging.error("Job %s quá hạn", job.id)
-            job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
-                                              f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
-            logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
-                          " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
-            if job.source == "tg" and bot:
-                await bot.send_message(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
-        except asyncio.CancelledError:
-            core_video.kill_running()
-            job.status, job.error = "cancelled", "Đã hủy theo yêu cầu."
-            if job.source == "tg" and bot:
-                await bot.send_message(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
-        except Exception as e:
-            core_video.kill_running()
-            logging.exception("Job %s thất bại", job.id)
-            job.status, job.error, job.step = "error", str(e), ""
-            if job.source == "tg" and bot:
-                await bot.send_message(job.chat_id, f"❌ Lỗi: {e}")
-        finally:
-            job.finished_at = time.time()
-            current["job"], current["task"] = None, None
-            if job.status != "review":            # job đang chờ duyệt giữ lại file nguồn để render sau
-                for leftover in (job.local, job.music_local):
-                    if leftover and os.path.exists(leftover):
-                        os.remove(leftover)
-            _learn_speed(job)
-            queue.save(job)
+            await _run_one(job)
+        except Exception:                        # lưới cuối: lỗi gì cũng không được giết worker
+            logging.exception("Worker lỗi ngoài dự kiến ở job %s", job.id)
+            if job.status == "processing":
+                job.status, job.error = "error", "Lỗi nội bộ, xem log."
+                queue.save(job)
             queue.done()
+
+
+async def _run_one(job: Job):
+    tg = job.source == "tg"
+    if job.cancel:
+        job.status, job.error = "cancelled", "Đã hủy trước khi chạy."
+        queue.save(job)
+        queue.done()
+        return
+    # ước lượng chỗ cần: file nguồn x3 (nguồn + bản đang xử lý + kết quả) + 300MB cho tiếng, ảnh, phụ đề
+    src_mb = _size_mb(job.local) if job.local and os.path.exists(job.local) else 60
+    need = 300 + 3 * src_mb
+    workdir = pick_workdir(need)
+    if not workdir:
+        job.status, job.error = "error", f"Không đủ chỗ trống (cần ~{need}MB). {disk_report()}"
+        logging.error("Job %s: %s", job.id, job.error)
+        queue.save(job)
+        queue.done()
+        return
+    job.status, job.started_at, job.timeline, job.error = "processing", time.time(), [], ""
+    queue.save(job)                                # trạng thái processing vào DB: chết giữa chừng thì chạy lại
+    current["job"] = job
+    try:
+        if tg:
+            await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
+        logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
+        with tempfile.TemporaryDirectory(dir=workdir) as tmp:
+            task = asyncio.create_task(run_job(job, tmp))
+            current["task"] = task
+
+            async def _timeline():                 # ghi lại từng bước + thời điểm để đo
+                last = None
+                while True:
+                    if job.step != last:
+                        last = job.step
+                        t = round(time.time() - job.started_at, 1)
+                        job.timeline.append((job.step, t))
+                        logging.info("Job %s [%4.0fs] %s", job.id, t, job.step)
+                    await asyncio.sleep(1)
+            tl = asyncio.create_task(_timeline())
+            try:
+                while True:                       # hạn co giãn: biết độ dài video rồi thì nới ra cho đủ
+                    done, _ = await asyncio.wait({task}, timeout=5)
+                    if done:
+                        task.result()
+                        break
+                    if time.time() - job.started_at > job_budget(job):
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                        raise asyncio.TimeoutError
+            finally:
+                tl.cancel()
+        if job.status == "review":
+            if tg:
+                lines = "\n".join(f"{s['i']}: {s['text']}" for s in job.approved)
+                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3500]}\n\n"
+                                           "Trả lời \"ok\" để render, hoặc gửi \"số: lời mới\" (mỗi dòng một đoạn) để sửa."))
+        else:
+            job.status, job.step = "done", ""
+    except asyncio.TimeoutError:
+        core_video.kill_running()
+        job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
+                                          f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
+        logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
+                      " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
+        if tg:
+            await notify(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
+    except asyncio.CancelledError:
+        core_video.kill_running()
+        job.status, job.error = "cancelled", "Đã hủy theo yêu cầu."
+        if tg:
+            await notify(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
+    except Exception as e:
+        core_video.kill_running()
+        logging.exception("Job %s thất bại", job.id)
+        job.status, job.error, job.step = "error", str(e), ""
+        if tg:
+            await notify(job.chat_id, f"❌ Lỗi: {e}")
+    finally:
+        job.finished_at = time.time()
+        current["job"], current["task"] = None, None
+        if job.status != "review":            # job đang chờ duyệt giữ lại file nguồn để render sau
+            for leftover in (job.local, job.music_local):
+                if leftover and os.path.exists(leftover):
+                    os.remove(leftover)
+        _learn_speed(job)
+        queue.log_steps(job)
+        queue.save(job)
+        queue.done()
 
 
 def approve_job(src: Job, edits: dict | None = None) -> Job:
@@ -897,8 +930,9 @@ def speed_ratio(long_mode: str) -> float:
         return 6.0
 
 
-CONSOLE_HELP = ("Lệnh console: help | status | setup_potoken (cài vượt chặn YouTube, ~300MB) | "
-                "remove_potoken | yt_test <link> | cancel <số job>")
+CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ ngoài ngay) | update_ytdlp (cập nhật yt-dlp, "
+                "tự quay lại bản cũ nếu hỏng) | setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | "
+                "yt_test <link> | cancel <số job>")
 
 
 async def console():
@@ -926,9 +960,15 @@ async def console():
                              disk_report(), core_video.pot_status() or "chưa cài",
                              "có" if config.YTDLP_PROXY.strip() else "không",
                              "có" if config.YTDLP_COOKIES.strip() else "không")
+                logging.info("yt-dlp %s | luồng FFmpeg %d\nDịch vụ ngoài 24 giờ qua:\n%s",
+                             ytdlp_update.installed_version(), core_video.ffmpeg_threads(), metrics.summary(24))
+            elif low in ("health", "/health"):
+                spawn(monitor.tick(force=True))
+            elif low in ("update_ytdlp", "update-ytdlp"):
+                spawn(ytdlp_update.update(lambda s: logging.info("[yt-dlp] %s", s)))
             elif "setup_potoken" in low or "setup-potoken" in low:
                 logging.info("Bắt đầu cài PO token (vài phút, bot vẫn chạy bình thường)...")
-                asyncio.create_task(potoken_setup.install(lambda s: logging.info("[potoken] %s", s)))
+                spawn(potoken_setup.install(lambda s: logging.info("[potoken] %s", s)))
             elif "remove_potoken" in low:
                 potoken_setup.remove(lambda s: logging.info("[potoken] %s", s))
             elif low.startswith("yt_test"):
@@ -949,9 +989,53 @@ async def console():
             logging.warning("Lệnh console lỗi: %s", e)
 
 
+_TASKS: set = set()
+
+
+def spawn(coro):
+    """create_task có giữ tham chiếu: task không giữ tham chiếu có thể bị gom rác giữa chừng (tài liệu asyncio)."""
+    t = asyncio.create_task(coro)
+    _TASKS.add(t)
+    t.add_done_callback(_TASKS.discard)
+    return t
+
+
+async def notify_admin(text: str):
+    cid = config.admin_chat_id()
+    if cid:
+        await notify(cid, text)
+    else:
+        logging.warning("(chưa đặt ADMIN_CHAT_ID/ALLOWED_USERS nên không gửi cảnh báo) %s", text[:200])
+
+
+monitor = healthcheck.Monitor(notify_admin)
+MAINTENANCE_EVERY = 600          # giây
+
+
+async def maintenance():
+    """Mỗi 10 phút: hết hạn job chờ duyệt quá 24 giờ, dọn số liệu cũ, kiểm tra dịch vụ ngoài theo lịch."""
+    await asyncio.sleep(60)                          # chờ bot khởi động xong
+    while True:
+        try:
+            for job in queue.expire_reviews():
+                if job.source == "tg":
+                    await notify(job.chat_id, f"⌛ Kịch bản job #{job.id} đã quá 24 giờ chưa duyệt nên hết hạn.")
+            metrics.prune()
+            await monitor.tick()
+        except Exception:
+            logging.exception("Bảo trì định kỳ lỗi")
+        await asyncio.sleep(MAINTENANCE_EVERY)
+
+
 async def main():
-    asyncio.create_task(worker())
-    asyncio.create_task(console())
+    shutil.rmtree(WORK_DIR, ignore_errors=True)        # file tạm sót lại từ lần chạy bị ngắt (TRƯỚC khi worker chạy)
+    spawn(worker())
+    spawn(console())
+    spawn(maintenance())
+    for job in queue.restored:
+        logging.info("Chạy lại job #%s sau khi khởi động lại", job.id)
+        if job.source == "tg":
+            spawn(notify(job.chat_id, f"🔄 Bot vừa khởi động lại, job #{job.id} được chạy tiếp."))
 
     app = build_app(queue, {"cancel": cancel_job, "approve": approve_job, "speed": speed_ratio})
     runner = web.AppRunner(app, access_log=None)      # không ghi log mỗi lần web polling (giảm 95% log)
@@ -961,10 +1045,12 @@ async def main():
     logging.info("BOT_TOKEN: %s | WEB_PASSWORD: %s",
                  "OK" if config.BOT_TOKEN else "THIẾU", "OK" if config.WEB_PASSWORD else "THIẾU")
     if not config.WEB_PASSWORD:
-        logging.warning("Chưa đặt WEB_PASSWORD — ai có link web cũng điều khiển được bot!")
+        logging.warning("Chưa đặt WEB_PASSWORD: web panel đang KHOÁ. Đặt biến môi trường WEB_PASSWORD để dùng.")
     logging.info(CONSOLE_HELP)
-    shutil.rmtree(WORK_DIR, ignore_errors=True)        # file tạm sót lại từ lần chạy bị ngắt
     logging.info("Dung lượng: %s", disk_report())
+    if bot and not config.allowed_ids():
+        logging.warning("Chưa đặt ALLOWED_USERS: bot Telegram từ chối mọi người. Nhắn bot để biết chat id "
+                        "của bạn rồi điền vào Cài đặt trên web.")
 
     if bot:
         await dp.start_polling(bot)  # long polling: không cần mở thêm port

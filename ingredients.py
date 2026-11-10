@@ -57,7 +57,7 @@ def _syllables(text: str) -> list:
 _CTX = {
     "thơm": ({"mùi", "rất", "thật", "nghe", "dậy", "bay", "cho", "càng", "hơi", "đã", "vừa", "sẽ", "để", "lên", "ra"},
              {"ngon", "phức", "lừng", "nức", "quá", "lắm", "ghê", "nồng", "dịu", "béo", "giòn", "ngát", "thơm", "hơn",
-              "rồi", "mùi", "nhẹ", "lắm", "đậm", "mát", "và", "nữa", "hết", "cả", "dễ", "ngất", "điếc"}),
+              "rồi", "mùi", "nhẹ", "đậm", "mát", "và", "nữa", "hết", "cả", "dễ", "ngất", "điếc"}),
     "giá": ({"mức", "cái", "đơn", "có", "tăng", "giảm", "rẻ", "hỏi", "về", "bảng", "trả", "ra"},
             {"đang", "rất", "tốt", "rẻ", "chỉ", "cả", "tiền", "bán", "là", "khoảng", "hời", "hợp", "siêu", "cực", "ưu",
              "sốc", "trị", "thành", "cao", "thấp", "mềm", "bình", "như", "nào", "bao", "mà", "có", "trên", "từ"}),

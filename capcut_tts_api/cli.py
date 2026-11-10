@@ -5,7 +5,6 @@ Command Line Interface for CapCut TTS API client.
 import argparse
 import json
 import sys
-from pathlib import Path
 
 from capcut_tts_api.client import CapCutClient
 from capcut_tts_api.action import build_tts_action, parse_provider_params
