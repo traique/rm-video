@@ -15,11 +15,13 @@ import offline
 import ytdlp_update
 from jobs import cancel_job
 from state import current, notify, notify_admin, queue, spawn
+import storage
 from storage import disk_report
 
 CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ ngoài ngay) | update_ytdlp (cập nhật yt-dlp, "
                 "tự quay lại bản cũ nếu hỏng) | setup_offline / remove_offline (gói offline ~185MB: tách giọng nhanh, "
-                "giọng Piper, dò chữ OCR) | setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | "
+                "giọng Piper, dò chữ OCR) | setup_youtube / remove_youtube (deno cho YouTube, ~100MB) | "
+                "setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | clean (dọn bộ nhớ đệm pip + cache) | "
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py)")
 
 
@@ -83,6 +85,12 @@ async def console():
                 spawn(offline.install(lambda s: logging.info("[offline] %s", s)))
             elif low in ("remove_offline", "remove-offline"):
                 offline.remove(lambda s: logging.info("[offline] %s", s))
+            elif low in ("setup_youtube", "setup-youtube"):
+                spawn(potoken_setup.install_deno(lambda s: logging.info("[youtube] %s", s)))
+            elif low in ("remove_youtube", "remove-youtube"):
+                potoken_setup.remove_deno(lambda s: logging.info("[youtube] %s", s))
+            elif low == "clean":
+                await asyncio.to_thread(storage.clean, lambda s: logging.info("[clean] %s", s))
             elif "remove_potoken" in low:
                 potoken_setup.remove(lambda s: logging.info("[potoken] %s", s))
             elif low.startswith("yt_test"):

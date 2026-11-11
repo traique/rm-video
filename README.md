@@ -5,7 +5,10 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 ## Triển khai trên Botkeep
 
 1. Upload toàn bộ thư mục này (Python Runtime **3.11 trở lên**; 3.12 khuyên dùng), lệnh chạy: `python main.py`.
-   `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (google-genai < 3, yt-dlp kèm Deno qua pip).
+   `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (~350MB). **YouTube** cần thêm bộ giải JavaScript:
+   gõ `setup_youtube` vào console (cài deno ~100MB vào `tools/`, gỡ bằng `remove_youtube`); TikTok/Facebook không cần.
+   File `.config/pip/pip.conf` tắt bộ nhớ đệm của pip (Botkeep chạy với HOME = thư mục bot, nên bộ nhớ đệm ~150–250MB
+   tính vào ổ 2GB).
 2. Biến môi trường **bắt buộc cho bảo mật**:
    - `WEB_PASSWORD` — **bắt buộc**. Thiếu thì web panel KHOÁ mọi chức năng (link web Botkeep là công khai).
    - `BOT_TOKEN` — token @BotFather (bỏ trống = chạy chỉ-web).
@@ -24,6 +27,18 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
    - `FFMPEG_THREADS` (0 = theo số lõi container), `CACHE_MAX_MB` (mặc định 500), `HEALTH_CHECK_HOURS` (mặc định 6, 0 = tắt)
    - `PORT` — Botkeep thường tự cấp; mặc định 8080
 4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần).
+
+### Lỗi `No space left on device` khi cài thư viện
+
+Ổ Botkeep 2GB đầy nên pip không cài được và bot không khởi động (lệnh console chưa dùng được). Dọn bằng **File
+Manager** của Botkeep, theo thứ tự (an toàn trước):
+1. `.cache/` — bộ nhớ đệm pip, xoá thoải mái (thường 150–300MB).
+2. `cache/`, `work/` — tạo lại được.
+3. `outputs/` — video kết quả cũ (tải về trước nếu cần).
+4. Gói tuỳ chọn không dùng tới: `models/` (gói offline ~185MB, cài lại bằng `setup_offline`), `tools/` (Node + PO token
+   ~300MB và deno ~100MB, cài lại bằng `setup_potoken` / `setup_youtube`), `potoken/`.
+Đừng xoá `jobs.db`, `settings.json`, `.session_key`, `assets/logo.png`. Bot chạy lại được thì gõ `status` xem thư mục
+nào chiếm chỗ, `clean` để xoá bộ nhớ đệm pip + cache; lúc khởi động bot tự cảnh báo khi ổ còn < 400MB.
 
 ## Gói offline (tuỳ chọn)
 

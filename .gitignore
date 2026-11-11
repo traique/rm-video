@@ -23,3 +23,5 @@ golden/results/
 golden/baseline.json
 golden/report.md
 golden/.golden_jobs.db
+.cache/
+.local/

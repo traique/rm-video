@@ -11,7 +11,7 @@ from importlib import metadata
 
 import potoken_setup
 
-SPEC = "yt-dlp[default,deno,curl-cffi]"
+SPEC = "yt-dlp[default,curl-cffi]"          # deno cài riêng bằng setup_youtube (xem requirements.txt)
 TEST_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
 _PROBE = ("import sys, yt_dlp; y = yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'skip_download': True, "
           "'allowed_extractors': ['default', '-generic']}); "

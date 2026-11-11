@@ -38,11 +38,47 @@ def node_bin_dir() -> str:
     return d if os.path.exists(os.path.join(d, "node")) else ""
 
 
+DENO_DIR = os.path.join(TOOLS, "deno")
+DENO_SPEC = "deno>=2.9,<3"
+
+
+def deno_bin_dir() -> str:
+    d = os.path.join(DENO_DIR, "bin")
+    return d if os.path.exists(os.path.join(d, "deno")) else ""
+
+
+def js_runtime() -> str:
+    """Bộ chạy JavaScript cho yt-dlp giải mã YouTube (deno trong tools/ hoặc có sẵn trên máy); "" = chưa có."""
+    return shutil.which("deno") or ""
+
+
 def ensure_path():
-    """Đưa node cài trong tools/ vào PATH để plugin bgutil tìm thấy."""
-    d = node_bin_dir()
-    if d and d not in os.environ.get("PATH", ""):
-        os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+    """Đưa node (PO token) và deno (YouTube) cài trong tools/ vào PATH để plugin bgutil / yt-dlp tìm thấy."""
+    for d in (node_bin_dir(), deno_bin_dir()):
+        if d and d not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+
+
+async def install_deno(log=logging.info) -> bool:
+    """Lệnh console setup_youtube: cài deno (~96MB) vào tools/deno bằng pip, không giữ bộ nhớ đệm pip."""
+    os.makedirs(TOOLS, exist_ok=True)
+    log(f"Cài deno vào tools/deno (~96MB, tải ~42MB) — ổ trống {shutil.disk_usage(BASE).free >> 20}MB...")
+    if not await _pip(["--no-cache-dir", "--upgrade", "--target", DENO_DIR, DENO_SPEC], log, 900):
+        return False
+    ensure_path()
+    if not deno_bin_dir():
+        log("❌ Cài xong mà không thấy tools/deno/bin/deno")
+        return False
+    log("✅ Đã cài deno: YouTube dùng được (gõ  yt_test  để thử).")
+    return True
+
+
+def remove_deno(log=logging.info):
+    if os.path.exists(DENO_DIR):
+        shutil.rmtree(DENO_DIR, ignore_errors=True)
+        log("Đã gỡ deno (tools/deno). YouTube sẽ cần cài lại bằng setup_youtube.")
+    else:
+        log("Chưa cài deno.")
 
 
 def _npm_cmd(node: str) -> list:

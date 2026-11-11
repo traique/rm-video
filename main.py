@@ -12,7 +12,7 @@ from admin import CONSOLE_HELP, console, maintenance
 from jobs import cancel_job, speed_ratio, worker
 from review import approve_job
 from state import notify, queue, spawn
-from storage import disk_report
+from storage import disk_report, warn_low_disk
 from web_panel import build_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%d/%m %H:%M:%S")
@@ -48,6 +48,10 @@ async def main():
         logging.warning("Chưa đặt WEB_PASSWORD: web panel đang KHOÁ. Đặt biến môi trường WEB_PASSWORD để dùng.")
     logging.info(CONSOLE_HELP)
     logging.info("Dung lượng: %s", disk_report())
+    warn_low_disk()
+    import potoken_setup
+    if not potoken_setup.js_runtime():
+        logging.info("YouTube: chưa cài bộ giải JavaScript (deno). Cần tải YouTube thì gõ  setup_youtube  (~100MB).")
     if bot and not config.allowed_ids():
         logging.warning("Chưa đặt ALLOWED_USERS: bot Telegram từ chối mọi người. Nhắn bot để biết chat id "
                         "của bạn rồi điền vào Cài đặt trên web.")

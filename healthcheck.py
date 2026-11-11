@@ -37,6 +37,9 @@ async def check_disk():
 
 async def check_youtube():
     import core_video
+    import potoken_setup
+    if not potoken_setup.js_runtime():
+        return None                      # chưa cài deno (setup_youtube): không kiểm, khỏi báo động giả
     with tempfile.TemporaryDirectory() as td:
         d = await _timed(core_video.probe_formats(YT_TEST_URL, td), 90)
     if not d.get("options"):

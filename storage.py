@@ -34,11 +34,41 @@ def disk_report() -> str:
     """Ổ bot + /tmp còn trống bao nhiêu, thư mục nào chiếm chỗ (in lúc khởi động và lệnh status)."""
     tmp = tempfile.gettempdir()
     parts = [f"ổ bot trống {_free_mb(BASE_DIR)}MB", f"{tmp} trống {_free_mb(tmp)}MB"]
-    for name in ("outputs", "uploads_in", "work", "cache", "models", "potoken", "tools"):
+    for name in ("outputs", "uploads_in", "work", "cache", "models", "potoken", "tools", ".cache", ".local"):
         p = os.path.join(BASE_DIR, name)
         if os.path.exists(p):
             parts.append(f"{name} {_size_mb(p)}MB")
     return " | ".join(parts)
+
+
+PIP_CACHE = os.path.join(os.path.expanduser("~"), ".cache", "pip")
+
+
+def clean(log=logging.info) -> int:
+    """Lệnh console clean: xoá thứ tạo lại được — bộ nhớ đệm pip (~/.cache/pip), cache theo bước, thư mục tạm
+    work/. KHÔNG xoá video kết quả, cài đặt, jobs.db, model/gói đã cài. Trả MB trống sau khi dọn."""
+    before = _free_mb(BASE_DIR)
+    for p in (PIP_CACHE, WORK_DIR):
+        if os.path.exists(p):
+            log(f"Xoá {p} ({_size_mb(p)}MB)")
+            shutil.rmtree(p, ignore_errors=True)
+    cache.prune(max_mb=0)
+    after = _free_mb(BASE_DIR)
+    log(f"Dọn xong: trống {before}MB -> {after}MB. {disk_report()}")
+    return after
+
+
+LOW_DISK_MB = 400
+
+
+def warn_low_disk(log=logging.warning):
+    """Lúc khởi động: ổ gần đầy thì nói rõ thư mục nào chiếm chỗ và cách dọn (lần cài thư viện sau có thể hỏng)."""
+    free = _free_mb(BASE_DIR)
+    if free < LOW_DISK_MB:
+        log(f"Ổ bot chỉ còn {free}MB trống (lần cài/cập nhật thư viện sau có thể lỗi 'No space left on device'). "
+            f"{disk_report()}. Gõ  clean  để xoá bộ nhớ đệm pip + cache; cần thêm thì xoá video cũ trong outputs/, "
+            "gỡ gói không dùng: remove_offline, remove_potoken, remove_youtube.")
+    return free
 
 
 def make_room(need_mb: int, keep: set = frozenset()) -> int:

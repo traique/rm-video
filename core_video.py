@@ -58,6 +58,11 @@ def _friendly(e: Exception) -> RuntimeError:
             + ("" if pot_status() else "(1) gõ  setup_potoken  vào console Botkeep để cài PO token (miễn phí, có thể đủ); ")
             + "(2) điền YTDLP_PROXY (proxy dân dụng/proxy nhà) trong Cài đặt; "
             "(3) dán cookies của một tài khoản Google phụ vào YTDLP_COOKIES.")
+    low = msg.lower()
+    if "javascript runtime" in low or "challenge solving failed" in low or ("youtube" in low and not potoken_setup.js_runtime()
+                                                                            and "only images are available" in low):
+        return RuntimeError("YouTube cần bộ giải JavaScript (deno) mà máy chưa cài: gõ  setup_youtube  vào console "
+                            "Botkeep (~100MB), xong gõ  yt_test  để thử.")
     if "403" in msg and "forbidden" in msg.lower():
         fix = ("Đã bật PO token (" + pot_status() + ") mà vẫn bị chặn -> IP máy chủ bị YouTube gắn cờ nặng. "
                "Còn 2 cách: điền YTDLP_PROXY (proxy dân dụng) hoặc dán cookies tài khoản Google phụ vào YTDLP_COOKIES."
