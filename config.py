@@ -52,6 +52,7 @@ EDITABLE = {
     "BRAND_LOGO": "1",                 # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
     "BRAND_INTRO": "1",                # 1 = hiện tiêu đề video 3 giây đầu
     "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
+    "COVER": "1",                      # 1 = tự tạo ảnh bìa (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)
     "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
     "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
     "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)

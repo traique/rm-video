@@ -186,6 +186,7 @@ _SETTING_OPTIONS = {
     "OPENROUTER_MODEL": [["auto", "auto (tự dò model miễn phí)"]],
     "VOICE_SEPARATION": [["1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"], ["0", "Tắt"]],
     "VOICE_HUMANIZE": _ONOFF, "BRAND_LOGO": _ONOFF, "BRAND_INTRO": _ONOFF,
+    "COVER": [["1", "Bật (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)"], ["0", "Tắt"]],
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
     "TEXT_DETECT": [["heuristic", "Heuristic (mặc định, không cần cài)"], ["ocr", "Model OCR (bắt chữ màu, cần setup_offline)"]],
     "TTS_OFFLINE": [["0", "Tắt"], ["1", "Bật giọng Piper khi CapCut + edge đều lỗi (xem lưu ý giấy phép)"]],
@@ -508,7 +509,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         if not hmac.compare_digest(request.query.get("t", "").encode(), part["token"].encode()) \
                 or not os.path.exists(part["path"]):
             raise web.HTTPNotFound(text="Video không còn (server chỉ giữ ~700MB video gần nhất)")
-        return _file_response(part["path"], f"video_{job.id}_phan{k + 1}{os.path.splitext(part['path'])[1] or '.mp4'}")
+        ext = os.path.splitext(part["path"])[1] or ".mp4"
+        name = f"anh_bia_{job.id}_{k + 1}{ext}" if ext == ".jpg" else f"video_{job.id}_phan{k + 1}{ext}"
+        return _file_response(part["path"], name)
 
     async def yt_info(request):
         _check(request)

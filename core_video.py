@@ -898,15 +898,11 @@ def warm_filter(kelvin: float = 6000, mix: float = 0.35) -> str:
     return ("lutrgb=" + ":".join(parts) + ",") if parts else ""
 
 
-def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
-                 cover_bands=None, W: int = 720, H: int = 1280,
-                 ambient_src: str = "[0:a]", speech_gate=None,
-                 fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
-                 ost=None, orig_audio: bool = True) -> str:
-    """Hình đẹp hơn bản gốc: khử nhiễu nén (hqdn3d) -> scale lanczos -> tương phản/sáng nhẹ ->
-    vibrance (tăng màu nhạt, không làm cháy màu da) -> ấm nhẹ cho món ăn -> làm nét thích ứng (cas)."""
+def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0) -> str:
+    """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
+    phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
+    tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
     cook = mode == "cook"
-    # fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%
     # Công thức màu GIỮ NGUYÊN bản người dùng đã duyệt: vibrance chỉ tăng màu vùng còn nhạt, chừa vùng đã đậm
     # (món chiên vàng cam). Bản thử eq saturation=1.2 tăng đều mọi thứ -> gà rang muối cam loang, bị chê -> bỏ.
     look = ("hqdn3d=1.2:1.2:3:3,"
@@ -917,6 +913,18 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
     upscale = bool(src_w and src_h) and max(W / (src_w * 0.96), H / (src_h * 0.96)) > 1.05
+    sharpen = "cas=strength=0.5" if config.QUALITY == "high" else "unsharp=3:3:0.6:3:3:0"
+    # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
+    return "crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look) + sharpen
+
+
+def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
+                 cover_bands=None, W: int = 720, H: int = 1280,
+                 ambient_src: str = "[0:a]", speech_gate=None,
+                 fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
+                 ost=None, orig_audio: bool = True) -> str:
+    """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
+    + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại."""
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
     slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
     orig_src = "[0:a]"
@@ -927,11 +935,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     # tiếng gốc NGUYÊN BẢN (cả lời người gốc) chỉ trong các cửa sổ được đánh dấu giữ tiếng gốc
     ost_chain = (f"{orig_src}aformat=sample_rates=44100:channel_layouts=stereo,"
                  f"volume='{_ost_level_expr(ost)}':eval=frame[ost];") if ost else ""
-    v = f"[0:v]{slow}fps={fps:g},crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look)
-    if config.QUALITY == "high":
-        v += "cas=strength=0.5"              # làm nét thích ứng: đẹp nhất, tốn ~2.7x unsharp
-    else:
-        v += "unsharp=3:3:0.6:3:3:0"         # làm nét kênh sáng; đo: SSIM 0.984-0.988 so với bản cas
+    v = f"[0:v]{slow}fps={fps:g}," + look_chain(mode, W, H, src_w, src_h)
     v += _cover_filter(cover_bands or [], W, H)
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ASSETS_DIR}"

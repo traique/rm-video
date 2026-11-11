@@ -10,6 +10,7 @@ import beat
 import cache
 import config
 import core_video
+import cover as cover_mod
 import ingredients
 import metrics
 import ocr_text
@@ -32,35 +33,51 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     ext = os.path.splitext(path)[1] or ".mp4"
     if ext == ".mp3" and label == "Video":
         label = "MP3"
+    # ảnh bìa (cover.py) nằm cạnh file video trong thư mục tạm của job / của phần
+    cover_src = os.path.join(os.path.dirname(path), cover_mod.COVER_NAME) if ext == ".mp4" else ""
+    thumb_src = os.path.join(os.path.dirname(path), cover_mod.THUMB_NAME) if ext == ".mp4" else ""
     keep = os.path.join(OUT_DIR, f"out_{job.id}_{len(job.parts)}{ext}")
     await asyncio.to_thread(shutil.move, path, keep)       # /tmp -> ổ bot có thể là chép thật, không chặn vòng lặp
     queue.log_source(job, keep, label)
     part = {"label": label, "path": keep, "token": _secrets.token_urlsafe(16)}
     job.parts.append(part)
     job.output = keep                       # tương thích: nút tải chính = file mới nhất
+    cover_keep = ""
+    if cover_src and os.path.exists(cover_src):
+        cover_keep = os.path.join(OUT_DIR, f"out_{job.id}_{len(job.parts)}.jpg")
+        await asyncio.to_thread(shutil.move, cover_src, cover_keep)
+        job.parts.append({"label": "Ảnh bìa" if label == "Video" else f"Ảnh bìa {label}", "path": cover_keep,
+                          "token": _secrets.token_urlsafe(16)})
     _cleanup_outputs({p["path"] for p in job.parts})
     if job.source != "tg" or not state.bot:
         return
     job.step = f"Gửi {label} qua Telegram"
     size = os.path.getsize(keep)
-    link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{len(job.parts) - 1}?t={part['token']}"
+    link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{job.parts.index(part)}?t={part['token']}"
             if config.PUBLIC_URL else "")
     where = f"Tải tại: {link}" if link else "Mở web panel để tải (đặt PUBLIC_URL trong Cài đặt để nhận link ở đây)."
+    from aiogram.types import FSInputFile
     if size <= config.TG_LIMIT:
-        from aiogram.types import FSInputFile
         try:
             if ext == ".mp3":
                 await state.bot.send_audio(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
             else:
-                await state.bot.send_video(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
-            return
+                thumb = FSInputFile(thumb_src) if thumb_src and os.path.exists(thumb_src) else None
+                await state.bot.send_video(job.chat_id, FSInputFile(keep), caption=caption[:1024], thumbnail=thumb,
+                                           supports_streaming=True, request_timeout=600)
         except Exception as e:                  # video đã làm xong: lỗi gửi không được biến job thành lỗi
             logging.warning("Gửi file qua Telegram lỗi: %s", e)
             await notify(job.chat_id, f"🎬 {label} xong nhưng gửi qua Telegram lỗi ({str(e)[:80]}).\n{where}"
                                       f"\n\n{caption[:800]}")
-            return
-    await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}"
-                              f"\n\n{caption[:800]}")
+    else:
+        await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}"
+                                  f"\n\n{caption[:800]}")
+    if cover_keep:
+        try:
+            await state.bot.send_photo(job.chat_id, FSInputFile(cover_keep),
+                                       caption=f"🖼 Ảnh bìa {'' if label == 'Video' else label} — chọn làm ảnh bìa khi đăng")
+        except Exception as e:
+            logging.warning("Gửi ảnh bìa qua Telegram lỗi: %s", e)
 
 
 def check_source_allowed(job: Job):
@@ -367,6 +384,23 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
             metrics.record("sep", "gate", fallback=True)
         return None, (speech or [(0.0, 99999.0)])
 
+    def _start_cover(post_title: str):
+        """Ảnh bìa chạy song song với render (chấm điểm khung + AI chọn ảnh: nhẹ CPU, chủ yếu chờ mạng)."""
+        if config.COVER == "0":
+            return None
+        a = scenes._ANALYZED.get(inp)
+        t = asyncio.create_task(cover_mod.make_cover(
+            inp, tmp, job.mode, post_title, src_dur, cuts=[c / stretch for c in cuts],
+            end=out_dur / stretch, bands=bands, thumbs_dir=a["dir"] if a else None))
+        tasks.append(t)
+        return t
+
+    async def _finish_cover(t):
+        if t is not None and not t.done():
+            job.step = "Tạo ảnh bìa"
+        if t is not None:
+            await t
+
     pos_y = None
     if bands:
         y, h = core_video.band_to_output(*bands[0])
@@ -492,10 +526,13 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         amb_wav, gate = await amb_task
         job.step = "Render (FFmpeg)"
         out = os.path.join(tmp, "output.mp4")
+        post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+        cover_task = _start_cover(post_title)
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
-                                title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,
+                                title=post_title, tmp=tmp,
                                 stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur))
+        await _finish_cover(cover_task)
         job.final_segments = final_timeline(segs_t, plan, out_dur)
         if job.mode == "cook":
             job.error = (job.error or "") + (
@@ -539,10 +576,12 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
     amb_wav, gate = await amb_task
+    post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+    cover_task = _start_cover(post_title)
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
-                            title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,
-                            stretch=stretch)
+                            title=post_title, tmp=tmp, stretch=stretch)
+    await _finish_cover(cover_task)
     if bands:
         job.error = f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."
     return out
