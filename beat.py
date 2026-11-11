@@ -10,9 +10,9 @@ HOP = 512
 _FPS = SR / HOP  # ~43 khung onset / giây
 
 
-def _decode(path: str) -> np.ndarray:
+def _decode(path: str, max_s: float = 90) -> np.ndarray:
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", path, "-t", "90", "-vn",
+        ["ffmpeg", "-v", "error", "-i", path, "-t", str(max_s), "-vn",
          "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
         check=True, capture_output=True,
     ).stdout
@@ -30,7 +30,11 @@ def _onset_env(x: np.ndarray) -> np.ndarray:
 
 
 def _analyze_sync(path: str) -> tuple[float, float]:
-    env = _onset_env(_decode(path))
+    return tempo(_onset_env(_decode(path)))
+
+
+def tempo(env: np.ndarray) -> tuple[float, float]:
+    """Đường onset (khung ~43/giây) -> (BPM, giây của beat đầu tiên)."""
     env0 = env - env.mean()
     ac = np.correlate(env0, env0, "full")[len(env0) - 1:]
     lo, hi = int(_FPS * 60 / 180), int(_FPS * 60 / 60) + 1  # 180..60 BPM

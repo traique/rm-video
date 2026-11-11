@@ -34,7 +34,7 @@ async def worker():
 
 def _drop_inputs(job: Job):
     """Xoá file đầu vào job đang giữ (file tải lên, nguồn giữ lại để duyệt, nhạc tải lên)."""
-    for leftover in (job.local, job.music_local):
+    for leftover in (job.local, job.music_local, *job.images):
         if leftover and os.path.exists(leftover):
             try:
                 os.remove(leftover)

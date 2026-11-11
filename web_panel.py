@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 import config
+import slideshow
 import url_guard
 from queue_manager import Job, JobQueue, QueueFull, phase_times
 
@@ -26,6 +27,10 @@ INDEX_HTML = os.path.join(_DIR, "static", "index.html")
 
 _STEP_LABEL = {"queued": "Đang chờ", "processing": "Đang xử lý", "done": "Xong", "error": "Lỗi",
                "review": "📝 Chờ duyệt", "cancelled": "Đã hủy", "approved": "Đã duyệt"}
+
+
+IMAGE_MAX = 15 * 1024 * 1024
+PHOTO_DURATIONS = ("0", "10", "15", "30", "60")     # 0 = tự động theo nhạc
 
 
 def _parse_duration(v) -> tuple:
@@ -376,6 +381,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         if not urls:
             raise web.HTTPBadRequest(text="Link không hợp lệ")
         urls = [await _guard(u) for u in urls[:10]]
+        if d.get("mode") == "photo":
+            raise web.HTTPBadRequest(text="Chế độ 📸 cần tải ảnh lên (dùng ô chọn ảnh)")
         mode = d.get("mode") if d.get("mode") in ("cook", "review", "music", "download") else "cook"
         dur, long_mode = _parse_duration(d.get("duration"))
         voice = _pick_voice(d.get("voice") or "")
@@ -389,7 +396,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         for u in urls:
             job = Job(url=u, mode=mode, duration=dur, voice=voice, subs=subs, long_mode=long_mode,
                       cover=bool(d.get("cover", True)), review=bool(d.get("review", False)),
-                      quality=str(d.get("quality", ""))[:8], music_url=music_url, source="web")
+                      quality=str(d.get("quality", ""))[:8], music_url=music_url, source="web",
+                      music_mix="bg" if (mode == "music" and d.get("music_mix") == "bg") else "")
             try:
                 pos = queue.put(job)
             except QueueFull as e:
@@ -403,9 +411,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         _check(request)
         os.makedirs(config.UPLOAD_DIR, exist_ok=True)
         reader = await request.multipart()
-        fields, saved, music_saved = {}, "", ""
+        fields, saved, music_saved, images = {}, "", "", []
 
-        async def _save_part(part, exts, kind):
+        async def _save_part(part, exts, kind, limit=None):
             name = (part.filename or "")
             if exts and not name.lower().endswith(exts):
                 raise web.HTTPBadRequest(text=f"File {kind} không đúng định dạng")
@@ -415,8 +423,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 with open(path, "wb") as f:
                     while chunk := await part.read_chunk(1 << 20):
                         size += len(chunk)
-                        if size > config.MAX_UPLOAD:
-                            raise web.HTTPRequestEntityTooLarge(max_size=config.MAX_UPLOAD, actual_size=size)
+                        if size > (limit or config.MAX_UPLOAD):
+                            raise web.HTTPRequestEntityTooLarge(max_size=limit or config.MAX_UPLOAD, actual_size=size)
                         f.write(chunk)
             except BaseException:          # quá cỡ, đầy đĩa, người dùng ngắt, bị huỷ: không để lại file dở tới 300MB
                 _cleanup(path)
@@ -430,9 +438,28 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                         part, (".mp4", ".mov", ".webm", ".mkv", ".m4v"), "video")
                 elif part.name == "music" and part.filename:
                     music_saved, _ = await _save_part(
-                        part, (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"), "nhạc")
+                        part, (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"), "nhạc", 30 * 1024 * 1024)
+                elif part.name == "images" and part.filename:
+                    if len(images) >= slideshow.MAX_IMAGES:
+                        raise web.HTTPBadRequest(text=f"Tối đa {slideshow.MAX_IMAGES} ảnh")
+                    images.append((await _save_part(part, (".jpg", ".jpeg", ".png", ".webp", ".bmp"), "ảnh",
+                                                    IMAGE_MAX))[0])
                 elif part.name:
                     fields[part.name] = (await part.text())[:4000].strip()
+            if fields.get("mode") == "photo":
+                if not images:
+                    raise web.HTTPBadRequest(text="Chế độ 📸 cần 1-4 ảnh")
+                music_url = fields.get("music_url", "").strip()
+                if not music_saved:
+                    if not music_url:
+                        raise web.HTTPBadRequest(text="Chế độ 📸 cần nhạc: link TikTok/YouTube hoặc file nhạc")
+                    music_url = await _guard(music_url)
+                pdur = fields.get("duration", "0")
+                job = Job(url="", mode="photo", duration=int(pdur) if pdur in PHOTO_DURATIONS else 0, voice="",
+                          images=[p for p in images], music_local=music_saved, music_url=music_url,
+                          title_hint=fields.get("title", "")[:200], source="web")
+                pos = queue.put(job)
+                return web.json_response({"id": job.id, "position": pos})
             url_field = fields.get("url", "").strip()
             if not saved:
                 if not url_field:
@@ -450,13 +477,14 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                       subs=fields.get("subs") != "false", cover=fields.get("cover") != "false", local=saved,
                       review=fields.get("review") == "true",
                       music_local=music_saved, music_url=music_url if mode == "music" else "",
+                      music_mix="bg" if (mode == "music" and fields.get("music_mix") == "bg") else "",
                       title_hint=fields.get("filename", ""), source="web")
             pos = queue.put(job)
         except QueueFull as e:
-            _cleanup(saved, music_saved)
+            _cleanup(saved, music_saved, *images)
             raise web.HTTPTooManyRequests(text=str(e)) from None
         except BaseException:
-            _cleanup(saved, music_saved)
+            _cleanup(saved, music_saved, *images)
             raise
         return web.json_response({"id": job.id, "position": pos})
 

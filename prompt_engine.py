@@ -94,7 +94,8 @@ def copy_ratio(new: str, orig: str) -> float:
     return len(bn & bo) / max(1, len(bn))
 
 
-_MODE_VI = {"cook": "video nấu ăn ASMR", "review": "video review sản phẩm/quán", "music": "video nhảy/âm nhạc giải trí"}
+_MODE_VI = {"cook": "video nấu ăn ASMR", "review": "video review sản phẩm/quán", "music": "video nhảy/âm nhạc giải trí",
+            "photo": "video ảnh ghép theo nhạc (slideshow)"}
 
 PROMPT = """Bạn là biên kịch kiêm người viết content video ngắn tiếng Việt.
 

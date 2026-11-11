@@ -122,3 +122,43 @@ def test_polling_stops_on_signal_during_retry_wait():
         asyncio.get_running_loop().call_later(0.2, stop.set)
         await asyncio.wait_for(main.poll_forever(DownDp(), object(), stop, first_wait=30), 5)   # không chờ đủ 30s
     asyncio.run(go())
+
+
+def _photo(uid, fid, mid, group="g1", caption=None):
+    from aiogram.types import PhotoSize
+    return Message(message_id=mid, date=datetime.datetime.now(), chat=Chat(id=uid, type="private"),
+                   from_user=User(id=uid, is_bot=False, first_name="A"), media_group_id=group, caption=caption,
+                   photo=[PhotoSize(file_id=fid + "_s", file_unique_id=fid + "s", width=90, height=160),
+                          PhotoSize(file_id=fid, file_unique_id=fid, width=1080, height=1920)])
+
+
+def test_photo_album_music_duration_creates_job(tg):
+    feed, session = tg
+    before = {id(j) for j in state.queue.jobs.values()}      # so theo đối tượng: id job có thể trùng giữa các test
+
+    async def flow():
+        for k in range(5):                                   # album 5 ảnh: chỉ lấy 4
+            await feed(_photo(111, f"f{k}", 10 + k, caption="Đà Lạt" if k == 0 else None))
+        await feed(_msg(111, "https://www.tiktok.com/@a/video/9", 20))
+        await feed(_cb(111, "pdur:15"))
+    asyncio.run(flow())
+    new = [j for j in state.queue.jobs.values() if id(j) not in before]
+    assert len(new) == 1
+    j = new[0]
+    assert j.mode == "photo" and j.tg_images == ["f0", "f1", "f2", "f3"] and j.duration == 15
+    assert j.music_url.endswith("/video/9") and j.title_hint == "Đà Lạt"
+
+
+def test_music_mode_background_choice(tg):
+    feed, session = tg
+    before = {id(j) for j in state.queue.jobs.values()}      # so theo đối tượng: id job có thể trùng giữa các test
+
+    async def flow():
+        await feed(_msg(111, "https://www.tiktok.com/@a/video/1"))
+        await feed(_cb(111, "mode:music"))
+        await feed(_msg(111, "https://www.tiktok.com/@b/video/2", 3))
+        await feed(_cb(111, "mix:bg"))
+        await feed(_cb(111, "dur:30"))
+    asyncio.run(flow())
+    new = [j for j in state.queue.jobs.values() if id(j) not in before]
+    assert len(new) == 1 and new[0].mode == "music" and new[0].music_mix == "bg" and new[0].duration == 30

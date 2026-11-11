@@ -21,6 +21,7 @@ td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-
 a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;font-size:.9em}
 .ph{margin-top:6px}.ph-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line);margin-bottom:3px}
 .ph-bar span{display:block;height:100%;min-width:2px}.ph i{font-style:normal}
+.thumbs{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.thumbs img{width:64px;height:114px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 </style></head><body><main>
 <h1>🎬 Video Bot — bảng điều khiển</h1>
 <div class="card">
@@ -30,24 +31,36 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
       <button id="login_btn" style="width:auto;margin-top:0">Đăng nhập</button></div>
   </div>
   <div id="authed_box" class="mut" style="display:none">✅ Đã đăng nhập · <a href="#" id="logout_link">Đăng xuất</a></div>
+  <div id="video_src">
   <label>Link video (TikTok / Facebook / YouTube...) — nhiều link thì mỗi link một dòng — hoặc chọn file bên dưới</label>
   <textarea id="url" rows="2" placeholder="https://..." style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit"></textarea>
   <label>Hoặc tải video lên để remake (≤ 300MB)</label>
   <input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v">
+  </div>
+  <div id="photo_box" style="display:none">
+    <label>📸 Chọn 1–4 ảnh (jpg/png/webp, mỗi ảnh ≤ 15MB) — thứ tự chọn là thứ tự xuất hiện</label>
+    <input id="images" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+    <div id="img_prev" class="thumbs"></div>
+    <label>Chú thích / chủ đề (tuỳ chọn, để AI viết caption đăng bài)</label>
+    <input id="ptitle" maxlength="200" placeholder="vd: Đà Lạt mùa hoa, quán cà phê mới mở...">
+  </div>
   <div class="row">
     <div><label>Chế độ</label>
-      <select id="mode"><option value="cook">🍲 Nấu ăn (giữ ASMR)</option><option value="review">📦 Review (đổi giọng)</option><option value="music">🎵 Nhảy/Nhạc (thay nhạc + khớp beat)</option><option value="download">⬇️ Chỉ tải về (TikTok không logo / Facebook / YouTube)</option></select></div>
+      <select id="mode"><option value="cook">🍲 Nấu ăn (giữ ASMR)</option><option value="review">📦 Review (đổi giọng)</option><option value="music">🎵 Nhảy/Nhạc (thay nhạc + khớp beat)</option><option value="photo">📸 Ảnh + nhạc (1–4 ảnh, hiệu ứng theo nhịp)</option><option value="download">⬇️ Chỉ tải về (TikTok không logo / Facebook / YouTube)</option></select></div>
     <div><label>Thời lượng</label>
+      <select id="pdur" style="display:none"><option value="0">⚡ Tự động theo nhạc (~12–16s)</option><option value="10">10 giây</option><option value="15">15 giây</option><option value="30">30 giây</option><option value="60">60 giây</option></select>
       <select id="dur"><option value="0">Giữ nguyên</option><option value="30">30 giây</option><option value="60">60 giây</option><option value="90">90 giây</option><option value="full">🎞 Video dài: remake nguyên (≤5 phút)</option><option value="split60">✂️ Cắt thành phần 60s (nguồn ≤10 phút)</option><option value="split90">✂️ Cắt thành phần 90s (nguồn ≤10 phút)</option><option value="highlight">✨ Đoạn hay nhất: AI chọn ≤3 đoạn 30-90s (nguồn ≤10 phút)</option></select></div>
     <div><label>Giọng đọc</label>
       <select id="voice"><option value="female">Nữ mặc định</option><option value="male">Nam mặc định</option></select></div>
   </div>
   <div id="music_box" style="display:none">
-    <label>🎵 Link nhạc mới (YouTube/TikTok...)</label>
+    <label>🎵 Link nhạc (TikTok/YouTube...) — link video TikTok: bot lấy bản nhạc gốc của video</label>
     <input id="music_url" placeholder="https://...">
-    <label>Hoặc tải file nhạc lên (mp3/m4a/wav...)</label>
+    <label>Hoặc tải file nhạc lên (mp3/m4a/wav... ≤ 30MB)</label>
     <input id="music_file" type="file" accept="audio/*,.m4a,.opus">
-    <div class="mut">Bot dò BPM của điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat cho khớp.</div>
+    <div id="mix_box"><label>Cách dùng nhạc</label>
+      <select id="music_mix"><option value="">🎯 Thay hẳn nhạc + khớp beat điệu nhảy</option><option value="bg">🎶 Làm nhạc nền (giữ tiếng gốc, nhạc tự nhỏ khi tiếng gốc to)</option></select></div>
+    <div class="mut" id="music_note">Bot dò BPM của điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat cho khớp.</div>
   </div>
   <label style="display:flex;align-items:center;gap:8px;margin-top:12px" id="subs_box">
     <input type="checkbox" id="subs" checked style="width:auto"> Phụ đề tự động (khớp giọng đọc)</label>
@@ -113,30 +126,52 @@ async function doLogin(){
 $('login_btn').onclick=doLogin;
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 $('logout_link').onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.reload();};
-$('mode').onchange=()=>{const v=$('mode').value,m=v=='music',d=v=='download';
-  $('music_box').style.display=m?'block':'none';
-  $('subs_box').style.display=(m||d)?'none':'flex';$('cover_box').style.display=(m||d)?'none':'flex';
-  $('voice').disabled=m||d;$('dur').disabled=d;};
+const MNOTE={music:'Thay hẳn: bot dò BPM điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat. Nhạc nền: lấy đoạn hay nhất của bài, trộn dưới tiếng gốc.',
+  photo:'Bot dò nhịp + đoạn cao trào của nhạc, chọn hiệu ứng và chuyển cảnh theo kiểu nhạc (êm / nhún / sôi), cắt cảnh đúng beat.'};
+$('mode').onchange=()=>{const v=$('mode').value,m=v=='music',d=v=='download',ph=v=='photo';
+  $('music_box').style.display=(m||ph)?'block':'none';$('mix_box').style.display=m?'block':'none';
+  $('music_note').textContent=MNOTE[v]||'';
+  $('photo_box').style.display=ph?'block':'none';$('video_src').style.display=ph?'none':'block';
+  $('pdur').style.display=ph?'':'none';$('dur').style.display=ph?'none':'';
+  $('subs_box').style.display=(m||d||ph)?'none':'flex';$('cover_box').style.display=(m||d||ph)?'none':'flex';
+  $('review').parentElement.style.display=(m||d||ph)?'none':'flex';
+  $('voice').disabled=m||d||ph;$('dur').disabled=d;};
+$('images').onchange=()=>{const fs=[...$('images').files];
+  $('img_prev').innerHTML='';
+  if(fs.length>4){$('msg').textContent='⚠️ Tối đa 4 ảnh: chỉ dùng 4 ảnh đầu.';}
+  fs.slice(0,4).forEach((f,i)=>{const im=document.createElement('img');im.alt='Ảnh '+(i+1);im.src=URL.createObjectURL(f);
+    im.onload=()=>URL.revokeObjectURL(im.src);$('img_prev').appendChild(im);});};
 $('go').onclick=async()=>{
   $('go').disabled=true;
   try{
     let r;
-    if($('file').files.length||$('music_file').files.length){
+    if($('mode').value=='photo'){
+      const fs=[...$('images').files].slice(0,4);
+      if(!fs.length)throw new Error('Chọn 1–4 ảnh');
+      if(!$('music_file').files.length&&!$('music_url').value.trim())throw new Error('Cần nhạc: link TikTok/YouTube hoặc file nhạc');
+      $('msg').textContent='Đang tải ảnh + nhạc lên...';
+      const fd=new FormData();
+      fd.append('mode','photo');fd.append('duration',$('pdur').value);fd.append('title',$('ptitle').value);
+      fd.append('music_url',$('music_url').value);
+      fs.forEach(f=>fd.append('images',f));
+      if($('music_file').files.length)fd.append('music',$('music_file').files[0]);
+      r=await fetch('/api/upload',{method:'POST',body:fd});
+    }else if($('file').files.length||$('music_file').files.length){
       $('msg').textContent='Đang tải file lên...';
       const fd=new FormData();
       fd.append('mode',$('mode').value);fd.append('duration',$('dur').value);
       fd.append('voice',$('voice').value);fd.append('subs',$('subs').checked);fd.append('cover',$('cover').checked);fd.append('review',$('review').checked);
-      fd.append('url',$('url').value);fd.append('music_url',$('music_url').value);
+      fd.append('url',$('url').value);fd.append('music_url',$('music_url').value);fd.append('music_mix',$('music_mix').value);
       if($('file').files.length)fd.append('file',$('file').files[0]);
       if($('music_file').files.length)fd.append('music',$('music_file').files[0]);
       r=await fetch('/api/upload',{method:'POST',body:fd});
     }else{
       $('msg').textContent='Đang gửi...';
       r=await fetch('/api/jobs',{method:'POST',headers:hdr(),body:JSON.stringify({
-        url:$('url').value,mode:$('mode').value,duration:$('dur').value,voice:$('voice').value,subs:$('subs').checked,cover:$('cover').checked,review:$('review').checked,music_url:$('music_url').value})});
+        url:$('url').value,mode:$('mode').value,duration:$('dur').value,voice:$('voice').value,subs:$('subs').checked,cover:$('cover').checked,review:$('review').checked,music_url:$('music_url').value,music_mix:$('music_mix').value})});
     }
     if(!r.ok)throw new Error(await r.text());
-    const d=await r.json();$('msg').textContent='✅ Đã nhận '+((d.ids&&d.ids.length>1)?d.ids.length+' video':'')+', vị trí hàng đợi: #'+d.position;$('url').value='';$('file').value='';$('music_url').value='';$('music_file').value='';
+    const d=await r.json();$('msg').textContent='✅ Đã nhận '+((d.ids&&d.ids.length>1)?d.ids.length+' video':'')+', vị trí hàng đợi: #'+d.position;$('url').value='';$('file').value='';$('music_url').value='';$('music_file').value='';$('images').value='';$('img_prev').innerHTML='';$('ptitle').value='';
   }catch(e){$('msg').textContent='❌ '+e.message}
   $('go').disabled=false;refresh();
 };
@@ -197,7 +232,7 @@ function render(d){
       (j.status=='processing'?'<div class="mut">đã chạy '+Math.floor(j.elapsed/60)+'p'+(j.eta!=null?', còn ~'+Math.ceil(j.eta/60)+'p':'')+'</div>':'')+
       (['queued','processing'].includes(j.status)?'<a href="#" onclick="cancelJob('+j.id+');return false" class="st-error">Hủy</a>':'')+
       (j.status=='review'?'<a href="#" onclick="openReview('+j.id+');return false">Duyệt kịch bản</a>':'')+'</td>'+
-      '<td>'+(j.mode=='cook'?'🍲':j.mode=='music'?'🎵':j.mode=='download'?'⬇️':'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+j.source+
+      '<td>'+(j.mode=='cook'?'🍲':j.mode=='music'?'🎵':j.mode=='download'?'⬇️':j.mode=='photo'?'📸':'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+j.source+
       (j.error?'<div class="'+(j.status=='done'?'st-processing':'st-error')+' mut">'+esc(j.error)+'</div>':'')+
       (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+phasesHtml(j)+'</td>'+
       '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<a href="'+esc(p.dl)+'">'+esc(p.label)+'</a>').join('<br>')+'<br>'

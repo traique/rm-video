@@ -59,6 +59,9 @@ class Job:
     srt: str = ""             # phụ đề SRT của video ra (nhập vào CapCut/Premiere để sửa tay)
     cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
     pieces: list = field(default_factory=list)   # chế độ đoạn hay: các đoạn AI đã chọn (chạy lại thì giữ nguyên)
+    images: list = field(default_factory=list)   # chế độ 📸 ảnh + nhạc: ảnh tải lên qua web (đường dẫn)
+    tg_images: list = field(default_factory=list)   # ... hoặc file_id ảnh gửi qua Telegram
+    music_mix: str = ""       # chế độ 🎵: "" = thay nhạc + khớp beat; "bg" = làm nhạc nền, giữ tiếng gốc
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job
@@ -71,7 +74,8 @@ PHASES = [
     (re.compile(r"^Rút gọn"), "AI rút gọn"),
     (re.compile(r"^(Đọc giọng|Giọng \d)"), "Đọc giọng + phụ đề"),
     (re.compile(r"^Chờ tách giọng"), "Chờ tách giọng gốc"),
-    (re.compile(r"^Render"), "Render"),
+    (re.compile(r"^Render|^Dựng ảnh"), "Render"),
+    (re.compile(r"^Phân tích nhạc|^Chọn đoạn nhạc"), "Phân tích nhạc"),
     (re.compile(r"^Tạo ảnh bìa"), "Ảnh bìa"),
     (re.compile(r"^Gửi"), "Gửi kết quả"),
 ]
@@ -111,6 +115,11 @@ REVIEW_TTL = 24 * 3600      # job chờ duyệt quá 24 giờ thì hết hạn, 
 
 def inputs_available(d: dict) -> bool:
     """Job còn đủ đầu vào để chạy lại không (link, file Telegram, hoặc file tải lên còn trên đĩa)."""
+    if d.get("mode") == "photo":
+        imgs_ok = bool(d.get("tg_images")) or (bool(d.get("images")) and all(os.path.exists(p) for p in d["images"]))
+        music_ok = bool(d.get("music_url") or d.get("music_tg_file_id")) or (
+            bool(d.get("music_local")) and os.path.exists(d["music_local"]))
+        return imgs_ok and music_ok
     if d.get("local"):
         return os.path.exists(d["local"])
     return bool(d.get("url") or d.get("tg_file_id"))

@@ -107,8 +107,54 @@ def _add_cookies(opts: dict, tmpdir: str):
         opts["cookiefile"] = cookie_file
 
 
+MUSIC_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _tiktok_sound_sync(url: str, tmpdir: str) -> tuple:
+    """Link VIDEO TikTok -> bản nhạc gốc (sound) mà video dùng, qua tikwm: là file nhạc sạch (bài hát trong thư viện
+    TikTok) chứ không lẫn giọng người quay như tiếng của video. Trả (đường dẫn, tên nhạc)."""
+    api = "https://www.tikwm.com/api/?url=" + urllib.parse.quote(url, safe="")
+    req = urllib.request.Request(api, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        d = json.load(r)
+    data = d.get("data") or {}
+    mi = data.get("music_info") or {}
+    play = mi.get("play") or data.get("music")
+    if d.get("code") != 0 or not play:
+        raise RuntimeError(f"tikwm: {d.get('msg') or 'không có nhạc'}")
+    if (mi.get("duration") or 0) > 600:
+        raise RuntimeError("Nhạc quá 10 phút.")
+    media = url_guard.check_url(play, any_domain=True)          # không tin link bên thứ ba
+    path = os.path.join(tmpdir, "music.mp3")
+    size = 0
+    req = urllib.request.Request(media, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
+        while chunk := r.read(1 << 20):
+            size += len(chunk)
+            if size > MUSIC_MAX_BYTES:
+                raise RuntimeError("File nhạc quá 20MB.")
+            f.write(chunk)
+    if size < 1000:
+        raise RuntimeError("tikwm trả file nhạc rỗng")
+    name = " - ".join(x for x in (mi.get("title"), mi.get("author")) if x)
+    return path, name
+
+
+def is_tiktok(url: str) -> bool:
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    return host == "tiktok.com" or host.endswith(".tiktok.com")
+
+
 def _download_audio_sync(url: str, tmpdir: str) -> str:
     url = url_guard.check_url(url)
+    if is_tiktok(url) and "/music/" not in url:
+        # TikTok: lấy bản nhạc gốc của video (sạch); lỗi thì lấy tiếng của video qua yt-dlp như cũ
+        try:
+            path, name = _tiktok_sound_sync(url, tmpdir)
+            logging.info("Nhạc TikTok: %s", name or "(không tên)")
+            return path
+        except Exception as e:
+            logging.warning("Lấy nhạc gốc TikTok qua tikwm lỗi (%s), lấy tiếng video bằng yt-dlp", str(e)[:120])
     opts = {
         "format": "bestaudio[ext=m4a]/bestaudio/best",
         "outtmpl": os.path.join(tmpdir, "music.%(ext)s"),
@@ -121,6 +167,9 @@ def _download_audio_sync(url: str, tmpdir: str) -> str:
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as e:
+        if is_tiktok(url) and "/music/" in url:
+            raise RuntimeError("Link trang nhạc TikTok (tiktok.com/music/...) không tải trực tiếp được: hãy gửi link "
+                               "MỘT VIDEO TikTok có dùng nhạc đó, bot sẽ lấy bản nhạc gốc của video.") from None
         raise _friendly(e) from None
     path = next((os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.startswith("music.")), None)
     if not path:
@@ -1140,12 +1189,18 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     return out_dur
 
 
+MUSIC_BG_LEVEL = 0.32          # nhạc nền ≈ -10 dB so với tiếng gốc, tự hạ thêm khi tiếng gốc to (sidechain)
+
+
 async def render_music(input_mp4: str, music_path: str, output_mp4: str,
                        duration: int = 0, speed: float = 1.0,
-                       trim: float = 0.0, delay: float = 0.0):
-    """Chế độ nhảy/nhạc: bỏ tiếng gốc, lồng nhạc mới, video đổi tốc độ nhẹ cho khớp beat."""
+                       trim: float = 0.0, delay: float = 0.0, keep_orig: bool = False):
+    """Chế độ nhảy/nhạc: bỏ tiếng gốc, lồng nhạc mới, video đổi tốc độ nhẹ cho khớp beat.
+    keep_orig=True (nhạc nền): GIỮ tiếng gốc, nhạc mới nằm dưới (tự hạ khi tiếng gốc to), không đổi tốc độ video;
+    nhạc ngắn hơn video thì lặp lại."""
     vid_dur = await probe_duration(input_mp4)
-    music_len = max(0.0, await probe_duration(music_path) - trim) + delay
+    orig = keep_orig and await has_audio(input_mp4)
+    music_len = 1e9 if keep_orig else max(0.0, await probe_duration(music_path) - trim) + delay
     out_dur = min(vid_dur / speed, music_len, config.HARD_MAX)
     if duration > 0:
         out_dur = min(out_dur, duration)
@@ -1153,13 +1208,17 @@ async def render_music(input_mp4: str, music_path: str, output_mp4: str,
     if delay > 0.01:
         ms = int(delay * 1000)
         a += f"adelay={ms}|{ms},"
-    a += ("loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000,"           # nhạc chuẩn -14 LUFS như nền tảng nhạc
-          f"afade=t=out:st={max(0.0, out_dur - 0.8):.2f}:d=0.8,"
+    if orig:
+        a += (f"volume={MUSIC_BG_LEVEL}[mus];[0:a]aformat=sample_rates=44100:channel_layouts=stereo,asplit=2[og][key];"
+              "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
+              "[og][musd]amix=inputs=2:duration=first:normalize=0,")
+    a += (f"{LOUDNORM},aresample=48000,"                            # nhạc chuẩn -14 LUFS như nền tảng nhạc
+          f"afade=t=in:st=0:d={0.4 if keep_orig else 0.01},afade=t=out:st={max(0.0, out_dur - 0.8):.2f}:d=0.8,"
           f"apad=whole_dur={out_dur:.2f}[a]")
     v = ("[0:v]crop=in_w*0.96:in_h*0.96,"
          "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
          f"setpts=PTS/{speed:.4f},fps=30,hqdn3d=1.2:1.2:3:3,eq=contrast=1.05:brightness=0.012:saturation=1.04,vibrance=intensity=0.12,cas=strength=0.5[v];")
-    audio_in = ["-i", input_mp4, "-ss", f"{trim:.3f}", "-i", music_path]
+    audio_in = ["-i", input_mp4, *(["-stream_loop", "-1"] if keep_orig else []), "-ss", f"{trim:.3f}", "-i", music_path]
     fc = await two_pass_loudness(v + a, audio_in, out_dur)
     await _run_ffmpeg(
         "-y", *thread_args(),

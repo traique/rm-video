@@ -18,6 +18,7 @@ import ocr_text
 import offline
 import prompt_engine
 import scenes
+import slideshow
 import state
 import subs as subs_mod
 import vocal_sep
@@ -308,7 +309,46 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         await asyncio.gather(*tasks, return_exceptions=True)
 
 
+async def _get_music(job: Job, tmp: str) -> str:
+    """Nhạc của job: file gửi qua Telegram, file tải lên web, hoặc link (TikTok: bản nhạc gốc của video)."""
+    if job.music_tg_file_id:
+        music = os.path.join(tmp, "music.m4a")
+        await state.bot.download(job.music_tg_file_id, destination=music)
+        return music
+    if job.music_local:
+        return job.music_local
+    if job.music_url:
+        return await core_video.download_audio(job.music_url, tmp)
+    raise RuntimeError("Chế độ này cần nhạc: gửi link (TikTok/YouTube...) hoặc file nhạc.")
+
+
+async def process_photo(job: Job, tmp: str) -> str:
+    """Chế độ 📸: 1-4 ảnh + nhạc -> video dọc, cảnh cắt đúng beat, hiệu ứng + chuyển cảnh chọn theo nhạc."""
+    images = list(job.images)
+    if job.tg_images:
+        job.step = f"Tải {len(job.tg_images)} ảnh từ Telegram"
+        images = []
+        for k, fid in enumerate(job.tg_images[:slideshow.MAX_IMAGES]):
+            p = os.path.join(tmp, f"img_{k}.jpg")
+            await state.bot.download(fid, destination=p)
+            images.append(p)
+    if not images:
+        raise RuntimeError("Chế độ 📸 cần 1-4 ảnh.")
+    job.step = "Tải nhạc"
+    music = await _get_music(job, tmp)
+    job.step = f"Dựng ảnh theo nhạc ({len(images)} ảnh)"
+    out = os.path.join(tmp, "output.mp4")
+    plan = await slideshow.render(images, music, out, job.duration)
+    job.out_dur = plan["length"]
+    job.script = slideshow.describe(plan)
+    pack = await prompt_engine.generate(job.title_hint or "", "", "photo", "", int(plan["length"]))
+    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
+    return out
+
+
 async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
+    if job.mode == "photo":
+        return await process_photo(job, tmp)
     if job.local:
         # dùng file tại chỗ (file tải lên, hoặc nguồn đã giữ lại lúc chờ duyệt): không chép/chuyển; bot chết
         # giữa chừng thì file còn nguyên để chạy lại; worker xoá file khi job xong (trừ job chờ duyệt)
@@ -350,15 +390,24 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
 
     if job.mode == "music":
         job.step = "Tải nhạc mới"
-        if job.music_tg_file_id:
-            music = os.path.join(tmp, "music.m4a")
-            await state.bot.download(job.music_tg_file_id, destination=music)
-        elif job.music_local:
-            music = job.music_local
-        elif job.music_url:
-            music = await core_video.download_audio(job.music_url, tmp)
-        else:
-            raise RuntimeError("Chế độ 🎵 cần link hoặc file nhạc mới.")
+        music = await _get_music(job, tmp)
+        if job.music_mix == "bg":
+            # nhạc nền: giữ tiếng gốc, không đổi tốc độ; lấy đoạn hay nhất (điệp khúc) của bài làm nền
+            job.step = "Chọn đoạn nhạc hay làm nhạc nền"
+            vid = await core_video.probe_duration(inp)
+            try:
+                info = await asyncio.to_thread(slideshow.analyze_music, music)
+                start = slideshow.choose_window(info, min(vid, max(4.0, info["duration"] - 0.5)))[0]
+            except Exception as e:
+                logging.warning("Không phân tích được nhạc (%s), dùng từ đầu bài", str(e)[:100])
+                start = 0.0
+            job.script = f"Nhạc nền lấy từ giây {start:.0f} của bài, giữ tiếng gốc (nhạc tự nhỏ lại khi tiếng gốc to)."
+            job.step = "Render nhạc nền (FFmpeg)"
+            out = os.path.join(tmp, "output.mp4")
+            await core_video.render_music(inp, music, out, job.duration, speed=1.0, trim=start, keep_orig=True)
+            pack = await prompt_engine.generate(title, desc, "music", "", job.duration)
+            job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
+            return out
 
         job.step = "Dò beat & khớp nhịp"
         try:
