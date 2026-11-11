@@ -206,6 +206,18 @@ def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
 
 
 async def process(job: Job, tmp: str, allow_review: bool = True):
+    """Xử lý một job; task nền nào (tách giọng) còn chạy khi job dừng giữa chừng thì bị huỷ cùng."""
+    tasks: list = []
+    try:
+        return await _process(job, tmp, allow_review, tasks)
+    finally:
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
     if job.local:
         # dùng file tại chỗ (file tải lên, hoặc nguồn đã giữ lại lúc chờ duyệt): không chép/chuyển; bot chết
         # giữa chừng thì file còn nguyên để chạy lại; worker xoá file khi job xong (trừ job chờ duyệt)
@@ -369,6 +381,10 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         out_dur = render_dur = cut
         job.out_dur = out_dur
     _plan_separation()
+    # Tách giọng gốc (nặng CPU) bắt đầu NGAY, chạy trong lúc chờ AI viết kịch bản và đọc giọng (việc mạng, CPU
+    # rảnh). Trước đây chỉ bắt đầu cùng lúc đọc giọng nên thời gian chờ AI bị phí.
+    amb_task = asyncio.create_task(_ambient())
+    tasks.append(amb_task)
 
     # ----- Đường chính: giọng KHỚP HÌNH -----
     segs = [s for s in segs if s[0] < out_dur - 0.5]
@@ -394,6 +410,8 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                              "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")}
                             for s in timed["segments"]]
+            amb_task.cancel()        # dừng chờ duyệt: tách giọng làm sau, lúc render bản đã duyệt
+            await asyncio.gather(amb_task, return_exceptions=True)
             if not job.local:        # nguồn từ link/Telegram: giữ lại để render sau khi duyệt KHÔNG phải tải lại (#8)
                 keep = os.path.join(config.UPLOAD_DIR, f"review_{job.id}{os.path.splitext(inp)[1] or '.mp4'}")
                 await asyncio.to_thread(shutil.move, inp, keep)
@@ -445,7 +463,6 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
                 job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
                 await _shorten(sure_long, est)
 
-        amb_task = asyncio.create_task(_ambient())      # tách giọng (CPU) chạy song song với tạo giọng (mạng)
         job.step = f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep["ok"] else "")
         clips = list(await asyncio.gather(*[_one(s) for s in segs_t]))
         durs = await _durs(clips)
@@ -520,7 +537,7 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
 
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
-    amb_wav, gate = await _ambient()
+    amb_wav, gate = await amb_task
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
                             title=(job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title), tmp=tmp,

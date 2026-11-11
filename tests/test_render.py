@@ -237,7 +237,7 @@ def test_color_recipe():
     for q in ("fast", "balanced", "high"):
         config.QUALITY = q
         f = core_video.build_filter("cook", 10, False, None)
-        assert "vibrance=intensity=0.2" in f and "saturation=1.06" in f and "colortemperature" in f, q
+        assert "vibrance=intensity=0.2" in f and "saturation=1.06" in f and "lutrgb=g=" in f, q   # ấm màu (6000K)
         assert "saturation=1.2" not in f and "lutyuv" not in f, q
         assert f.index("fps=30") < f.index("scale="), "fps=30 phải đứng trước scale (nguồn 50-60fps)"
     config.QUALITY = "balanced"

@@ -147,3 +147,28 @@ def test_review_keeps_downloaded_source(fakes, tmp_path, monkeypatch):
     tmp2.mkdir()
     asyncio.run(pipeline.process(new, str(tmp2)))
     assert downloads["n"] == 1 and new.source_meta["uploader"] == "Bếp Nhà"
+
+
+def test_separation_overlaps_ai_step(fakes, tmp_path, monkeypatch):
+    """Tách giọng (CPU) phải chạy trong lúc chờ AI viết kịch bản (mạng), không đợi viết xong mới bắt đầu."""
+    events = []
+    real_timed = prompt_engine.generate_timed_any
+
+    async def slow_timed(*a, **k):
+        events.append("ai-start")
+        await asyncio.sleep(0.5)
+        events.append("ai-end")
+        return await real_timed(*a, **k)
+
+    async def sep(src, out, timeout=0, windows=None):
+        events.append("sep-start")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vn", "-ac", "2", "-ar", "44100", out], check=True)
+        return True
+    monkeypatch.setattr(prompt_engine, "generate_timed_any", slow_timed)
+    monkeypatch.setattr(vocal_sep, "remove_voice", sep)
+    src = str(tmp_path / "up" / "in3.mp4")
+    _video(src)
+    job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src)
+    (tmp_path / "w").mkdir()
+    asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert events.index("sep-start") < events.index("ai-end")
