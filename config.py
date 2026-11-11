@@ -51,6 +51,8 @@ EDITABLE = {
     "BRAND_LOGO": "1",                 # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
     "BRAND_INTRO": "1",                # 1 = hiện tiêu đề video 3 giây đầu
     "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
+    "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
+    "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
     "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
     "SUB_TIMING": "spread",            # spread = rải mốc chữ theo âm tiết trong từng đoạn giọng; stt = nghe lại bằng STT CapCut
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
@@ -134,6 +136,8 @@ def save_settings(updates: dict):
                 raise ValueError("TTS_PITCH phải dạng +2Hz hoặc -3Hz")
             if k == "ASR_ORDER" and (not v or any(x.strip() not in ("groq", "gemini", "capcut") for x in v.split(","))):
                 raise ValueError("ASR_ORDER là danh sách groq, gemini, capcut cách nhau dấu phẩy")
+            if k == "TEXT_DETECT" and v not in ("heuristic", "ocr"):
+                raise ValueError("TEXT_DETECT chỉ nhận: heuristic, ocr")
             if k == "SUB_TIMING" and v not in ("spread", "stt"):
                 raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
             if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):

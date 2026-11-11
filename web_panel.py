@@ -187,6 +187,8 @@ _SETTING_OPTIONS = {
     "VOICE_SEPARATION": [["1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"], ["0", "Tắt"]],
     "VOICE_HUMANIZE": _ONOFF, "BRAND_LOGO": _ONOFF, "BRAND_INTRO": _ONOFF,
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
+    "TEXT_DETECT": [["heuristic", "Heuristic (mặc định, không cần cài)"], ["ocr", "Model OCR (bắt chữ màu, cần setup_offline)"]],
+    "TTS_OFFLINE": [["0", "Tắt"], ["1", "Bật giọng Piper khi CapCut + edge đều lỗi (xem lưu ý giấy phép)"]],
     "OST_AUTO": [["0", "Tắt (chỉ khi bạn chọn trong màn duyệt)"], ["1", "AI được đề xuất đoạn giữ tiếng gốc"]],
     "ASR_ORDER": [["groq,gemini,capcut", "Groq → Gemini → CapCut"], ["gemini,groq,capcut", "Gemini → Groq → CapCut"],
                   ["gemini,capcut", "Gemini → CapCut"], ["groq,capcut", "Groq → CapCut"]],

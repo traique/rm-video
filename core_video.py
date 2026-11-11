@@ -489,7 +489,19 @@ async def synth_clip(text: str, voice: str, path: str):
         except Exception as e:
             metrics.record("tts", "capcut", ok=False, detail=str(e))
             logging.warning("CapCut lỗi đoạn (%s), dùng edge-tts", str(e)[:100])
-    return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut)
+    try:
+        return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut)
+    except Exception:
+        if config.TTS_OFFLINE != "1":
+            raise
+    import offline                             # cả hai dịch vụ ngoài đều lỗi: giọng offline Piper (nếu đã cài)
+    try:
+        await offline.speak(text, path)
+        metrics.record("tts", "piper", fallback=True)
+        return None
+    except Exception as e:
+        metrics.record("tts", "piper", ok=False, fallback=True, detail=str(e))
+        raise
 
 
 async def synth_clip_cached(text: str, voice: str, path: str):

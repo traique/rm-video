@@ -25,6 +25,15 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
    - `PORT` — Botkeep thường tự cấp; mặc định 8080
 4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần).
 
+## Gói offline (tuỳ chọn)
+
+Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_offline`), khởi động lại bot:
+- **Tách giọng nhanh Spleeter**: tự dùng khi người gốc nói > 45s (trước đây phải tắt tiếng nền lúc người gốc nói).
+  Nhanh hơn Kim_Vocal_2 ~30 lần trên 1 lõi; tiếng nền kém tự nhiên hơn chút nên video ngắn vẫn dùng Kim.
+- **Dò chữ in cứng bằng OCR** (`TEXT_DETECT=ocr`): bắt cả chữ màu không viền; ~8s cho 60s video.
+- **Giọng offline Piper** (`TTS_OFFLINE=1`, mặc định tắt): tầng cuối khi CapCut và edge-tts đều lỗi. Giọng được tinh
+  chỉnh từ dữ liệu chỉ cho nghiên cứu: cân nhắc trước khi dùng cho video kiếm tiền.
+
 ## Bảo mật
 
 - **Telegram**: chỉ người trong `ALLOWED_USERS` tạo được job; người lạ nhận câu từ chối kèm chat id của họ.
@@ -162,7 +171,7 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 ```
 pip install pytest ruff
 ruff check .
-pytest -q            # ~120 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
+pytest -q            # ~125 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
 LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử với Gemini thật (tốn vài token)
 ```
 
@@ -181,6 +190,7 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `transcribe.py`, `prompt_engine.py`, `tts_capcut.py` | Bóc lời, viết kịch bản (Gemini/OpenRouter), giọng CapCut |
 | `queue_manager.py`, `metrics.py`, `cache.py`, `storage.py` | SQLite (jobs, steps, events, sources), cache theo bước, ổ đĩa |
 | `healthcheck.py`, `admin.py`, `ytdlp_update.py`, `potoken_setup.py` | Kiểm tra định kỳ, console, cập nhật yt-dlp, PO token |
+| `offline.py`, `ocr_text.py` | Gói offline: tách giọng Spleeter, giọng Piper, dò chữ OCR |
 | `url_guard.py`, `config.py` | Chặn link lạ/IP nội bộ, cài đặt |
 
 ## Lưu ý

@@ -1,13 +1,14 @@
 # Thay đổi so với bản botkeep_7
 
 Làm theo "Kế hoạch nâng cấp Video Bot (botkeep_7) — Bản hoàn thiện". Mỗi giai đoạn là một commit riêng trên nhánh.
-Kiểm tra: `ruff check .` sạch, `pytest -q` 101 test xanh (Python 3.13 cục bộ; CI chạy 3.11 và 3.12).
+Kiểm tra: `ruff check .` sạch, `pytest -q` 125 test xanh + 5 test chỉ chạy khi có key Gemini / model offline
+(Python 3.13 cục bộ; CI chạy 3.11 và 3.12). Đã chạy trọn một job với dịch vụ thật (Gemini bóc lời + viết kịch bản,
+edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 
 ## Cần làm khi cập nhật lên Botkeep
 
 1. Python runtime **≥ 3.11** (yt-dlp và google-genai bản mới không còn hỗ trợ 3.10).
-2. `pip install -r requirements.txt` (google-genai bị ghim < 3: bản 3.0.0 ngày 06/11/2026 đổi API mặc định sang v1
-   và client HTTP sang httpx2, chưa kiểm với bot).
+2. `pip install -r requirements.txt` (google-genai < 4: đã kiểm với key thật trên 2.34 và 3.0.0).
 3. Đặt `WEB_PASSWORD` (thiếu là web khoá), `ALLOWED_USERS` (thiếu là bot Telegram từ chối mọi người; nhắn bot một tin
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
@@ -75,14 +76,38 @@ Một lượt đọc lại toàn bộ thay đổi xác nhận trục thời gian
   chỉ 1/4 khúc có lời 10.0s, tách cả bài 18.8s (cả hai gồm ~5s nạp model).
 - Link video do tikwm trả về cũng bị chặn nếu trỏ vào IP nội bộ.
 
+## Đợt 2 — phần còn lại của kế hoạch
+
+| Hạng mục | Kết quả |
+| --- | --- |
+| Gemini thật | Gọi thật trên google-genai 2.34 và 3.0.0: viết kịch bản kèm ảnh, JSON theo schema, lỗi 404/400 đúng định dạng; nới ràng buộc lên `< 4` |
+| Bóc lời bằng Gemini | `gemini-3.5-transcribe`, mốc từng từ, có dấu câu, tự viết số ("300g"); 11s audio trong ~1.5s; `ASR_ORDER` (mặc định groq,gemini,capcut) |
+| Cờ tiếng gốc từng đoạn | Lời mới / giữ tiếng gốc / đọc lời mới lót tiếng gốc; chọn trên web, Telegram ("số: gốc"), hoặc AI đề xuất (`OST_AUTO=1`); đo: tiếng gốc chỉ vang trong cửa sổ đánh dấu (> 25 dB so với ngoài) |
+| Timeline + SRT | Mỗi job lưu `timeline.json` và phụ đề `.srt`, tải trên web để dựng tay |
+| Web cập nhật trực tiếp | Server-Sent Events thay cho hỏi lại mỗi 4 giây |
+| Cắt phần không mã hoá | Điểm cắt dời về khung khoá, chép luồng: đoạn 70s 1080p 0.4s thay vì 17.7s |
+| Tách `main.py` | state, storage, review, pipeline, jobs, admin, tg_bot; main.py ~80 dòng |
+| Telegram mất mạng | Không còn làm chết tiến trình (và web); thử lại, chờ tăng dần tới 5 phút |
+| Test Telegram | aiogram thật với phiên mạng giả: người lạ, luồng link → chế độ → thời lượng, duyệt "số: gốc" |
+
+### Giai đoạn 4 — thử nghiệm (đo trên 1 luồng CPU, `taskset -c 0`)
+
+| Thành phần | Đĩa | RAM đỉnh | Tốc độ (giây xử lý / giây audio) | Chất lượng | Giấy phép | Quyết định |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tách giọng nhanh Spleeter int8 (sherpa-onnx) | 43MB + 49MB | ~590MB (khúc 10s) | 0.06 (Kim_Vocal_2: 1.82) | Gemini không nghe ra từ nào trong tiếng nền (Kim: 1/36); tiếng nền kém tự nhiên hơn Kim | Apache-2.0 / MIT | **Đưa vào (tuỳ chọn)**: tự dùng khi người gốc nói > 45s, chỉ tách khúc có lời |
+| Dò chữ PP-OCRv6 tiny chạy thẳng onnxruntime | 1.8MB | ~190MB | ~0.13s/khung, video 60s ≈ 7-9s | Bắt chữ vàng không viền trên nền sáng mà heuristic bỏ sót; không báo nhầm ở 4 video không chữ | Apache-2.0 | **Đưa vào (tuỳ chọn)**: `TEXT_DETECT=ocr`; không dùng rapidocr/OpenCV (+225MB) |
+| Giọng offline Piper vi_VN vais1000 | 43MB + 82MB | ~200MB | 0.09 | Gemini nghe lại đúng 36/36 từ | Apache-2.0 / MIT, nhưng tinh chỉnh từ giọng lessac (dữ liệu chỉ cho nghiên cứu); espeak-ng GPL-3.0 | **Đưa vào, mặc định tắt** (`TTS_OFFLINE=1`): tầng dự phòng cuối, cân nhắc giấy phép nếu video kiếm tiền |
+| ASR offline Zipformer vi int8 | 43MB + 75MB | 280-360MB (khúc ≤ 30s) | 0.03 | Đúng hết trên giọng TTS sạch; chữ HOA, không dấu câu, số viết bằng chữ, mốc theo mảnh BPE | Apache-2.0 | **Không đưa vào**: không dấu câu làm hỏng chia đoạn, số bằng chữ làm hỏng bước kiểm con số; đã có Groq → Gemini → CapCut |
+| Nháp JianYing | — | — | — | — | — | **Thay bằng** `timeline.json` + `.srt` (mở được ở mọi phần mềm dựng, pyJianYingDraft không xuất được trên Linux) |
+| Worker render trên VPS | — | — | — | — | — | **Chưa làm**: cần máy thứ hai để thử; khi cần thì tách `jobs.worker` ra tiến trình riêng nhận job qua HTTP |
+
+Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
+bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
+
 ## Chưa làm (để lại, có lý do)
 
 | Việc | Lý do |
 | --- | --- |
-| Tách `main.py` thành gói `bot/`, `pipeline/`... | Đã tách phần chung ra module (`align`, `cache`, `metrics`, `healthcheck`, `url_guard`); tách tiếp nên làm sau khi bộ test chạy ổn định trên Botkeep |
-| google-genai 3.x | Cần kiểm với key thật (API v1, httpx2) |
-| pydantic-settings | `config.py` đã kiểm kiểu các khoá quan trọng; thêm thư viện không đáng lúc này |
-| Web HTMX + SSE | Poll giảm còn 4 giây và dừng khi tab ẩn |
-| `timeline.json` với cờ lời mới / tiếng gốc | Thay đổi lớn ở prompt và màn duyệt, cần thử với video thật |
-| Cắt phần (✂️) không mã hoá trung gian | Mỗi phần vẫn chạy pipeline riêng trên file đã cắt |
-| Giai đoạn 4 (ASR/TTS offline, OCR, tách giọng nhanh, nháp JianYing, worker VPS) | Thử nghiệm có tiêu chí đạt/bỏ, cần đo trên máy Botkeep thật |
+| pydantic-settings | `config.py` đã kiểm kiểu mọi khoá có giá trị cố định; thêm thư viện không đem lại gì thêm |
+| HTMX | Đã có Server-Sent Events; HTMX chỉ đổi cách viết giao diện, không thêm chức năng |
+| Worker render trên VPS | Cần máy thứ hai để thử (xem bảng Giai đoạn 4) |

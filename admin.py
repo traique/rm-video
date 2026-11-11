@@ -10,13 +10,15 @@ import config
 import core_video
 import healthcheck
 import metrics
+import offline
 import ytdlp_update
 from jobs import cancel_job
 from state import current, notify, notify_admin, queue, spawn
 from storage import disk_report
 
 CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ ngoài ngay) | update_ytdlp (cập nhật yt-dlp, "
-                "tự quay lại bản cũ nếu hỏng) | setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | "
+                "tự quay lại bản cũ nếu hỏng) | setup_offline / remove_offline (gói offline ~185MB: tách giọng nhanh, "
+                "giọng Piper, dò chữ OCR) | setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | "
                 "yt_test <link> | cancel <số job>")
 
 
@@ -45,8 +47,9 @@ async def console():
                              disk_report(), core_video.pot_status() or "chưa cài",
                              "có" if config.YTDLP_PROXY.strip() else "không",
                              "có" if config.YTDLP_COOKIES.strip() else "không")
-                logging.info("yt-dlp %s | luồng FFmpeg %d\nDịch vụ ngoài 24 giờ qua:\n%s",
-                             ytdlp_update.installed_version(), core_video.ffmpeg_threads(), metrics.summary(24))
+                logging.info("yt-dlp %s | luồng FFmpeg %d | gói offline: %s\nDịch vụ ngoài 24 giờ qua:\n%s",
+                             ytdlp_update.installed_version(), core_video.ffmpeg_threads(), offline.status(),
+                             metrics.summary(24))
             elif low in ("health", "/health"):
                 spawn(monitor.tick(force=True))
             elif low in ("update_ytdlp", "update-ytdlp"):
@@ -54,6 +57,11 @@ async def console():
             elif "setup_potoken" in low or "setup-potoken" in low:
                 logging.info("Bắt đầu cài PO token (vài phút, bot vẫn chạy bình thường)...")
                 spawn(potoken_setup.install(lambda s: logging.info("[potoken] %s", s)))
+            elif low in ("setup_offline", "setup-offline"):
+                logging.info("Cài gói offline (~185MB: tách giọng nhanh, giọng Piper, model dò chữ)...")
+                spawn(offline.install(lambda s: logging.info("[offline] %s", s)))
+            elif low in ("remove_offline", "remove-offline"):
+                offline.remove(lambda s: logging.info("[offline] %s", s))
             elif "remove_potoken" in low:
                 potoken_setup.remove(lambda s: logging.info("[potoken] %s", s))
             elif low.startswith("yt_test"):

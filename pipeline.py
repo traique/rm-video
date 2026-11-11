@@ -12,6 +12,8 @@ import config
 import core_video
 import ingredients
 import metrics
+import ocr_text
+import offline
 import prompt_engine
 import scenes
 import state
@@ -178,6 +180,21 @@ SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (má
 SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 
 
+async def _ocr_bands(inp: str, src_dur: float, src_hash: str, fallback: list) -> list:
+    """Dò dải chữ in cứng bằng model OCR (TEXT_DETECT=ocr); lỗi thì giữ kết quả heuristic."""
+    k = cache.key("ocr", src_hash)
+    hit = cache.get_json("ocr", k)
+    if hit is not None:
+        return [tuple(b) for b in hit]
+    try:
+        bands = await asyncio.to_thread(ocr_text.detect_sync, inp, 0.0, min(src_dur, config.HARD_MAX))
+        cache.put_json("ocr", k, [list(b) for b in bands])
+        return bands
+    except Exception as e:
+        logging.warning("Dò chữ OCR lỗi (%s), dùng cách dò cũ", str(e)[:100])
+        return fallback
+
+
 def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
     """Mốc cắt đoạn quảng cáo cuối của người gốc. Bản đã duyệt dùng lại ĐÚNG mốc đã quyết lúc viết kịch bản
     (kịch bản duyệt không có đoạn đó; trước đây bản duyệt render lại nguyên đoạn quảng cáo — lỗi N1)."""
@@ -288,10 +305,12 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         transcribe_segments(audio_mp3),                                  # ("", []) nếu không có nguồn STT
         scenes.analyze_cached(inp, tmp, src_dur, bool(job.subs and job.cover), src_hash,
                               need_thumbs=not job.approved))             # 1 lượt giải mã: cảnh + ảnh + dải chữ
+    if config.TEXT_DETECT == "ocr" and job.subs and job.cover and ocr_text.available():
+        bands = await _ocr_bands(inp, src_dur, src_hash, bands)
     segs = [(round(a * stretch, 2), round(b * stretch, 2), t) for a, b, t in raw_segs]   # trục thời gian đã làm chậm
     cuts = [round(c * stretch, 2) for c in cuts]
     speech = [(a, b) for a, b, _ in segs]               # lúc người gốc đang nói
-    sep = {"ok": False, "windows": None, "secs": 0.0, "why": ""}
+    sep = {"ok": False, "windows": None, "secs": 0.0, "why": "", "engines": []}
 
     def _plan_separation():
         """Gọi SAU khi đã biết đoạn thực render (đã cắt quảng cáo): tách giọng AI chỉ các đoạn người gốc nói
@@ -300,10 +319,13 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         win = (core_video.speech_windows([(a, min(b, end)) for a, b, _ in raw_segs if a < end], end)
                if raw_segs else None)
         secs = sum(b - a for a, b in win) if win is not None else end
-        why = ("VOICE_SEPARATION=0" if config.VOICE_SEPARATION == "0" else
+        kim = out_dur <= SEP_MAX_VIDEO and secs <= SEP_MAX_SPEECH
+        fast = offline.spleeter_available()          # gói offline: Spleeter nhanh ~30 lần, dùng cho video nhiều lời
+        why = ("VOICE_SEPARATION=0" if config.VOICE_SEPARATION == "0" else "" if kim or fast else
                f"video {out_dur:.0f}s > {SEP_MAX_VIDEO}s" if out_dur > SEP_MAX_VIDEO else
-               f"người gốc nói {secs:.0f}s > {SEP_MAX_SPEECH}s" if secs > SEP_MAX_SPEECH else "")
-        sep.update(ok=job.mode == "cook" and not why, windows=win, secs=secs, why=why)
+               f"người gốc nói {secs:.0f}s > {SEP_MAX_SPEECH}s; cài gói offline để tách nhanh")
+        sep.update(ok=job.mode == "cook" and not why, windows=win, secs=secs, why=why,
+                   engines=(["kim"] if kim else []) + (["fast"] if fast else []))
 
     def keyframes_for(sg):                              # ảnh cho AI: đổi mốc về trục thời gian của video gốc
         return scenes.keyframes(inp, [(a / stretch, b / stretch, t) for a, b, t in sg])
@@ -314,19 +336,21 @@ async def process(job: Job, tmp: str, allow_review: bool = True):
         if job.mode != "cook":
             return None, None
         if sep["ok"]:
-            k = cache.key("ambient", src_hash, sep["windows"])
-            hit = cache.get("ambient", k, ".wav")
-            if hit:
-                return hit, None
-            p = os.path.join(tmp, "ambient.wav")
-            if await vocal_sep.remove_voice(inp, p, windows=sep["windows"]):
-                metrics.record("sep", "onnx")
-                try:
-                    cache.put("ambient", k, p, ".wav")
-                except OSError:
-                    pass
-                return p, None
-            metrics.record("sep", "onnx", ok=False)
+            for k_eng, engine in enumerate(sep["engines"]):     # Kim_Vocal_2 (sạch hơn) -> Spleeter (nhanh hơn)
+                k = cache.key("ambient", src_hash, sep["windows"], engine)
+                hit = cache.get("ambient", k, ".wav")
+                if hit:
+                    return hit, None
+                p = os.path.join(tmp, f"ambient_{engine}.wav")
+                run = vocal_sep.remove_voice if engine == "kim" else offline.remove_voice_fast
+                if await run(inp, p, windows=sep["windows"]):
+                    metrics.record("sep", "onnx" if engine == "kim" else "spleeter", fallback=k_eng > 0)
+                    try:
+                        cache.put("ambient", k, p, ".wav")
+                    except OSError:
+                        pass
+                    return p, None
+                metrics.record("sep", "onnx" if engine == "kim" else "spleeter", ok=False, fallback=k_eng > 0)
             metrics.record("sep", "gate", fallback=True)
         return None, (speech or [(0.0, 99999.0)])
 
