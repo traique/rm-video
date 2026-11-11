@@ -19,7 +19,7 @@ from aiohttp import web
 
 import config
 import url_guard
-from queue_manager import Job, JobQueue, QueueFull
+from queue_manager import Job, JobQueue, QueueFull, phase_times
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_HTML = os.path.join(_DIR, "static", "index.html")
@@ -293,6 +293,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 "timeline": f"/api/jobs/{j.id}/timeline.json" if j.final_segments else "",
                 "srt": f"/api/jobs/{j.id}/subs.srt" if j.srt else "",
                 "age": int(time.time() - j.created),
+                "phases": phase_times(j.timeline, ((j.finished_at or time.time()) - j.started_at) if j.started_at else 0),
             } for j in jobs],
         }
 
@@ -320,7 +321,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 except web.HTTPException:
                     break
                 data = jobs_payload()
-                key = json.dumps([{k: v for k, v in j.items() if k not in ("elapsed", "eta", "age")}
+                key = json.dumps([{k: v for k, v in j.items() if k not in ("elapsed", "eta", "age", "phases")}
                                   for j in data["jobs"]] + [data["pending"]], ensure_ascii=False)
                 now = time.time()
                 if key != last_key or now - last_sent >= 10:

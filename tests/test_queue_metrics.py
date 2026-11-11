@@ -195,3 +195,47 @@ def test_old_review_job_survives_restart(tmp_path):
         q.save(j)
     q2 = JobQueue(db_path=db)
     assert q2.review_job_for(9) is not None
+
+
+def test_phase_times_groups_steps():
+    from queue_manager import phase_of, phase_times
+    tl = [("Tải video (yt-dlp)", 0), ("Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)", 4.0),
+          ("Viết lại 12 đoạn theo mốc lời + 5 điểm chuyển cảnh (AI)", 12.0), ("Rút gọn trước 2 đoạn chắc chắn quá dài", 20.0),
+          ("Đọc giọng 12 đoạn song song + tách giọng gốc", 23.0), ("Chờ tách giọng gốc xong", 30.0),
+          ("Render (FFmpeg)", 41.0), ("Gửi Video qua Telegram", 170.0)]
+    ph = phase_times(tl, 172.0)
+    assert [p["name"] for p in ph] == ["Tải/nhận nguồn", "Bóc lời + phân tích hình", "AI viết kịch bản", "AI rút gọn",
+                                       "Đọc giọng + phụ đề", "Chờ tách giọng gốc", "Render", "Gửi kết quả"]
+    assert {p["name"]: p["secs"] for p in ph}["Render"] == 129.0
+    # video cắt nhiều phần: cộng dồn theo giai đoạn, bỏ tiền tố "Phần i/n"; chờ duyệt không tính
+    tl2 = [("Tìm điểm cắt (chỗ ngưng nói + chuyển cảnh)", 0), ("Phần 1/2: cắt 0s-60s", 2), ("Phần 1/2: Render (FFmpeg)", 3),
+           ("Phần 2/2: cắt 60s-120s", 50), ("Phần 2/2: Render (FFmpeg)", 51), ("Chờ bạn duyệt/sửa kịch bản rồi bấm Render", 90)]
+    d = {p["name"]: p["secs"] for p in phase_times(tl2, 95)}
+    assert d == {"Tìm & cắt phần": 4.0, "Render": 86.0}
+    assert phase_of("Chờ bạn duyệt/sửa kịch bản rồi bấm Render") is None
+
+
+def test_jobs_api_has_phases(monkeypatch, tmp_path):
+    import asyncio
+    import time
+
+    from aiohttp.test_utils import TestClient, TestServer
+
+    import config
+    import web_panel
+    from queue_manager import Job, JobQueue
+    monkeypatch.setattr(config, "WEB_PASSWORD", "pw")
+    monkeypatch.setattr(web_panel, "_KEY_FILE", str(tmp_path / "k"))
+    q = JobQueue(db_path=str(tmp_path / "q.db"))
+    j = Job(url="https://x", mode="cook", duration=0, voice="v", status="done")
+    j.started_at, j.finished_at = time.time() - 100, time.time()
+    j.timeline = [("Tải video (yt-dlp)", 0), ("Render (FFmpeg)", 10)]
+    q.jobs[j.id] = j
+
+    async def go():
+        async with TestClient(TestServer(web_panel.build_app(q, {}))) as c:
+            d = await (await c.get("/api/jobs", headers={"X-Auth": "pw"})).json()
+            ph = d["jobs"][0]["phases"]
+            assert [p["name"] for p in ph] == ["Tải/nhận nguồn", "Render"]
+            assert ph[0]["secs"] == 10.0 and 89 <= ph[1]["secs"] <= 91
+    asyncio.run(go())

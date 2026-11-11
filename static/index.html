@@ -19,6 +19,8 @@ table{width:100%;border-collapse:collapse;font-size:.9em}
 td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
 .st-done{color:#16a34a}.st-error{color:#dc2626}.st-processing{color:var(--acc)}.st-review{color:#2563eb;font-weight:600}.st-cancelled{color:var(--mut)}
 a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;font-size:.9em}
+.ph{margin-top:6px}.ph-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line);margin-bottom:3px}
+.ph-bar span{display:block;height:100%;min-width:2px}.ph i{font-style:normal}
 </style></head><body><main>
 <h1>🎬 Video Bot — bảng điều khiển</h1>
 <div class="card">
@@ -179,6 +181,15 @@ async function refresh(){
     render(await r.json());
   }catch(e){}
 }
+// Thời gian từng giai đoạn của job: thanh tỉ lệ + danh sách, giai đoạn lâu nhất in đậm
+const PH_COLORS=['#0ea5e9','#a855f7','#f59e0b','#10b981','#ef4444','#6366f1','#84cc16','#ec4899','#14b8a6','#78716c'];
+function fmtS(s){return s>=90?Math.floor(s/60)+'p'+String(Math.round(s%60)).padStart(2,'0'):(s<10?s.toFixed(1):Math.round(s))+'s'}
+function phasesHtml(j){
+  const ph=j.phases||[];if(!ph.length||!['done','processing','error','cancelled'].includes(j.status))return '';
+  const tot=ph.reduce((a,p)=>a+p.secs,0)||1;const top=Math.max(...ph.map(p=>p.secs));
+  return '<div class="ph"><div class="ph-bar">'+ph.map((p,i)=>'<span style="width:'+(p.secs/tot*100).toFixed(2)+'%;background:'+PH_COLORS[i%PH_COLORS.length]+'" title="'+esc(p.name)+': '+fmtS(p.secs)+'"></span>').join('')+'</div>'+
+    '<div class="mut">⏱ '+ph.map((p,i)=>'<i style="color:'+PH_COLORS[i%PH_COLORS.length]+'">●</i> '+(p.secs==top&&ph.length>1?'<b>':'')+esc(p.name)+' '+fmtS(p.secs)+(p.secs==top&&ph.length>1?'</b>':'')).join(' · ')+'</div></div>';
+}
 function render(d){
     $('qinfo').textContent=' — đang chờ: '+d.pending+'';
     $('rows').innerHTML=d.jobs.map(j=>'<tr><td>'+j.id+'</td>'+
@@ -188,7 +199,7 @@ function render(d){
       (j.status=='review'?'<a href="#" onclick="openReview('+j.id+');return false">Duyệt kịch bản</a>':'')+'</td>'+
       '<td>'+(j.mode=='cook'?'🍲':j.mode=='music'?'🎵':j.mode=='download'?'⬇️':'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+j.source+
       (j.error?'<div class="'+(j.status=='done'?'st-processing':'st-error')+' mut">'+esc(j.error)+'</div>':'')+
-      (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+'</td>'+
+      (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+phasesHtml(j)+'</td>'+
       '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<a href="'+esc(p.dl)+'">'+esc(p.label)+'</a>').join('<br>')+'<br>'
              :(j.downloadable?'<a href="'+esc(j.dl)+'">Tải về</a><br>':''))+
       (j.post?'<a href="#" onclick="copyPost('+j.id+');return false">Copy content</a><br>':'')+

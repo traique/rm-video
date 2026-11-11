@@ -3,6 +3,7 @@ import itertools
 import json
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import time
@@ -57,6 +58,47 @@ class Job:
     final_segments: list = field(default_factory=list)   # timeline cuối (xuất timeline.json)
     srt: str = ""             # phụ đề SRT của video ra (nhập vào CapCut/Premiere để sửa tay)
     cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
+
+
+# Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job
+# chậm ở đâu. Thứ tự: khớp mẫu đầu tiên. Bước chờ duyệt không tính (đó là thời gian của người dùng).
+PHASES = [
+    (re.compile(r"^(Tải|Nhận file|Dùng file)"), "Tải/nhận nguồn"),
+    (re.compile(r"^Tìm điểm cắt|^Chấm điểm đoạn hay|: cắt \d"), "Tìm & cắt phần"),
+    (re.compile(r"^Bóc lời|^Kéo dài|^Dò beat"), "Bóc lời + phân tích hình"),
+    (re.compile(r"^(Viết|AI xem)"), "AI viết kịch bản"),
+    (re.compile(r"^Rút gọn"), "AI rút gọn"),
+    (re.compile(r"^(Đọc giọng|Giọng \d)"), "Đọc giọng + phụ đề"),
+    (re.compile(r"^Chờ tách giọng"), "Chờ tách giọng gốc"),
+    (re.compile(r"^Render"), "Render"),
+    (re.compile(r"^Tạo ảnh bìa"), "Ảnh bìa"),
+    (re.compile(r"^Gửi"), "Gửi kết quả"),
+]
+_PART = re.compile(r"^Phần \d+/\d+: |^Đoạn hay \d+/\d+: ")
+
+
+def phase_of(step: str) -> str | None:
+    if not step or step.startswith("Chờ bạn duyệt"):
+        return None
+    if _PART.match(step) and ": cắt " not in step:
+        step = _PART.sub("", step, count=1)
+    for rx, name in PHASES:
+        if rx.search(step):
+            return name
+    return "Khác"
+
+
+def phase_times(timeline: list, end: float) -> list:
+    """timeline [(bước, giây từ lúc bắt đầu)] + mốc kết thúc -> [{"name", "secs"}] theo thứ tự xuất hiện,
+    cộng dồn các bước cùng giai đoạn (video cắt nhiều phần: cộng mọi phần)."""
+    out: dict = {}
+    pts = [(s, float(t)) for s, t in timeline if s]
+    for k, (step, t) in enumerate(pts):
+        nxt = pts[k + 1][1] if k + 1 < len(pts) else max(end, t)
+        name = phase_of(step)
+        if name:
+            out[name] = out.get(name, 0.0) + max(0.0, nxt - t)
+    return [{"name": n, "secs": round(v, 1)} for n, v in out.items() if v >= 0.05]
 
 
 DB_PATH = os.environ.get("JOBS_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")

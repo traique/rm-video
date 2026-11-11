@@ -41,6 +41,7 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     _cleanup_outputs({p["path"] for p in job.parts})
     if job.source != "tg" or not state.bot:
         return
+    job.step = f"Gửi {label} qua Telegram"
     size = os.path.getsize(keep)
     link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{len(job.parts) - 1}?t={part['token']}"
             if config.PUBLIC_URL else "")
