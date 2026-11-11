@@ -17,3 +17,8 @@ work/
 settings.json.tmp
 cache/
 .pytest_cache/
+golden/videos/
+golden/out/
+golden/results/
+golden/baseline.json
+golden/report.md

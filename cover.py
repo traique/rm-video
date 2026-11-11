@@ -55,23 +55,31 @@ def _z(v: np.ndarray) -> np.ndarray:
     return (v - float(np.median(v))) / (sd if sd > 1e-9 else 1.0)
 
 
+def frame_metrics(frames: np.ndarray) -> dict:
+    """Số đo từng khung RGB uint8 (N x H x W x 3): sharp = log phương sai Laplacian (độ nét), color = độ rực màu
+    Hasler-Süsstrunk, mean = độ sáng trung bình 0..1, expo = điểm phơi sáng (0 là đẹp nhất, âm là tối/cháy)."""
+    f = frames.astype(np.float32) / 255.0
+    n = len(f)
+    r, g, b = f[..., 0], f[..., 1], f[..., 2]
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    lap = 4 * y[:, 1:-1, 1:-1] - y[:, :-2, 1:-1] - y[:, 2:, 1:-1] - y[:, 1:-1, :-2] - y[:, 1:-1, 2:]
+    rg, yb = (r - g).reshape(n, -1), (0.5 * (r + g) - b).reshape(n, -1)
+    m = y.reshape(n, -1).mean(axis=1)
+    clipped = (y > 0.97).reshape(n, -1).mean(axis=1) + (y < 0.03).reshape(n, -1).mean(axis=1)
+    return {"sharp": np.log(lap.reshape(n, -1).var(axis=1) + 1e-6),
+            "color": (np.sqrt(rg.std(axis=1) ** 2 + yb.std(axis=1) ** 2)
+                      + 0.3 * np.sqrt(rg.mean(axis=1) ** 2 + yb.mean(axis=1) ** 2)),
+            "mean": m, "expo": -(np.abs(m - 0.5) * 2 + clipped * 3)}
+
+
 def score_frames(frames: np.ndarray, times: np.ndarray, dur: float, mode: str = "cook",
                  cuts: list | None = None, end: float | None = None) -> np.ndarray:
     """Điểm từng khung (càng cao càng hợp làm ảnh bìa); khung bị loại có điểm -inf.
     times, cuts, end: cùng trục thời gian (giây)."""
     if len(frames) == 0:
         return np.zeros(0)
-    f = frames.astype(np.float32) / 255.0
-    r, g, b = f[..., 0], f[..., 1], f[..., 2]
-    y = 0.299 * r + 0.587 * g + 0.114 * b
-    lap = 4 * y[:, 1:-1, 1:-1] - y[:, :-2, 1:-1] - y[:, 2:, 1:-1] - y[:, 1:-1, :-2] - y[:, 1:-1, 2:]
-    sharp = np.log(lap.reshape(len(f), -1).var(axis=1) + 1e-6)
-    rg, yb = r - g, 0.5 * (r + g) - b
-    color = (np.sqrt(rg.reshape(len(f), -1).std(axis=1) ** 2 + yb.reshape(len(f), -1).std(axis=1) ** 2)
-             + 0.3 * np.sqrt(rg.reshape(len(f), -1).mean(axis=1) ** 2 + yb.reshape(len(f), -1).mean(axis=1) ** 2))
-    m = y.reshape(len(f), -1).mean(axis=1)
-    clipped = (y > 0.97).reshape(len(f), -1).mean(axis=1) + (y < 0.03).reshape(len(f), -1).mean(axis=1)
-    expo = -(np.abs(m - 0.5) * 2 + clipped * 3)
+    fm = frame_metrics(frames)
+    sharp, color, m, expo = fm["sharp"], fm["color"], fm["mean"], fm["expo"]
     x = times / max(dur, 1e-6)
     prior = np.exp(-((x - 0.78) / 0.22) ** 2) if mode == "cook" else np.exp(-((x - 0.5) / 0.35) ** 2)
     score = 1.0 * _z(sharp) + 0.8 * _z(color) + 0.6 * _z(expo) + 1.0 * prior

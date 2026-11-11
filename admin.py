@@ -19,7 +19,7 @@ from storage import disk_report
 CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ ngoài ngay) | update_ytdlp (cập nhật yt-dlp, "
                 "tự quay lại bản cũ nếu hỏng) | setup_offline / remove_offline (gói offline ~185MB: tách giọng nhanh, "
                 "giọng Piper, dò chữ OCR) | setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | "
-                "yt_test <link> | cancel <số job>")
+                "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py)")
 
 
 async def console():
@@ -74,12 +74,33 @@ async def console():
                         logging.info("✅ 2/2 Tải thật OK (%dKB) — YouTube dùng được.", os.path.getsize(p) >> 10)
                     except Exception as e:
                         logging.info("❌ YouTube vẫn lỗi: %s", e)
+            elif low.split()[0] == "golden":
+                arg = (low.split() + ["run"])[1]
+                if arg not in ("run", "baseline", "compare"):
+                    logging.info("golden run | golden baseline | golden compare")
+                elif arg == "run" and (queue.pending or current.get("job")):
+                    logging.info("Hàng đợi đang có video, chạy bộ video mẫu sau khi xong để không tranh CPU.")
+                else:
+                    spawn(run_golden(arg))
             elif low.startswith("cancel "):
                 logging.info(cancel_job(int(low.split()[1])))
             else:
                 logging.info("Không hiểu lệnh «%s». %s", cmd[:40], CONSOLE_HELP)
         except Exception as e:
             logging.warning("Lệnh console lỗi: %s", e)
+
+
+async def run_golden(arg: str):
+    """Chạy golden.py trong tiến trình riêng, ưu tiên CPU thấp (nice 10), in từng dòng kết quả ra log."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden.py")
+    proc = await asyncio.create_subprocess_exec(sys.executable, script, arg, stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.STDOUT, preexec_fn=lambda: os.nice(10))
+    async for line in proc.stdout:
+        text = line.decode(errors="ignore").rstrip()
+        if text:
+            logging.info("[golden] %s", text)
+    code = await proc.wait()
+    logging.info("[golden] xong (mã %d%s). Báo cáo: golden/report.md", code, ", CÓ chỉ số tụt" if code == 1 else "")
 
 
 monitor = healthcheck.Monitor(notify_admin)
