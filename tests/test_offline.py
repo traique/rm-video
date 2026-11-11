@@ -104,7 +104,7 @@ def test_long_speech_uses_fast_separation(monkeypatch, tmp_path):
         monkeypatch.setattr(config, k, v)
     segs = [(float(t), t + 4.5, f"đoạn {t}") for t in range(0, 55, 5)]          # ~50s có lời
 
-    async def fake_tr(audio):
+    async def fake_tr(audio, *a, **k):
         return "x", segs
 
     async def fake_timed(title, desc, mode, sg, out_dur, images_for=None):

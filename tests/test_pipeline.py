@@ -37,7 +37,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "BRAND_INTRO", "0")
     monkeypatch.setattr(config, "QUALITY", "fast")
 
-    async def fake_transcribe(audio):
+    async def fake_transcribe(audio, *a, **k):
         return " ".join(t for *_, t in ORIG), list(ORIG)
     monkeypatch.setattr(pipeline, "transcribe_segments", fake_transcribe)
 

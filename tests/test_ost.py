@@ -138,7 +138,7 @@ def test_pipeline_skips_tts_for_orig(tmp_path, monkeypatch):
                        check=True)
         return None, "capcut"
 
-    async def fake_tr(audio):
+    async def fake_tr(audio, *a, **k):
         return "", []
     monkeypatch.setattr(core_video, "synth_clip_ex", fake_synth)
     monkeypatch.setattr(pipeline, "transcribe_segments", fake_tr)

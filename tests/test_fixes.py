@@ -187,7 +187,7 @@ def test_asr_falls_through_to_next_provider(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
     seen = []
 
-    async def fake(name, path):
+    async def fake(name, path, prompt=""):
         seen.append(name)
         if name == "gemini":
             raise RuntimeError("503 UNAVAILABLE")

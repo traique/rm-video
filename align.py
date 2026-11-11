@@ -6,10 +6,18 @@ nên mọi từ sau chỗ lệch đều trượt mốc). Cách làm:
 2. Lệch -> căn bằng difflib trên từ đã bỏ dấu/viết thường; từ kịch bản khớp được lấy mốc của từ STT tương
    ứng, các từ không khớp được rải theo độ dài âm tiết trong khoảng giữa hai từ khớp kề nó.
 3. Không có mốc nào -> rải theo độ dài âm tiết trong [start, end].
+
+Giọng không có mốc từng từ (CapCut, Piper): spread_voiced() rải chữ CHỈ trên các khoảng có tiếng của chính
+giọng đã tạo (đo năng lượng), mỗi cụm giữa hai dấu câu ứng với một khúc giọng giữa hai chỗ ngắt hơi, âm tiết
+cuối cụm được dành thêm thời gian (giọng đọc kéo dài âm cuối câu). Đo trên 7 câu edge-tts có mốc thật (105 từ):
+lệch đầu từ trung bình 271ms -> 69ms, 90% số từ lệch dưới 124ms (cách cũ 551ms); STT CapCut nghe lại cũng chỉ
+được 85ms / 164ms và mất 7-11 giây mỗi lần gọi mạng.
 """
 import difflib
 import re
 import unicodedata
+
+import numpy as np
 
 
 def norm(word: str) -> str:
@@ -79,3 +87,102 @@ def map_script(script: str, timed: list, start: float, end: float) -> list:
         fixed.append((round(a, 3), round(b, 3), w))
         prev = a
     return fixed
+
+
+# ---------- rải chữ theo khoảng CÓ TIẾNG của giọng đã tạo ----------
+
+PUNCT = (",", ".", "!", "?", ";", ":", "…")
+PAUSE = 0.15              # khoảng lặng ≥ 0.15s là chỗ ngắt hơi giữa hai cụm
+FINAL_BONUS = 3.0         # âm tiết cuối cụm dài hơn (đo: lệch trung bình 107ms -> 69ms)
+
+
+def voiced_intervals(x: "np.ndarray", sr: int, hop: float = 0.01, rel_db: float = 30.0,
+                     gap_fill: float = 0.06, min_on: float = 0.04) -> list:
+    """Khoảng có tiếng [(đầu, cuối)] (giây, tính từ đầu mảng x) của một đoạn giọng mono float.
+    Ngưỡng: thấp hơn mức to (phân vị 95) 30 dB; khe < 60ms giữa hai âm tiết được lấp; tiếng lách tách < 40ms bỏ."""
+    n = max(1, int(sr * hop))
+    m = len(x) // n
+    if m < 3:
+        return []
+    rms = np.sqrt((x[:m * n].reshape(m, n).astype(np.float64) ** 2).mean(axis=1) + 1e-12)
+    db = 20 * np.log10(rms)
+    top = float(np.percentile(db, 95))
+    if top < -60:                                   # gần như câm
+        return []
+    on = db > top - rel_db
+    raw, i = [], 0
+    while i < m:
+        if on[i]:
+            j = i
+            while j < m and on[j]:
+                j += 1
+            raw.append([i * hop, j * hop])
+            i = j
+        else:
+            i += 1
+    merged = []
+    for a, b in raw:
+        if merged and a - merged[-1][1] < gap_fill:
+            merged[-1][1] = b
+        else:
+            merged.append([a, b])
+    return [(round(a, 3), round(b, 3)) for a, b in merged if b - a >= min_on]
+
+
+def _phrases(words: list) -> list:
+    out = [[]]
+    for w in words:
+        out[-1].append(w)
+        if w.endswith(PUNCT):
+            out.append([])
+    return [p for p in out if p]
+
+
+def _warp(phrases: list, ivs: list) -> list:
+    """Rải chữ của các cụm trên tổng thời gian CÓ TIẾNG của ivs (bỏ qua khoảng lặng) rồi đổi về thời gian thật.
+    Trọng số mỗi âm tiết = số chữ cái + 1, âm tiết cuối mỗi cụm cộng FINAL_BONUS."""
+    words = [w for p in phrases for w in p]
+    last, k = set(), -1
+    for p in phrases:
+        k += len(p)
+        last.add(k)
+    tot = sum(b - a for a, b in ivs)
+    weights = [len(norm(w)) + 1 + (FINAL_BONUS if i in last else 0) for i, w in enumerate(words)]
+    wsum = sum(weights) or 1
+
+    def at(v):
+        for a, b in ivs:
+            if v <= b - a + 1e-9:
+                return a + v
+            v -= b - a
+        return ivs[-1][1]
+    out, acc = [], 0.0
+    for w, k in zip(words, weights):
+        s = acc / wsum * tot
+        acc += k
+        out.append((at(s + 1e-6), at(acc / wsum * tot), w))
+    return out
+
+
+def spread_voiced(words: list, ivs: list, a0: float, a1: float) -> list:
+    """words rải theo khoảng có tiếng ivs (thời gian tuyệt đối) trong [a0, a1]. Số cụm (theo dấu câu) bằng số
+    khúc giọng (theo chỗ ngắt ≥ 0.15s) thì mỗi cụm vào đúng khúc của nó; lệch thì rải chung trên mọi khoảng có
+    tiếng. Không đo được tiếng nào thì rải đều như spread()."""
+    if not words:
+        return []
+    ivs = [(max(a, a0), min(b, a1)) for a, b in ivs if b > a0 and a < a1]
+    ivs = [(a, b) for a, b in ivs if b - a > 0.02]
+    if not ivs or sum(b - a for a, b in ivs) < 0.1 * len(words):
+        return spread(words, a0, a1)
+    groups = []
+    for a, b in ivs:
+        if groups and a - groups[-1][-1][1] < PAUSE:
+            groups[-1].append((a, b))
+        else:
+            groups.append([(a, b)])
+    ph = _phrases(words)
+    if len(ph) == len(groups):
+        out = [x for p, g in zip(ph, groups) for x in _warp([p], g)]
+    else:
+        out = _warp(ph, ivs)
+    return [(round(a, 3), round(max(b, a + 0.05), 3), w) for a, b, w in out]

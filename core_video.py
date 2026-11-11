@@ -422,8 +422,12 @@ async def tts(text: str, mp3_path: str, voice: str, ass_path: str | None = None,
     if config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES:
         try:
             import tts_capcut
-            words = await tts_capcut.speak(text, voice, mp3_path, want_words=bool(ass_path))
+            words = await tts_capcut.speak(text, voice, mp3_path, want_words=bool(ass_path) and config.SUB_TIMING == "stt")
             metrics.record("tts", "capcut")
+            if ass_path and not words:              # mốc chữ theo khoảng có tiếng của chính file giọng
+                ivs = await voiced_intervals(mp3_path)
+                if ivs:
+                    words = align.spread_voiced(text.split(), ivs, 0.0, ivs[-1][1] + 0.05)
             if ass_path and words:
                 subs_mod.write_ass(words, ass_path, pos_y, config.SUB_STYLE)
                 return True
@@ -603,11 +607,32 @@ def _map_script(script: str, timed: list, s: float, e: float, clip: int) -> list
     return [(a, b, w, clip) for a, b, w in align.map_script(script, timed, s, e)]
 
 
+VOICED_SR = 16000
+
+
+def _voiced_intervals_sync(path: str) -> list:
+    """Khoảng có tiếng của cả file giọng (giải mã 16kHz mono qua ffmpeg)."""
+    import numpy as np
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(VOICED_SR), "-f", "s16le", "-"],
+                         capture_output=True, timeout=120).stdout
+    x = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+    return align.voiced_intervals(x, VOICED_SR)
+
+
+async def voiced_intervals(path: str) -> list | None:
+    """Như _voiced_intervals_sync, lỗi thì None (phụ đề rơi về rải đều)."""
+    try:
+        return await asyncio.to_thread(_voiced_intervals_sync, path)
+    except Exception as e:
+        logging.warning("Không đo được khoảng có tiếng của giọng (%s), rải phụ đề đều", str(e)[:100])
+        return None
+
+
 async def words_for_track(clips: list, plan: list, track_path: str, texts: list) -> list:
     """Mốc từng từ cho phụ đề, chữ luôn lấy nguyên văn kịch bản (texts[i] của đoạn i).
-    Đoạn đọc bằng edge-tts có mốc từng từ thật. Đoạn CapCut (không có mốc): mặc định rải chữ theo âm tiết
-    trong chính đoạn đó (1-4 giây nên đủ khớp, không tốn thêm lượt mạng); SUB_TIMING=stt thì nghe lại
-    cả track bằng STT CapCut như bản cũ."""
+    Đoạn đọc bằng edge-tts có mốc từng từ thật. Đoạn CapCut/Piper (không có mốc): mặc định rải chữ trên các
+    khoảng CÓ TIẾNG của chính track giọng (align.spread_voiced: đo lệch trung bình ~70ms, không gọi mạng);
+    SUB_TIMING=stt thì nghe lại cả track bằng STT CapCut như bản cũ (lệch ~85ms, chậm 7-11 giây)."""
     per_clip = [[] for _ in clips]
     for i, (cl, p) in enumerate(zip(clips, plan)):
         if cl.get("words"):
@@ -627,9 +652,14 @@ async def words_for_track(clips: list, plan: list, track_path: str, texts: list)
                     if i in missing:
                         per_clip[i].append((a, b, w))
                     break
+    todo = [i for i in missing if not per_clip[i] and texts[i].strip()]
+    ivs = await voiced_intervals(track_path) if todo else None
     out = []
     for i, p in enumerate(plan):
-        out += _map_script(texts[i], per_clip[i], p["start"], p["end"], i)
+        if i in todo and ivs:
+            out += [(a, b, w, i) for a, b, w in align.spread_voiced(texts[i].split(), ivs, p["start"], p["end"] + 0.05)]
+        else:
+            out += _map_script(texts[i], per_clip[i], p["start"], p["end"], i)
     return out
 
 

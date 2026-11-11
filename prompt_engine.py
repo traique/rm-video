@@ -13,6 +13,7 @@ import aiohttp
 import config
 import ingredients
 import metrics
+import vocab
 
 try:
     from google import genai
@@ -73,7 +74,8 @@ GIỌNG VĂN MIỀN NAM (bắt buộc): xưng "mình"/"tui", gọi "mọi ngư�
 
 
 def style_block() -> str:
-    return _STYLE.get(config.SPEECH_STYLE, "")
+    """Giọng văn (SPEECH_STYLE) + từ điển của kênh (ASR_VOCAB): mọi lời nhắc viết lời đều kèm khối này."""
+    return _STYLE.get(config.SPEECH_STYLE, "") + vocab.prompt_hint()
 
 
 def _norm_words(t: str) -> list:

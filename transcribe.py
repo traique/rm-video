@@ -13,36 +13,46 @@ import aiohttp
 
 import config
 import metrics
+import vocab
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 
-async def _groq(audio_path: str):
-    f = open(audio_path, "rb")
-    try:
+async def _groq_post(audio_path: str, prompt: str):
+    """Một lượt gọi Groq. Trả (mã HTTP, json hoặc chuỗi lỗi)."""
+    with open(audio_path, "rb") as f:
         form = aiohttp.FormData()
         form.add_field("model", config.GROQ_WHISPER_MODEL)
         form.add_field("response_format", "verbose_json")
         form.add_field("timestamp_granularities[]", "word")
+        if prompt:                                   # từ điển: Whisper viết theo chính tả trong prompt
+            form.add_field("prompt", prompt)
         form.add_field("file", f, filename="audio.mp3", content_type="audio/mpeg")
         async with aiohttp.ClientSession() as s:
             async with s.post(GROQ_URL, headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
                               data=form, timeout=aiohttp.ClientTimeout(total=120)) as r:
                 if r.status != 200:
-                    body = (await r.text())[:200]
-                    logging.warning("Groq Whisper %s: %s", r.status, body)
-                    metrics.record("asr", "groq", ok=False, detail=f"{r.status} {body}")
-                    return "", []
-                d = await r.json()
-        metrics.record("asr", "groq")
-        units = [(float(x["start"]), float(x["end"]), (x.get("word") or "").strip())
-                 for x in d.get("words", []) if (x.get("word") or "").strip()]
-        if not units:   # không có mốc từ -> dùng segment của Whisper
-            units = [(float(x["start"]), float(x["end"]), (x.get("text") or "").strip())
-                     for x in d.get("segments", []) if (x.get("text") or "").strip()]
-        return (d.get("text") or "").strip(), chunk_units(units)
-    finally:
-        f.close()
+                    return r.status, (await r.text())[:200]
+                return 200, await r.json()
+
+
+async def _groq(audio_path: str, prompt: str = ""):
+    status, d = await _groq_post(audio_path, prompt)
+    if status != 200 and prompt and (status >= 500 or status == 400):
+        # Groq từng trả 500 vì tham số prompt: thử lại một lần không kèm từ điển
+        logging.warning("Groq Whisper %s khi kèm từ điển, thử lại không kèm: %s", status, d)
+        status, d = await _groq_post(audio_path, "")
+    if status != 200:
+        logging.warning("Groq Whisper %s: %s", status, d)
+        metrics.record("asr", "groq", ok=False, detail=f"{status} {d}")
+        return "", []
+    metrics.record("asr", "groq")
+    units = [(float(x["start"]), float(x["end"]), (x.get("word") or "").strip())
+             for x in d.get("words", []) if (x.get("word") or "").strip()]
+    if not units:   # không có mốc từ -> dùng segment của Whisper
+        units = [(float(x["start"]), float(x["end"]), (x.get("text") or "").strip())
+                 for x in d.get("segments", []) if (x.get("text") or "").strip()]
+    return (d.get("text") or "").strip(), chunk_units(units)
 
 
 def parse_offset(v) -> float:
@@ -149,16 +159,19 @@ def _cache_key(path: str) -> str:
     return h.hexdigest()[:20]
 
 
-async def transcribe_segments(audio_path: str):
-    """Có cache theo hash audio: chạy lại cùng video (duyệt kịch bản, làm lại) không phải nghe lại."""
+async def transcribe_segments(audio_path: str, title: str = "", desc: str = ""):
+    """Có cache theo hash audio (+ từ điển gửi cho Groq): chạy lại cùng video (duyệt kịch bản, làm lại) không
+    phải nghe lại. title/desc: ngữ cảnh cho từ điển (xem vocab.py). Kết quả luôn qua bước sửa chính tả theo từ
+    điển (làm SAU cache: đổi từ điển là áp ngay cho cả video đã nghe)."""
+    prompt = vocab.groq_prompt(title, desc)
     try:
-        key = _cache_key(audio_path)
+        key = _cache_key(audio_path) + (("-" + hashlib.sha1(prompt.encode()).hexdigest()[:6]) if prompt else "")
         cache = json.load(open(_CACHE, encoding="utf-8")) if os.path.exists(_CACHE) else {}
         if key in cache:
-            return cache[key]["text"], [tuple(x) for x in cache[key]["segs"]]
+            return vocab.fix_segments(cache[key]["text"], [tuple(x) for x in cache[key]["segs"]])
     except Exception:
         key, cache = "", {}
-    text, segs = await _transcribe_uncached(audio_path)
+    text, segs = await _transcribe_uncached(audio_path, prompt)
     if key and text:
         try:
             cache[key] = {"text": text, "segs": segs}
@@ -167,7 +180,7 @@ async def transcribe_segments(audio_path: str):
             json.dump(cache, open(_CACHE, "w", encoding="utf-8"), ensure_ascii=False)
         except Exception:
             pass
-    return text, segs
+    return vocab.fix_segments(text, segs)
 
 
 def asr_order() -> list:
@@ -177,20 +190,20 @@ def asr_order() -> list:
     return [x for x in order if have.get(x)]
 
 
-async def _run_provider(name: str, audio_path: str):
+async def _run_provider(name: str, audio_path: str, prompt: str = ""):
     if name == "groq":
-        return await _groq(audio_path)
+        return await _groq(audio_path, prompt)
     if name == "gemini":
         return await _gemini(audio_path)
     return await asyncio.to_thread(_capcut_sync, audio_path)
 
 
-async def _transcribe_uncached(audio_path: str):
+async def _transcribe_uncached(audio_path: str, prompt: str = ""):
     """Thử lần lượt theo ASR_ORDER; nguồn trả lời rỗng hoặc lỗi thì sang nguồn sau.
     Video không lời thì trả ("", [])."""
     for k, name in enumerate(asr_order()):
         try:
-            text, segs = await _run_provider(name, audio_path)
+            text, segs = await _run_provider(name, audio_path, prompt)
             if name != "groq":                         # groq tự ghi số liệu trong _groq (có mã lỗi HTTP)
                 metrics.record("asr", name, fallback=k > 0)
             if text:

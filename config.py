@@ -36,6 +36,7 @@ EDITABLE = {
     "GROQ_WHISPER_MODEL": "whisper-large-v3-turbo",
     "GEMINI_ASR_MODEL": "gemini-3.5-transcribe",   # bóc lời bằng Gemini (mốc từng từ), dùng chung GEMINI_API_KEY
     "ASR_ORDER": "groq,gemini,capcut",             # thứ tự nguồn bóc lời; nguồn thiếu key tự bỏ qua
+    "ASR_VOCAB": "",                   # từ điển: tên món, nguyên liệu, tên riêng của kênh (cách nhau dấu phẩy) để bóc lời viết đúng
     "YTDLP_COOKIES": "",
     "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
     "TTS_RATE": "+8%",
@@ -54,7 +55,7 @@ EDITABLE = {
     "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
     "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
     "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
-    "SUB_TIMING": "spread",            # spread = rải mốc chữ theo âm tiết trong từng đoạn giọng; stt = nghe lại bằng STT CapCut
+    "SUB_TIMING": "spread",            # spread = rải chữ trên khoảng có tiếng của giọng (lệch ~70ms); stt = nghe lại bằng STT CapCut
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
     "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
     "QUALITY": "balanced",             # fast (nhanh nhất) | balanced (mặc định) | high (chuẩn TVC, chậm ~2x)

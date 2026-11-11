@@ -192,7 +192,8 @@ _SETTING_OPTIONS = {
     "OST_AUTO": [["0", "Tắt (chỉ khi bạn chọn trong màn duyệt)"], ["1", "AI được đề xuất đoạn giữ tiếng gốc"]],
     "ASR_ORDER": [["groq,gemini,capcut", "Groq → Gemini → CapCut"], ["gemini,groq,capcut", "Gemini → Groq → CapCut"],
                   ["gemini,capcut", "Gemini → CapCut"], ["groq,capcut", "Groq → CapCut"]],
-    "SUB_TIMING": [["spread", "Rải theo âm tiết (nhanh, mặc định)"], ["stt", "Nghe lại bằng STT CapCut (chậm hơn)"]],
+    "SUB_TIMING": [["spread", "Theo khoảng có tiếng của giọng (mặc định, lệch ~70ms, không gọi mạng)"],
+                   ["stt", "Nghe lại bằng STT CapCut (lệch ~85ms, chậm thêm 7-11 giây)"]],
     "SOURCE_CREDIT": [["1", "Bật (ghi nguồn + Giọng đọc AI)"], ["0", "Tắt"]],
     "CUT_PROMO": [["1", "Bật (cắt quảng cáo sản phẩm của người gốc ở cuối)"], ["0", "Tắt"]],
 }

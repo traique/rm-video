@@ -314,7 +314,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
     audio_mp3 = os.path.join(tmp, "audio.mp3")
     await core_video.extract_audio(inp, audio_mp3)
     (text, raw_segs), (cuts, bands) = await asyncio.gather(
-        transcribe_segments(audio_mp3),                                  # ("", []) nếu không có nguồn STT
+        transcribe_segments(audio_mp3, title, desc),                     # ("", []) nếu không có nguồn STT
         scenes.analyze_cached(inp, tmp, src_dur, bool(job.subs and job.cover), src_hash,
                               need_thumbs=not job.approved))             # 1 lượt giải mã: cảnh + ảnh + dải chữ
     if config.TEXT_DETECT == "ocr" and job.subs and job.cover and ocr_text.available():
