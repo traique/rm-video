@@ -81,6 +81,7 @@ POT_SERVER = os.environ.get("POT_SERVER", "")   # URL server bgutil POT chạy �
 FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", "0") or 0)
 CACHE_MAX_MB = int(os.environ.get("CACHE_MAX_MB", "500"))   # trần ổ đĩa cho cache theo bước
 HEALTH_CHECK_HOURS = float(os.environ.get("HEALTH_CHECK_HOURS", "6"))   # 0 = tắt kiểm tra định kỳ
+LOUDNESS_2PASS = os.environ.get("LOUDNESS_2PASS", "1")      # 0 = quay về loudnorm một lượt (động) như cũ
 
 VOICE_FEMALE = "vi-VN-HoaiMyNeural"
 VOICE_MALE = "vi-VN-NamMinhNeural"

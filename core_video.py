@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import urllib.parse
@@ -675,7 +676,8 @@ def kill_running():
     RUNNING.clear()
 
 
-async def _run_ffmpeg(*args: str, tool: str = "ffmpeg"):
+async def _run_ffmpeg_full(*args: str, tool: str = "ffmpeg") -> tuple:
+    """Chạy ffmpeg/ffprobe (huỷ job là giết được ngay). Trả (stdout, stderr)."""
     proc = await asyncio.create_subprocess_exec(
         tool, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
@@ -689,7 +691,53 @@ async def _run_ffmpeg(*args: str, tool: str = "ffmpeg"):
         RUNNING.discard(proc)
     if proc.returncode != 0:
         raise RuntimeError(f"{tool} lỗi: " + err.decode(errors="ignore")[-400:])
-    return out.decode(errors="ignore")
+    return out.decode(errors="ignore"), err.decode(errors="ignore")
+
+
+async def _run_ffmpeg(*args: str, tool: str = "ffmpeg"):
+    return (await _run_ffmpeg_full(*args, tool=tool))[0]
+
+
+# ---------- Chuẩn hoá âm lượng HAI LƯỢT ----------
+# loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
+# sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản
+# trộn (chỉ phần tiếng, không giải mã hình) rồi nhân MỘT hệ số cố định; bộ chặn đỉnh giữ đỉnh dưới -1.4 dBFS.
+LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=9"
+TARGET_LUFS = -14.0
+PEAK_LIMIT = 0.85                 # -1.4 dBFS: đỉnh thật (giữa hai mẫu) vẫn dưới -1 dBTP
+_LUFS_RE = re.compile(r"Integrated loudness:\s*I:\s*(-?[\d.]+|-inf) LUFS")
+
+
+def _linear_gain_filter(gain_db: float) -> str:
+    return f"volume={gain_db:.2f}dB,alimiter=limit={PEAK_LIMIT}:attack=5:release=60:level=false"
+
+
+async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float | None:
+    """Độ to tích hợp (LUFS) của nhãn [a] trong audio_fc, chỉ xét out_dur giây đầu. Lỗi/im lặng: None."""
+    try:
+        _, err = await _run_ffmpeg_full("-hide_banner", "-nostats", *input_args, "-filter_complex", audio_fc,
+                                         "-map", "[a]", "-t", f"{out_dur:.2f}", "-f", "null", "-")
+    except Exception as e:
+        logging.warning("Đo độ to lỗi (%s), dùng loudnorm một lượt", str(e)[:120])
+        return None
+    m = _LUFS_RE.findall(err)
+    if not m or m[-1] == "-inf" or float(m[-1]) < -60:
+        return None
+    return float(m[-1])
+
+
+async def two_pass_loudness(fc: str, input_args: list, out_dur: float) -> str:
+    """Thay loudnorm động trong filter graph bằng hệ số cố định đo từ lượt 1 (xem trên). Không đo được thì giữ
+    nguyên fc (loudnorm một lượt như cũ). input_args: đúng các '-i' (và tuỳ chọn đầu vào) của lần render."""
+    if config.LOUDNESS_2PASS == "0" or LOUDNORM not in fc or "[v];" not in fc:
+        return fc
+    audio = fc.split("[v];", 1)[1].replace(LOUDNORM, "ebur128=framelog=quiet", 1)
+    lufs = await measure_lufs(input_args, audio, out_dur)
+    if lufs is None:
+        return fc
+    gain = max(-30.0, min(24.0, TARGET_LUFS - lufs))
+    logging.info("Âm lượng: bản trộn %.1f LUFS -> nhân %+.1f dB (mục tiêu %.0f LUFS)", lufs, gain, TARGET_LUFS)
+    return fc.replace(LOUDNORM, _linear_gain_filter(gain), 1)
 
 
 async def probe_duration(path: str) -> float:
@@ -1072,11 +1120,11 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
+    audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
+    fc = await two_pass_loudness(fc, audio_in, out_dur)
     await _run_ffmpeg(
         "-y", *thread_args(),
-        "-i", input_mp4,
-        "-i", voice_mp3,
-        *(["-i", ambient_wav] if ambient_wav else []),
+        *audio_in,
         *(["-i", LOGO_PATH] if use_logo else []),
         "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",
@@ -1106,11 +1154,12 @@ async def render_music(input_mp4: str, music_path: str, output_mp4: str,
     v = ("[0:v]crop=in_w*0.96:in_h*0.96,"
          "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
          f"setpts=PTS/{speed:.4f},fps=30,hqdn3d=1.2:1.2:3:3,eq=contrast=1.05:brightness=0.012:saturation=1.04,vibrance=intensity=0.12,cas=strength=0.5[v];")
+    audio_in = ["-i", input_mp4, "-ss", f"{trim:.3f}", "-i", music_path]
+    fc = await two_pass_loudness(v + a, audio_in, out_dur)
     await _run_ffmpeg(
         "-y", *thread_args(),
-        "-i", input_mp4,
-        "-ss", f"{trim:.3f}", "-i", music_path,
-        "-filter_complex", v + a,
+        *audio_in,
+        "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",
         *encode_args(1280),
         "-t", f"{out_dur:.2f}",

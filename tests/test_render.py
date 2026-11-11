@@ -266,6 +266,56 @@ async def _loudness():
     print(f"OK âm lượng {lufs} LUFS, đỉnh {peak} dBFS")
 
 
+async def _loudness_sparse():
+    """Giọng THƯA (2 câu, còn lại chỉ tiếng nền): chuẩn hoá hai lượt giữ tiếng nền đều nhau giữa các câu (loudnorm
+    một lượt kéo nền lên lúc không có giọng: đo được nền chênh 6 dB giữa hai khoảng lặng) và đúng -14 LUFS ±0.3."""
+    import re
+    import subprocess
+    import tempfile
+    import core_video
+    td = tempfile.mkdtemp()
+    src, voice, out = f"{td}/s.mp4", f"{td}/v.wav", f"{td}/o.mp4"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=360x640:d=16", "-f", "lavfi",
+                    "-i", "anoisesrc=color=pink:d=16:a=0.05", "-shortest", "-c:v", "libx264", "-preset", "ultrafast", src],
+                   check=True)
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i",
+                    "sine=f=200:d=16,volume='0.4*(between(t,1,4)+between(t,9,12))':eval=frame", "-ar", "24000", voice],
+                   check=True)
+    await core_video.render(src, voice, out, "cook", 16, None, None)
+
+    def lufs(a, d):
+        err = subprocess.run(["ffmpeg", "-hide_banner", "-ss", str(a), "-t", str(d), "-i", out, "-af",
+                              "ebur128=framelog=quiet", "-f", "null", "-"], capture_output=True, text=True).stderr
+        return float(re.findall(r"I:\s+(-?[0-9.]+) LUFS", err)[-1])
+    whole, gap1, gap2 = lufs(0, 16), lufs(5, 3.5), lufs(12.5, 3)
+    assert abs(whole + 14) <= 0.3, f"âm lượng {whole} LUFS, phải -14±0.3"
+    assert abs(gap1 - gap2) <= 2.0, f"tiếng nền giữa các câu {gap1} vs {gap2}: bị kéo lên xuống"
+
+
+def test_two_pass_passthrough(monkeypatch):
+    import config
+    import core_video
+    fc = "[0:v]null[v];[1:a]" + core_video.LOUDNORM + ",aresample=48000[a]"
+    monkeypatch.setattr(config, "LOUDNESS_2PASS", "0")
+    assert asyncio.run(core_video.two_pass_loudness(fc, [], 5)) == fc
+    monkeypatch.setattr(config, "LOUDNESS_2PASS", "1")
+
+    async def silent(*a):
+        return None
+    monkeypatch.setattr(core_video, "measure_lufs", silent)          # đo không được (im lặng/lỗi): giữ một lượt
+    assert asyncio.run(core_video.two_pass_loudness(fc, [], 5)) == fc
+
+    async def loud(*a):
+        return -20.5
+    monkeypatch.setattr(core_video, "measure_lufs", loud)
+    got = asyncio.run(core_video.two_pass_loudness(fc, [], 5))
+    assert "loudnorm" not in got and "volume=6.50dB" in got and "alimiter" in got
+
+
+def test_loudness_sparse():
+    asyncio.run(_loudness_sparse())
+
+
 def test_smoke_render():
     asyncio.run(run())
 
