@@ -8,6 +8,7 @@ import random
 import re
 import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1321,6 +1322,82 @@ def thread_args() -> list:
     return ["-filter_complex_threads", n, "-threads", n]
 
 
+# ---------- Máy chậm thì tự xuất 720p ----------
+# Đo trên video thật 30s 1080p, 1 lõi: dựng 1080p 75s, 720p 38s (x2.0); trong đó vibrance (đổi sang RGB) ~23s,
+# unsharp ~9s, hqdn3d ~9s, x264 ~28s. Botkeep (1.5 lõi chậm) dựng 1080p video 88s mất cỡ 20 phút -> QUALITY=balanced
+# (mặc định) ước tính trước thời gian dựng 1080p theo tốc độ đo được của CHÍNH máy này; quá RENDER_BUDGET thì ra 720p.
+SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                  "render_speed.json")
+RENDER_BUDGET = float(os.environ.get("RENDER_BUDGET", "600") or 0)     # giây; 0 = tắt (luôn 1080p khi nguồn đủ nét)
+HD_COST = 2.0                  # 1080p tốn ~2 lần 720p
+BENCH_FACTOR = 1.2             # bài đo testsrc2 nhanh hơn video thật ~1.2 lần (2.1 so với 2.5 giây/giây trên 1 lõi)
+
+
+def render_speed() -> float | None:
+    """Số giây máy này cần để dựng 1 giây video 1080p (chế độ nấu ăn, QUALITY=balanced); chưa đo thì None."""
+    try:
+        with open(SPEED_FILE, encoding="utf-8") as f:
+            v = float(json.load(f)["sec_per_sec_1080"])
+        return v if v > 0 else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def record_render_speed(elapsed: float, out_dur: float, H: int, source: str = "render") -> float | None:
+    """Ghi tốc độ dựng thật (đổi về 1080p). Lần dựng thật đầu tiên thay hẳn số của bài đo; sau đó lấy trung bình."""
+    if elapsed <= 0 or out_dur <= 0 or (out_dur < 3 and source != "bench"):    # video quá ngắn: số đo nhiễu
+        return None
+    s = elapsed / out_dur * (1.0 if H >= 1920 else HD_COST)
+    try:
+        with open(SPEED_FILE, encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        prev = {}
+    old = render_speed()
+    new = s if old is None or source == "bench" or prev.get("source") == "bench" else 0.5 * old + 0.5 * s
+    try:
+        with open(SPEED_FILE, "w", encoding="utf-8") as f:
+            json.dump({"sec_per_sec_1080": round(new, 3), "source": source, "at": int(time.time())}, f)
+    except OSError:
+        pass
+    return new
+
+
+def render_benchmark_sync(seconds: int = 3) -> float | None:
+    """Đo nhanh lúc khởi động (chỉ khi chưa có số đo): dựng `seconds` giây 1080p tổng hợp qua đúng chuỗi lọc nấu ăn +
+    x264 veryfast. Trả giây máy / giây video (đã quy đổi ra video thật)."""
+    t0 = time.time()
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "error", *thread_args(), "-f", "lavfi", "-i",
+                            f"testsrc2=s=1080x1920:r=30:d={seconds}", "-vf", look_chain("cook", 1080, 1920, 1080, 1920),
+                            "-threads", str(ffmpeg_threads()), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                            "-pix_fmt", "yuv420p", "-an", "-f", "null", "-"], capture_output=True, timeout=900)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return record_render_speed((time.time() - t0) * BENCH_FACTOR, seconds, 1920, source="bench")
+
+
+def output_size(src_h: int, allow_hd: bool, out_dur: float, notes: list | None = None) -> tuple:
+    """(W, H) đầu ra. 1080p khi nguồn đủ nét (>=1600px), trừ khi: QUALITY=fast (luôn 720p, như chế độ 📸), hoặc
+    QUALITY=balanced mà ước tính dựng 1080p trên máy này quá RENDER_BUDGET giây (máy yếu: 720p nhanh gấp đôi)."""
+    if not (config.OUTPUT_HD and allow_hd and src_h >= 1600):
+        return 720, 1280
+    if config.QUALITY == "fast":
+        return 720, 1280
+    sp = render_speed()
+    if config.QUALITY == "balanced" and RENDER_BUDGET > 0 and sp and sp * out_dur > RENDER_BUDGET:
+        est = sp * out_dur
+        logging.info("Máy chậm (%.1f giây máy / giây video 1080p): 1080p ước tính %.0f phút > %.0f phút -> xuất 720p",
+                     sp, est / 60, RENDER_BUDGET / 60)
+        if notes is not None:
+            notes.append(f"ℹ️ Máy chủ chậm: bản 1080p ước tính mất ~{est / 60:.0f} phút dựng nên bot xuất 720p "
+                         f"(~{est / HD_COST / 60:.0f} phút). Muốn luôn 1080p: Cài đặt → Chất lượng = Chuẩn TVC. ")
+        return 720, 1280
+    return 1080, 1920
+
+
 def encode_args(H: int, fps: float = 30.0) -> list:
     """Thông số x264/AAC theo QUALITY và độ phân giải. high = chuẩn TVC: preset medium, crf 18,
     1080p ~10 Mbps; balanced = veryfast/crf 20; fast = superfast/crf 23. Luôn: High 4.1, bt709,
@@ -1424,20 +1501,22 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: int = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
-                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None):
+                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
     stretch: làm chậm hình + tiếng nền (1.4 = dài thêm 40%) NGAY TRONG lần mã hoá này; mọi mốc thời gian
     (phụ đề, cổng tiếng nền, giọng) là theo trục thời gian ĐÃ làm chậm.
-    Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền)."""
+    Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền).
+    notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p)."""
+    t_start = time.time()
     vid_dur = await probe_duration(input_mp4) * stretch
     out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
     out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
     ambient = await has_audio(input_mp4)
     # nguồn đủ nét (>=1600px) thì xuất 1080x1920, không thì 720x1280 (không phóng to giả nét)
     src_w, src_h, src_fps = await source_info(input_mp4)
-    W, H = (1080, 1920) if (config.OUTPUT_HD and allow_hd and src_h >= 1600) else (720, 1280)
+    W, H = output_size(src_h, allow_hd, out_dur, notes)
     fps = out_fps(src_fps)
     logging.info("Render %dx%d %gfps | nguồn %dx%d %.2ffps%s | chất lượng %s", W, H, fps, src_w, src_h, src_fps,
                  " (nguồn <1600px nên ra 720p; gửi link TikTok để bot lấy bản HD)" if src_h < 1600 else "", config.QUALITY)
@@ -1470,6 +1549,10 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
         "-t", f"{out_dur:.2f}",
         output_mp4,
     )
+    if mode == "cook" and config.QUALITY == "balanced":      # số đo cho lần quyết định 1080p/720p sau
+        sp = record_render_speed(time.time() - t_start, out_dur, H)
+        logging.info("Dựng %dp %.0fs video mất %.0fs (máy: %.1f giây / giây video 1080p)", H * 9 // 16, out_dur,
+                     time.time() - t_start, sp or 0)
     return out_dur
 
 

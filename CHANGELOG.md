@@ -120,6 +120,31 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Máy chậm: tự ra 720p khi bản 1080p dựng quá lâu
+
+Log Botkeep 16:17-16:28: video đùi gà 88s (nguồn 1080p) mất gần 30 phút. Bước nặng nhất là dựng hình 1080p.
+Đo trên chính video đó, 30s, 1 lõi:
+
+| Phần | Thời gian |
+| --- | --- |
+| Giải mã (AV1) | 3.4s |
+| Cắt + scale lanczos | +2.8s |
+| hqdn3d (khử nhiễu) | +8.6s |
+| vibrance (tăng màu, phải đổi sang RGB) | +23.5s |
+| unsharp (làm nét) | +8.8s |
+| x264 veryfast 1080p | ~28s |
+| **Dựng 1080p / 720p** | **75.4s / 37.6s** (720p nhanh gấp 2) |
+
+Công thức màu đã duyệt giữ nguyên (thử thay vibrance bằng bảng Hald CLUT: chậm hơn, 53s). Thay vào đó:
+
+| Thay đổi | Kiểm |
+| --- | --- |
+| `QUALITY=balanced` (mặc định): ước tính thời gian dựng 1080p theo tốc độ đo được của chính máy; quá `RENDER_BUDGET` (mặc định 600s) thì ra 720p và báo người dùng | test; chạy thật với tốc độ giả lập 13.6 giây/giây: video 60s ra 720p kèm lời nhắn |
+| Tốc độ máy: đo nhanh 3 giây 1080p lúc khởi động (lần đầu), sau mỗi lần dựng thì cập nhật bằng số thật (`render_speed.json`) | test |
+| `QUALITY=fast` luôn 720p (như chế độ 📸); `high` luôn 1080p | test |
+| Hết mỗi job ghi một dòng tổng thời gian từng giai đoạn (tải, bóc lời, AI, đọc giọng, render...) | — |
+| Lỗi tạm của Gemini khi AI viết lại: một dòng cảnh báo thay vì cả trang traceback | — |
+
 ## Giọng edge-tts lỗi làm hỏng cả job; đoạn giọng bị coi là "quá dài" oan
 
 Log Botkeep 15:44: link chia sẻ Facebook đã tải được, nhưng job hỏng ở bước đọc giọng (`NoAudioReceived` của

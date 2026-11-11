@@ -59,7 +59,7 @@ EDITABLE = {
     "SUB_TIMING": "spread",            # spread = rải chữ trên khoảng có tiếng của giọng (lệch ~70ms); stt = nghe lại bằng STT CapCut
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
     "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
-    "QUALITY": "balanced",             # fast (nhanh nhất) | balanced (mặc định) | high (chuẩn TVC, chậm ~2x)
+    "QUALITY": "balanced",             # fast (720p) | balanced (1080p, máy chậm tự 720p) | high (chuẩn TVC, chậm ~2x)
     "SOURCE_CREDIT": "1",              # 1 = thêm dòng ghi nguồn + "Giọng đọc AI" vào nội dung đăng
     "ALLOWED_SOURCES": "",             # kênh nguồn được phép (tên kênh/uploader, cách nhau dấu phẩy); trống = mọi kênh
     "ALLOWED_USERS": "",               # chat_id/user_id Telegram được dùng bot, cách nhau dấu phẩy

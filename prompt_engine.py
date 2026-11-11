@@ -517,8 +517,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                     new_err = len(b2) + 3 * (len(m2) + len(a2))
                     if new_err < old_err:
                         d, got, bad, miss, added = d2, got2, b2, m2, a2
-                except Exception:
-                    logging.exception("AI viết lại lỗi, dùng bản tốt nhất hiện có")
+                except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
+                    logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
+                                    str(e)[:120])
                     break
             if miss or added:
                 logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)

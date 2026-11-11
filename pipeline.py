@@ -663,10 +663,13 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         out = os.path.join(tmp, "output.mp4")
         post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
         cover_task = _start_cover(post_title)
+        notes = []
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
                                 title=post_title, tmp=tmp,
-                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur))
+                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur), notes=notes)
+        if notes:
+            job.error = (job.error or "") + "".join(notes)
         await _finish_cover(cover_task)
         job.final_segments = final_timeline(segs_t, plan, out_dur)
         if job.mode == "cook":
@@ -713,9 +716,12 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
     amb_wav, gate = await amb_task
     post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
     cover_task = _start_cover(post_title)
+    notes = []
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
-                            title=post_title, tmp=tmp, stretch=stretch)
+                            title=post_title, tmp=tmp, stretch=stretch, notes=notes)
+    if notes:
+        job.error = (job.error or "") + "".join(notes)
     await _finish_cover(cover_task)
     if bands:
         job.error = f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."

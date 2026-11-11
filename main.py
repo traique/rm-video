@@ -81,6 +81,16 @@ async def _ffmpeg_selftest():
         logging.info("ffmpeg tự kiểm tra: OK (%s)", detail[:60])
     else:
         logging.error("ffmpeg tự kiểm tra LỖI — video có thể hỏng ở bước dùng bộ lọc này: %s", detail)
+        return
+    sp = core_video.render_speed()
+    if sp is None:                      # lần đầu trên máy này: đo tốc độ dựng để chọn 1080p/720p (xem output_size)
+        sp = await asyncio.to_thread(core_video.render_benchmark_sync)
+        if sp:
+            logging.info("Đo tốc độ dựng: %.1f giây máy cho 1 giây video 1080p -> video 1080p dài hơn %.0fs sẽ tự "
+                         "ra 720p (QUALITY=balanced, RENDER_BUDGET=%.0fs)", sp, core_video.RENDER_BUDGET / sp,
+                         core_video.RENDER_BUDGET)
+    else:
+        logging.info("Tốc độ dựng đã đo: %.1f giây máy / giây video 1080p", sp)
 
 
 async def poll_forever(dp, bot, stop: asyncio.Event | None = None, first_wait: float = 15, max_wait: float = 300):

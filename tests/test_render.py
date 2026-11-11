@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import core_video  # noqa: E402  (tự nạp static-ffmpeg vào PATH)
 import config  # noqa: E402
@@ -332,3 +334,39 @@ if __name__ == "__main__":
     test_ingredient_false_positives()
     test_web_js()
     print("ALL TESTS PASSED")
+
+
+def test_output_size_adapts_to_machine_speed(monkeypatch, tmp_path):
+    """Botkeep 1.5 lõi chậm: video 88s 1080p dựng ~20 phút. balanced: ước tính theo tốc độ đo được, quá
+    RENDER_BUDGET thì ra 720p (kèm lời nhắn); fast luôn 720p; high luôn 1080p; nguồn nhỏ luôn 720p."""
+    import config
+    import core_video
+    monkeypatch.setattr(core_video, "SPEED_FILE", str(tmp_path / "rs.json"))
+    monkeypatch.setattr(core_video, "RENDER_BUDGET", 600)
+    monkeypatch.setattr(config, "OUTPUT_HD", True)
+    monkeypatch.setattr(config, "QUALITY", "balanced")
+    assert core_video.output_size(1920, True, 88) == (1080, 1920)            # chưa đo: giữ 1080p như trước
+    assert core_video.record_render_speed(40.0, 10, 1920, source="bench") == 4.0
+    # lần dựng thật đầu tiên thay hẳn số bài đo; 720p quy đổi x2 ra 1080p
+    assert core_video.record_render_speed(600.0, 88, 1280) == pytest.approx(13.64, abs=0.01)
+    assert core_video.record_render_speed(1200.0, 88, 1920) == pytest.approx(13.64, abs=0.01)     # trung bình
+    notes = []
+    assert core_video.output_size(1920, True, 88, notes) == (720, 1280)
+    assert notes and "720p" in notes[0] and "~20 phút" in notes[0]
+    assert core_video.output_size(1920, True, 30) == (1080, 1920)            # 30s x 13.6 = 409s < 600s
+    monkeypatch.setattr(config, "QUALITY", "high")
+    assert core_video.output_size(1920, True, 88) == (1080, 1920)
+    monkeypatch.setattr(config, "QUALITY", "fast")
+    assert core_video.output_size(1920, True, 10) == (720, 1280)
+    monkeypatch.setattr(config, "QUALITY", "balanced")
+    monkeypatch.setattr(core_video, "RENDER_BUDGET", 0)
+    assert core_video.output_size(1920, True, 88) == (1080, 1920)
+    assert core_video.output_size(1280, True, 10) == (720, 1280)
+    assert core_video.output_size(1920, False, 10) == (720, 1280)
+
+
+def test_render_benchmark_records_speed(monkeypatch, tmp_path):
+    import core_video
+    monkeypatch.setattr(core_video, "SPEED_FILE", str(tmp_path / "rs.json"))
+    sp = core_video.render_benchmark_sync(seconds=1)
+    assert sp and sp > 0 and core_video.render_speed() == pytest.approx(sp, abs=0.001)

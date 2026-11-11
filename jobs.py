@@ -8,7 +8,7 @@ import time
 
 import config
 import core_video
-from queue_manager import Job
+from queue_manager import Job, phase_times
 from pipeline import run_job
 from review import OST_TAG, REVIEW_HELP
 from state import current, notify, queue
@@ -146,6 +146,10 @@ async def _run_one(job: Job):
             _drop_inputs(job)
         _learn_speed(job)
         queue.log_steps(job)
+        if job.timeline and job.started_at and not shutting_down:
+            total = job.finished_at - job.started_at
+            logging.info("Job %s %s sau %.1f phút: %s", job.id, job.status, total / 60,
+                         " | ".join(f"{p['name']} {p['secs']:.0f}s" for p in phase_times(job.timeline, total)))
         queue.save(job)
         queue.done()
 

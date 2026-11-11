@@ -26,3 +26,4 @@ golden/.golden_jobs.db
 .cache/
 .local/
 recent_looks.json
+render_speed.json
