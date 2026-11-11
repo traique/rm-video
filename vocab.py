@@ -52,15 +52,17 @@ def groq_prompt(title: str, desc: str = "") -> str:
     terms = user_terms() + [t for t in context_terms(title, desc) if t.lower() not in {u.lower() for u in user_terms()}]
     if not head and not terms:
         return ""
+    # Không ghi nhãn kiểu "Từ khóa:" — Whisper coi prompt là lời nói ngay trước đoạn audio và hay chép lại
+    # nguyên nhãn đó vào chỗ chỉ có nhạc (lỗi thật: phụ đề "Từ khóa" ở giây đầu video)
     out = (f"{head}. " if head else "")
     added = []
     for t in terms:
-        cand = out + "Từ khóa: " + ", ".join(added + [t]) + "."
+        cand = out + ", ".join(added + [t]) + "."
         if len(cand.encode("utf-8")) > PROMPT_MAX_BYTES:
             break
         added.append(t)
     if added:
-        out += "Từ khóa: " + ", ".join(added) + "."
+        out += ", ".join(added) + "."
     while len(out.encode("utf-8")) > PROMPT_MAX_BYTES:          # tiêu đề quá dài
         out = out[: len(out) - 10]
     return out.strip()

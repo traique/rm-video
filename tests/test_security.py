@@ -166,3 +166,134 @@ def test_non_ascii_tokens_do_not_crash(monkeypatch, tmp_path):
             assert (await c.get("/api/jobs")).status == 401
             assert (await c.get("/download/1?t=é")).status == 404
     asyncio.run(go())
+
+
+# ---- Link chia sẻ Facebook (facebook.com/share/r/..., fb.watch): yt-dlp không nhận, phải mở ra link reel thật ----
+
+def test_fb_short_detect():
+    import core_video
+    assert core_video.is_fb_short("https://www.facebook.com/share/r/1DZndFhe5U/")
+    assert core_video.is_fb_short("https://m.facebook.com/share/v/abc/")
+    assert core_video.is_fb_short("https://fb.watch/v5Kx3V8bQm/")
+    assert not core_video.is_fb_short("https://www.facebook.com/reel/2140518443517872/")
+    assert not core_video.is_fb_short("https://evil.com/share/r/x/")
+    assert not core_video.is_fb_short("https://notfacebook.com/share/r/x/")
+
+
+def test_fb_clean_url():
+    import core_video
+    assert (core_video._clean_fb_url("https://www.facebook.com/reel/2140518443517872/?rdid=x&share_url=y")
+            == "https://www.facebook.com/reel/2140518443517872/")
+    assert (core_video._clean_fb_url("https://www.facebook.com/watch/?v=123&mibextid=abc&rdid=q")
+            == "https://www.facebook.com/watch/?v=123")
+    with pytest.raises(RuntimeError, match="đăng nhập"):
+        core_video._clean_fb_url("https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2Freel%2F1")
+
+
+def _redirect_server(routes):
+    """Máy chủ HTTP cục bộ: path -> Location (302)."""
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", routes[self.path])
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_fb_redirect_handler_stops_at_real_link_and_blocks_internal(monkeypatch):
+    import urllib.request
+    import core_video
+    real = url_guard.check_url
+    monkeypatch.setattr(url_guard, "check_url",
+                        lambda u, resolve=None, any_domain=False: real(u, resolve=_resolver(
+                            "10.0.0.5" if "internal" in u else "157.240.1.35"), any_domain=any_domain))
+    srv = _redirect_server({"/a": "https://www.facebook.com/reel/42/?rdid=z",
+                            "/b": "https://internal.facebook.com/reel/1/",
+                            "/c": "https://evil.example/x"})
+    base = f"http://127.0.0.1:{srv.server_port}"
+    try:
+        with pytest.raises(core_video._ShortResolved) as ok:
+            core_video._SHORT_OPENER.open(urllib.request.Request(base + "/a"), timeout=5)
+        assert ok.value.url == "https://www.facebook.com/reel/42/?rdid=z"
+        with pytest.raises(url_guard.BlockedURL, match="nội bộ"):   # tên miền đúng nhưng trỏ vào IP nội bộ
+            core_video._SHORT_OPENER.open(urllib.request.Request(base + "/b"), timeout=5)
+        with pytest.raises(url_guard.BlockedURL):          # chuyển hướng ra ngoài nền tảng được phép
+            core_video._SHORT_OPENER.open(urllib.request.Request(base + "/c"), timeout=5)
+    finally:
+        srv.shutdown()
+
+
+def test_fb_expand_short_url(monkeypatch):
+    import io
+    import urllib.error
+    import core_video
+    monkeypatch.setattr(url_guard, "check_url", lambda u, **k: u)
+
+    class Op:
+        def __init__(self, do):
+            self.do, self.seen = do, []
+
+        def open(self, req, timeout=None):
+            self.seen.append(req.get_header("User-agent"))
+            return self.do(req)
+
+    def redirect(req):
+        raise core_video._ShortResolved("https://www.facebook.com/reel/2140518443517872/?rdid=a&share_url=b")
+    op = Op(redirect)
+    assert (core_video.expand_short_url("https://www.facebook.com/share/r/1DZndFhe5U/", opener=op)
+            == "https://www.facebook.com/reel/2140518443517872/")
+    assert op.seen and "Mozilla" in op.seen[0]                # header chuẩn của yt-dlp, không giả danh bot khác
+
+    page = b'<html><link rel="canonical" href="https://www.facebook.com/u/videos/abc/77/?s=1&amp;mibextid=x" /></html>'
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    assert (core_video.expand_short_url("https://fb.watch/xyz/", opener=Op(lambda r: Resp(page)))
+            == "https://www.facebook.com/u/videos/abc/77/")
+
+    def gone(req):
+        raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+    with pytest.raises(RuntimeError, match="404"):
+        core_video.expand_short_url("https://www.facebook.com/share/v/zzz/", opener=Op(gone))
+    # link thường không bị đụng tới, không gọi mạng
+    assert core_video.expand_short_url("https://www.tiktok.com/@a/video/1", opener=Op(gone)) == \
+        "https://www.tiktok.com/@a/video/1"
+
+
+def test_download_entry_points_resolve_share_links(monkeypatch, tmp_path):
+    import core_video
+    seen = []
+    monkeypatch.setattr(core_video, "resolve_url", lambda u: seen.append(u) or "https://www.facebook.com/reel/9/")
+
+    def fake_video(url, tmpdir, max_duration):
+        seen.append(("yt", url))
+        raise RuntimeError("stop")
+    monkeypatch.setattr(core_video, "_ytdlp_video_sync", fake_video)
+    with pytest.raises(RuntimeError, match="stop"):
+        core_video._download_sync("https://www.facebook.com/share/r/x/", str(tmp_path))
+    assert seen == ["https://www.facebook.com/share/r/x/", ("yt", "https://www.facebook.com/reel/9/")]
+
+
+def test_fb_title_stats_removed():
+    import core_video
+    assert core_video.clean_title("2.6M views · 29K reactions | #duynauan #amthuc") == "#duynauan #amthuc"
+    assert core_video.clean_title("136K views · 1.6K reactions | Cách làm đùi gà") == "Cách làm đùi gà"
+    assert core_video.clean_title("Bò lá lốt 10 views") == "Bò lá lốt 10 views"
+
+
+def test_unsupported_url_message_is_friendly():
+    import core_video
+    e = core_video._friendly(Exception("ERROR: No suitable extractor found for URL https://www.facebook.com/x/"))
+    assert "Sao chép liên kết" in str(e)

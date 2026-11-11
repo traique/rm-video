@@ -8,6 +8,8 @@ import hashlib
 import json
 import logging
 import os
+import re
+import unicodedata
 
 import aiohttp
 
@@ -25,6 +27,7 @@ async def _groq_post(audio_path: str, prompt: str):
         form.add_field("model", config.GROQ_WHISPER_MODEL)
         form.add_field("response_format", "verbose_json")
         form.add_field("timestamp_granularities[]", "word")
+        form.add_field("timestamp_granularities[]", "segment")     # cần no_speech_prob để lọc chữ "bịa"
         if prompt:                                   # từ điển: Whisper viết theo chính tả trong prompt
             form.add_field("prompt", prompt)
         form.add_field("file", f, filename="audio.mp3", content_type="audio/mpeg")
@@ -47,12 +50,44 @@ async def _groq(audio_path: str, prompt: str = ""):
         metrics.record("asr", "groq", ok=False, detail=f"{status} {d}")
         return "", []
     metrics.record("asr", "groq")
+    segs = d.get("segments") or []
+    bad = [(float(x["start"]), float(x["end"])) for x in segs if _hallucinated(x)]
+    if bad:
+        logging.info("Bỏ %d đoạn Whisper nghe nhầm (nhạc/im lặng): %s", len(bad),
+                     " | ".join((x.get("text") or "").strip()[:40] for x in segs if _hallucinated(x)))
+
+    def ok(a, b):
+        m = (a + b) / 2
+        return not any(s - 0.05 <= m <= e + 0.05 for s, e in bad)
     units = [(float(x["start"]), float(x["end"]), (x.get("word") or "").strip())
-             for x in d.get("words", []) if (x.get("word") or "").strip()]
-    if not units:   # không có mốc từ -> dùng segment của Whisper
+             for x in d.get("words", []) if (x.get("word") or "").strip() and ok(float(x["start"]), float(x["end"]))]
+    if not units and not d.get("words"):   # không có mốc từ -> dùng segment của Whisper
         units = [(float(x["start"]), float(x["end"]), (x.get("text") or "").strip())
-                 for x in d.get("segments", []) if (x.get("text") or "").strip()]
-    return (d.get("text") or "").strip(), chunk_units(units)
+                 for x in segs if (x.get("text") or "").strip() and not _hallucinated(x)]
+    text = (" ".join((x.get("text") or "").strip() for x in segs if not _hallucinated(x)) if bad
+            else (d.get("text") or "")).strip()
+    return text, chunk_units(units)
+
+
+# Câu Whisper hay "bịa" ở chỗ chỉ có nhạc/im lặng (học từ phụ đề YouTube), và nhãn từ điển cũ bị chép lại
+_FAKE = re.compile(r"ghiền mì gõ|vietsub|subtitles? by|amara\.org", re.I)
+_FAKE_WHOLE = re.compile(r"^\W*(?:từ\s+kh(?:óa|oá|oa)|keywords?)\W*$", re.I)   # "khóa" / "khoá"
+
+
+def _hallucinated(seg: dict) -> bool:
+    """Đoạn Whisper nghe nhầm: quy tắc im lặng của chính Whisper (no_speech_prob > 0.6 và avg_logprob < -1)
+    hoặc câu quảng cáo/nhãn hay bị bịa."""
+    text = unicodedata.normalize("NFC", (seg.get("text") or "").strip())
+    try:
+        silent = float(seg.get("no_speech_prob") or 0) > 0.6 and float(seg.get("avg_logprob") or 0) < -1.0
+    except (TypeError, ValueError):
+        silent = False
+    return silent or bool(_FAKE.search(text) or _FAKE_WHOLE.match(text))
+
+
+def drop_fake_segments(segs: list) -> list:
+    """Lọc lại kết quả đã lưu cache trước bản sửa (vd. đoạn "Từ khóa" 0.4s ở đầu video)."""
+    return [s for s in segs if not _hallucinated({"text": s[2]})]
 
 
 def parse_offset(v) -> float:
@@ -169,7 +204,7 @@ async def transcribe_segments(audio_path: str, title: str = "", desc: str = ""):
         key = _cache_key(audio_path)
         cache = json.load(open(_CACHE, encoding="utf-8")) if os.path.exists(_CACHE) else {}
         if key in cache:
-            return vocab.fix_segments(cache[key]["text"], [tuple(x) for x in cache[key]["segs"]])
+            return vocab.fix_segments(cache[key]["text"], drop_fake_segments([tuple(x) for x in cache[key]["segs"]]))
     except Exception:
         key, cache = "", {}
     text, segs = await _transcribe_uncached(audio_path, prompt)

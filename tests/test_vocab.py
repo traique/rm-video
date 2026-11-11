@@ -75,3 +75,41 @@ def test_groq_retries_without_prompt(monkeypatch):
     monkeypatch.setattr(transcribe, "_groq_post", fake_post)
     text, segs = asyncio.run(transcribe._groq("a.mp3", "Từ khóa: x."))
     assert text == "xin chào" and calls == ["Từ khóa: x.", ""]
+
+
+def test_groq_prompt_has_no_label_to_echo(monkeypatch):
+    # lỗi thật: Whisper chép nhãn "Từ khóa" của prompt thành phụ đề ở đoạn chỉ có nhạc
+    monkeypatch.setattr(config, "ASR_VOCAB", "bò lá lốt")
+    p = vocab.groq_prompt("Cách làm bò lá lốt", "")
+    assert "Từ khóa" not in p and "bò lá lốt" in p
+
+
+def test_groq_drops_hallucinated_segments(monkeypatch):
+    import transcribe
+
+    async def fake_post(path, prompt):
+        return 200, {"text": "Từ khóa xin chào cả nhà Ghiền Mì Gõ",
+                     "segments": [{"start": 0, "end": 0.4, "text": "Từ khóa", "no_speech_prob": 0.1, "avg_logprob": -0.3},
+                                  {"start": 0.5, "end": 2.0, "text": "xin chào cả nhà", "no_speech_prob": 0.02,
+                                   "avg_logprob": -0.2},
+                                  {"start": 3.0, "end": 5.0, "text": "nhạc nhạc", "no_speech_prob": 0.9,
+                                   "avg_logprob": -1.4},
+                                  {"start": 6.0, "end": 8.0, "text": "Hãy subscribe cho kênh Ghiền Mì Gõ",
+                                   "no_speech_prob": 0.3, "avg_logprob": -0.5}],
+                     "words": [{"start": 0.0, "end": 0.2, "word": "Từ"}, {"start": 0.2, "end": 0.4, "word": "khóa"},
+                               {"start": 0.5, "end": 0.9, "word": "xin"}, {"start": 0.9, "end": 1.3, "word": "chào"},
+                               {"start": 1.3, "end": 1.6, "word": "cả"}, {"start": 1.6, "end": 2.0, "word": "nhà"},
+                               {"start": 3.0, "end": 4.0, "word": "nhạc"}, {"start": 4.0, "end": 5.0, "word": "nhạc"},
+                               {"start": 6.0, "end": 8.0, "word": "Ghiền"}]}
+    monkeypatch.setattr(transcribe, "_groq_post", fake_post)
+    text, segs = asyncio.run(transcribe._groq("a.mp3", ""))
+    assert text == "xin chào cả nhà"
+    assert [s[2] for s in segs] == ["xin chào cả nhà"]
+
+
+def test_cached_fake_segments_dropped():
+    import transcribe
+    segs = [(0.0, 0.4, "Từ khóa"), (0.5, 2.0, "xin chào cả nhà"), (2.1, 3.0, "Vietsub by ABC")]
+    assert transcribe.drop_fake_segments(segs) == [(0.5, 2.0, "xin chào cả nhà")]
+    # "từ khóa" nằm trong câu nói thật thì giữ
+    assert transcribe.drop_fake_segments([(0, 2, "từ khóa hôm nay là bò")]) == [(0, 2, "từ khóa hôm nay là bò")]

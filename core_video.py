@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import math
@@ -6,11 +7,13 @@ import os
 import re
 import shutil
 import subprocess
+import urllib.error
 import urllib.parse
 import urllib.request
 
 import yt_dlp
 import edge_tts
+from yt_dlp.utils.networking import std_headers
 
 import align
 import cache
@@ -70,6 +73,10 @@ def _friendly(e: Exception) -> RuntimeError:
                "Thử theo thứ tự: (1) gõ  setup_potoken  vào console Botkeep; (2) điền YTDLP_PROXY; "
                "(3) dán cookies tài khoản Google phụ vào YTDLP_COOKIES.")
         return RuntimeError("Máy chủ bị YouTube chặn tải (403). " + fix)
+    if "no suitable extractor" in low or "unsupported url" in low:
+        return RuntimeError("Bot không nhận ra link này là video (link trang/bài viết, link rút gọn lạ hoặc nền tảng "
+                            "chưa hỗ trợ). Hãy mở video, bấm Sao chép liên kết của chính video đó (Facebook: dạng "
+                            "facebook.com/reel/... hoặc .../videos/...) rồi gửi lại, hoặc tải về máy rồi upload file.")
     return RuntimeError("Tải video lỗi: " + msg.replace("ERROR: ", "")[:300])
 
 
@@ -147,6 +154,95 @@ def fetch_media(url: str, dst: str, max_bytes: int, too_big: str, timeout: float
             os.remove(part)
 
 
+def is_fb_short(url: str) -> bool:
+    """Link chia sẻ Facebook (facebook.com/share/r|v|p/..., fb.watch/...): yt-dlp không nhận dạng được trực tiếp
+    (chỉ extractor "generic" — đã tắt để chặn SSRF — mới đi theo chuyển hướng), phải mở ra link reel/video thật."""
+    try:
+        parts = urllib.parse.urlsplit((url or "").strip())
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower().rstrip(".")
+    if host == "fb.watch" or host.endswith(".fb.watch"):
+        return True
+    return (host == "facebook.com" or host.endswith(".facebook.com")) and parts.path.startswith("/share/")
+
+
+class _ShortResolved(Exception):
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.url = url
+
+
+class _ShortLinkRedirect(urllib.request.HTTPRedirectHandler):
+    """Đi theo từng bước chuyển hướng của link rút gọn: bước nào cũng phải còn trong nền tảng được phép (không IP
+    nội bộ); tới link không còn là link rút gọn thì dừng luôn, không tải trang (trang Facebook nặng vài trăm KB)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        newurl = url_guard.check_url(newurl)
+        if not is_fb_short(newurl):
+            fp.close()
+            raise _ShortResolved(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_SHORT_OPENER = urllib.request.build_opener(_ShortLinkRedirect)
+_FB_JUNK_QS = {"rdid", "share_url", "mibextid", "sfnsn", "_rdr", "s", "fs", "extid"}
+_FB_CANON = re.compile(r'<link rel="canonical" href="([^"]+)"|property="og:url" content="([^"]+)"')
+
+
+def _clean_fb_url(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    if "/login" in parts.path or parts.path.startswith("/checkpoint"):
+        raise RuntimeError("Video Facebook này cần đăng nhập mới xem được (riêng tư, nhóm kín hoặc giới hạn tuổi). "
+                           "Dán cookies Facebook vào YTDLP_COOKIES trong Cài đặt, hoặc tải video về máy rồi upload file.")
+    m = re.match(r"/reel/(\d+)", parts.path)
+    if m:
+        return f"https://www.facebook.com/reel/{m.group(1)}/"
+    qs = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True) if k not in _FB_JUNK_QS]
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(qs), ""))
+
+
+def expand_short_url(url: str, opener=None, timeout: float = 20) -> str:
+    """facebook.com/share/r/xxx, fb.watch/xxx -> https://www.facebook.com/reel/<id>/ (hoặc link video/bài viết thật).
+    Link khác trả nguyên. Dùng đúng bộ header chuẩn của yt-dlp (như khi yt-dlp tự mở link)."""
+    if not is_fb_short(url):
+        return url
+    req = urllib.request.Request(url, headers=dict(std_headers))
+    try:
+        with (opener or _SHORT_OPENER).open(req, timeout=timeout) as r:
+            # không chuyển hướng mà trả thẳng trang: lấy link gốc trong thẻ canonical / og:url
+            body = r.read(1 << 20).decode("utf-8", "replace")
+        m = _FB_CANON.search(body)
+        if not m:
+            raise RuntimeError("Không đọc được link video thật từ link chia sẻ Facebook. "
+                               "Hãy mở link trên máy, bấm Sao chép liên kết của video (dạng facebook.com/reel/...) "
+                               "rồi gửi lại.")
+        new = url_guard.check_url(html.unescape(m.group(1) or m.group(2)))
+    except _ShortResolved as r:
+        new = r.url
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Facebook trả lỗi {e.code} khi mở link chia sẻ. Link có thể đã bị xoá hoặc riêng tư; "
+                           "thử gửi link dạng facebook.com/reel/... hoặc tải video về máy rồi upload file.") from None
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Không mở được link chia sẻ Facebook ({e.reason}). Thử lại sau ít phút.") from None
+    new = _clean_fb_url(new)
+    logging.info("Link chia sẻ Facebook %s -> %s", url, new)
+    return new
+
+
+def resolve_url(url: str) -> str:
+    """Kiểm link (chặn SSRF) rồi mở link rút gọn ra link mà yt-dlp nhận được. Mọi lối tải bằng yt-dlp gọi hàm này."""
+    return expand_short_url(url_guard.check_url(url))
+
+
+_FB_TITLE_STATS = re.compile(r"^\s*[\d.,]+\s*[KMBkmb]?\s+(?:views|lượt xem)\s*·\s*[\d.,]+\s*[KMBkmb]?\s+"
+                             r"(?:reactions|cảm xúc|lượt bày tỏ cảm xúc)\s*\|\s*")
+
+
+def clean_title(title: str) -> str:
+    """Facebook ghép số liệu vào đầu tiêu đề ("2.6M views · 29K reactions | ...") — bỏ đi, để AI/Whisper không đọc nhầm."""
+    return _FB_TITLE_STATS.sub("", title or "").strip()
+
+
 def _tiktok_sound_sync(url: str, tmpdir: str) -> tuple:
     """Link VIDEO TikTok -> bản nhạc gốc (sound) mà video dùng, qua tikwm: là file nhạc sạch (bài hát trong thư viện
     TikTok) chứ không lẫn giọng người quay như tiếng của video. Trả (đường dẫn, tên nhạc)."""
@@ -175,7 +271,7 @@ def is_tiktok(url: str) -> bool:
 
 
 def _download_audio_sync(url: str, tmpdir: str) -> str:
-    url = url_guard.check_url(url)
+    url = resolve_url(url)
     if is_tiktok(url) and "/music/" not in url:
         # TikTok: lấy bản nhạc gốc của video (sạch); lỗi thì lấy tiếng của video qua yt-dlp như cũ
         try:
@@ -217,7 +313,7 @@ _DL_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
 
 
 def _probe_formats_sync(url: str, tmpdir: str) -> dict:
-    url = url_guard.check_url(url)
+    url = resolve_url(url)
     opts = {"noplaylist": True, "quiet": True, "noprogress": True, "no_warnings": True, "skip_download": True}
     _add_cookies(opts, tmpdir)
     try:
@@ -249,7 +345,7 @@ def _probe_formats_sync(url: str, tmpdir: str) -> dict:
     if best_audio or vids:
         options.append({"key": "mp3", "label": "MP3 (chỉ âm thanh)", "height": 0,
                         "size_mb": round(a_sz / 1048576) or None})
-    return {"title": info.get("title") or "", "thumbnail": info.get("thumbnail") or "",
+    return {"title": clean_title(info.get("title") or ""), "thumbnail": info.get("thumbnail") or "",
             "duration": int(info.get("duration") or 0), "uploader": info.get("uploader") or "",
             "max_height": max_h, "max_short": max_short, "options": options}
 
@@ -260,7 +356,7 @@ async def probe_formats(url: str, tmpdir: str) -> dict:
 
 def _download_format_sync(url: str, tmpdir: str, quality: str, on_pct=None) -> tuple:
     """quality: 'mp3' | '2160'...'360' | '' (tốt nhất). Trả (đường dẫn, tiêu đề)."""
-    url = url_guard.check_url(url)
+    url = resolve_url(url)
     opts = {"outtmpl": os.path.join(tmpdir, "dl.%(ext)s"), "noplaylist": True, "quiet": True, "noprogress": True,
             "no_warnings": True, "max_filesize": DL_MAX_SIZE,
             "retries": 3, "fragment_retries": 5,
@@ -290,7 +386,7 @@ def _download_format_sync(url: str, tmpdir: str, quality: str, on_pct=None) -> t
                  if f.startswith("dl.") and (f == want if want else not f.endswith((".part", ".ytdl")))), None)
     if not path:
         raise RuntimeError("Tải thất bại (video quá 60 phút, quá 450MB hoặc link hỏng).")
-    return path, (info.get("title") or "")
+    return path, clean_title(info.get("title") or "")
 
 
 async def download_format(url: str, tmpdir: str, quality: str, on_pct=None) -> tuple:
@@ -335,7 +431,7 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
 
 def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     """Trả (đường dẫn, title, description, meta). meta: uploader/kênh/link gốc để ghi nguồn."""
-    url = url_guard.check_url(url)
+    url = resolve_url(url)
     try:
         path, title, desc, meta = _ytdlp_video_sync(url, tmpdir, max_duration)
         if _has_video(path):
@@ -396,7 +492,7 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
     meta = {"uploader": info.get("uploader") or info.get("channel") or "",
             "uploader_id": info.get("uploader_id") or info.get("channel_id") or "",
             "webpage_url": info.get("webpage_url") or url}
-    return path, (info.get("title") or ""), (info.get("description") or ""), meta
+    return path, clean_title(info.get("title") or ""), (info.get("description") or ""), meta
 
 
 async def download(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
