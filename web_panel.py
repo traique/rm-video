@@ -29,9 +29,9 @@ _STEP_LABEL = {"queued": "Đang chờ", "processing": "Đang xử lý", "done": 
 
 
 def _parse_duration(v) -> tuple:
-    """'30'/'60'/'90'/'0' -> (giây, ""); 'full'/'split60'/'split90' -> (0, chế độ video dài)."""
+    """'30'/'60'/'90'/'0' -> (giây, ""); 'full'/'split60'/'split90'/'highlight' -> (0, chế độ video dài)."""
     v = str(v or "0").strip()
-    if v in ("full", "split60", "split90"):
+    if v in ("full", "split60", "split90", "highlight"):
         return 0, v
     try:
         d = int(v)

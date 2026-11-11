@@ -26,7 +26,7 @@ class Job:
     voice: str
     subs: bool = True
     cover: bool = True
-    long_mode: str = ""       # "" | "full" (remake nguyên ≤5 phút) | "split60" | "split90" (cắt nhiều phần)        # che phụ đề in cứng của video gốc, đặt phụ đề mới lên đó
+    long_mode: str = ""       # "" | "full" (remake nguyên ≤5 phút) | "split60" | "split90" (cắt nhiều phần) | "highlight" (AI chọn đoạn hay)
     local: str = ""           # đường dẫn file upload qua web
     tg_file_id: str = ""      # file_id video gửi kèm qua Telegram
     music_url: str = ""       # chế độ music: link nhạc mới
@@ -58,6 +58,7 @@ class Job:
     final_segments: list = field(default_factory=list)   # timeline cuối (xuất timeline.json)
     srt: str = ""             # phụ đề SRT của video ra (nhập vào CapCut/Premiere để sửa tay)
     cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
+    pieces: list = field(default_factory=list)   # chế độ đoạn hay: các đoạn AI đã chọn (chạy lại thì giữ nguyên)
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job

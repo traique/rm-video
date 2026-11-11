@@ -64,6 +64,7 @@ def setup(bot):
         [InlineKeyboardButton(text="🎞 Video dài: remake nguyên (≤5 phút)", callback_data="dur:full")],
         [InlineKeyboardButton(text="✂️ Cắt phần 60s", callback_data="dur:split60"),
          InlineKeyboardButton(text="✂️ Cắt phần 90s", callback_data="dur:split90")],
+        [InlineKeyboardButton(text="✨ Đoạn hay nhất (AI chọn ≤3 đoạn 30-90s)", callback_data="dur:highlight")],
         [InlineKeyboardButton(text="📝 Bật/tắt duyệt kịch bản trước khi render", callback_data="dur:review")],
     ])
     DLQ_KB = InlineKeyboardMarkup(inline_keyboard=[
@@ -229,7 +230,7 @@ def setup(bot):
             p["review"] = not p.get("review", False)
             await cb.answer(("Bật" if p["review"] else "Tắt") + " duyệt kịch bản. Giờ chọn thời lượng.", show_alert=True)
             return
-        long_mode = choice if choice in ("full", "split60", "split90") else ""
+        long_mode = choice if choice in ("full", "split60", "split90", "highlight") else ""
         made, pos = 0, 0
         for u in (p.get("urls") or [p.get("url", "")]):
             job = Job(url=u, mode=p["mode"], duration=0 if long_mode else int(choice),

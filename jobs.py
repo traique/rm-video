@@ -14,7 +14,7 @@ from review import OST_TAG, REVIEW_HELP
 from state import current, notify, queue
 from storage import _size_mb, disk_report, pick_workdir
 
-JOB_TIMEOUT = {"": 25 * 60, "full": 3 * 3600, "split60": 3 * 3600, "split90": 3 * 3600}
+JOB_TIMEOUT = {"": 25 * 60, "full": 3 * 3600, "split60": 3 * 3600, "split90": 3 * 3600, "highlight": 2 * 3600}
 
 
 async def worker():

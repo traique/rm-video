@@ -756,10 +756,11 @@ async def has_audio(path: str) -> bool:
     return "audio" in out
 
 
-async def extract_audio(input_mp4: str, out_mp3: str):
-    """Bóc audio 16kHz mono 32kbps cho Whisper: 90s ≈ 0.4MB, xa hạn 25MB của Groq."""
+async def extract_audio(input_mp4: str, out_mp3: str, max_dur: float | None = None):
+    """Bóc audio 16kHz mono 32kbps cho Whisper: 90s ≈ 0.4MB, 10 phút ≈ 2.4MB (hạn của Groq 25MB)."""
     await _run_ffmpeg(
-        "-y", "-i", input_mp4, "-t", str(config.HARD_MAX), "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k", out_mp3
+        "-y", "-i", input_mp4, "-t", f"{max_dur or config.HARD_MAX:.2f}", "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k",
+        out_mp3
     )
 
 
