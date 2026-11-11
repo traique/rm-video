@@ -85,6 +85,8 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 
 - **Dung lượng**: khi khởi động và lệnh `status` in ổ bot + `/tmp` còn trống và thư mục nào chiếm chỗ. Mỗi job ước lượng chỗ cần (file nguồn ×3 + 300MB), tự chọn `/tmp` hay `work/` trong ổ bot (chỗ nào đủ), thiếu thì xóa video kết quả cũ nhất vừa đủ; không đủ thì báo lỗi kèm số liệu. `OUT_MAX_MB` mặc định 400.
 
+- **Tắt/khởi động lại bot giữa chừng** (Botkeep dừng server, cập nhật mã): job đang làm dừng ngay (giết FFmpeg),
+  giữ trạng thái "đang chạy" và file đầu vào, lần khởi động sau tự chạy lại (tối đa 2 lần); bot thoát trong < 1 giây.
 - **Timeout toàn cục**: 25 phút/job thường, 3 giờ/video dài; quá hạn tự hủy, giết FFmpeg, chạy job kế. **Hủy** bằng nút trên web hoặc `/cancel` Telegram.
 - **Lịch sử job lưu SQLite** (`jobs.db`), sống qua restart; link tải vẫn tra được. Job đang chờ lúc restart được chạy tiếp; job đang chạy dở được chạy lại một lần (chết lần nữa thì dừng, tránh vòng lặp). Job chờ duyệt vẫn duyệt được sau restart, hết hạn sau 24 giờ.
 - **Đo đạc**: bảng `steps` (thời gian từng bước mỗi job), `events` (dịch vụ nào được dùng, có rơi về dự phòng không), `sources` (link nguồn ↔ video ra, để xử lý khiếu nại).
@@ -131,7 +133,11 @@ CapCut/TikTok. Web: chọn chế độ 📸, chọn ảnh (có xem trước), th
    động khác. Một ảnh thì không dùng kiểu hoà (nhìn như bóng đôi). Cùng ảnh + nhạc + độ dài thì ra đúng video cũ.
 4. **Ảnh**: khác tỉ lệ 9:16 (ảnh ngang, vuông, 3:4) thì lót nền mờ của chính ảnh; ảnh điện thoại có cờ xoay EXIF
    được xoay đúng; nguồn đủ lớn (≥1600px) ra 1080x1920, không thì 720x1280. Âm lượng chuẩn hoá hai lượt về -14 LUFS.
-5. **Tốc độ** (1 lõi): video 12–15s 720p dựng 8–14 giây; 1080p 15s khoảng 26 giây.
+5. **Tốc độ và RAM** (1 lõi): video 12–15s 720p dựng 8–14 giây; 1080p 15s khoảng 20–26 giây. Dựng theo khúc ≤ 8
+   cảnh rồi ghép bằng chép luồng (không mã hoá lại), nên RAM không tăng theo độ dài: đo ~300MB ở 720p, ~550–600MB
+   ở 1080p (trước khi chia khúc: video 60s nhạc nhanh ăn 2GB ở 1080p). Chỗ nối hai khúc: nhạc êm tối dần rồi sáng
+   lại, nhạc nhún/sôi cắt thẳng đúng beat kèm loé. Tối đa 20 cảnh/video (video dài thì mỗi cảnh dài hơn). Video
+   không dài quá phần nhạc còn lại (nhạc ngắn hơn độ dài đã chọn thì bot báo).
 
 Cơ sở kỹ thuật (đã tìm hiểu trước khi làm): mẫu beat-sync của CapCut (cắt cảnh rơi đúng beat, chuyển "hit" ở drop);
 nối ảnh tĩnh bằng `xfade` (bài của advancedweb.hu); Ken Burns bằng `zoompan` trên ảnh phóng to trước cho mượt (như
