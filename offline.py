@@ -37,6 +37,7 @@ PACKS = {
 SHERPA_SPEC = "sherpa-onnx>=1.12,<2"
 SR = 44100
 CHUNK_S = 10.0            # Spleeter cả bài 300s cần 4.6GB RAM; từng khúc 10s chỉ ~600MB
+CONTEXT_S = 0.5           # mỗi khúc tách kèm 0.5s hai bên rồi cắt bỏ: chỗ nối hai khúc liền mạch hơn
 XFADE = 2205              # 50ms vuốt giữa khúc đã tách và khúc giữ nguyên
 
 
@@ -45,10 +46,11 @@ def _dir(name: str) -> str:
 
 
 def sherpa_ok() -> bool:
+    """Có sherpa-onnx chưa — chỉ tìm, KHÔNG nạp vào tiến trình chính (nạp tốn ~18MB RAM mãi mãi)."""
+    import importlib.util
     try:
-        import sherpa_onnx  # noqa: F401
-        return True
-    except Exception:
+        return importlib.util.find_spec("sherpa_onnx") is not None
+    except (ImportError, ValueError):
         return False
 
 
@@ -101,19 +103,27 @@ async def install(log=logging.info) -> bool:
             continue
         log(f"{i}/3 Tải {name}...")
         arc = os.path.join(MODELS, os.path.basename(url))
+        tmpdir = os.path.join(MODELS, f".{d}.part")
         try:
             await asyncio.to_thread(_download, url, sha, arc)
-            with tarfile.open(arc, "r:bz2") as tf:
-                tf.extractall(MODELS, filter="data") if sys.version_info >= (3, 12) else tf.extractall(MODELS)
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            with tarfile.open(arc, "r:bz2") as tf:      # giải nén vào thư mục tạm rồi đổi tên: không để gói dở dang
+                tf.extractall(tmpdir, filter="data") if sys.version_info >= (3, 12) else tf.extractall(tmpdir)
+            os.replace(os.path.join(tmpdir, d), os.path.join(MODELS, d))
         except Exception as e:
             log(f"❌ {name}: {e}")
             return False
         finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
             if os.path.exists(arc):
                 os.remove(arc)
     if not ocr_text.available():
         log("Tải model dò chữ PP-OCRv6 tiny (1.8MB)...")
-        await asyncio.to_thread(_download, ocr_text.MODEL_URL, ocr_text.MODEL_SHA256, ocr_text.model_path())
+        try:
+            await asyncio.to_thread(_download, ocr_text.MODEL_URL, ocr_text.MODEL_SHA256, ocr_text.model_path())
+        except Exception as e:
+            log(f"❌ model dò chữ: {e}")
+            return False
     log("✅ Xong gói offline (khởi động lại bot để nạp sherpa-onnx). Bật trong Cài đặt: TEXT_DETECT=ocr, "
         "TTS_OFFLINE=1; tách giọng nhanh tự dùng khi người gốc nói > 45s.")
     return True
@@ -139,13 +149,14 @@ def accompaniment(mix: np.ndarray, windows, separate) -> np.ndarray:
     """Tiếng nền = Spleeter chỉ trên các khúc 10s có lời gốc; khúc không có lời giữ NGUYÊN tiếng gốc (Spleeter làm
     tiếng nền kém tự nhiên hơn), vuốt 50ms ở chỗ nối. separate((2, n) float32) -> (2, n) tiếng nền."""
     n = mix.shape[1]
-    step = int(CHUNK_S * SR)
+    step, ctx = int(CHUNK_S * SR), int(CONTEXT_S * SR)
     out = mix.copy()
     need = [windows is None or any(a * SR < i + step and b * SR > i for a, b in windows) for i in range(0, n, step)]
     for k, i in enumerate(range(0, n, step)):
         if not need[k]:
             continue
-        seg = separate(np.ascontiguousarray(mix[:, i:i + step]))[:, :min(step, n - i)]
+        lo, hi = max(0, i - ctx), min(n, i + step + ctx)
+        seg = separate(np.ascontiguousarray(mix[:, lo:hi]))[:, i - lo:i - lo + min(step, n - i)]
         if k > 0 and not need[k - 1]:                 # vào từ khúc giữ nguyên: vuốt từ gốc sang đã tách
             r = np.linspace(0, 1, min(XFADE, seg.shape[1]), dtype=np.float32)
             seg[:, :len(r)] = seg[:, :len(r)] * r + mix[:, i:i + len(r)] * (1 - r)
@@ -167,10 +178,19 @@ def _spleeter():
     sp = sherpa_onnx.OfflineSourceSeparation(cfg)
 
     def separate(x):
-        o = sp.process(sample_rate=SR, samples=x)
+        """Spleeter cắt đầu ra xuống bội số 1024 mẫu (đuôi mỗi khúc còn nguyên giọng gốc) và lỗi với đầu vào
+        < 4096 mẫu: đệm 0 cho đủ rồi cắt về đúng độ dài."""
+        n = x.shape[1]
+        size = max(4096, -(-n // 1024) * 1024 + 1024)
+        xp = np.zeros((x.shape[0], size), np.float32)
+        xp[:, :n] = x
+        o = sp.process(sample_rate=SR, samples=xp)
         if o.sample_rate != SR:
             raise RuntimeError(f"Spleeter trả {o.sample_rate}Hz")
-        return np.asarray(o.stems[1].data, np.float32)
+        acc = np.asarray(o.stems[1].data, np.float32)
+        if acc.shape[1] < n:
+            raise RuntimeError(f"Spleeter trả thiếu mẫu ({acc.shape[1]} < {n})")
+        return acc[:, :n]
     return separate
 
 
@@ -232,9 +252,17 @@ async def speak(text: str, out_path: str) -> None:
     """Đọc `text` bằng Piper vào out_path (định dạng theo đuôi file, vd .mp3). Ném lỗi nếu không được."""
     if not piper_available():
         raise RuntimeError("chưa cài giọng offline (lệnh setup_offline)")
+    import core_video
     proc = await asyncio.create_subprocess_exec(sys.executable, os.path.abspath(__file__), "tts", text, out_path,
                                                 stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-    _, err = await asyncio.wait_for(proc.communicate(), 120)
+    core_video.RUNNING.add(proc)                 # huỷ job / quá hạn là giết được
+    try:
+        _, err = await asyncio.wait_for(proc.communicate(), 120)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        proc.kill()
+        raise
+    finally:
+        core_video.RUNNING.discard(proc)
     if proc.returncode != 0 or not os.path.exists(out_path):
         raise RuntimeError("Piper lỗi: " + err.decode(errors="ignore").strip()[-200:])
 

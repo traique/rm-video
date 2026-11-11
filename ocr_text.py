@@ -119,6 +119,8 @@ def detect_sync(path: str, start: float = 0.0, dur: float | None = None) -> list
     finally:
         proc.stdout.close()
         proc.wait()
+    if proc.returncode != 0 or not runs:          # không giải mã được khung nào: báo lỗi để dùng heuristic, không cache "không có chữ"
+        raise RuntimeError(f"ffmpeg không trích được khung hình (mã {proc.returncode})")
     bands = bands_from_runs(np.array(runs), W)
     logging.info("OCR dò chữ: %d khung, dải %s", len(runs), bands)
     return bands

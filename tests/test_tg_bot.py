@@ -98,10 +98,27 @@ def test_polling_retries_instead_of_crashing(monkeypatch):
     calls = {"n": 0}
 
     class FakeDp:
-        async def start_polling(self, bot):
+        async def start_polling(self, bot, handle_signals=True):
             calls["n"] += 1
             if calls["n"] < 3:
                 raise ConnectionError("Telegram không truy cập được")
 
     asyncio.run(main.poll_forever(FakeDp(), object(), first_wait=0.01))
     assert calls["n"] == 3
+
+
+def test_polling_stops_on_signal_during_retry_wait():
+    import main
+
+    class DownDp:
+        async def start_polling(self, bot, handle_signals=True):
+            raise ConnectionError("mất mạng")
+
+        async def stop_polling(self):
+            raise RuntimeError("chưa chạy")
+
+    async def go():
+        stop = asyncio.Event()
+        asyncio.get_running_loop().call_later(0.2, stop.set)
+        await asyncio.wait_for(main.poll_forever(DownDp(), object(), stop, first_wait=30), 5)   # không chờ đủ 30s
+    asyncio.run(go())

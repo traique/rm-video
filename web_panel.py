@@ -307,22 +307,27 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         _check(request)
         if sse["clients"] >= SSE_MAX:
             raise web.HTTPTooManyRequests(text="Quá nhiều kết nối theo dõi")
-        resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache",
-                                           "X-Accel-Buffering": "no"})
-        await resp.prepare(request)
-        sse["clients"] += 1
+        sse["clients"] += 1                       # giữ chỗ TRƯỚC khi await: không vượt SSE_MAX
         last_key, last_sent = None, 0.0
         try:
+            resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache",
+                                               "X-Accel-Buffering": "no"})
+            await resp.prepare(request)
             while True:
+                try:
+                    _check(request)              # đăng xuất / đổi mật khẩu thì luồng cũ cũng dừng
+                except web.HTTPException:
+                    break
                 data = jobs_payload()
                 key = json.dumps([{k: v for k, v in j.items() if k not in ("elapsed", "eta", "age")}
                                   for j in data["jobs"]] + [data["pending"]], ensure_ascii=False)
                 now = time.time()
                 if key != last_key or now - last_sent >= 10:
-                    await resp.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode())
+                    # client ngừng đọc thì write treo: tối đa 10s rồi đóng, trả chỗ cho người khác
+                    await asyncio.wait_for(resp.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()), 10)
                     last_key, last_sent = key, now
                 await asyncio.sleep(1)
-        except (ConnectionResetError, ConnectionError, RuntimeError, asyncio.CancelledError):
+        except (ConnectionResetError, ConnectionError, RuntimeError, asyncio.TimeoutError):
             pass
         finally:
             sse["clients"] -= 1
@@ -526,7 +531,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         job = queue.jobs.get(int(request.match_info["id"]))
         if not job or job.status != "review":
             raise web.HTTPBadRequest(text="Job không ở trạng thái chờ duyệt")
-        edits = {int(x["i"]): {"text": str(x.get("text", "")), "ost": str(x.get("ost", "new"))}
+        # chỉ đổi cờ tiếng gốc khi client gửi lên (script/trang cũ không gửi thì giữ nguyên cờ AI đã đặt)
+        edits = {int(x["i"]): {"text": str(x.get("text", "")), **({"ost": str(x["ost"])} if "ost" in x else {})}
                  for x in d.get("segments", []) if "i" in x}
         try:
             new = hooks["approve"](job, edits)

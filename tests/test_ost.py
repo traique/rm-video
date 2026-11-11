@@ -136,11 +136,11 @@ def test_pipeline_skips_tts_for_orig(tmp_path, monkeypatch):
         calls.append(text)
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=500:d=1", "-ar", "24000", path],
                        check=True)
-        return None
+        return None, "capcut"
 
     async def fake_tr(audio):
         return "", []
-    monkeypatch.setattr(core_video, "synth_clip", fake_synth)
+    monkeypatch.setattr(core_video, "synth_clip_ex", fake_synth)
     monkeypatch.setattr(pipeline, "transcribe_segments", fake_tr)
     src = str(tmp_path / "in.mp4")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=d=6:s=320x568:r=25", "-f", "lavfi",
@@ -155,3 +155,31 @@ def test_pipeline_skips_tts_for_orig(tmp_path, monkeypatch):
     assert os.path.exists(out) and calls == ["Mở đầu nè", "Kết thúc nha"]
     assert [s["ost"] for s in job.final_segments] == ["new", "orig", "both"] and job.final_segments[1]["voice"] is None
     assert "Mở" in job.srt and "Kết" in job.srt
+
+
+def test_voice_never_enters_orig_window():
+    """Review đợt 2: đoạn sau không được mượn lùi vào cửa sổ giữ tiếng gốc, đoạn trước không được lấn sang."""
+    segs = [{"start": 0.0, "slot": 3.0, "span": 3.0}, {"start": 3.0, "slot": 3.0, "ost": "orig"},
+            {"start": 6.0, "slot": 3.0, "span": 3.0}]
+    plan, too_long = core_video.plan_voice([3.6, 0.0, 3.4], segs, 9.5)
+    assert plan[0]["end"] <= 3.0 + 1e-6 or 0 in too_long
+    assert plan[2]["start"] >= 6.0 - 1e-6
+    expr = core_video._ost_level_expr([(3.0, 6.0, 1.0)])
+    assert "(t-3.00)" in expr and "(6.00-t)" in expr        # vuốt nằm trong cửa sổ
+
+
+def test_switching_ai_orig_back_needs_text():
+    src = Job(url="https://youtu.be/x", mode="cook", duration=0, voice="", status="review",
+              approved=[{"i": 0, "start": 0.0, "slot": 2.0, "text": "Một", "ost": "new"},
+                        {"i": 1, "start": 2.0, "slot": 2.0, "text": "", "orig": "ui da", "ost": "orig"}])
+    state.queue.jobs[src.id] = src
+    with pytest.raises(ValueError, match="Đoạn 1"):
+        review.approve_job(src, {1: {"ost": "new"}})
+    assert src.status == "review"
+    new = review.approve_job(src, {1: {"ost": "new", "text": "Nóng quá trời nè"}})
+    assert [s["ost"] for s in new.approved] == ["new", "new"]
+
+
+def test_review_reply_nfd():
+    import unicodedata
+    assert review.parse_review_reply(unicodedata.normalize("NFD", "2: gốc")) == {2: {"ost": "orig"}}

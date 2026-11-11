@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import shutil
+import signal
 
 from aiohttp import web
 
@@ -51,26 +52,47 @@ async def main():
         logging.warning("Chưa đặt ALLOWED_USERS: bot Telegram từ chối mọi người. Nhắn bot để biết chat id "
                         "của bạn rồi điền vào Cài đặt trên web.")
 
+    stop = asyncio.Event()                         # SIGTERM (Botkeep dừng server) / Ctrl-C -> thoát gọn
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except (NotImplementedError, RuntimeError):
+            pass
     if bot:
-        await poll_forever(dp, bot)
+        await poll_forever(dp, bot, stop)
     else:
         logging.warning("Không có BOT_TOKEN — chạy chế độ chỉ-web.")
-        await asyncio.Event().wait()
+        await stop.wait()
+    logging.info("Nhận tín hiệu dừng, thoát.")
 
 
-async def poll_forever(dp, bot, first_wait: float = 15, max_wait: float = 300):
+async def poll_forever(dp, bot, stop: asyncio.Event | None = None, first_wait: float = 15, max_wait: float = 300):
     """Long polling Telegram (không cần mở thêm port). Mất mạng/Telegram lỗi lúc khởi động trước đây làm chết cả
-    tiến trình, kéo theo web panel; giờ chỉ ghi log rồi thử lại, chờ tăng dần tới 5 phút."""
+    tiến trình, kéo theo web panel; giờ chỉ ghi log rồi thử lại, chờ tăng dần tới 5 phút. Tín hiệu dừng do main
+    tự xử lý (aiogram bỏ qua tín hiệu đến trong lúc chờ thử lại), `stop` được đặt là thoát ngay."""
+    stop = stop or asyncio.Event()
     wait = first_wait
-    while True:
-        try:
-            await dp.start_polling(bot)          # tự xử lý SIGTERM: dừng gọn rồi return
+    while not stop.is_set():
+        poll = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+        stopper = asyncio.create_task(stop.wait())
+        done, _ = await asyncio.wait({poll, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        if stopper in done:
+            try:
+                await dp.stop_polling()
+            except Exception:
+                poll.cancel()
+            await asyncio.gather(poll, return_exceptions=True)
             return
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logging.error("Telegram polling lỗi (%s), thử lại sau %.0fs; web vẫn chạy", str(e)[:150], wait)
-            await asyncio.sleep(wait)
+        stopper.cancel()
+        exc = poll.exception()
+        if exc is None:
+            return
+        logging.error("Telegram polling lỗi (%s), thử lại sau %.0fs; web vẫn chạy", str(exc)[:150], wait)
+        try:
+            await asyncio.wait_for(stop.wait(), wait)
+            return
+        except asyncio.TimeoutError:
             wait = min(max_wait, wait * 2)
 
 

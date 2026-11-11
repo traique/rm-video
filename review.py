@@ -1,6 +1,7 @@
 """Duyệt kịch bản: cờ tiếng gốc từng đoạn, cú pháp trả lời trên Telegram, tạo job render từ bản đã duyệt."""
 import os
 import re
+import unicodedata
 
 from queue_manager import Job
 from state import queue
@@ -20,7 +21,7 @@ def parse_review_reply(text: str) -> dict:
         mm = re.match(r"\s*(\d+)\s*[:.)-]\s*(.+)", line)
         if not mm:
             continue
-        k, body = int(mm.group(1)), mm.group(2).strip()
+        k, body = int(mm.group(1)), unicodedata.normalize("NFC", mm.group(2).strip())   # bàn phím gõ dấu rời
         low = body.lower()
         if low in ("gốc", "giữ gốc", "tiếng gốc"):
             edits[k] = {"ost": "orig"}
@@ -50,6 +51,9 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
         elif isinstance(e, str):
             text = e
         text, ost = str(text or "").strip(), (ost if ost in OST_CHOICES else "new")
+        if not text and ost != "orig" and s.get("ost") == "orig":
+            raise ValueError(f"Đoạn {s['i']} đang giữ tiếng gốc nên chưa có lời: nhập lời mới cho đoạn này "
+                             f"(\"{s['i']}: lời mới\") rồi mới bỏ giữ tiếng gốc.")
         if text or ost == "orig":
             segs.append({"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                          "text": text, "orig": s.get("orig", ""), "ost": ost})

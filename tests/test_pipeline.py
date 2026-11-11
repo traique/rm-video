@@ -57,8 +57,8 @@ def fakes(monkeypatch, tmp_path):
         d = 0.25 * len(text.split())
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=500:duration={d}",
                         "-ar", "24000", "-ac", "1", path], check=True)
-        return None                                  # như CapCut: không có mốc từ
-    monkeypatch.setattr(core_video, "synth_clip", fake_synth)
+        return None, "capcut"                                  # như CapCut: không có mốc từ
+    monkeypatch.setattr(core_video, "synth_clip_ex", fake_synth)
 
     async def fake_sep(src, out, timeout=0, windows=None):
         calls["sep_windows"] = windows

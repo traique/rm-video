@@ -345,7 +345,7 @@ async def keyframe_times(path: str) -> list:
     out_t = []
     for x in out.split():
         try:
-            out_t.append(round(float(x.strip(",")) - t0, 3))
+            out_t.append(round(float(x.strip(",")) - t0, 6))    # đủ chính xác: làm tròn 3 số có thể rơi trước khung khoá
         except ValueError:
             continue
     return sorted(set(out_t))
@@ -365,7 +365,7 @@ def snap_to_keyframes(bounds: list, kfs: list, tol: float = 0.4) -> list:
     return out
 
 
-def is_keyframe(t: float, kfs: list, tol: float = 0.002) -> bool:
+def is_keyframe(t: float, kfs: list, tol: float = 0.0005) -> bool:
     return t <= tol or any(abs(t - k) <= tol for k in kfs)
 
 
@@ -374,10 +374,11 @@ async def cut(src: str, dst: str, start: float, end: float, copy: bool = False) 
     thêm một thế hệ nén; kiểm độ dài, lệch thì mã hoá lại như cũ. Trả "copy" hoặc "encode"."""
     if copy:
         try:
-            await _run_ffmpeg("-y", "-ss", f"{start:.3f}", "-i", src, "-t", f"{end - start:.3f}", "-map", "0:v:0",
+            # -ss nhích 0.5ms SAU khung khoá: ffmpeg lùi về đúng khung khoá đó, không lùi nhầm về khung khoá trước
+            await _run_ffmpeg("-y", "-ss", f"{start + 0.0005:.4f}", "-i", src, "-t", f"{end - start:.4f}", "-map", "0:v:0",
                               "-map", "0:a?", "-c", "copy", "-avoid_negative_ts", "make_zero",
                               "-movflags", "+faststart", dst)
-            if abs(await probe_duration(dst) - (end - start)) < 0.5:
+            if abs(await probe_duration(dst) - (end - start)) < 0.15:
                 return "copy"
             logging.warning("Cắt chép luồng lệch độ dài, mã hoá lại đoạn %.1f-%.1f", start, end)
         except (RuntimeError, ValueError) as e:
@@ -477,20 +478,21 @@ async def _tts_edge(text: str, mp3_path: str, voice: str, ass_path: str | None,
 
 # ---------- Giọng khớp mốc thời gian: đọc từng đoạn, đặt đúng chỗ ----------
 
-async def synth_clip(text: str, voice: str, path: str):
-    """TTS 1 đoạn. Trả về list mốc từ (edge) hoặc None (CapCut: không có mốc từ, phụ đề rải theo âm tiết)."""
+async def synth_clip_ex(text: str, voice: str, path: str) -> tuple:
+    """TTS 1 đoạn. Trả (mốc từ hoặc None, provider đã đọc: capcut | edge | piper). CapCut/Piper không có mốc từ:
+    phụ đề rải theo âm tiết."""
     capcut = config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES
     if capcut:
         try:
             import tts_capcut
             await tts_capcut.speak(text, voice, path, want_words=False)
             metrics.record("tts", "capcut")
-            return None
+            return None, "capcut"
         except Exception as e:
             metrics.record("tts", "capcut", ok=False, detail=str(e))
             logging.warning("CapCut lỗi đoạn (%s), dùng edge-tts", str(e)[:100])
     try:
-        return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut)
+        return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut), "edge"
     except Exception:
         if config.TTS_OFFLINE != "1":
             raise
@@ -498,10 +500,15 @@ async def synth_clip(text: str, voice: str, path: str):
     try:
         await offline.speak(text, path)
         metrics.record("tts", "piper", fallback=True)
-        return None
+        return None, "piper"
     except Exception as e:
         metrics.record("tts", "piper", ok=False, fallback=True, detail=str(e))
         raise
+
+
+async def synth_clip(text: str, voice: str, path: str):
+    """Như synth_clip_ex nhưng chỉ trả mốc từ (giữ tương thích)."""
+    return (await synth_clip_ex(text, voice, path))[0]
 
 
 async def synth_clip_cached(text: str, voice: str, path: str):
@@ -515,9 +522,8 @@ async def synth_clip_cached(text: str, voice: str, path: str):
     if hit and meta is not None:
         await asyncio.to_thread(shutil.copyfile, hit, path)
         return meta.get("words")
-    words = await synth_clip(text, voice, path)
-    used = "capcut" if words is None else "edge"
-    if used == primary and os.path.exists(path) and os.path.getsize(path) > 0:
+    words, used = await synth_clip_ex(text, voice, path)
+    if used == primary and os.path.exists(path) and os.path.getsize(path) > 0:     # Piper/edge dự phòng: không cache
         try:
             cache.put("tts", k, path, ".mp3")
             cache.put_json("tts", k, {"words": words})
@@ -548,6 +554,11 @@ def plan_voice(durs: list, segs: list, total_dur: float):
     plan, too_long, prev_end = [], [], 0.0
     for i, (d, s) in enumerate(zip(durs, segs)):
         nxt = segs[i + 1]["start"] if i + 1 < len(segs) else total_dur
+        if s.get("ost") == "orig":           # đoạn giữ nguyên tiếng gốc: không đọc, đoạn sau không được mượn lùi vào
+            plan.append({"start": round(s["start"], 3), "factor": 1.0, "end": round(s["start"], 3)})
+            prev_end = max(prev_end, nxt - 0.12)
+            continue
+        into_orig = i + 1 < len(segs) and segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc
         start = max(s["start"], prev_end + 0.12)
         want = max(0.5, min(s.get("span", s["slot"]), nxt - start))
         f = max(0.92, min(d / want, 1.1))          # vùng tự nhiên: hầu như không nghe ra co giãn
@@ -555,7 +566,7 @@ def plan_voice(durs: list, segs: list, total_dur: float):
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
         if start + d / f > nxt:                     # (2) nói nhanh hơn
             f = min(d / max(0.3, nxt - start), 1.25)
-        limit = (nxt + 0.35) if i + 1 < len(segs) else total_dur - 0.05
+        limit = (nxt + (0.0 if into_orig else 0.35)) if i + 1 < len(segs) else total_dur - 0.05
         if start + d / f > limit:                   # (3) vẫn tràn quá giới hạn lấn
             too_long.append(i)
             f = min(d / max(0.3, limit - start), 1.35)
@@ -762,7 +773,9 @@ def ost_windows(segs: list, out_dur: float) -> list:
 
 
 def _trap(a: float, b: float, r: float = OST_RAMP) -> str:
-    return f"clip((t-{a:.2f}+{r})/{r},0,1)*clip(({b:.2f}+{r}-t)/{r},0,1)"
+    """1 trong [a, b], vuốt lên/xuống r giây NẰM TRONG cửa sổ (không lấn sang đoạn giọng mới hai bên)."""
+    r = max(0.01, min(r, (b - a) / 2))
+    return f"clip((t-{a:.2f})/{r:.3f},0,1)*clip(({b:.2f}-t)/{r:.3f},0,1)"
 
 
 def _ost_level_expr(wins: list) -> str:

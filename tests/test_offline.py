@@ -25,7 +25,7 @@ def test_accompaniment_only_touches_speech_chunks():
         calls.append(x.shape[1])
         return np.zeros_like(x)                       # "tiếng nền" sau tách = 0 để dễ thấy
     out = offline.accompaniment(mix, [(step / sr + 1.0, step / sr + 2.0)], fake_sep)
-    assert calls == [step]                            # chỉ khúc giữa có lời được tách
+    assert calls == [step + 2 * int(offline.CONTEXT_S * sr)]   # chỉ khúc giữa có lời, kèm 0.5s ngữ cảnh hai bên
     assert np.all(out[:, :step - offline.XFADE] == 1) and np.all(out[:, 2 * step + offline.XFADE:] == 1)
     assert np.all(out[:, step + offline.XFADE:2 * step - offline.XFADE] == 0)
     edge = out[0, step:step + offline.XFADE]
@@ -113,7 +113,7 @@ def test_long_speech_uses_fast_separation(monkeypatch, tmp_path):
 
     async def fake_synth(text, voice, path):
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=500:d=1", "-ar", "24000", path], check=True)
-        return None
+        return None, "capcut"
     used = []
 
     async def kim(*a, **k):
@@ -126,7 +126,7 @@ def test_long_speech_uses_fast_separation(monkeypatch, tmp_path):
         return True
     monkeypatch.setattr(pipeline, "transcribe_segments", fake_tr)
     monkeypatch.setattr(pipeline.prompt_engine, "generate_timed_any", fake_timed)
-    monkeypatch.setattr(core_video, "synth_clip", fake_synth)
+    monkeypatch.setattr(core_video, "synth_clip_ex", fake_synth)
     monkeypatch.setattr(vocal_sep, "remove_voice", kim)
     monkeypatch.setattr(offline, "remove_voice_fast", fast)
     monkeypatch.setattr(offline, "spleeter_available", lambda: True)
@@ -139,3 +139,41 @@ def test_long_speech_uses_fast_separation(monkeypatch, tmp_path):
     asyncio.run(pipeline.process(job, str(tmp_path / "w")))
     assert used and used[0][0] == "fast" and "kim" not in used
     assert "Đã tách bỏ giọng gốc" in job.error
+
+
+def test_tts_cache_skips_fallback_voice(monkeypatch, tmp_path):
+    """Review đợt 2: giọng Piper/edge dự phòng không được cache dưới khoá giọng CapCut."""
+    import cache
+    monkeypatch.setattr(cache, "DIR", str(tmp_path / "c"))
+    monkeypatch.setattr(config, "TTS_PROVIDER", "capcut")
+    calls = []
+
+    async def fake_ex(text, voice, path):
+        calls.append(text)
+        open(path, "wb").write(b"PIPER")
+        return None, "piper"
+    monkeypatch.setattr(core_video, "synth_clip_ex", fake_ex)
+    for k in range(2):
+        asyncio.run(core_video.synth_clip_cached("Xin chào", config.CAPCUT_VOICE_FEMALE, str(tmp_path / f"{k}.mp3")))
+    assert len(calls) == 2
+
+
+def test_spleeter_pads_short_and_odd_chunks(monkeypatch):
+    """Review đợt 2: Spleeter cắt đầu ra xuống bội số 1024 và lỗi với khúc < 4096 mẫu."""
+    class FakeSp:
+        def process(self, sample_rate, samples):
+            n = samples.shape[1]
+            if n < 4096:
+                raise RuntimeError("vector::_M_default_append")
+            data = samples[:, : n // 1024 * 1024] * 0
+            return type("O", (), {"sample_rate": sample_rate, "stems": [None, type("S", (), {"data": data})()]})()
+    import sys
+    import types
+    fake_mod = types.SimpleNamespace(
+        OfflineSourceSeparationConfig=lambda **k: None, OfflineSourceSeparationModelConfig=lambda **k: None,
+        OfflineSourceSeparationSpleeterModelConfig=lambda **k: None, OfflineSourceSeparation=lambda cfg: FakeSp())
+    monkeypatch.setitem(sys.modules, "sherpa_onnx", fake_mod)
+    sep = offline._spleeter()
+    for n in (100, 4095, 441000, 441017):
+        out = sep(np.ones((2, n), np.float32))
+        assert out.shape == (2, n) and not out.any()          # đủ độ dài, không còn đuôi giọng gốc
