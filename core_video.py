@@ -783,7 +783,13 @@ SELFTEST_VIDEO = (
     "box=1:boxcolor=black@0.45:boxborderw=8:x=(w-text_w)/2:y=20:enable='between(t,0,1)':"
     "alpha='if(lt(t,0.4),t/0.4,1)',"
     "subtitles=filename={ass}:fontsdir={fonts},"
-    "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',setsar=1[a2];"
+    "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',setsar=1,"
+    # hiệu ứng trend của 📸 (trendfx): màu, bật màu, glitch, lật gương, nháy, hạt phim, viền tối, phát sáng
+    "curves=preset=vintage,colorbalance=rs=-0.04:bs=0.07,hue=s='min(1.2,1.2*exp(-t/0.4))',hue=h='10*sin(2*PI*t)',"
+    "rgbashift=rh=-8:bh=8:gv=2:enable='between(t,0.2,0.3)',hflip=enable='between(t,0.5,0.8)',"
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(t,0.9,0.95)',noise=alls=9:allf=t,"
+    "vignette=angle=PI/5,split=2[ga][gb];[gb]scale=90:160,gblur=sigma=6,scale=360:640[gc];"
+    "[ga][gc]blend=all_mode=screen:all_opacity=0.3,format=yuv420p,setsar=1[a2];"
     "[b]zoompan=z='1.05+0.05*on/29':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=30:s=360x640:fps=30,"
     "trim=duration=1,setpts=PTS-STARTPTS,format=yuv420p,setsar=1[b2];"
     "[a2]trim=duration=1,setpts=PTS-STARTPTS[a3];"
@@ -1125,6 +1131,30 @@ def cgroup_cpus() -> float:
     except (OSError, ValueError):
         pass
     return float(os.cpu_count() or 1)
+
+
+def mem_available_mb() -> int | None:
+    """RAM còn dùng được (MB): giới hạn cgroup trừ phần đang dùng, và MemAvailable của máy; lấy số nhỏ hơn.
+    Không đọc được gì thì None."""
+    vals = []
+    for lim_p, use_p in (("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current"),
+                         ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.usage_in_bytes")):
+        try:
+            lim = open(lim_p).read().strip()
+            use = int(open(use_p).read().strip())
+            if lim != "max" and int(lim) < (1 << 50):
+                vals.append((int(lim) - use) >> 20)
+                break
+        except (OSError, ValueError):
+            continue
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                vals.append(int(line.split()[1]) >> 10)
+                break
+    except (OSError, ValueError):
+        pass
+    return min(vals) if vals else None
 
 
 def ffmpeg_threads() -> int:

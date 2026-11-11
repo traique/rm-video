@@ -9,4 +9,5 @@ if ROOT not in sys.path:
 
 _TMP = tempfile.mkdtemp(prefix="vb-test-")
 os.environ.setdefault("JOBS_DB", os.path.join(_TMP, "jobs.db"))
+os.environ.setdefault("RECENT_LOOKS", os.path.join(_TMP, "recent_looks.json"))   # lịch sử công thức hiệu ứng 📸
 os.environ.pop("BOT_TOKEN", None)          # test không bao giờ nối Telegram thật

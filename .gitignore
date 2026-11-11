@@ -25,3 +25,4 @@ golden/report.md
 golden/.golden_jobs.db
 .cache/
 .local/
+recent_looks.json

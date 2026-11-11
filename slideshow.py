@@ -17,19 +17,25 @@ cho máy 1 lõi nên chỉ dùng bộ chuyển cảnh xfade có sẵn trong FFmp
      mạnh sau drop, chuyển zoom/loé trắng/lia nhoè 1/4-1/2 phách; đúng điểm drop là chuyển "hit" + loé.
 4. Dựng bằng MỘT lệnh FFmpeg: mỗi ảnh -> nền (ảnh khác tỉ lệ 9:16 thì lót nền mờ) phóng to 2 lần -> zoompan theo
    biểu thức thời gian (có nảy theo beat) -> nối bằng xfade -> chỉnh màu + loé theo beat -> nhạc đã cắt, chuẩn hoá
-   âm lượng hai lượt. Cùng ảnh + nhạc + thời lượng thì ra đúng video cũ (ngẫu nhiên có hạt giống cố định).
+   âm lượng hai lượt.
+5. Mỗi lần tạo một công thức hiệu ứng khác (trendfx.py: Flash Pop, Glitch RGB, Strobe, Đen trắng bật màu, Lật gương,
+   Y2K Neon, Dreamy Glow, Film Vintage, Cinematic, Pastel Soft), ngẫu nhiên thật, tránh công thức vừa dùng.
 """
-import hashlib
+import asyncio
 import logging
 import os
 import random
+import resource
+import secrets
 import subprocess
+import time
 
 import numpy as np
 
 import beat
 import config
 import core_video
+import trendfx
 
 SR = beat.SR
 HOP = beat.HOP
@@ -208,9 +214,11 @@ def choose_window(info: dict, length: float) -> tuple:
 
 # ---------- 2. kế hoạch dựng ----------
 
-def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) -> dict:
-    """Kế hoạch: đoạn nhạc, kiểu dựng, các cảnh (ảnh, chuyển động, mốc), chuyển cảnh, nảy/loé theo beat.
-    duration 0 = tự động theo nhạc (12-16 giây). Mọi mốc tính từ đầu video (giây)."""
+def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0, recent: list | None = None,
+               template: str | None = None) -> dict:
+    """Kế hoạch: đoạn nhạc, kiểu dựng, công thức hiệu ứng (trendfx), các cảnh (ảnh, chuyển động, mốc), chuyển cảnh,
+    nảy/rung/loé theo beat. duration 0 = tự động theo nhạc (12-16 giây). Mọi mốc tính từ đầu video (giây).
+    recent: công thức vừa dùng (tránh lặp); template: ép một công thức (thử nghiệm)."""
     rnd = random.Random(seed)
     period = info["period"]
     auto = not duration
@@ -237,6 +245,8 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
     beats = [round(float(k * period), 4) for k in range(int(length / period) + 1) if k * period <= length + 1e-6]
     drop_t = round(float((drop_k - k0) * period), 4) if drop_k is not None else None
 
+    tname = template if template in trendfx.TEMPLATES else trendfx.pick(style, rnd, recent)
+    tpl = trendfx.TEMPLATES[tname]
     slot_beats = {"calm": 8, "groove": 4, "hype": 2}[style]
     while slot_beats * period < 0.7:                   # nhạc rất nhanh: cảnh không ngắn hơn 0.7s
         slot_beats *= 2
@@ -270,7 +280,7 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
         at = bounds[i + 1]
         is_drop = drop_t is not None and abs(at - drop_t) < 1e-3
         # 1 ảnh: hoà/trượt giữa hai khung của CÙNG một ảnh nhìn như bóng đôi -> chỉ dùng kiểu "nhảy" qua sáng/tối/zoom
-        base = TRANSITIONS_ONE[style] if n_images == 1 else TRANSITIONS[style]
+        base = TRANSITIONS_ONE[style] if n_images == 1 else tpl["trans"]
         pool = HIT if is_drop else ([x for x in base if x != prev] or base)
         typ = pool[rnd.randrange(len(pool))]
         prev = typ
@@ -282,22 +292,14 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
             d = min(d, (bounds[i + 1] - bounds[i]) * 0.45)
             t0 = at - d                                 # dứt khoát: ảnh mới hiện TRỌN đúng lúc beat
         trans.append({"type": typ, "start": round(max(0.0, t0), 4), "dur": round(d, 4), "at": at, "drop": is_drop})
-    # nảy zoom theo beat (trong từng cảnh) và loé sáng
-    pulse_beats, flashes = [], []
-    if style == "groove":
-        pulse_beats = [b for k, b in enumerate(beats) if k % 4 == 0]
-        flashes = [drop_t] if drop_t is not None else []
-    elif style == "hype":
-        pulse_beats = list(beats)
-        after = drop_t if drop_t is not None else length * 0.5
-        flashes = [b for k, b in enumerate(beats) if k % 4 == 0 and b >= after - 1e-6 and b < length - 0.3]
-        if drop_t is not None:
-            flashes = sorted(set(flashes + [drop_t]))
+    # nảy zoom / rung / loé / glitch... theo công thức hiệu ứng
+    sets = trendfx.beat_sets(tpl, style, beats, drop_t, length)
     slots = [{"img": imgs[i], "start": bounds[i], "end": bounds[i + 1], "motion": motions[i]} for i in range(n)]
     return {"music_start": round(float(start), 3), "length": round(float(length), 3), "bpm": float(info["bpm"]), "style": style,
-            "requested": float(duration or 0),
+            "requested": float(duration or 0), "template": tname, "fxsets": sets,
+            "strength": 1.7 if n_images == 1 else 1.0,       # 1 ảnh: chuyển động mạnh hơn kẻo video nhìn như ảnh tĩnh
             "period": period, "drop": drop_t, "slots": slots, "transitions": trans, "beats": beats,
-            "pulse": pulse_beats, "flashes": flashes, "shake": flashes if style == "hype" else []}
+            "pulse": sets["pulse"], "flashes": sets["flashes"], "shake": sets["shake"]}
 
 
 # ---------- 3. dựng filter FFmpeg ----------
@@ -313,13 +315,15 @@ def _decay_sum(times: list, t0: float, t1: float, amp: float, tau: float, var: s
 
 
 def zoompan_expr(motion: str, style: str, n_frames: int, t_start: float, pulse: list, shake: list,
-                 t_end: float) -> tuple:
-    """(z, x, y) cho zoompan của MỘT cảnh. T = giây trên trục video; u = tiến độ 0..1 trong cảnh."""
+                 t_end: float, strength: float = 1.0) -> tuple:
+    """(z, x, y) cho zoompan của MỘT cảnh. T = giây trên trục video; u = tiến độ 0..1 trong cảnh.
+    strength > 1: zoom/lia rộng hơn và nảy mạnh hơn (video 1 ảnh)."""
     u = f"(on/{max(1, n_frames - 1)})"
     e = _ease(u, style)
-    amp = {"calm": (1.0, 1.12), "groove": (1.0, 1.16), "hype": (1.04, 1.16)}[style]
+    a0, a1 = {"calm": (1.0, 1.12), "groove": (1.0, 1.16), "hype": (1.04, 1.16)}[style]
+    amp = (a0, round(a0 + (a1 - a0) * strength, 3))
     T = f"({t_start:.4f}+on/{FPS})"
-    pz = _decay_sum(pulse, t_start, t_end, 0.035 if style == "groove" else 0.06, 0.12, T)
+    pz = _decay_sum(pulse, t_start, t_end, round((0.035 if style == "groove" else 0.06) * strength, 3), 0.12, T)
     if motion == "zoom_in":
         z = f"{amp[0]}+{amp[1] - amp[0]:.3f}*{e}"
     elif motion == "zoom_out":
@@ -400,7 +404,8 @@ def build_group(plan: dict, grp: tuple, sizes: list, W: int, H: int, available: 
     for c, j in enumerate(range(i0, i1 + 1)):
         dur = ends[c] - starts[c]
         nf = max(2, int(round(dur * FPS)) + 1)
-        z, x, y = zoompan_expr(slots[j]["motion"], style, nf, starts[c], plan["pulse"], plan["shake"], ends[c])
+        z, x, y = zoompan_expr(slots[j]["motion"], style, nf, starts[c], plan["pulse"], plan["shake"], ends[c],
+                               plan.get("strength", 1.0))
         parts.append(f"{labels[slots[j]['img']].pop(0)}zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={FPS},"
                      f"trim=duration={dur:.4f},setpts=PTS-STARTPTS,format=yuv420p,setsar=1[c{c}]")
     cur = "[c0]"
@@ -409,9 +414,8 @@ def build_group(plan: dict, grp: tuple, sizes: list, W: int, H: int, available: 
         typ = t["type"] if (available is None or t["type"] in available) else "fade"
         parts.append(f"{cur}[c{c + 1}]xfade=transition={typ}:duration={t['dur']:.4f}:offset={t['start'] - t0:.4f}[x{c}]")
         cur = f"[x{c}]"
-    look = {"calm": "eq=contrast=1.03:saturation=1.04," + core_video.warm_filter(5800, 0.25),
-            "groove": "eq=contrast=1.05:saturation=1.08,",
-            "hype": "eq=contrast=1.08:saturation=1.14,"}[style]
+    tpl = trendfx.TEMPLATES[plan.get("template") or "flash_pop"]
+    look = tpl["look"] + trendfx.video_fx(tpl, plan["fxsets"], t0, t1, W, H, plan["period"], f"k{i0}")
     flashes = [f - t0 for f in plan["flashes"] if t0 - 0.5 <= f < t1]
     if not first and style != "calm":
         flashes = sorted(set(flashes + [0.0]))           # nối khúc = cắt thẳng đúng beat + loé
@@ -467,47 +471,71 @@ def image_size(path: str) -> tuple:
     return int(m.group(1)), int(m.group(2))
 
 
-def seed_for(images: list, music: str, duration: float) -> int:
-    h = hashlib.sha1(str(duration).encode())
-    for p in list(images) + [music]:
-        with open(p, "rb") as f:
-            h.update(f.read(1 << 16))
-    return int(h.hexdigest()[:8], 16)
+def parallel_slots(H: int) -> int:
+    """Số khúc dựng cùng lúc. Dựng 1 khúc chỉ ăn ~1 lõi (zoompan/xfade chạy một luồng, x264 phải chờ): máy ≥ 1.4 lõi
+    thì dựng 2 khúc song song (đo 2 lõi: 16.5s -> 14.4s, dùng 1.58 -> 1.78 lõi), nếu RAM còn đủ cho 2 tiến trình
+    (~650MB mỗi tiến trình ở 1080p, ~350MB ở 720p)."""
+    if core_video.cgroup_cpus() < 1.4:
+        return 1
+    free = core_video.mem_available_mb()
+    need = 2 * (650 if H >= 1920 else 350) + 150
+    return 2 if free is None or free >= need else 1
 
 
-async def render(images: list, music: str, out: str, duration: float = 0, music_start: float | None = None) -> dict:
+async def _render_segments(plan: dict, grps: list, images: list, sizes: list, W: int, H: int, work: str,
+                           par: int) -> list:
+    avail = xfade_transitions()
+    sem = asyncio.Semaphore(par)
+
+    async def one(k, g):
+        fc, used = build_group(plan, g, sizes, W, H, avail)
+        seg = os.path.join(work, f"seg{k}.mp4")
+        async with sem:
+            await core_video._run_ffmpeg("-y", *core_video.thread_args(),
+                                         *[a for img in used for a in ("-i", images[img])],
+                                         "-filter_complex", fc, "-map", "[v]", "-an",
+                                         *core_video.encode_args(H, FPS), "-t", f"{g[3] - g[2]:.4f}", seg)
+        return seg
+    return list(await asyncio.gather(*(one(k, g) for k, g in enumerate(grps))))
+
+
+async def render(images: list, music: str, out: str, duration: float = 0, music_start: float | None = None,
+                 seed: int | None = None, template: str | None = None) -> dict:
     """Dựng video từ 1-4 ảnh + nhạc. music_start: ép điểm bắt đầu nhạc (None = tự chọn đoạn hay nhất).
-    Dựng theo KHÚC ≤ GROUP cảnh (mỗi khúc một lệnh FFmpeg, chỉ hình), ghép khúc bằng chép luồng (không mã hoá lại),
-    rồi trộn nhạc: RAM không tăng theo độ dài (trước đây cả video một lệnh: 60s nhạc nhanh 2GB RAM ở 1080p).
-    Trả kế hoạch đã dùng (kiểu, BPM, đoạn nhạc, số cảnh) để báo lại người dùng."""
-    import asyncio
+    seed None = ngẫu nhiên thật mỗi lần + tránh công thức hiệu ứng vừa dùng (trendfx): làm lại cùng ảnh + nhạc vẫn ra
+    video khác. Dựng theo KHÚC ≤ GROUP cảnh (mỗi khúc một lệnh FFmpeg, chỉ hình; 2 khúc song song khi máy có ≥ 1.4
+    lõi), ghép khúc bằng chép luồng (không mã hoá lại), rồi trộn nhạc. Trả kế hoạch đã dùng để báo người dùng."""
     import tempfile
     images = images[:MAX_IMAGES]
     if not images:
         raise RuntimeError("Cần ít nhất 1 ảnh.")
     sizes = [await asyncio.to_thread(image_size, p) for p in images]
     info = await asyncio.to_thread(analyze_music, music)
-    plan = plan_video(info, len(images), duration, await asyncio.to_thread(seed_for, images, music, duration))
+    rnd_seed = secrets.randbits(32) if seed is None else seed
+    plan = plan_video(info, len(images), duration, rnd_seed, trendfx.load_recent() if seed is None else None, template)
     if music_start is not None:
         plan["music_start"] = music_start
-    hd = config.OUTPUT_HD and min(max(w, h) for w, h in sizes) >= 1600
+    # 1080p khi ảnh đủ lớn; QUALITY=fast (Cài đặt) thì 720p: mã hoá x264 chiếm ~75% thời gian dựng, 720p nhanh ~2 lần
+    hd = config.OUTPUT_HD and config.QUALITY != "fast" and min(max(w, h) for w, h in sizes) >= 1600
     W, H = (1080, 1920) if hd else (720, 1280)
-    avail = xfade_transitions()
-    grps = groups(plan)
-    logging.info("Ảnh + nhạc: %d ảnh, %.0f BPM (%s), nhạc từ %.1fs, %d cảnh / %d khúc, %.1fs%s", len(images),
-                 plan["bpm"], plan["style"], plan["music_start"], len(plan["slots"]), len(grps), plan["length"],
+    par = parallel_slots(H)
+    grps = groups(plan, min(GROUP, -(-len(plan["slots"]) // par)))
+    logging.info("Ảnh + nhạc: %d ảnh, %.0f BPM (%s), công thức %s, nhạc từ %.1fs, %d cảnh / %d khúc (song song %d), "
+                 "%.1fs%s", len(images), plan["bpm"], plan["style"], trendfx.TEMPLATES[plan["template"]]["vi"],
+                 plan["music_start"], len(plan["slots"]), len(grps), par, plan["length"],
                  f", drop ở {plan['drop']:.1f}s" if plan["drop"] is not None else "")
     work = tempfile.mkdtemp(prefix="slides_", dir=os.path.dirname(os.path.abspath(out)))
     try:
-        segs = []
-        for k, g in enumerate(grps):
-            fc, used = build_group(plan, g, sizes, W, H, avail)
-            seg = os.path.join(work, f"seg{k}.mp4")
-            await core_video._run_ffmpeg("-y", *core_video.thread_args(),
-                                         *[a for img in used for a in ("-i", images[img])],
-                                         "-filter_complex", fc, "-map", "[v]", "-an",
-                                         *core_video.encode_args(H, FPS), "-t", f"{g[3] - g[2]:.4f}", seg)
-            segs.append(seg)
+        ru0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        t0 = time.time()
+        segs = await _render_segments(plan, grps, images, sizes, W, H, work, par)
+        ru1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        wall = max(0.01, time.time() - t0)
+        cpu = (ru1.ru_utime - ru0.ru_utime) + (ru1.ru_stime - ru0.ru_stime)
+        # dùng < 0.7 lõi khi máy có ≥ 1 lõi = CPU bị máy chủ bóp, không phải do bot dựng chậm
+        logging.info("Dựng hình %d khúc: %.0fs, CPU %.0fs = dùng %.2f lõi (máy cho %.1f lõi, ffmpeg %d luồng)",
+                     len(grps), wall, cpu, cpu / wall, core_video.cgroup_cpus(), core_video.ffmpeg_threads())
+        plan["render_secs"], plan["cpu_cores"] = round(wall, 1), round(cpu / wall, 2)
         lst = os.path.join(work, "list.txt")
         with open(lst, "w", encoding="utf-8") as f:
             f.writelines(f"file '{p}'\n" for p in segs)
@@ -520,6 +548,8 @@ async def render(images: list, music: str, out: str, duration: float = 0, music_
     finally:
         import shutil
         shutil.rmtree(work, ignore_errors=True)
+    if seed is None:
+        trendfx.remember(plan["template"])
     plan["size"] = f"{W}x{H}"
     plan["segments"] = len(grps)
     return plan
@@ -528,6 +558,7 @@ async def render(images: list, music: str, out: str, duration: float = 0, music_
 def describe(plan: dict) -> str:
     short = plan.get("requested") and plan["requested"] > plan["length"] + 0.5
     return ((f"Nhạc chỉ còn đủ cho {plan['length']:.0f}s (bạn chọn {plan['requested']:.0f}s). " if short else "")
-            + f"Nhạc {plan['bpm']:.0f} BPM, kiểu {STYLE_VI[plan['style']]}; lấy đoạn từ {plan['music_start']:.0f}s; "
+            + f"Nhạc {plan['bpm']:.0f} BPM, kiểu {STYLE_VI[plan['style']]}, hiệu ứng «{trendfx.TEMPLATES[plan['template']]['vi']}»; "
+            f"lấy đoạn từ {plan['music_start']:.0f}s; "
             f"{len(plan['slots'])} cảnh, đổi cảnh đúng beat"
             + (f", drop ở giây {plan['drop']:.1f}" if plan["drop"] is not None else "") + f"; {plan['length']:.1f}s.")

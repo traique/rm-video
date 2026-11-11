@@ -145,10 +145,18 @@ CapCut/TikTok. Web: chọn chế độ 📸, chọn ảnh (có xem trước), th
    | Sôi | ≥ 125 BPM và dày nhịp | 2 phách (trước drop 4) | Nảy zoom mỗi beat, rung + loé ở phách mạnh sau drop | Zoom, loé trắng, lia nhoè, ép... ¼–½ phách |
 
    Đúng điểm drop luôn là chuyển cảnh "hit" (zoom hoặc loé trắng). Ảnh lặp vòng để đủ độ dài, mỗi lần một chuyển
-   động khác. Một ảnh thì không dùng kiểu hoà (nhìn như bóng đôi). Cùng ảnh + nhạc + độ dài thì ra đúng video cũ.
+   động khác. Một ảnh thì không dùng kiểu hoà (nhìn như bóng đôi) và chuyển động mạnh hơn.
+   **Công thức hiệu ứng trend** (`trendfx.py`), mỗi lần tạo một công thức khác, hợp kiểu nhạc, tránh các công thức
+   vừa dùng (`recent_looks.json`), thứ tự chuyển cảnh/chuyển động ngẫu nhiên thật — làm lại cùng ảnh + nhạc vẫn ra
+   video khác: Flash Pop (loé trắng + nảy zoom), Glitch RGB (lệch kênh màu theo beat), Strobe (nháy đen nửa phách),
+   Đen trắng bật màu (bật màu ở phách mạnh), Lật gương theo ô nhịp, Y2K Neon (rực màu, trôi sắc, phát sáng), Dreamy
+   Glow (phát sáng mềm), Film Vintage (màu phim + hạt + viền tối), Cinematic (khung điện ảnh + màu teal/cam), Pastel Soft.
+   Tất cả chỉ dùng bộ lọc có trong ffmpeg 5.1 (Botkeep) và nằm trong bài tự kiểm tra lúc khởi động.
 4. **Ảnh**: khác tỉ lệ 9:16 (ảnh ngang, vuông, 3:4) thì lót nền mờ của chính ảnh; ảnh điện thoại có cờ xoay EXIF
    được xoay đúng; nguồn đủ lớn (≥1600px) ra 1080x1920, không thì 720x1280. Âm lượng chuẩn hoá hai lượt về -14 LUFS.
-5. **Tốc độ và RAM** (1 lõi): video 12–15s 720p dựng 8–14 giây; 1080p 15s khoảng 20–26 giây. Dựng theo khúc ≤ 8
+5. **Tốc độ và RAM**: mã hoá x264 chiếm ~75% thời gian (đo: khúc 4.6s 1080p, lọc 2.0s / mã hoá 6.2s). Máy ≥ 1.4 lõi
+   dựng 2 khúc song song (dùng hết lõi rảnh, nếu RAM đủ); log ghi "Dựng hình …: dùng X lõi (máy cho Y lõi)" — X thấp
+   hơn hẳn Y là CPU bị máy chủ bóp. `QUALITY=fast` thì ra 720p, nhanh ~2 lần (đo 16.2s → 8.3s cho 14s video). Dựng theo khúc ≤ 8
    cảnh rồi ghép bằng chép luồng (không mã hoá lại), nên RAM không tăng theo độ dài: đo ~300MB ở 720p, ~550–600MB
    ở 1080p (trước khi chia khúc: video 60s nhạc nhanh ăn 2GB ở 1080p). Chỗ nối hai khúc: nhạc êm tối dần rồi sáng
    lại, nhạc nhún/sôi cắt thẳng đúng beat kèm loé. Tối đa 20 cảnh/video (video dài thì mỗi cảnh dài hơn). Video
