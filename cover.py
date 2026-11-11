@@ -180,17 +180,18 @@ def layout_title(text: str) -> tuple:
     return "\n".join(lines), 0.046
 
 
-def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title_file: str | None,
+def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title_files: list | None,
                  title_size: float, logo: bool) -> str:
     """filter_complex cho MỘT khung: màu như video -> che dải chữ gốc -> tối dần phía trên -> tiêu đề -> logo,
     ra 2 nhãn [big] (ảnh bìa) và [small] (thumbnail Telegram 180x320)."""
     v = "[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h) + core_video._cover_filter(bands or [], W, H)
-    if title_file:
+    if title_files:
+        fs = int(H * title_size)
         v += (",format=yuv420p,geq=lum='lum(X,Y)*(0.58+0.42*min(1,Y/(H*0.46)))':cb='cb(X,Y)':cr='cr(X,Y)'"
-              f",drawtext=fontfile={core_video.FONT_PATH}:textfile={title_file}:fontsize={int(H * title_size)}:"
-              f"expansion=none:fontcolor=0xFFE100:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
-              f"shadowx={int(H * 0.003)}:shadowy={int(H * 0.004)}:x=(w-text_w)/2:y=h*0.085:text_align=center:"
-              f"line_spacing={int(H * 0.012)}")
+              + core_video.drawtext_lines(
+                  title_files, fs, "h*0.085", int(fs * 1.18 + H * 0.012),
+                  f"fontcolor=0xFFE100:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
+                  f"shadowx={int(H * 0.003)}:shadowy={int(H * 0.004)}"))
     if logo:
         k = H / 1280
         v += (f"[vb];[1:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
@@ -202,16 +203,14 @@ async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: s
     """Dựng cover.jpg + thumb.jpg trong out_dir từ khung tại t_src (giây trên video gốc). Trả đường dẫn ảnh bìa."""
     src_w, src_h, _ = await core_video.source_info(src)
     W, H = (1080, 1920) if (config.OUTPUT_HD and src_h >= 1600) else (720, 1280)
-    title_file, size = None, 0.0
+    title_files, size = [], 0.0
     text = cover_title(title)
     if text:
         wrapped, size = layout_title(text)
-        title_file = os.path.join(out_dir, "cover_title.txt")
-        with open(title_file, "w", encoding="utf-8") as f:
-            f.write(wrapped)
+        title_files = core_video.write_lines(wrapped, out_dir, "cover_title")
     logo = config.BRAND_LOGO != "0" and os.path.exists(core_video.LOGO_PATH)
     big, small = os.path.join(out_dir, COVER_NAME), os.path.join(out_dir, THUMB_NAME)
-    fc = cover_filter(mode, W, H, src_w, src_h, bands, title_file, size, logo)
+    fc = cover_filter(mode, W, H, src_w, src_h, bands, title_files, size, logo)
     await core_video._run_ffmpeg("-y", "-ss", f"{max(0.0, t_src):.3f}", "-i", src,
                                  *(["-i", core_video.LOGO_PATH] if logo else []),
                                  "-filter_complex", fc,

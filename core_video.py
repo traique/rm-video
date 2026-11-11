@@ -780,7 +780,8 @@ SELFTEST_VIDEO = (
     "lutrgb=g='clip(val*0.99+0.5\\,0\\,255)',cas=strength=0.5,unsharp=3:3:0.6:3:3:0,"
     "drawbox=x=0:y=0:w=20:h=20:color=black@0.45:t=fill,"
     "drawtext=fontfile={font}:textfile={txt}:expansion=none:fontsize=24:fontcolor=white:borderw=2:"
-    "x=(w-text_w)/2:y=20:text_align=center:enable='between(t,0,1)',"
+    "box=1:boxcolor=black@0.45:boxborderw=8:x=(w-text_w)/2:y=20:enable='between(t,0,1)':"
+    "alpha='if(lt(t,0.4),t/0.4,1)',"
     "subtitles=filename={ass}:fontsdir={fonts},"
     "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',setsar=1[a2];"
     "[b]zoompan=z='1.05+0.05*on/29':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=30:s=360x640:fps=30,"
@@ -1196,16 +1197,36 @@ LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
 FONT_PATH = os.path.join(ASSETS_DIR, "BeVietnamPro-ExtraBold.ttf")
 
 
-def _brand_filter(W: int, H: int, out_dur: float, title_file: str | None, outro_file: str | None,
+def write_lines(text: str, out_dir: str, prefix: str) -> list:
+    """Mỗi dòng chữ một file (drawtext đọc textfile: khỏi phải thoát ký tự đặc biệt)."""
+    files = []
+    for i, line in enumerate([ln for ln in (text or "").split("\n") if ln.strip()]):
+        p = os.path.join(out_dir, f"{prefix}_{i}.txt")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(line.strip())
+        files.append(p)
+    return files
+
+
+def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: str) -> str:
+    """Khối chữ nhiều dòng, MỖI DÒNG căn giữa. Thay cho text_align=center (chỉ có từ FFmpeg 6.1; Botkeep dùng ffmpeg
+    5.1 của Debian 12 nên cả lệnh render hỏng — bài tự kiểm tra lúc khởi động bắt được)."""
+    return "".join(f",drawtext=fontfile={FONT_PATH}:textfile={p}:expansion=none:fontsize={fontsize}:{style}:"
+                   f"x=(w-text_w)/2:y={y_top}+{i * line_h}" for i, p in enumerate(files))
+
+
+def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
                   logo_idx: int | None) -> str:
     """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề 3s đầu, màn kết 2.2s cuối."""
     k = H / 1280
     f = ""
-    if title_file:
-        f += (f",drawtext=fontfile={FONT_PATH}:textfile={title_file}:expansion=none:fontsize={int(50 * k)}:fontcolor=white:"
-              f"borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={int(16 * k)}:"
-              f"x=(w-text_w)/2:y=h*0.36-text_h/2:text_align=center:line_spacing={int(8 * k)}:enable='between(t,0.3,3.3)':"
-              "alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'")
+    if title_files:
+        fs, pad = int(50 * k), int(16 * k)
+        lh = fs + 2 * pad + int(6 * k)
+        f += drawtext_lines(
+            title_files, fs, f"h*0.36-{len(title_files) * lh // 2}", lh,
+            f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={pad}:"
+            "enable='between(t,0.3,3.3)':alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'")
     if outro_file and out_dur > 6:
         st = out_dur - 2.2
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
@@ -1242,10 +1263,9 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  " (nguồn <1600px nên ra 720p; gửi link TikTok để bot lấy bản HD)" if src_h < 1600 else "", config.QUALITY)
     # thương hiệu: tiêu đề mở đầu, màn kết, logo (tất cả tùy chọn trong Cài đặt)
     tmp = tmp or os.path.dirname(output_mp4)
-    title_file = outro_file = None
+    title_files, outro_file = [], None
     if title and config.BRAND_INTRO != "0":
-        title_file = os.path.join(tmp, "title.txt")
-        open(title_file, "w", encoding="utf-8").write(_wrap(title.strip(), 22))
+        title_files = write_lines(_wrap(title.strip(), 22), tmp, "title")
     if config.BRAND_NAME.strip():
         outro_file = os.path.join(tmp, "outro.txt")
         open(outro_file, "w", encoding="utf-8").write(config.BRAND_NAME.strip())
@@ -1254,7 +1274,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     fc = build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient)
-    brand = _brand_filter(W, H, out_dur, title_file, outro_file, logo_idx)
+    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx)
     fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
