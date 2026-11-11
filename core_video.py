@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -429,6 +430,16 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     return path, title, title, meta
 
 
+def _long_hint(dur: float, max_duration: int) -> str:
+    """Chỉ đúng nút cần bấm lại (bot có sẵn chế độ video dài, trước đây lời báo chỉ bảo cắt ngắn rồi upload)."""
+    if max_duration < config.LONG_MAX and dur <= config.LONG_MAX:
+        return ("Gửi lại link và ở bước chọn thời lượng bấm «🎞 Video dài: remake nguyên (≤5 phút)», "
+                "hoặc «✂️ Cắt thành phần 60s/90s» / «✨ Đoạn hay nhất».")
+    if dur <= 600:
+        return "Gửi lại link và chọn «✂️ Cắt thành phần 60s/90s» hoặc «✨ Đoạn hay nhất» (nguồn ≤10 phút)."
+    return "Hãy cắt ngắn rồi upload file, hoặc dùng chế độ ⬇️ Chỉ tải về (tối đa 10 phút)."
+
+
 def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     """Trả (đường dẫn, title, description, meta). meta: uploader/kênh/link gốc để ghi nguồn."""
     url = resolve_url(url)
@@ -483,8 +494,7 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
         dur = (info or {}).get("duration") or 0
         size = (info or {}).get("filesize") or (info or {}).get("filesize_approx") or 0
         if dur and dur > max_duration:
-            raise RuntimeError(f"Video dài {dur:.0f}s, vượt giới hạn {max_duration}s. "
-                               "Hãy cắt ngắn rồi upload file, hoặc dùng chế độ ⬇️ Chỉ tải về (tối đa 10 phút).")
+            raise RuntimeError(f"Video dài {dur:.0f}s, vượt giới hạn {max_duration}s. " + _long_hint(dur, max_duration))
         if size and size > _size_limit(max_duration):
             raise RuntimeError(f"Video nặng {size / 1048576:.0f}MB, vượt giới hạn {_size_limit(max_duration) // 1048576}MB.")
         raise RuntimeError("Tải video thất bại (link riêng tư, đã xóa, hoặc nền tảng chặn). "
@@ -577,6 +587,11 @@ async def remux(src: str, dst: str):
 _EDGE_VOICES = {config.VOICE_FEMALE, config.VOICE_MALE}
 
 
+def _capcut_fallback_voice(voice: str) -> str:
+    male = voice == config.VOICE_MALE or ("male" in voice.lower() and "female" not in voice.lower())
+    return config.CAPCUT_VOICE_MALE if male else config.CAPCUT_VOICE_FEMALE
+
+
 def _edge_fallback_voice(voice: str) -> str:
     if voice in _EDGE_VOICES:
         return voice
@@ -606,7 +621,10 @@ async def tts(text: str, mp3_path: str, voice: str, ass_path: str | None = None,
     return await _tts_edge(text, mp3_path, _edge_fallback_voice(voice), ass_path, pos_y)
 
 
-EDGE_TRIES = 3
+# edge-tts hay trả NoAudioReceived chập chờn phía Microsoft (đo 11/2026: giọng NamMinh lỗi 0-35% số lần gọi tuỳ lúc,
+# ngẫu nhiên, không do câu chữ hay tham số — cùng câu gọi lại là được; HoaiMy hiếm lỗi). 3 lần là không đủ: Botkeep
+# từng hỏng cả job vì một đoạn lỗi 3 lần liền.
+EDGE_TRIES = 6
 
 
 async def _edge_once(text: str, mp3_path: str, voice: str) -> list:
@@ -624,18 +642,20 @@ async def _edge_once(text: str, mp3_path: str, voice: str) -> list:
 
 
 async def _edge_words(text: str, mp3_path: str, voice: str, fallback: bool = False) -> list:
-    """edge-tts có lỗi NoAudioReceived chập chờn (edge-tts 7.3.x, 10/2026): thử lại tối đa 3 lần."""
+    """Thử lại tối đa EDGE_TRIES lần, chờ tăng dần + ngẫu nhiên (các đoạn đọc song song không cùng gọi lại một lúc)."""
     for attempt in range(EDGE_TRIES):
         try:
             words = await _edge_once(text, mp3_path, voice)
             metrics.record("tts", "edge", fallback=fallback)
             return words
+        except FileNotFoundError:          # thư mục tạm đã bị xoá (job đã dừng): thử lại vô ích
+            raise
         except Exception as e:
             if attempt == EDGE_TRIES - 1:
                 metrics.record("tts", "edge", ok=False, fallback=fallback, detail=str(e))
                 raise
-            logging.warning("edge-tts lỗi (%s), thử lại", str(e)[:80])
-            await asyncio.sleep(1.5 * (attempt + 1))
+            logging.warning("edge-tts lỗi lần %d/%d (%s), thử lại", attempt + 1, EDGE_TRIES, str(e)[:80])
+            await asyncio.sleep(min(5.0, 1.0 + 1.2 * attempt) + random.random())
     return []
 
 
@@ -665,9 +685,23 @@ async def synth_clip_ex(text: str, voice: str, path: str) -> tuple:
             logging.warning("CapCut lỗi đoạn (%s), dùng edge-tts", str(e)[:100])
     try:
         return await _edge_words(text, path, _edge_fallback_voice(voice), fallback=capcut), "edge"
-    except Exception:
-        if config.TTS_OFFLINE != "1":
-            raise
+    except FileNotFoundError:
+        raise
+    except Exception as e:
+        err = e
+    if not capcut:                 # edge là giọng chính mà lỗi hẳn: đọc đoạn này bằng CapCut cùng giới tính, job không hỏng
+        try:
+            import tts_capcut
+            await tts_capcut.speak(text, _capcut_fallback_voice(voice), path, want_words=False)
+            metrics.record("tts", "capcut", fallback=True)
+            logging.warning("edge-tts lỗi %d lần liền (%s): đoạn «%s» đọc bằng giọng CapCut", EDGE_TRIES,
+                            str(err)[:80], text[:40])
+            return None, "capcut"
+        except Exception as e2:
+            metrics.record("tts", "capcut", ok=False, fallback=True, detail=str(e2))
+            logging.warning("CapCut dự phòng cũng lỗi (%s)", str(e2)[:100])
+    if config.TTS_OFFLINE != "1":
+        raise err
     import offline                             # cả hai dịch vụ ngoài đều lỗi: giọng offline Piper (nếu đã cài)
     try:
         await offline.speak(text, path)
@@ -982,6 +1016,26 @@ async def probe_duration(path: str) -> float:
         tool="ffprobe",
     )
     return float(out.strip())
+
+
+SPEECH_TAIL = 0.15
+
+
+async def speech_duration(path: str, words=None) -> float:
+    """Độ dài tới hết TIẾNG NÓI của một đoạn giọng TTS (bỏ khoảng lặng cuối file). edge-tts để ~0.78s lặng ở cuối mọi
+    file (đo 28 câu, cả NamMinh lẫn HoaiMy): tính cả vào thì khe ngắn nào cũng "quá dài" — Botkeep: 13/14 đoạn bị AI
+    rút gọn rồi đọc lại vô ích. words: mốc từ của edge-tts; không có (CapCut/Piper) thì đo khoảng có tiếng."""
+    total = await probe_duration(path)
+    end = 0.0
+    if words:
+        end = max(float(w[1]) for w in words)
+    else:
+        ivs = await voiced_intervals(path)
+        if ivs:
+            end = ivs[-1][1]
+    if end <= 0:
+        return total
+    return min(total, end + SPEECH_TAIL)
 
 
 async def has_audio(path: str) -> bool:

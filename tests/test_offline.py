@@ -57,6 +57,10 @@ def test_tts_falls_back_to_offline_voice(monkeypatch, tmp_path):
     async def fake_speak(text, path):
         spoken.append(text)
         open(path, "wb").write(b"x")
+    async def capcut_down(*a, **k):
+        raise RuntimeError("capcut down")
+    import tts_capcut
+    monkeypatch.setattr(tts_capcut, "speak", capcut_down)
     monkeypatch.setattr(core_video, "_edge_words", edge_down)
     monkeypatch.setattr(offline, "speak", fake_speak)
     assert asyncio.run(core_video.synth_clip("Xin chào", config.VOICE_FEMALE, str(tmp_path / "a.mp3"))) is None
@@ -177,3 +181,93 @@ def test_spleeter_pads_short_and_odd_chunks(monkeypatch):
     for n in (100, 4095, 441000, 441017):
         out = sep(np.ones((2, n), np.float32))
         assert out.shape == (2, n) and not out.any()          # đủ độ dài, không còn đuôi giọng gốc
+
+
+def test_edge_down_falls_back_to_capcut_same_gender(monkeypatch, tmp_path):
+    # Botkeep 11/2026: giọng edge NamMinh trả NoAudioReceived liên tục -> cả job hỏng. Giờ đoạn đó đọc bằng CapCut.
+    import tts_capcut
+    monkeypatch.setattr(config, "TTS_PROVIDER", "edge")
+    monkeypatch.setattr(metrics, "record", lambda *a, **k: None)
+
+    async def edge_down(*a, **k):
+        raise RuntimeError("No audio was received")
+    used = []
+
+    async def capcut_ok(text, voice, path, want_words):
+        used.append(voice)
+        open(path, "wb").write(b"x")
+        return []
+    monkeypatch.setattr(core_video, "_edge_words", edge_down)
+    monkeypatch.setattr(tts_capcut, "speak", capcut_ok)
+    assert asyncio.run(core_video.synth_clip_ex("Xin chào", config.VOICE_MALE, str(tmp_path / "a.mp3"))) == \
+        (None, "capcut")
+    asyncio.run(core_video.synth_clip_ex("Xin chào", config.VOICE_FEMALE, str(tmp_path / "b.mp3")))
+    assert used == [config.CAPCUT_VOICE_MALE, config.CAPCUT_VOICE_FEMALE]
+
+
+def test_edge_retries_flaky_no_audio_but_not_missing_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(metrics, "record", lambda *a, **k: None)
+
+    async def no_wait(*a):
+        return None
+    monkeypatch.setattr(core_video.asyncio, "sleep", no_wait)
+    calls = []
+
+    async def flaky(text, path, voice):
+        calls.append(1)
+        if len(calls) < core_video.EDGE_TRIES:
+            raise RuntimeError("No audio was received")
+        return [(0.0, 0.5, "xin")]
+    monkeypatch.setattr(core_video, "_edge_once", flaky)
+    assert asyncio.run(core_video._edge_words("xin", str(tmp_path / "a.mp3"), config.VOICE_MALE)) == [(0.0, 0.5, "xin")]
+    assert len(calls) == core_video.EDGE_TRIES >= 5
+
+    calls.clear()
+
+    async def gone(text, path, voice):
+        calls.append(1)
+        raise FileNotFoundError(path)
+    monkeypatch.setattr(core_video, "_edge_once", gone)
+    with pytest.raises(FileNotFoundError):
+        asyncio.run(core_video._edge_words("xin", str(tmp_path / "x" / "a.mp3"), config.VOICE_MALE))
+    assert len(calls) == 1
+
+
+def test_gather_all_cancels_siblings_on_failure():
+    import pipeline
+    state = {"finished": 0, "cancelled": 0}
+
+    async def slow():
+        try:
+            await asyncio.sleep(5)
+            state["finished"] += 1
+        except asyncio.CancelledError:
+            state["cancelled"] += 1
+            raise
+
+    async def bad():
+        await asyncio.sleep(0.01)
+        raise RuntimeError("tts hỏng")
+    with pytest.raises(RuntimeError, match="tts hỏng"):
+        asyncio.run(pipeline._gather_all([slow(), bad(), slow()]))
+    assert state == {"finished": 0, "cancelled": 2}
+
+    async def ok(x):
+        return x
+    assert asyncio.run(pipeline._gather_all([ok(1), ok(2)])) == [1, 2]
+
+
+def test_speech_duration_ignores_trailing_silence(tmp_path):
+    # edge-tts để ~0.78s lặng cuối mỗi file: tính cả vào thì gần như mọi khe ngắn đều "quá dài"
+    import subprocess
+    p = str(tmp_path / "v.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1",
+                    "-af", "apad=pad_dur=0.8", "-ar", "24000", "-ac", "1", p], check=True)
+    total = asyncio.run(core_video.probe_duration(p))
+    assert total > 1.7
+    assert abs(asyncio.run(core_video.speech_duration(p, [(0.1, 0.5, "a"), (0.5, 0.9, "b")])) - 1.05) < 0.01
+    assert 1.05 < asyncio.run(core_video.speech_duration(p)) < 1.3          # CapCut/Piper: đo khoảng có tiếng
+    silent = str(tmp_path / "s.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "1", silent],
+                   check=True)
+    assert asyncio.run(core_video.speech_duration(silent)) == asyncio.run(core_video.probe_duration(silent))

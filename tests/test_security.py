@@ -297,3 +297,10 @@ def test_unsupported_url_message_is_friendly():
     import core_video
     e = core_video._friendly(Exception("ERROR: No suitable extractor found for URL https://www.facebook.com/x/"))
     assert "Sao chép liên kết" in str(e)
+
+
+def test_too_long_points_to_long_video_buttons():
+    import core_video
+    assert "Video dài: remake nguyên" in core_video._long_hint(110, 90)
+    assert "Cắt thành phần" in core_video._long_hint(400, 300)
+    assert "Chỉ tải về" in core_video._long_hint(900, 300)

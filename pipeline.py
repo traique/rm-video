@@ -29,6 +29,19 @@ from storage import _cleanup_outputs
 from transcribe import transcribe_segments
 
 
+async def _gather_all(coros: list) -> list:
+    """Như asyncio.gather nhưng một việc lỗi thì huỷ các việc còn lại. Trước đây các đoạn đọc giọng khác vẫn chạy tiếp
+    sau khi job đã hỏng, gọi TTS vô ích và ghi vào thư mục tạm đã bị xoá ("No such file or directory: .../clip_13_...")."""
+    tasks = [asyncio.ensure_future(c) for c in coros]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 async def deliver(job: Job, path: str, label: str, caption: str):
     """Giao 1 file kết quả: giữ cho web tải về; Telegram gửi thẳng nếu ≤48MB, lớn hơn thì gửi link."""
     import secrets as _secrets
@@ -587,7 +600,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
 
         async def _durs(cl):
             async def one(c):
-                return await core_video.probe_duration(c["path"]) if c.get("path") else 0.0
+                return await core_video.speech_duration(c["path"], c.get("words")) if c.get("path") else 0.0
             return list(await asyncio.gather(*[one(c) for c in cl]))
 
         segs_t = timed["segments"]
@@ -621,14 +634,14 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
                 await _shorten(sure_long, est)
 
         job.step = f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep["ok"] else "")
-        clips = list(await asyncio.gather(*[_one(s) for s in segs_t]))
+        clips = list(await _gather_all([_one(s) for s in segs_t]))
         durs = await _durs(clips)
         plan, too_long = core_video.plan_voice(durs, segs_t, out_dur)
         if too_long:                                     # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
             job.step = f"Rút gọn {len(too_long)} đoạn quá dài"
             changed = await _shorten(too_long, durs)
             if changed:
-                redo = await asyncio.gather(*[_one(segs_t[i]) for i in changed])
+                redo = await _gather_all([_one(segs_t[i]) for i in changed])
                 for i, c in zip(changed, redo):
                     clips[i] = c
                 for i, d in zip(changed, await _durs(redo)):
