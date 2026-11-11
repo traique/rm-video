@@ -110,6 +110,38 @@ def _add_cookies(opts: dict, tmpdir: str):
 MUSIC_MAX_BYTES = 20 * 1024 * 1024
 
 
+class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
+    """Link media do dịch vụ bên thứ ba (tikwm) trả về: kiểm cả từng lần chuyển hướng, không chỉ link đầu
+    (trước đây urlopen tự đi theo redirect, có thể bị dẫn vào IP nội bộ)."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        url_guard.check_url(newurl, any_domain=True)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_GUARDED_OPENER = urllib.request.build_opener(_GuardedRedirect)
+
+
+def fetch_media(url: str, dst: str, max_bytes: int, too_big: str, timeout: float = 120) -> int:
+    """Tải link media bên thứ ba vào dst (đã kiểm link + mọi chuyển hướng). Ghi ra file tạm rồi mới đổi tên:
+    lỗi giữa chừng không để lại file dở (lỗi cũ: file nhạc dở bị đường dự phòng nhặt nhầm). Trả số byte."""
+    url = url_guard.check_url(url, any_domain=True)
+    part = dst + ".part"
+    size = 0
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _GUARDED_OPENER.open(req, timeout=timeout) as r, open(part, "wb") as f:
+            while chunk := r.read(1 << 20):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise RuntimeError(too_big)
+                f.write(chunk)
+        os.replace(part, dst)
+        return size
+    finally:
+        if os.path.exists(part):
+            os.remove(part)
+
+
 def _tiktok_sound_sync(url: str, tmpdir: str) -> tuple:
     """Link VIDEO TikTok -> bản nhạc gốc (sound) mà video dùng, qua tikwm: là file nhạc sạch (bài hát trong thư viện
     TikTok) chứ không lẫn giọng người quay như tiếng của video. Trả (đường dẫn, tên nhạc)."""
@@ -124,17 +156,9 @@ def _tiktok_sound_sync(url: str, tmpdir: str) -> tuple:
         raise RuntimeError(f"tikwm: {d.get('msg') or 'không có nhạc'}")
     if (mi.get("duration") or 0) > 600:
         raise RuntimeError("Nhạc quá 10 phút.")
-    media = url_guard.check_url(play, any_domain=True)          # không tin link bên thứ ba
     path = os.path.join(tmpdir, "music.mp3")
-    size = 0
-    req = urllib.request.Request(media, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
-        while chunk := r.read(1 << 20):
-            size += len(chunk)
-            if size > MUSIC_MAX_BYTES:
-                raise RuntimeError("File nhạc quá 20MB.")
-            f.write(chunk)
-    if size < 1000:
+    if fetch_media(play, path, MUSIC_MAX_BYTES, "File nhạc quá 20MB.") < 1000:
+        os.remove(path)
         raise RuntimeError("tikwm trả file nhạc rỗng")
     name = " - ".join(x for x in (mi.get("title"), mi.get("author")) if x)
     return path, name
@@ -171,10 +195,10 @@ def _download_audio_sync(url: str, tmpdir: str) -> str:
             raise RuntimeError("Link trang nhạc TikTok (tiktok.com/music/...) không tải trực tiếp được: hãy gửi link "
                                "MỘT VIDEO TikTok có dùng nhạc đó, bot sẽ lấy bản nhạc gốc của video.") from None
         raise _friendly(e) from None
-    path = next((os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.startswith("music.")), None)
-    if not path:
+    found = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.startswith("music.") and not f.endswith(".part")]
+    if not found:
         raise RuntimeError("Tải nhạc thất bại (quá 10 phút, quá 20MB hoặc link hỏng).")
-    return path
+    return max(found, key=os.path.getmtime)                      # file yt-dlp vừa tải
 
 
 async def download_audio(url: str, tmpdir: str) -> str:
@@ -296,15 +320,8 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     if (data.get("duration") or 0) > max_duration:
         raise RuntimeError(f"Video quá dài (> {max_duration}s).")
     path = os.path.join(tmpdir, "input.mp4")
-    media = url_guard.check_url(data.get("hdplay") or data.get("play"), any_domain=True)   # không tin link bên thứ ba
-    req = urllib.request.Request(media, headers={"User-Agent": "Mozilla/5.0"})
-    size = 0
-    with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
-        while chunk := r.read(1 << 20):
-            size += len(chunk)
-            if size > _size_limit(max_duration):
-                raise RuntimeError(f"Video quá {_size_limit(max_duration) // 1048576}MB.")
-            f.write(chunk)
+    fetch_media(data.get("hdplay") or data.get("play"), path, _size_limit(max_duration),     # không tin link bên thứ ba
+                f"Video quá {_size_limit(max_duration) // 1048576}MB.")
     title = data.get("title") or ""
     author = data.get("author") or {}
     meta = {"uploader": author.get("unique_id") or author.get("nickname") or "", "webpage_url": url}
@@ -778,9 +795,10 @@ async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float
 async def two_pass_loudness(fc: str, input_args: list, out_dur: float) -> str:
     """Thay loudnorm động trong filter graph bằng hệ số cố định đo từ lượt 1 (xem trên). Không đo được thì giữ
     nguyên fc (loudnorm một lượt như cũ). input_args: đúng các '-i' (và tuỳ chọn đầu vào) của lần render."""
-    if config.LOUDNESS_2PASS == "0" or LOUDNORM not in fc or "[v];" not in fc:
+    if config.LOUDNESS_2PASS == "0" or LOUDNORM not in fc:
         return fc
-    audio = fc.split("[v];", 1)[1].replace(LOUDNORM, "ebur128=framelog=quiet", 1)
+    # graph có hình: phần tiếng nằm sau "[v];"; graph chỉ có tiếng (ảnh + nhạc dựng hình riêng): cả graph
+    audio = (fc.split("[v];", 1)[1] if "[v];" in fc else fc).replace(LOUDNORM, "ebur128=framelog=quiet", 1)
     lufs = await measure_lufs(input_args, audio, out_dur)
     if lufs is None:
         return fc
@@ -1209,7 +1227,10 @@ async def render_music(input_mp4: str, music_path: str, output_mp4: str,
         ms = int(delay * 1000)
         a += f"adelay={ms}|{ms},"
     if orig:
-        a += (f"volume={MUSIC_BG_LEVEL}[mus];[0:a]aformat=sample_rates=44100:channel_layouts=stereo,asplit=2[og][key];"
+        # tiếng gốc đệm im lặng tới hết video: amix=duration=first lấy độ dài tiếng gốc, video có tiếng gốc ngắn hơn
+        # hình thì trước đây nhạc nền tắt theo
+        a += (f"volume={MUSIC_BG_LEVEL}[mus];[0:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+              f"apad=whole_dur={out_dur:.2f},asplit=2[og][key];"
               "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
               "[og][musd]amix=inputs=2:duration=first:normalize=0,")
     a += (f"{LOUDNORM},aresample=48000,"                            # nhạc chuẩn -14 LUFS như nền tảng nhạc

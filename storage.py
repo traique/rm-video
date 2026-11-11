@@ -43,7 +43,8 @@ def disk_report() -> str:
 
 def make_room(need_mb: int, keep: set = frozenset()) -> int:
     """Xóa video kết quả cũ nhất (và file tải lên mồ côi) tới khi ổ bot trống ≥ need_mb. Trả về MB trống."""
-    busy = {j.local for j in queue.jobs.values() if j.status in ("queued", "processing", "review") and j.local}
+    busy = {p for j in queue.jobs.values() if j.status in ("queued", "processing", "review")
+            for p in (j.local, j.music_local, *j.images) if p}       # cả ảnh + nhạc tải lên của job 📸/🎵 đang chờ
     for f in sorted((os.path.join(config.UPLOAD_DIR, x) for x in os.listdir(config.UPLOAD_DIR)), key=os.path.getmtime):
         if f not in busy and time.time() - os.path.getmtime(f) > 3600:
             os.remove(f)

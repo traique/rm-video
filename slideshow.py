@@ -36,6 +36,8 @@ HOP = beat.HOP
 FPS_A = SR / HOP
 FPS = 30
 MAX_IMAGES = 4
+MAX_SCENES = 20                  # trần số cảnh cả video: ảnh lặp quá nhiều vòng thì nhàm (video dài -> cảnh dài hơn)
+GROUP = 8                        # số cảnh tối đa mỗi lệnh FFmpeg: RAM không tăng theo độ dài video (xem render)
 UPSCALE = 2                      # phóng to nền trước zoompan: chuyển động mượt dưới mức điểm ảnh
 
 STYLES = ("calm", "groove", "hype")
@@ -228,6 +230,10 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
     if off > period * 0.5:
         off -= period
     start = max(0.0, start + off)
+    # video không được dài hơn phần nhạc còn lại (lỗi cũ: nhạc 20s chọn 60s -> đuôi video im lặng)
+    avail = info["duration"] - start - 0.05
+    if length > avail:
+        length = (int(avail // bar) * bar) if (auto and avail >= bar) else max(1.0, avail)
     beats = [round(float(k * period), 4) for k in range(int(length / period) + 1) if k * period <= length + 1e-6]
     drop_t = round(float((drop_k - k0) * period), 4) if drop_k is not None else None
 
@@ -236,6 +242,9 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
         slot_beats *= 2
     while slot_beats * period > 5.5 and slot_beats > 1:
         slot_beats //= 2
+    # video dài: cảnh dài ra (vẫn đổi cảnh đúng beat, vẫn nảy theo từng beat) thay vì lặp ảnh hàng chục vòng
+    while length / (slot_beats * period) > MAX_SCENES:
+        slot_beats *= 2
     bounds, t, k = [0.0], 0.0, 0
     while True:
         sb = slot_beats * (2 if (style == "hype" and drop_t is not None and t < drop_t - 1e-6) else 1)
@@ -286,6 +295,7 @@ def plan_video(info: dict, n_images: int, duration: float = 0, seed: int = 0) ->
             flashes = sorted(set(flashes + [drop_t]))
     slots = [{"img": imgs[i], "start": bounds[i], "end": bounds[i + 1], "motion": motions[i]} for i in range(n)]
     return {"music_start": round(float(start), 3), "length": round(float(length), 3), "bpm": float(info["bpm"]), "style": style,
+            "requested": float(duration or 0),
             "period": period, "drop": drop_t, "slots": slots, "transitions": trans, "beats": beats,
             "pulse": pulse_beats, "flashes": flashes, "shake": flashes if style == "hype" else []}
 
@@ -350,49 +360,83 @@ def _prep(i: int, w: int, h: int, W: int, H: int) -> str:
             f"[bgb{i}][fgs{i}]overlay=(W-w)/2:(H-h)/2")
 
 
-def build_filter(plan: dict, sizes: list, W: int, H: int, music_idx: int, available: set | None = None) -> str:
-    """filter_complex đầy đủ: [v] hình, [a] tiếng (có chỗ LOUDNORM để chuẩn hoá hai lượt)."""
+def groups(plan: dict, size: int | None = None) -> list:
+    """Chia các cảnh thành khúc ≤ size (mặc định GROUP) cảnh, đều nhau, ranh giới khớp khung hình
+    -> [(i0, i1, đầu, cuối)]."""
+    size = size or GROUP
+    n = len(plan["slots"])
+    k = max(1, -(-n // size))
+    cuts = [round(i * n / k) for i in range(k + 1)]
+    out = []
+    for a, b in zip(cuts, cuts[1:]):
+        t0 = 0.0 if a == 0 else round(plan["slots"][a]["start"] * FPS) / FPS
+        t1 = plan["length"] if b == n else round(plan["slots"][b]["start"] * FPS) / FPS
+        out.append((a, b - 1, t0, t1))
+    return out
+
+
+def build_group(plan: dict, grp: tuple, sizes: list, W: int, H: int, available: set | None = None) -> tuple:
+    """filter_complex chỉ phần HÌNH của một khúc (cảnh i0..i1, thời gian [t0, t1] trên trục video) và danh sách ảnh
+    cần nạp. Chuyển cảnh giữa hai khúc bỏ đi: nhạc êm thì tối dần rồi sáng lại, còn lại là cắt thẳng đúng beat
+    kèm loé sáng (kiểu "hit")."""
     style, slots, trans = plan["style"], plan["slots"], plan["transitions"]
-    # độ dài từng clip: từ lúc chuyển cảnh trước bắt đầu tới lúc chuyển cảnh sau kết thúc
-    starts = [0.0] + [t["start"] for t in trans]
-    ends = [t["start"] + t["dur"] for t in trans] + [plan["length"]]
-    parts = []
+    i0, i1, t0, t1 = grp
+    first, last = t0 == 0.0, abs(t1 - plan["length"]) < 1e-6
+    # mỗi clip: từ lúc chuyển cảnh trước bắt đầu (hoặc đầu khúc) tới lúc chuyển cảnh sau xong (hoặc cuối khúc)
+    starts = [t0] + [trans[j]["start"] for j in range(i0, i1)]
+    ends = [trans[j]["start"] + trans[j]["dur"] for j in range(i0, i1)] + [t1]
+    imgs = sorted({slots[j]["img"] for j in range(i0, i1 + 1)})
+    idx = {img: k for k, img in enumerate(imgs)}
     uses: dict = {}
-    for s in slots:
-        uses[s["img"]] = uses.get(s["img"], 0) + 1
-    labels: dict = {}
-    for i, cnt in uses.items():
-        w, h = sizes[i]
-        prep = _prep(i, w, h, W, H)
-        outs = "".join(f"[p{i}_{k}]" for k in range(cnt))
-        parts.append(prep + (f",split={cnt}{outs}" if cnt > 1 else f"[p{i}_0]"))
-        labels[i] = [f"[p{i}_{k}]" for k in range(cnt)]
-    for j, s in enumerate(slots):
-        dur = ends[j] - starts[j]
+    for j in range(i0, i1 + 1):
+        uses[slots[j]["img"]] = uses.get(slots[j]["img"], 0) + 1
+    parts, labels = [], {}
+    for img, cnt in uses.items():
+        w, h = sizes[img]
+        prep = _prep(idx[img], w, h, W, H)
+        outs = "".join(f"[p{idx[img]}_{k}]" for k in range(cnt))
+        parts.append(prep + (f",split={cnt}{outs}" if cnt > 1 else f"[p{idx[img]}_0]"))
+        labels[img] = [f"[p{idx[img]}_{k}]" for k in range(cnt)]
+    for c, j in enumerate(range(i0, i1 + 1)):
+        dur = ends[c] - starts[c]
         nf = max(2, int(round(dur * FPS)) + 1)
-        z, x, y = zoompan_expr(s["motion"], style, nf, starts[j], plan["pulse"], plan["shake"], ends[j])
-        src = labels[s["img"]].pop(0)
-        parts.append(f"{src}zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={FPS},"
-                     f"trim=duration={dur:.4f},setpts=PTS-STARTPTS,format=yuv420p,setsar=1[c{j}]")
+        z, x, y = zoompan_expr(slots[j]["motion"], style, nf, starts[c], plan["pulse"], plan["shake"], ends[c])
+        parts.append(f"{labels[slots[j]['img']].pop(0)}zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={FPS},"
+                     f"trim=duration={dur:.4f},setpts=PTS-STARTPTS,format=yuv420p,setsar=1[c{c}]")
     cur = "[c0]"
-    for j, t in enumerate(trans):
+    for c, j in enumerate(range(i0, i1)):
+        t = trans[j]
         typ = t["type"] if (available is None or t["type"] in available) else "fade"
-        out = f"[x{j}]"
-        parts.append(f"{cur}[c{j + 1}]xfade=transition={typ}:duration={t['dur']:.4f}:offset={t['start']:.4f}{out}")
-        cur = out
+        parts.append(f"{cur}[c{c + 1}]xfade=transition={typ}:duration={t['dur']:.4f}:offset={t['start'] - t0:.4f}[x{c}]")
+        cur = f"[x{c}]"
     look = {"calm": "eq=contrast=1.03:saturation=1.04," + core_video.warm_filter(5800, 0.25),
             "groove": "eq=contrast=1.05:saturation=1.08,",
             "hype": "eq=contrast=1.08:saturation=1.14,"}[style]
-    fl = _decay_sum(plan["flashes"], 0, plan["length"], 0.28, 0.08, "t")
-    flash = f"eq=brightness='{fl}':eval=frame," if plan["flashes"] else ""
-    L = plan["length"]
-    fade_in = 0.35 if style == "calm" else 0.12
-    v = (f"{cur}{look}{flash}fade=t=in:st=0:d={fade_in},fade=t=out:st={max(0.0, L - 0.5):.3f}:d=0.5,"
-         f"trim=duration={L:.3f},format=yuv420p[v]")
-    a = (f"[{music_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,"
-         f"afade=t=in:st=0:d={0.3 if style == 'calm' else 0.03},afade=t=out:st={max(0.0, L - 0.8):.3f}:d=0.8,"
-         f"{core_video.LOUDNORM},aresample=48000,apad=whole_dur={L:.3f},atrim=duration={L:.3f}[a]")
-    return ";".join(parts) + ";" + v + ";" + a
+    flashes = [f - t0 for f in plan["flashes"] if t0 - 0.5 <= f < t1]
+    if not first and style != "calm":
+        flashes = sorted(set(flashes + [0.0]))           # nối khúc = cắt thẳng đúng beat + loé
+    fl = _decay_sum(flashes, -0.5, t1 - t0, 0.28, 0.08, "t")
+    D = t1 - t0
+    fades = ""
+    if first:
+        fades += f"fade=t=in:st=0:d={0.35 if style == 'calm' else 0.12},"
+    elif style == "calm":
+        fades += "fade=t=in:st=0:d=0.25,"                 # nối khúc nhạc êm: sáng dần từ đen
+    if last:
+        fades += f"fade=t=out:st={max(0.0, D - 0.5):.3f}:d=0.5,"
+    elif style == "calm":
+        fades += f"fade=t=out:st={max(0.0, D - 0.25):.3f}:d=0.25,"
+    v = (f"{cur}{look}" + (f"eq=brightness='{fl}':eval=frame," if flashes else "") + fades
+         + f"trim=duration={D:.4f},format=yuv420p[v]")
+    return ";".join(parts) + ";" + v, imgs
+
+
+def build_audio(plan: dict, music_idx: int) -> str:
+    """Phần TIẾNG: nhạc đã cắt đúng đoạn, vuốt đầu/cuối, chỗ LOUDNORM để chuẩn hoá hai lượt."""
+    L, calm = plan["length"], plan["style"] == "calm"
+    return (f"[{music_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+            f"afade=t=in:st=0:d={0.3 if calm else 0.03},afade=t=out:st={max(0.0, L - 0.8):.3f}:d=0.8,"
+            f"{core_video.LOUDNORM},aresample=48000,apad=whole_dur={L:.3f},atrim=duration={L:.3f}[a]")
 
 
 _XFADE: set = set()
@@ -433,8 +477,11 @@ def seed_for(images: list, music: str, duration: float) -> int:
 
 async def render(images: list, music: str, out: str, duration: float = 0, music_start: float | None = None) -> dict:
     """Dựng video từ 1-4 ảnh + nhạc. music_start: ép điểm bắt đầu nhạc (None = tự chọn đoạn hay nhất).
+    Dựng theo KHÚC ≤ GROUP cảnh (mỗi khúc một lệnh FFmpeg, chỉ hình), ghép khúc bằng chép luồng (không mã hoá lại),
+    rồi trộn nhạc: RAM không tăng theo độ dài (trước đây cả video một lệnh: 60s nhạc nhanh 2GB RAM ở 1080p).
     Trả kế hoạch đã dùng (kiểu, BPM, đoạn nhạc, số cảnh) để báo lại người dùng."""
     import asyncio
+    import tempfile
     images = images[:MAX_IMAGES]
     if not images:
         raise RuntimeError("Cần ít nhất 1 ảnh.")
@@ -445,23 +492,42 @@ async def render(images: list, music: str, out: str, duration: float = 0, music_
         plan["music_start"] = music_start
     hd = config.OUTPUT_HD and min(max(w, h) for w, h in sizes) >= 1600
     W, H = (1080, 1920) if hd else (720, 1280)
-    fc = build_filter(plan, sizes, W, H, len(images), xfade_transitions())
-    inputs = []
-    for p in images:
-        inputs += ["-i", p]
-    audio_in = ["-ss", f"{plan['music_start']:.3f}", "-t", f"{plan['length'] + 1:.3f}", "-i", music]
-    fc = await core_video.two_pass_loudness(fc, inputs + audio_in, plan["length"])
-    logging.info("Ảnh + nhạc: %d ảnh, %.0f BPM (%s), nhạc từ %.1fs, %d cảnh, %.1fs%s", len(images), plan["bpm"],
-                 plan["style"], plan["music_start"], len(plan["slots"]), plan["length"],
+    avail = xfade_transitions()
+    grps = groups(plan)
+    logging.info("Ảnh + nhạc: %d ảnh, %.0f BPM (%s), nhạc từ %.1fs, %d cảnh / %d khúc, %.1fs%s", len(images),
+                 plan["bpm"], plan["style"], plan["music_start"], len(plan["slots"]), len(grps), plan["length"],
                  f", drop ở {plan['drop']:.1f}s" if plan["drop"] is not None else "")
-    await core_video._run_ffmpeg("-y", *core_video.thread_args(), *inputs, *audio_in, "-filter_complex", fc,
-                                 "-map", "[v]", "-map", "[a]", *core_video.encode_args(H, FPS),
-                                 "-t", f"{plan['length']:.3f}", out)
+    work = tempfile.mkdtemp(prefix="slides_", dir=os.path.dirname(os.path.abspath(out)))
+    try:
+        segs = []
+        for k, g in enumerate(grps):
+            fc, used = build_group(plan, g, sizes, W, H, avail)
+            seg = os.path.join(work, f"seg{k}.mp4")
+            await core_video._run_ffmpeg("-y", *core_video.thread_args(),
+                                         *[a for img in used for a in ("-i", images[img])],
+                                         "-filter_complex", fc, "-map", "[v]", "-an",
+                                         *core_video.encode_args(H, FPS), "-t", f"{g[3] - g[2]:.4f}", seg)
+            segs.append(seg)
+        lst = os.path.join(work, "list.txt")
+        with open(lst, "w", encoding="utf-8") as f:
+            f.writelines(f"file '{p}'\n" for p in segs)
+        audio_in = ["-ss", f"{plan['music_start']:.3f}", "-t", f"{plan['length'] + 1:.3f}", "-i", music]
+        afc = await core_video.two_pass_loudness(build_audio(plan, 0), audio_in, plan["length"])
+        await core_video._run_ffmpeg("-y", "-f", "concat", "-safe", "0", "-i", lst, *audio_in,
+                                     "-filter_complex", afc.replace("[0:a]", "[1:a]", 1), "-map", "0:v", "-map", "[a]",
+                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+                                     "-movflags", "+faststart", "-t", f"{plan['length']:.3f}", out)
+    finally:
+        import shutil
+        shutil.rmtree(work, ignore_errors=True)
     plan["size"] = f"{W}x{H}"
+    plan["segments"] = len(grps)
     return plan
 
 
 def describe(plan: dict) -> str:
-    return (f"Nhạc {plan['bpm']:.0f} BPM, kiểu {STYLE_VI[plan['style']]}; lấy đoạn từ {plan['music_start']:.0f}s; "
-            f"{len(plan['slots'])} cảnh, {len(plan['transitions'])} chuyển cảnh theo beat"
+    short = plan.get("requested") and plan["requested"] > plan["length"] + 0.5
+    return ((f"Nhạc chỉ còn đủ cho {plan['length']:.0f}s (bạn chọn {plan['requested']:.0f}s). " if short else "")
+            + f"Nhạc {plan['bpm']:.0f} BPM, kiểu {STYLE_VI[plan['style']]}; lấy đoạn từ {plan['music_start']:.0f}s; "
+            f"{len(plan['slots'])} cảnh, đổi cảnh đúng beat"
             + (f", drop ở giây {plan['drop']:.1f}" if plan["drop"] is not None else "") + f"; {plan['length']:.1f}s.")

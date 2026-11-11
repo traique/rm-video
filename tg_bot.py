@@ -92,7 +92,9 @@ def setup(bot):
     @dp.callback_query(F.data.startswith("dlq:"))
     async def pick_dlq(cb: CallbackQuery):
         p = pending.pop(cb.message.chat.id, None)
-        if not p:
+        if not p or p.get("mode") == "photo":
+            if p:
+                pending[cb.message.chat.id] = p             # nút cũ của luồng khác: giữ nguyên ảnh đã gửi
             await cb.answer("Hãy gửi link trước nhé.", show_alert=True)
             return
         q = cb.data.split(":")[1]
@@ -263,8 +265,9 @@ def setup(bot):
     @dp.callback_query(F.data.startswith("mode:"))
     async def pick_mode(cb: CallbackQuery):
         p = pending.get(cb.message.chat.id)
-        if not p:
-            await cb.answer("Hãy gửi link video trước nhé.", show_alert=True)
+        if not p or p.get("mode") == "photo":               # nút cũ không được biến luồng ảnh thành job video
+            await cb.answer("Hãy gửi link video trước nhé." if not p else
+                            "Bạn đang gửi ảnh: gửi nhạc rồi chọn độ dài video nhé.", show_alert=True)
             return
         p["mode"] = cb.data.split(":", 1)[1]
         if p["mode"] == "download":

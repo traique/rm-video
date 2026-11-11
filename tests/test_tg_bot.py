@@ -162,3 +162,20 @@ def test_music_mode_background_choice(tg):
     asyncio.run(flow())
     new = [j for j in state.queue.jobs.values() if id(j) not in before]
     assert len(new) == 1 and new[0].mode == "music" and new[0].music_mix == "bg" and new[0].duration == 30
+
+
+def test_stale_buttons_do_not_hijack_photo_flow(tg):
+    feed, session = tg
+    before = {id(j) for j in state.queue.jobs.values()}
+
+    async def flow():
+        await feed(_photo(111, "fA", 30, group="g9"))
+        await feed(_cb(111, "mode:download"))               # nút cũ của luồng video
+        await feed(_cb(111, "dlq:720"))
+        await feed(_msg(111, "https://www.tiktok.com/@a/video/5", 31))
+        await feed(_cb(111, "mode:cook"))
+        await feed(_cb(111, "dur:30"))
+        await feed(_cb(111, "pdur:0"))
+    asyncio.run(flow())
+    new = [j for j in state.queue.jobs.values() if id(j) not in before]
+    assert len(new) == 1 and new[0].mode == "photo" and new[0].tg_images == ["fA"]

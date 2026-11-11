@@ -459,6 +459,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                           images=[p for p in images], music_local=music_saved, music_url=music_url,
                           title_hint=fields.get("title", "")[:200], source="web")
                 pos = queue.put(job)
+                _cleanup(saved)                              # video gửi kèm không dùng ở chế độ ảnh
                 return web.json_response({"id": job.id, "position": pos})
             url_field = fields.get("url", "").strip()
             if not saved:
@@ -480,6 +481,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                       music_mix="bg" if (mode == "music" and fields.get("music_mix") == "bg") else "",
                       title_hint=fields.get("filename", ""), source="web")
             pos = queue.put(job)
+            _cleanup(*images)                                # ảnh gửi kèm không dùng ở chế độ video
         except QueueFull as e:
             _cleanup(saved, music_saved, *images)
             raise web.HTTPTooManyRequests(text=str(e)) from None

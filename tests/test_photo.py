@@ -153,6 +153,7 @@ def test_web_photo_upload(tmp_path, monkeypatch, song):
             fd.add_field("images", open(img, "rb"), filename=f"a{k}.jpg", content_type="image/jpeg")
         if music:
             fd.add_field("music", open(song, "rb"), filename="s.mp3", content_type="audio/mpeg")
+        fd.add_field("file", b"video thua", filename="v.mp4", content_type="video/mp4")   # không dùng: phải bị xoá
         return fd
 
     async def go():
@@ -185,3 +186,101 @@ def test_image_size_follows_exif_rotation(tmp_path):
     rot = tmp_path / "r.jpg"
     rot.write_bytes(data[:2] + b"\xff\xe1" + struct.pack(">H", len(app1) + 2) + app1 + data[2:])
     assert slideshow.image_size(str(rot)) == (600, 800)
+
+
+def test_length_never_exceeds_music():
+    plan = slideshow.plan_video(_info(120, 2.0, dur=20.0), 2, 60, seed=1)
+    assert plan["music_start"] + plan["length"] <= 20.0
+    assert "Nhạc chỉ còn đủ" in slideshow.describe(plan)
+    auto = slideshow.plan_video(_info(100, 1.5, dur=4.5), 1, 0, seed=1)
+    assert auto["music_start"] + auto["length"] <= 4.5
+
+
+def test_groups_cover_video_frame_aligned():
+    plan = slideshow.plan_video(_info(150, 3.0), 4, 60, seed=2)
+    gs = slideshow.groups(plan, size=6)
+    assert gs[0][2] == 0.0 and gs[-1][3] == plan["length"]
+    assert all(b[2] == a[3] for a, b in zip(gs, gs[1:]))
+    assert all(i1 - i0 + 1 <= 6 for i0, i1, _, _ in gs)
+    assert all(abs(t0 * slideshow.FPS - round(t0 * slideshow.FPS)) < 1e-6 for _, _, t0, _ in gs)
+    assert sum(i1 - i0 + 1 for i0, i1, _, _ in gs) == len(plan["slots"])
+
+
+def test_render_in_segments_keeps_sync(tmp_path, song, monkeypatch):
+    """Dựng theo khúc (ép khúc 2 cảnh): đủ khung, hình và tiếng dài đúng bằng nhau."""
+    monkeypatch.setattr(slideshow, "GROUP", 2)
+    imgs = [_img(tmp_path / "a.jpg", "360x640"), _img(tmp_path / "b.jpg", "640x360", "mandelbrot")]
+    out = str(tmp_path / "o.mp4")
+    plan = asyncio.run(slideshow.render(imgs, song, out, duration=10))
+    assert plan["segments"] >= 2
+    import json
+    pr = json.loads(subprocess.run(["ffprobe", "-v", "error", "-count_frames", "-show_entries",
+                                    "stream=codec_type,nb_read_frames,duration", "-of", "json", out],
+                                   capture_output=True, text=True).stdout)
+    st = {s["codec_type"]: s for s in pr["streams"]}
+    assert abs(int(st["video"]["nb_read_frames"]) - round(plan["length"] * slideshow.FPS)) <= 1
+    assert abs(float(st["audio"]["duration"]) - plan["length"]) < 0.05
+    assert not [f for f in os.listdir(tmp_path) if f.startswith("slides_")]      # thư mục khúc tạm đã dọn
+
+
+def test_music_bg_survives_short_original_audio(tmp_path, song):
+    """Video 8s nhưng tiếng gốc chỉ 3s: nhạc nền vẫn phải chạy tới hết video (lỗi cũ: im lặng 5s cuối)."""
+    src = str(tmp_path / "v.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=360x640:d=8", "-f", "lavfi",
+                    "-i", "sine=f=900:d=3", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", src], check=True)
+    out = str(tmp_path / "o.mp4")
+    asyncio.run(core_video.render_music(src, song, out, 0, speed=1.0, trim=13.0, keep_orig=True))
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-ss", "5", "-i", out, "-af", "volumedetect", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    assert float(re.findall(r"mean_volume: (-?[0-9.]+) dB", err)[-1]) > -40
+
+
+def test_media_redirect_to_internal_is_blocked():
+    import urllib.request
+
+    import url_guard
+    h = core_video._GuardedRedirect()
+    req = urllib.request.Request("https://cdn.example.com/a.mp3")
+    with pytest.raises(url_guard.BlockedURL):
+        h.redirect_request(req, None, 302, "Found", {}, "http://169.254.169.254/latest/meta-data")
+
+
+def test_fetch_media_leaves_no_partial_file(tmp_path, monkeypatch):
+    class Resp:
+        def __init__(self):
+            self.n = 0
+
+        def read(self, k):
+            self.n += 1
+            return b"x" * 1024 if self.n < 50 else b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(core_video.url_guard, "check_url", lambda u, **k: u)
+    monkeypatch.setattr(core_video._GUARDED_OPENER, "open", lambda req, timeout=0: Resp())
+    dst = str(tmp_path / "music.mp3")
+    with pytest.raises(RuntimeError, match="quá"):
+        core_video.fetch_media("https://x/a.mp3", dst, 10 * 1024, "File nhạc quá 20MB.")
+    assert os.listdir(tmp_path) == []                      # không còn file dở để đường dự phòng nhặt nhầm
+    assert core_video.fetch_media("https://x/a.mp3", dst, 1 << 20, "quá") == 49 * 1024 and os.path.exists(dst)
+
+
+def test_make_room_keeps_waiting_photo_inputs(tmp_path, monkeypatch):
+    import time as _t
+
+    import storage
+    from queue_manager import Job
+    up = tmp_path / "up"
+    up.mkdir()
+    monkeypatch.setattr(config, "UPLOAD_DIR", str(up))
+    keep_img, keep_mus, orphan = up / "img", up / "mus", up / "old"
+    for f in (keep_img, keep_mus, orphan):
+        f.write_bytes(b"x")
+        os.utime(f, (_t.time() - 7200, _t.time() - 7200))
+    j = Job(url="", mode="photo", duration=0, voice="", images=[str(keep_img)], music_local=str(keep_mus))
+    monkeypatch.setitem(storage.queue.jobs, j.id, j)
+    storage.make_room(0)
+    assert keep_img.exists() and keep_mus.exists() and not orphan.exists()
