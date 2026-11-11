@@ -67,6 +67,19 @@ def test_make_cover_files(tmp_path, monkeypatch):
     assert asyncio.run(cover.make_cover(src, str(tmp_path / "x"), "cook", "t", 6.0)) is None
 
 
+def test_cover_title_with_percent(tmp_path, monkeypatch):
+    """'%' trong tiêu đề: drawtext không được hiểu là lệnh mở rộng (lỗi cũ: ffmpeg bỏ cả dòng chữ, không báo lỗi)."""
+    monkeypatch.setattr(config, "BRAND_LOGO", "0")
+    src = str(tmp_path / "g.mp4")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x606060:s=360x640:r=24:d=2",
+                    "-c:v", "libx264", "-preset", "ultrafast", src], check=True)
+    p = asyncio.run(cover.render_cover(src, 1.0, str(tmp_path), "review", "Giảm 50% giá"))
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", p, "-vf", "crop=iw:ih*0.35:0:0,scale=180:-2", "-f", "rawvideo",
+                          "-pix_fmt", "rgb24", "-"], capture_output=True).stdout
+    px = np.frombuffer(raw, np.uint8).reshape(-1, 3).astype(int)
+    assert int(((px[:, 0] > 200) & (px[:, 1] > 170) & (px[:, 2] < 90)).sum()) > 300      # chữ vàng tiêu đề có mặt
+
+
 def test_ai_pick_validates_index(monkeypatch):
     import prompt_engine
     monkeypatch.setattr(config, "GEMINI_API_KEY", "k")

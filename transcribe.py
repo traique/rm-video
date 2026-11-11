@@ -160,12 +160,13 @@ def _cache_key(path: str) -> str:
 
 
 async def transcribe_segments(audio_path: str, title: str = "", desc: str = ""):
-    """Có cache theo hash audio (+ từ điển gửi cho Groq): chạy lại cùng video (duyệt kịch bản, làm lại) không
-    phải nghe lại. title/desc: ngữ cảnh cho từ điển (xem vocab.py). Kết quả luôn qua bước sửa chính tả theo từ
-    điển (làm SAU cache: đổi từ điển là áp ngay cho cả video đã nghe)."""
+    """Có cache theo hash audio: chạy lại cùng video (duyệt kịch bản, làm lại) không phải nghe lại. Khoá cache
+    KHÔNG gồm từ điển/tiêu đề: lượt render bản đã duyệt có tiêu đề khác lượt đầu (link -> file giữ lại) mà vẫn
+    phải dùng đúng lời gốc đã duyệt. title/desc: ngữ cảnh cho từ điển gửi Groq (xem vocab.py). Kết quả luôn qua
+    bước sửa chính tả theo từ điển (làm SAU cache: đổi từ điển là áp ngay cho cả video đã nghe)."""
     prompt = vocab.groq_prompt(title, desc)
     try:
-        key = _cache_key(audio_path) + (("-" + hashlib.sha1(prompt.encode()).hexdigest()[:6]) if prompt else "")
+        key = _cache_key(audio_path)
         cache = json.load(open(_CACHE, encoding="utf-8")) if os.path.exists(_CACHE) else {}
         if key in cache:
             return vocab.fix_segments(cache[key]["text"], [tuple(x) for x in cache[key]["segs"]])

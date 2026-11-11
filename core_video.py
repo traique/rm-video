@@ -1069,14 +1069,14 @@ def _brand_filter(W: int, H: int, out_dur: float, title_file: str | None, outro_
     k = H / 1280
     f = ""
     if title_file:
-        f += (f",drawtext=fontfile={FONT_PATH}:textfile={title_file}:fontsize={int(50 * k)}:fontcolor=white:"
+        f += (f",drawtext=fontfile={FONT_PATH}:textfile={title_file}:expansion=none:fontsize={int(50 * k)}:fontcolor=white:"
               f"borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={int(16 * k)}:"
               f"x=(w-text_w)/2:y=h*0.36-text_h/2:text_align=center:line_spacing={int(8 * k)}:enable='between(t,0.3,3.3)':"
               "alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'")
     if outro_file and out_dur > 6:
         st = out_dur - 2.2
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
-              f",drawtext=fontfile={FONT_PATH}:textfile={outro_file}:fontsize={int(62 * k)}:fontcolor=white:"
+              f",drawtext=fontfile={FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={int(62 * k)}:fontcolor=white:"
               f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
               f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'"
               f",drawtext=fontfile={FONT_PATH}:text='Theo dõi để xem thêm':fontsize={int(34 * k)}:fontcolor=0xFFE100:"

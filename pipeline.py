@@ -224,7 +224,7 @@ async def process_highlights(job: Job, tmp: str):
         if clips:
             n = len(clips)
             for k, c in enumerate(clips):
-                a, b = core_video.snap_to_keyframes([c["start"], c["end"]], kfs)
+                _, a, b, _ = core_video.snap_to_keyframes([0.0, c["start"], c["end"], dur + 1.0], kfs)
                 pieces.append({"a": a, "b": b, "label": f"Đoạn hay {k + 1}/{n}", "title": c["title"] or title,
                                "note": f"⭐ {c['score']}/10 · {c['title']}" + (f" — {c['reason']}" if c["reason"] else "")})
         else:

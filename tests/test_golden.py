@@ -15,6 +15,23 @@ def _ok(**kw):
     return r
 
 
+def test_video_metrics_samples_few_frames(tmp_path, monkeypatch):
+    import cover
+    seen = {}
+    real = cover._raw_frames
+
+    def spy(args, pre_vf=""):
+        seen["args"], seen["pre"] = args, pre_vf
+        return real(args, pre_vf)
+    monkeypatch.setattr(cover, "_raw_frames", spy)
+    v = tmp_path / "v.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=180x320:d=10", "-c:v", "libx264",
+                    "-preset", "ultrafast", str(v)], check=True)
+    m = golden.video_metrics(str(v), n=6)
+    assert "-vf" not in seen["args"] and seen["pre"].startswith("fps=")       # một -vf duy nhất: chỉ ~6 khung
+    assert m["width"] == 180 and abs(m["duration"] - 10) < 0.2
+
+
 def test_compare_flags_regressions():
     base = [_ok()]
     assert [x[4] for x in golden.compare([_ok()], base)] == ["ok"]

@@ -58,6 +58,8 @@ def test_transcribe_passes_prompt_and_fixes_cached(monkeypatch, tmp_path):
     assert "bò lá lốt" in seen[0]
     out2 = asyncio.run(transcribe.transcribe_segments(str(audio), "Bò lá lốt", ""))   # từ cache, vẫn được sửa
     assert out2 == out and len(seen) == 1
+    # lượt render bản đã duyệt: tiêu đề khác (file giữ lại) nhưng vẫn phải dùng đúng lời đã nghe, không nghe lại
+    assert asyncio.run(transcribe.transcribe_segments(str(audio), "", "")) == out and len(seen) == 1
 
 
 def test_groq_retries_without_prompt(monkeypatch):

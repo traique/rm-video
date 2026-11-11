@@ -90,7 +90,7 @@ def video_metrics(path: str, n: int = 12) -> dict:
     dur = float(fmt.get("duration") or 0)
     a, b = (st.get("avg_frame_rate") or "0/1").split("/")
     fps = float(a) / float(b) if float(b or 0) else 0.0
-    frames = cover._raw_frames(["-i", path, "-vf", f"fps={n / max(dur, 1):.4f}"]) if dur else np.zeros((0,))
+    frames = cover._raw_frames(["-i", path], pre_vf=f"fps={n / max(dur, 1):.4f}") if dur else np.zeros((0,))
     m = cover.frame_metrics(frames) if len(frames) else {"sharp": np.zeros(1), "color": np.zeros(1), "mean": np.ones(1)}
     return {"duration": round(dur, 2), "width": st.get("width"), "height": st.get("height"), "fps": round(fps, 2),
             "mbps": round(float(fmt.get("size") or 0) * 8 / max(dur, 1) / 1e6, 2),
@@ -169,9 +169,12 @@ async def run_one(name: str, meta: dict, keep: bool, out_dir: str) -> dict:
         res["seconds"] = round(time.time() - t0, 1)
         res["phases"] = phase_times(timeline, res["seconds"])
         if out and os.path.exists(out):
-            res.update(await asyncio.to_thread(audio_metrics, out))
-            res.update(await asyncio.to_thread(video_metrics, out))
-            res.update(script_metrics(job))
+            try:                               # đo lỗi ở một video không được làm mất kết quả cả lượt chạy
+                res.update(await asyncio.to_thread(audio_metrics, out))
+                res.update(await asyncio.to_thread(video_metrics, out))
+                res.update(script_metrics(job))
+            except Exception as e:
+                res["metric_error"] = str(e)[:200]
             res["notes"] = (job.error or "")[:400]
             stem = os.path.splitext(name)[0]
             await asyncio.to_thread(strip_image, out, os.path.join(out_dir, f"{stem}_khung.jpg"))
@@ -277,6 +280,9 @@ def latest_result() -> str | None:
 
 def main(argv=None):
     sys.path.insert(0, BASE)
+    # DB riêng: không đụng hàng đợi/số liệu của bot đang chạy (JobQueue nạp DB lúc import sẽ đếm lại job dở)
+    os.environ.setdefault("JOBS_DB", os.path.join(GOLDEN, ".golden_jobs.db"))
+    os.makedirs(GOLDEN, exist_ok=True)
     import core_video  # noqa: F401  (nạp ffmpeg đóng gói vào PATH như khi bot chạy)
     ap = argparse.ArgumentParser(description="Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn")
     ap.add_argument("cmd", choices=["run", "baseline", "compare"], nargs="?", default="run")

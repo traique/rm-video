@@ -22,3 +22,4 @@ golden/out/
 golden/results/
 golden/baseline.json
 golden/report.md
+golden/.golden_jobs.db

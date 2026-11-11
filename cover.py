@@ -29,9 +29,11 @@ COVER_NAME, THUMB_NAME = "cover.jpg", "thumb.jpg"
 
 # ---------- 1. lấy khung + chấm điểm ----------
 
-def _raw_frames(args: list, n_hint: int = 0) -> np.ndarray:
+def _raw_frames(args: list, pre_vf: str = "") -> np.ndarray:
+    """Khung RGB SHxSW từ ffmpeg. pre_vf: bộ lọc chạy TRƯỚC bước thu nhỏ (vd fps=...) — chỉ được có một -vf."""
     raw = subprocess.run(["ffmpeg", "-v", "error", *args, "-vf",
-                          f"scale={SW}:{SH}:force_original_aspect_ratio=increase,crop={SW}:{SH}",
+                          (pre_vf + "," if pre_vf else "")
+                          + f"scale={SW}:{SH}:force_original_aspect_ratio=increase,crop={SW}:{SH}",
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=180).stdout
     n = len(raw) // (SW * SH * 3)
     return np.frombuffer(raw[: n * SW * SH * 3], np.uint8).reshape(n, SH, SW, 3)
@@ -58,6 +60,9 @@ def _z(v: np.ndarray) -> np.ndarray:
 def frame_metrics(frames: np.ndarray) -> dict:
     """Số đo từng khung RGB uint8 (N x H x W x 3): sharp = log phương sai Laplacian (độ nét), color = độ rực màu
     Hasler-Süsstrunk, mean = độ sáng trung bình 0..1, expo = điểm phơi sáng (0 là đẹp nhất, âm là tối/cháy)."""
+    if len(frames) > 64:                     # từng khối 64 khung: video 5 phút có ~600 khung, float32 cả loạt ~1GB RAM
+        parts = [frame_metrics(frames[i:i + 64]) for i in range(0, len(frames), 64)]
+        return {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
     f = frames.astype(np.float32) / 255.0
     n = len(f)
     r, g, b = f[..., 0], f[..., 1], f[..., 2]
@@ -183,7 +188,7 @@ def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title
     if title_file:
         v += (",format=yuv420p,geq=lum='lum(X,Y)*(0.58+0.42*min(1,Y/(H*0.46)))':cb='cb(X,Y)':cr='cr(X,Y)'"
               f",drawtext=fontfile={core_video.FONT_PATH}:textfile={title_file}:fontsize={int(H * title_size)}:"
-              f"fontcolor=0xFFE100:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
+              f"expansion=none:fontcolor=0xFFE100:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
               f"shadowx={int(H * 0.003)}:shadowy={int(H * 0.004)}:x=(w-text_w)/2:y=h*0.085:text_align=center:"
               f"line_spacing={int(H * 0.012)}")
     if logo:

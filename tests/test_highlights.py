@@ -94,7 +94,7 @@ def _fakes(monkeypatch, tmp_path, clips):
 def test_process_highlights_flow(monkeypatch, tmp_path):
     from queue_manager import Job
     clips = [{"start": 20.0, "end": 38.0, "score": 9, "title": "Món chín", "reason": "đẹp"},
-             {"start": 2.0, "end": 16.0, "score": 6, "title": "Sơ chế", "reason": ""}]
+             {"start": 2.3, "end": 15.8, "score": 6, "title": "Sơ chế", "reason": ""}]   # lệch khung khoá 0.3s
     calls = _fakes(monkeypatch, tmp_path, clips)
     job = Job(url="", mode="cook", duration=0, voice="v", long_mode="highlight", local=_src(tmp_path), source="web")
     asyncio.run(pipeline.process_highlights(job, str(tmp_path)))
@@ -102,6 +102,7 @@ def test_process_highlights_flow(monkeypatch, tmp_path):
     assert calls["deliver"][0][1].startswith("⭐ 9/10 · Món chín")
     assert calls["process"][0].startswith("Món chín")
     assert job.pieces[0]["a"] == 20.0 and "đoạn hay" in job.script
+    assert (job.pieces[1]["a"], job.pieces[1]["b"]) == (2.0, 16.0)      # cả hai đầu bám khung khoá (g=25: mỗi 1s)
     # chạy lại (bot khởi động lại): giữ đúng các đoạn đã chọn, bỏ qua đoạn đã giao
     calls["deliver"].clear()
     asyncio.run(pipeline.process_highlights(job, str(tmp_path)))

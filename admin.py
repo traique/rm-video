@@ -93,8 +93,12 @@ async def console():
 async def run_golden(arg: str):
     """Chạy golden.py trong tiến trình riêng, ưu tiên CPU thấp (nice 10), in từng dòng kết quả ra log."""
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden.py")
+    base = os.path.dirname(script)
+    env = dict(os.environ, PYTHONUNBUFFERED="1",               # in tiến độ ngay, không đợi tới cuối
+               JOBS_DB=os.path.join(os.environ.get("GOLDEN_DIR") or os.path.join(base, "golden"), ".golden_jobs.db"))
     proc = await asyncio.create_subprocess_exec(sys.executable, script, arg, stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.STDOUT, preexec_fn=lambda: os.nice(10))
+                                                stderr=asyncio.subprocess.STDOUT, env=env,
+                                                preexec_fn=lambda: os.nice(10))
     async for line in proc.stdout:
         text = line.decode(errors="ignore").rstrip()
         if text:
