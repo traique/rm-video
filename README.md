@@ -61,7 +61,7 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 
 ## Giọng đọc CapCut/TikTok (mặc định)
 
-24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo âm tiết trong từng đoạn giọng (1–4 giây nên đủ khớp, không tốn thêm lượt mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ. Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
+24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo các khoảng có tiếng của chính giọng đã tạo (lệch ~70ms, không gọi mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ (lệch ~85ms, chậm hơn). Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 
@@ -104,6 +104,7 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 
 - **🎞 Remake nguyên (≤5 phút):** AI viết lời theo lô ~28 đoạn, lô sau nối mạch lô trước (không mở hook lại). Video >100s tự xuất 720p và bỏ tách giọng AI (quá chậm trên Botkeep), dùng cổng tắt tiếng nền lúc người gốc nói.
 - **✂️ Cắt phần 60s/90s (nguồn ≤10 phút):** chọn điểm cắt ưu tiên chỗ vừa ngưng nói vừa chuyển cảnh → chỗ ngưng nói → chuyển cảnh; phần cuối <20s gộp vào phần trước. Điểm cắt dời về khung khoá gần nhất (≤ 0.4s) để chép luồng, không mã hoá lại (đoạn 70s 1080p: 0.4s thay vì 17.7s). Mỗi phần remake riêng, xong phần nào gửi phần đó (Telegram + nút tải riêng trên web); bot khởi động lại giữa chừng thì không giao lại phần đã giao. Chế độ "Chỉ tải về" + cắt phần = chỉ cắt, không remake.
+- **✨ Đoạn hay nhất (nguồn ≤10 phút):** bot bóc lời cả video, AI đọc lời (kèm ~1 ảnh/10 giây nếu có key Gemini) và chấm điểm, chọn tối đa 3 đoạn 30–90s: trọn một ý, có điểm nhấn (món chín, cắt ra, nếm thử, mẹo hay), mở đầu cuốn, không phải quảng cáo/chào hỏi. Ranh giới dời về chuyển cảnh trong khoảng lặng → giữa khoảng lặng → chuyển cảnh (±3s) để không cắt ngang câu. Đoạn điểm cao giao trước, caption có "⭐ điểm · tiêu đề — lý do". Video ít lời hoặc AI lỗi thì tự cắt đều 60s như ✂️.
 - Tải/upload tới 300MB cho chế độ video dài (video thường vẫn 90s/50MB). Web giữ ~700MB video gần nhất.
 - File >48MB không gửi được qua Telegram: bot gửi link tải nếu đã đặt `PUBLIC_URL` trong Cài đặt.
 - Thời gian ước tính trên Botkeep: ~15–20 lần thời lượng video (video 5 phút ≈ 1–1.5 giờ); cắt phần nhận được phần đầu sau ~10–15 phút.
@@ -148,6 +149,16 @@ Khử nhiễu nén (hqdn3d) → scale lanczos → tương phản/sáng nhẹ →
 
 Font **Be Vietnam Pro ExtraBold** (OFL, thiết kế cho tiếng Việt, đóng kèm assets/), chữ đang đọc sáng dần sang vàng đúng nhịp giọng (karaoke `\kf`), dòng chia cân đối không trơ một chữ, chữ luôn đúng nguyên văn kịch bản.
 
+Giọng CapCut không trả mốc từng từ: bot đo các khoảng **có tiếng** trong chính giọng đã tạo, mỗi cụm chữ giữa hai dấu câu vào đúng khúc giọng giữa hai chỗ ngắt hơi, âm cuối cụm được dành thêm thời gian. Đo trên 105 từ có mốc thật: chữ sáng lệch giọng trung bình 61–69ms (cách rải đều cũ 271ms; nghe lại bằng STT CapCut 85ms và mất 7–11 giây). Không gọi mạng.
+
+## Ảnh bìa tự động
+
+Mỗi video có thêm **ảnh bìa** (`COVER=1`): bot chấm điểm khung hình (độ nét, độ rực màu, độ sáng, vị trí — nấu ăn ưu tiên món đã xong ở cuối video; bỏ khung sát chuyển cảnh, khung tối, màn kết, đoạn quảng cáo đã cắt), có key Gemini thì AI chọn trong 6 ứng viên. Ảnh chỉnh màu y như video, che dải chữ gốc, tiêu đề vàng viền đen, logo kênh. Telegram: video có ảnh xem trước + ảnh bìa gửi riêng để đăng; web: link "Ảnh bìa". Chạy song song với render (~1 giây CPU).
+
+## Từ điển bóc lời
+
+`ASR_VOCAB` (Cài đặt): tên món, nguyên liệu, tên riêng của kênh, cách nhau dấu phẩy. Bot gửi kèm tiêu đề video + từ điển + nguyên liệu thấy trong tiêu đề/mô tả cho Groq Whisper (tham số `prompt`, ≤224 token) để viết đúng chính tả; sau khi nghe, cụm nghe gần đúng (sai dấu, nhầm s/x, d/gi/r, ch/tr) được sửa theo từ điển (chỉ cụm ≥2 âm tiết, khác không quá nửa số âm tiết). Từ điển cũng được đưa vào lời nhắc AI viết kịch bản. (Gemini transcribe chưa nhận từ điển cùng lúc với mốc từng từ.)
+
 ## AI viết kịch bản
 
 Gemini (mặc định `gemini-3.5-flash-lite`, trả JSON theo schema cố định; quá tải 503 hoặc hết hạn mức 429 thì chờ theo `retryDelay` rồi thử lại tới 3 lần; video dài chạy tối đa 2 lô song song, lô lỗi được gọi lại riêng) → OpenRouter (`OPENROUTER_MODEL=auto`: tự liệt kê model free đang có, thử lần lượt 4 model lớn nhất, mỗi model timeout 45s để không treo) → kịch bản mẫu.
@@ -159,19 +170,27 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 ## Chất lượng video
 
 - 720x1280, fps 30, crf 23, unsharp nhẹ cho nét, `+faststart` xem ngay trên web.
-- Âm thanh: loudnorm -16 LUFS chuẩn mạng xã hội; chế độ Nấu ăn giữ tiếng xèo xèo (highpass 3kHz) và **tự hạ tiếng nền khi giọng đọc vang lên** (sidechain ducking) như video dựng tay.
+- Âm thanh: **chuẩn hoá hai lượt** về đúng -14 LUFS (lượt 1 đo độ to cả bản trộn, lượt 2 nhân một hệ số cố định + chặn đỉnh -1.4 dBFS; `LOUDNESS_2PASS=0` để về cách cũ). Khác loudnorm một lượt: tiếng nền không bị kéo lên lúc không có giọng (đo: nền giữa hai câu -17.9 / cuối video -24 dB → -21.0 / -20.7), cả bài đúng -14.0–14.1 LUFS; chế độ Nấu ăn giữ tiếng xèo xèo (highpass 3kHz) và **tự hạ tiếng nền khi giọng đọc vang lên** (sidechain ducking) như video dựng tay.
 - Kịch bản AI diễn đạt lại bằng lời riêng (không chép câu gốc), giọng nói chuyện câu ngắn có ngắt hơi, nhưng giữ đủ bước, đúng thứ tự, nguyên văn định lượng. Số từ bám theo thời lượng thật (~2.8 từ/giây).
 - Hạt phim rất nhẹ (noise) để hình bớt vẻ render sạch, giống quay máy hơn.
 - **Phụ đề tự động burn-in**: khớp chính xác từng từ theo mốc thời gian edge-tts trả về, chữ to đậm viền đen kiểu video ngắn, font DejaVu đóng kèm (assets/) nên không cần font hệ thống. Tắt được bằng checkbox trên web.
 - **Content đăng luôn**: AI trả trọn gói tiêu đề + caption + hashtag; Telegram gắn thẳng vào caption video, web có nút "Copy content".
 - **Luật cứng trong prompt**: định lượng công thức, giá, địa chỉ, tên quán/thương hiệu trong lời thoại gốc phải giữ nguyên văn, cấm bịa/làm tròn.
 
+## Bộ video mẫu (kiểm tra chất lượng sau mỗi lần sửa)
+
+Chép 5–10 video thật vào `golden/videos/` rồi `python golden.py run` (hoặc gõ `golden` vào console Botkeep). Bot làm lại từng video và đo: lỗi chạy, thời gian từng bước, âm lượng, độ nét/màu, nguyên liệu và con số bị mất/bịa, mức chép lời gốc, tốc độ đọc, phụ đề. `golden.py baseline` lấy lần chạy ưng ý làm chuẩn; các lần sau `golden/report.md` đánh ❌/⚠️ chỉ số tụt. Xem `golden/README.md`.
+
+## Thời gian từng bước
+
+Mỗi job trên web có thanh thời gian theo giai đoạn (tải, bóc lời + phân tích hình, AI viết, đọc giọng, chờ tách giọng, render, ảnh bìa, gửi), giai đoạn lâu nhất in đậm: biết ngay video nào chậm và chậm ở đâu.
+
 ## Test không cần token
 
 ```
 pip install pytest ruff
 ruff check .
-pytest -q            # ~125 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
+pytest -q            # ~160 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
 LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử với Gemini thật (tốn vài token)
 ```
 
@@ -184,7 +203,9 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `tg_bot.py` | Handler Telegram (`setup(bot)`), chặn người ngoài `ALLOWED_USERS` |
 | `web_panel.py`, `static/index.html` | Web: đăng nhập cookie, CSRF, SSE, duyệt kịch bản, cài đặt |
 | `jobs.py` | Worker, hạn giờ, huỷ, dọn file đầu vào |
-| `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần video dài |
+| `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần / đoạn hay của video dài |
+| `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
+| `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
 | `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |
 | `core_video.py`, `scenes.py`, `textzone.py`, `beat.py`, `vocal_sep.py`, `subs.py`, `align.py` | FFmpeg, dò cảnh/chữ/beat, tách giọng, phụ đề, căn chữ |
 | `transcribe.py`, `prompt_engine.py`, `tts_capcut.py` | Bóc lời, viết kịch bản (Gemini/OpenRouter), giọng CapCut |
