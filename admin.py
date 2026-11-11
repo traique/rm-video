@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 
 import cache
 import config
@@ -22,15 +23,35 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py)")
 
 
+def _stdin_queue(loop) -> asyncio.Queue:
+    """Đọc stdin trong luồng DAEMON riêng, đẩy từng dòng vào hàng đợi asyncio ("" = hết stdin).
+    Trước đây đọc bằng run_in_executor: lúc tắt bot, asyncio.run chờ luồng executor đang kẹt ở readline (console
+    Botkeep giữ stdin mở) tới 5 phút nên tiến trình không thoát sau SIGTERM."""
+    q: asyncio.Queue = asyncio.Queue()
+
+    def put(line):
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, line)
+        except RuntimeError:                  # vòng lặp đã đóng (bot đang thoát)
+            pass
+
+    def reader():
+        try:
+            for line in iter(sys.stdin.readline, ""):
+                put(line)
+        except Exception:
+            pass
+        put("")
+    threading.Thread(target=reader, name="console-stdin", daemon=True).start()
+    return q
+
+
 async def console():
     """Ô console Botkeep (Pterodactyl) gửi chữ vào stdin của bot -> chạy lệnh quản trị ngay tại đó."""
     import potoken_setup
-    loop = asyncio.get_running_loop()
+    lines = _stdin_queue(asyncio.get_running_loop())
     while True:
-        try:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-        except Exception:
-            return
+        line = await lines.get()
         if not line:                       # không có stdin (chạy nền) -> thôi
             return
         cmd = line.strip()

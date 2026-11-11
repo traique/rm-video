@@ -64,6 +64,7 @@ async def _run_one(job: Job):
     job.status, job.started_at, job.timeline, job.error = "processing", time.time(), [], ""
     queue.save(job)                                # trạng thái processing vào DB: chết giữa chừng thì chạy lại
     current["job"] = job
+    shutting_down = False
     keep_source = False                            # quyết NGAY khi job dừng ở bước duyệt, không đợi tới finally:
     # người dùng có thể bấm duyệt trên web trong lúc còn đang gửi tin Telegram, lúc đó trạng thái đã thành
     # "approved" mà job mới vẫn cần file nguồn
@@ -99,6 +100,9 @@ async def _run_one(job: Job):
                         raise asyncio.TimeoutError
             finally:
                 tl.cancel()
+                if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
         if keep_source:
             if tg and job.status == "review":
                 lines = "\n".join(f"{s['i']}: {OST_TAG.get(s.get('ost', 'new'), '')}{s['text']}" for s in job.approved)
@@ -116,6 +120,16 @@ async def _run_one(job: Job):
             await notify(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
     except asyncio.CancelledError:
         core_video.kill_running()
+        me = asyncio.current_task()
+        if me is not None and me.cancelling():
+            # Chính worker bị huỷ = bot đang tắt (SIGTERM khi Botkeep dừng/khởi động lại), KHÔNG phải người dùng bấm
+            # Hủy (nút Hủy chỉ huỷ task của job). Trước đây job bị ghi "Đã hủy theo yêu cầu" (không chạy lại được),
+            # file đầu vào bị xoá, còn worker nuốt tín hiệu huỷ rồi bốc tiếp job sau nên tiến trình không thoát.
+            # Giờ: giữ trạng thái "processing" + file đầu vào -> lần khởi động sau tự chạy lại (tối đa MAX_ATTEMPTS).
+            shutting_down = True
+            job.step = "Bot tắt giữa chừng, sẽ chạy lại khi khởi động"
+            logging.warning("Job %s dừng vì bot tắt, sẽ chạy lại khi khởi động", job.id)
+            raise
         job.status, job.error = "cancelled", "Đã hủy theo yêu cầu."
         if tg:
             await notify(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
@@ -128,7 +142,7 @@ async def _run_one(job: Job):
     finally:
         job.finished_at = time.time()
         current["job"], current["task"] = None, None
-        if not keep_source:                   # job chờ duyệt giữ lại file nguồn để render sau
+        if not keep_source and not shutting_down:   # chờ duyệt / bot tắt giữa chừng: giữ file nguồn để chạy tiếp
             _drop_inputs(job)
         _learn_speed(job)
         queue.log_steps(job)
