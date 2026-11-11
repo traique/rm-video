@@ -79,3 +79,12 @@ def test_low_disk_warning(monkeypatch):
     monkeypatch.setattr(storage, "_free_mb", lambda p: 5000)
     storage.warn_low_disk(msgs.append)
     assert not msgs
+
+
+def test_ffmpeg_selftest_passes_and_reports_failure(monkeypatch):
+    """Tự kiểm tra ffmpeg lúc khởi động: bản đang có chạy đủ bộ lọc; bộ lọc hỏng thì báo kèm lỗi."""
+    ok, detail = core_video.selftest_sync()
+    assert ok, detail
+    monkeypatch.setattr(core_video, "AOUT", "aresample=48000:ochl=khong_co_kenh_nay")
+    ok, detail = core_video.selftest_sync()
+    assert not ok and "ochl" in detail

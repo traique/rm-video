@@ -49,6 +49,7 @@ async def main():
     logging.info(CONSOLE_HELP)
     logging.info("Dung lượng: %s", disk_report())
     warn_low_disk()
+    spawn(_ffmpeg_selftest())
     import potoken_setup
     if not potoken_setup.js_runtime():
         logging.info("YouTube: chưa cài bộ giải JavaScript (deno). Cần tải YouTube thì gõ  setup_youtube  (~100MB).")
@@ -69,6 +70,17 @@ async def main():
         logging.warning("Không có BOT_TOKEN — chạy chế độ chỉ-web.")
         await stop.wait()
     logging.info("Nhận tín hiệu dừng, thoát.")
+
+
+async def _ffmpeg_selftest():
+    """Lúc khởi động: thử bản ffmpeg trên máy với đủ bộ lọc bot dùng; hỏng thì báo NGAY trong log (trước đây lỗi
+    tương thích FFmpeg 8 trên Botkeep chỉ lộ ra khi đang làm video)."""
+    import core_video
+    ok, detail = await asyncio.to_thread(core_video.selftest_sync)
+    if ok:
+        logging.info("ffmpeg tự kiểm tra: OK (%s)", detail[:60])
+    else:
+        logging.error("ffmpeg tự kiểm tra LỖI — video có thể hỏng ở bước dùng bộ lọc này: %s", detail)
 
 
 async def poll_forever(dp, bot, stop: asyncio.Event | None = None, first_wait: float = 15, max_wait: float = 300):

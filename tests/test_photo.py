@@ -79,7 +79,7 @@ def test_render_photo_video(tmp_path, song):
     plan = asyncio.run(slideshow.render(imgs, song, out, duration=6))
     d = asyncio.run(core_video.probe_duration(out))
     assert abs(d - plan["length"]) < 0.15 and abs(plan["length"] - 6) < 0.6
-    err = subprocess.run(["ffmpeg", "-hide_banner", "-i", out, "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-i", out, "-af", "ebur128", "-f", "null", "-"],
                          capture_output=True, text=True).stderr
     lufs = float(re.findall(r"I:\s+(-?[0-9.]+) LUFS", err)[-1])
     assert abs(lufs + 14) < 1.0

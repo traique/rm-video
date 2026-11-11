@@ -436,7 +436,7 @@ def build_audio(plan: dict, music_idx: int) -> str:
     L, calm = plan["length"], plan["style"] == "calm"
     return (f"[{music_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo,"
             f"afade=t=in:st=0:d={0.3 if calm else 0.03},afade=t=out:st={max(0.0, L - 0.8):.3f}:d=0.8,"
-            f"{core_video.LOUDNORM},aresample=48000,apad=whole_dur={L:.3f},atrim=duration={L:.3f}[a]")
+            f"{core_video.LOUDNORM},{core_video.AOUT},apad=whole_dur={L:.3f},atrim=duration={L:.3f}[a]")
 
 
 _XFADE: set = set()

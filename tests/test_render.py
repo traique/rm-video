@@ -257,7 +257,7 @@ async def _loudness():
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=220:d=6,volume=0.3", "-ar", "24000", voice],
                    check=True)
     await core_video.render(src, voice, out, "cook", 8, None, None, speech_gate=[(1.0, 2.0)])
-    err = subprocess.run(["ffmpeg", "-hide_banner", "-i", out, "-af", "ebur128=peak=true:framelog=quiet", "-f", "null", "-"],
+    err = subprocess.run(["ffmpeg", "-hide_banner", "-i", out, "-af", "ebur128=peak=true", "-f", "null", "-"],
                          capture_output=True, text=True).stderr
     lufs = float(re.findall(r"I:\s+(-?[0-9.]+) LUFS", err)[-1])
     peak = float(re.findall(r"Peak:\s+(-?[0-9.]+) dBFS", err)[-1])
@@ -285,7 +285,7 @@ async def _loudness_sparse():
 
     def lufs(a, d):
         err = subprocess.run(["ffmpeg", "-hide_banner", "-ss", str(a), "-t", str(d), "-i", out, "-af",
-                              "ebur128=framelog=quiet", "-f", "null", "-"], capture_output=True, text=True).stderr
+                              "ebur128", "-f", "null", "-"], capture_output=True, text=True).stderr
         return float(re.findall(r"I:\s+(-?[0-9.]+) LUFS", err)[-1])
     whole, gap1, gap2 = lufs(0, 16), lufs(5, 3.5), lufs(12.5, 3)
     assert abs(whole + 14) <= 0.3, f"âm lượng {whole} LUFS, phải -14±0.3"

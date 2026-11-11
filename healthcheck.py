@@ -25,7 +25,11 @@ async def _timed(coro, timeout: float):
 async def check_ffmpeg():
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         raise RuntimeError("không tìm thấy ffmpeg/ffprobe")
-    return "có"
+    import core_video
+    ok, detail = await asyncio.to_thread(core_video.selftest_sync)      # đủ bộ lọc + bộ mã hoá bot dùng
+    if not ok:
+        raise RuntimeError("ffmpeg thiếu/khác bộ lọc: " + detail[-300:])
+    return detail.replace("ffmpeg version ", "")[:40]
 
 
 async def check_disk():

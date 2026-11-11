@@ -769,11 +769,70 @@ async def _run_ffmpeg(*args: str, tool: str = "ffmpeg"):
     return (await _run_ffmpeg_full(*args, tool=tool))[0]
 
 
+# ---------- Tự kiểm tra ffmpeg (bản trên máy có chạy được mọi bộ lọc bot dùng không) ----------
+# Botkeep không có ffmpeg hệ thống: static-ffmpeg tải bản của nó (3.0 -> FFmpeg 8.0), khác bản máy phát triển/CI
+# (6.1). Lỗi tương thích (vd framelog của ebur128, chọn kênh aresample->apad) trước đây chỉ lộ ra khi đang làm video;
+# giờ một lệnh ~1 giây lúc khởi động dùng đủ bộ lọc + bộ mã hoá thật và báo ngay bộ lọc nào hỏng.
+SELFTEST_VIDEO = (
+    "[0:v]split=2[a][b];"
+    "[a]crop=in_w*0.96:in_h*0.96,scale=360:640:flags=lanczos,hqdn3d=1.2:1.2:3:3,"
+    "eq=contrast=1.05:brightness=0.012:saturation=1.06,vibrance=intensity=0.2,"
+    "lutrgb=g='clip(val*0.99+0.5\\,0\\,255)',cas=strength=0.5,unsharp=3:3:0.6:3:3:0,"
+    "drawbox=x=0:y=0:w=20:h=20:color=black@0.45:t=fill,"
+    "drawtext=fontfile={font}:textfile={txt}:expansion=none:fontsize=24:fontcolor=white:borderw=2:"
+    "x=(w-text_w)/2:y=20:text_align=center:enable='between(t,0,1)',"
+    "subtitles=filename={ass}:fontsdir={fonts},"
+    "format=yuv420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)',setsar=1[a2];"
+    "[b]zoompan=z='1.05+0.05*on/29':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=30:s=360x640:fps=30,"
+    "trim=duration=1,setpts=PTS-STARTPTS,format=yuv420p,setsar=1[b2];"
+    "[a2]trim=duration=1,setpts=PTS-STARTPTS[a3];"
+    "[a3][b2]xfade=transition=slideleft:duration=0.3:offset=0.5,"
+    "eq=brightness='0.2*exp(-(t-0.5)/0.08)*gte(t,0.5)':eval=frame,fade=t=in:st=0:d=0.1[v]")
+SELFTEST_AUDIO = (
+    "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,highpass=f=75,equalizer=f=230:t=q:w=1.1:g=1.8,"
+    "deesser=i=0.35:m=0.5:f=0.5,acompressor=threshold=0.1:ratio=2.5:attack=12:release=140:makeup=1.3,"
+    "aecho=0.9:0.55:13|22:0.10|0.07,asplit=2[vo][sc];"
+    "[2:a]aformat=sample_rates=44100:channel_layouts=stereo,volume='1-0.5*gte(t,0.5)':eval=frame[amb];"
+    "[amb][sc]sidechaincompress=threshold=0.02:ratio=6:attack=100:release=500[ambd];"
+    "[vo][ambd]amix=inputs=2:duration=longest:weights='1 0.5',atempo=1.05,ebur128,"
+    "{loudnorm},{aout},apad=whole_dur=1.5,afade=t=out:st=1:d=0.3,alimiter=limit=0.89:level=false,"
+    "atrim=duration=1.2[a]")
+
+
+def selftest_sync() -> tuple:
+    """(True, "phiên bản") hoặc (False, đuôi lỗi ffmpeg). Chạy đồng bộ (~1 giây)."""
+    import tempfile
+    try:
+        ver = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=30).stdout.split("\n")[0]
+    except Exception as e:
+        return False, f"không chạy được ffmpeg: {e}"
+    with tempfile.TemporaryDirectory() as td:
+        txt, ass = os.path.join(td, "t.txt"), os.path.join(td, "s.ass")
+        with open(txt, "w", encoding="utf-8") as f:
+            f.write("Thử 50% chữ")
+        subs_mod.write_ass([(0.0, 0.5, "Xin"), (0.5, 1.0, "chào")], ass)
+        fc = (SELFTEST_VIDEO.format(font=FONT_PATH, txt=txt, ass=ass, fonts=ASSETS_DIR) + ";"
+              + SELFTEST_AUDIO.replace("{loudnorm}", LOUDNORM).replace("{aout}", AOUT))
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-f", "lavfi", "-i", "testsrc2=s=480x854:r=30:d=1",
+                            "-f", "lavfi", "-i", "sine=f=300:d=1", "-f", "lavfi", "-i", "anoisesrc=d=1.2:a=0.05",
+                            "-filter_complex", fc, "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset",
+                            "ultrafast", "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        err = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        return False, f"{ver}: " + " | ".join(err[-6:])[-600:]
+    return True, ver
+
+
 # ---------- Chuẩn hoá âm lượng HAI LƯỢT ----------
 # loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
 # sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản
 # trộn (chỉ phần tiếng, không giải mã hình) rồi nhân MỘT hệ số cố định; bộ chặn đỉnh giữ đỉnh dưới -1.4 dBFS.
 LOUDNORM = "loudnorm=I=-14:TP=-1.0:LRA=9"
+# Chốt đầu ra tiếng 48 kHz STEREO ngay ở aresample. FFmpeg 8 (bản static-ffmpeg 3.0 tải trên Botkeep): aresample
+# không ghi ochl thì cho mọi số kênh ở đầu ra và lỗi "Cannot select channel layout for the link between filters
+# ... aresample ... and ... apad" khi nối sang apad (FFmpeg 6.1 thì chạy).
+AOUT = "aresample=48000:ochl=stereo"
 TARGET_LUFS = -14.0
 PEAK_LIMIT = 0.85                 # -1.4 dBFS: đỉnh thật (giữa hai mẫu) vẫn dưới -1 dBTP
 _LUFS_RE = re.compile(r"Integrated loudness:\s*I:\s*(-?[\d.]+|-inf) LUFS")
@@ -803,7 +862,9 @@ async def two_pass_loudness(fc: str, input_args: list, out_dur: float) -> str:
     if config.LOUDNESS_2PASS == "0" or LOUDNORM not in fc:
         return fc
     # graph có hình: phần tiếng nằm sau "[v];"; graph chỉ có tiếng (ảnh + nhạc dựng hình riêng): cả graph
-    audio = (fc.split("[v];", 1)[1] if "[v];" in fc else fc).replace(LOUDNORM, "ebur128=framelog=quiet", 1)
+    # ebur128 KHÔNG kèm tuỳ chọn: FFmpeg 8 trên Botkeep báo "Error applying options to the filter" với
+    # framelog=quiet. Dòng tổng kết "Integrated loudness" luôn in ở mức info nên vẫn đọc được.
+    audio = (fc.split("[v];", 1)[1] if "[v];" in fc else fc).replace(LOUDNORM, "ebur128", 1)
     lufs = await measure_lufs(input_args, audio, out_dur)
     if lufs is None:
         return fc
@@ -1027,7 +1088,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
             + ost_chain
             + ("[vo][ambd][ost]amix=inputs=3:duration=longest:weights='1 0.5 1'," if ost else
                "[vo][ambd]amix=inputs=2:duration=longest:weights='1 0.5',")
-            + "loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000[a]"
+            + f"{LOUDNORM},{AOUT}[a]"
         )
     elif ost:
         # giọng mới + tiếng gốc trong các cửa sổ giữ tiếng gốc
@@ -1035,14 +1096,14 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
         a = (
             f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,{fx}[vo];" + ost_chain
             + "[vo][ost]amix=inputs=2:duration=longest:normalize=0,"
-            f"loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000,apad=whole_dur={out_dur:.2f}[a]"
+            f"{LOUDNORM},{AOUT},apad=whole_dur={out_dur:.2f}[a]"
         )
     else:
         # chỉ giọng AI; apad hữu hạn đệm im lặng tới hết video
         # (apad vô hạn + -shortest từng gây treo/OOM, nên luôn pad có giới hạn và cắt bằng -t)
         a = (
             "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() +
-            f"loudnorm=I=-14:TP=-1.0:LRA=9,aresample=48000,apad=whole_dur={out_dur:.2f}[a]"
+            f"{LOUDNORM},{AOUT},apad=whole_dur={out_dur:.2f}[a]"
         )
     return v + a
 
@@ -1238,7 +1299,7 @@ async def render_music(input_mp4: str, music_path: str, output_mp4: str,
               f"apad=whole_dur={out_dur:.2f},asplit=2[og][key];"
               "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
               "[og][musd]amix=inputs=2:duration=first:normalize=0,")
-    a += (f"{LOUDNORM},aresample=48000,"                            # nhạc chuẩn -14 LUFS như nền tảng nhạc
+    a += (f"{LOUDNORM},{AOUT},"                            # nhạc chuẩn -14 LUFS như nền tảng nhạc
           f"afade=t=in:st=0:d={0.4 if keep_orig else 0.01},afade=t=out:st={max(0.0, out_dur - 0.8):.2f}:d=0.8,"
           f"apad=whole_dur={out_dur:.2f}[a]")
     v = ("[0:v]crop=in_w*0.96:in_h*0.96,"

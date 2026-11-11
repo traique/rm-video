@@ -69,7 +69,7 @@ def list_videos(only: str = "") -> list:
 
 def audio_metrics(path: str) -> dict:
     err = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", path, "-map", "0:a:0", "-af",
-                          "ebur128=peak=true:framelog=quiet", "-f", "null", "-"], capture_output=True, text=True).stderr
+                          "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True).stderr
 
     def last(rx):
         m = re.findall(rx, err)
