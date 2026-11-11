@@ -109,6 +109,36 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - File >48MB không gửi được qua Telegram: bot gửi link tải nếu đã đặt `PUBLIC_URL` trong Cài đặt.
 - Thời gian ước tính trên Botkeep: ~15–20 lần thời lượng video (video 5 phút ≈ 1–1.5 giờ); cắt phần nhận được phần đầu sau ~10–15 phút.
 
+## Chế độ 📸 Ảnh + nhạc (1–4 ảnh)
+
+Gửi 1–4 ảnh + một bản nhạc (link TikTok/YouTube hoặc file), bot dựng video dọc theo nhịp, kiểu mẫu "beat sync" của
+CapCut/TikTok. Web: chọn chế độ 📸, chọn ảnh (có xem trước), thời lượng *Tự động theo nhạc* (~12–16s) / 10 / 15 / 30 /
+60 giây, chú thích tuỳ chọn (để AI viết caption). Telegram: gửi ảnh (một album hoặc từng ảnh), gửi nhạc, chọn độ dài.
+
+1. **Phân tích nhạc** (numpy, ~1 giây cho bài 3 phút): tempo, lưới beat, phách mạnh đầu ô nhịp, năng lượng từng beat,
+   mật độ nhịp, điểm **drop** (nhạc bật lên). Đo trên 8 bản nhạc có BPM công bố (70–155 BPM): 8/8 đúng.
+2. **Chọn đoạn nhạc**: đoạn năng lượng cao nhất (thường là điệp khúc/hook), bắt đầu ở phách mạnh; có drop ngay đầu
+   đoạn thì lùi 2 ô nhịp để video có đà rồi bùng đúng drop.
+3. **Chọn hiệu ứng theo kiểu nhạc**:
+
+   | Kiểu | Khi nào | Mỗi ảnh | Chuyển động | Chuyển cảnh |
+   | --- | --- | --- | --- | --- |
+   | Êm | < 92 BPM hoặc thưa nhịp | 2 ô nhịp (tối đa ~5s) | Ken Burns chậm, có làm mềm | Hoà/dissolve/lướt mềm, căn giữa beat |
+   | Nhún | Vừa | 1 ô nhịp | Lia, zoom vào/ra, nảy nhẹ ở phách mạnh | Trượt, quét, mở tròn... kết thúc đúng beat |
+   | Sôi | ≥ 125 BPM và dày nhịp | 2 phách (trước drop 4) | Nảy zoom mỗi beat, rung + loé ở phách mạnh sau drop | Zoom, loé trắng, lia nhoè, ép... ¼–½ phách |
+
+   Đúng điểm drop luôn là chuyển cảnh "hit" (zoom hoặc loé trắng). Ảnh lặp vòng để đủ độ dài, mỗi lần một chuyển
+   động khác. Một ảnh thì không dùng kiểu hoà (nhìn như bóng đôi). Cùng ảnh + nhạc + độ dài thì ra đúng video cũ.
+4. **Ảnh**: khác tỉ lệ 9:16 (ảnh ngang, vuông, 3:4) thì lót nền mờ của chính ảnh; ảnh điện thoại có cờ xoay EXIF
+   được xoay đúng; nguồn đủ lớn (≥1600px) ra 1080x1920, không thì 720x1280. Âm lượng chuẩn hoá hai lượt về -14 LUFS.
+5. **Tốc độ** (1 lõi): video 12–15s 720p dựng 8–14 giây; 1080p 15s khoảng 26 giây.
+
+Cơ sở kỹ thuật (đã tìm hiểu trước khi làm): mẫu beat-sync của CapCut (cắt cảnh rơi đúng beat, chuyển "hit" ở drop);
+nối ảnh tĩnh bằng `xfade` (bài của advancedweb.hu); Ken Burns bằng `zoompan` trên ảnh phóng to trước cho mượt (như
+still-motion, kburns-slideshow — `zoompan` để nguyên thì rung, ticket FFmpeg #4298). editly / gl-transitions có
+chuyển cảnh đẹp hơn nhưng cần headless-GL hoặc bản FFmpeg tự build, quá nặng cho máy 1 lõi, nên chỉ dùng bộ `xfade`
+có sẵn (bản FFmpeg thiếu kiểu nào thì tự thay bằng `fade`).
+
 ## Chế độ ⬇️ Chỉ tải về
 
 Dán link → nhận file gốc, không chỉnh sửa, tối đa 10 phút / 50MB (giới hạn gửi Telegram). TikTok: bản HD không logo qua tikwm. Facebook Reels và YouTube qua yt-dlp; **YouTube từ IP máy chủ đòi đăng nhập** → dán cookies YouTube vào `YTDLP_COOKIES` trong Cài đặt là tải được.
@@ -121,6 +151,15 @@ Dành cho video nhảy/trend: không voiceover, không phụ đề. Gửi video 
 3. Cắt/đẩy nhạc để beat đầu tiên rơi đúng nhịp chân, loudnorm -14 LUFS, fade out cuối.
 Kết quả: bước nhảy rơi đúng beat nhạc mới. Telegram: chọn 🎵 → bot hỏi nhạc → gửi link hoặc file nhạc. Web: chọn chế độ 🎵 là hiện ô nhạc.
 
+
+**Nguồn nhạc:** link (TikTok, YouTube...) hoặc file tải lên (web ≤ 30MB, Telegram ≤ 20MB). Link **video TikTok**: bot lấy
+bản nhạc gốc (sound) mà video dùng qua tikwm — là file nhạc sạch, không lẫn giọng người quay; lỗi thì lấy tiếng của
+video bằng yt-dlp. Link trang nhạc `tiktok.com/music/...` bị Cloudflare chặn: gửi link một video có dùng nhạc đó.
+
+**Cách dùng nhạc** (web: ô "Cách dùng nhạc"; Telegram: hỏi sau khi gửi nhạc):
+- 🎯 Thay hẳn nhạc + khớp beat điệu nhảy (như trước).
+- 🎶 Làm nhạc nền: giữ tiếng gốc, nhạc nằm dưới (~-10 dB) và tự nhỏ lại khi tiếng gốc to; video không đổi tốc độ;
+  lấy đoạn hay nhất (điệp khúc) của bài; nhạc ngắn hơn video thì lặp.
 ## Giọng KHỚP hình (mặc định)
 
 1. **Bóc lời gốc kèm mốc từng từ** (Groq Whisper → Gemini gemini-3.5-transcribe → STT CapCut, theo `ASR_ORDER`) và chia đoạn theo **thao tác**: ngắt trước các từ mở đầu việc mới ("cho", "lật", "đảo", "sau đó"…).
@@ -205,6 +244,7 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `jobs.py` | Worker, hạn giờ, huỷ, dọn file đầu vào |
 | `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần / đoạn hay của video dài |
 | `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
+| `slideshow.py` | 📸 Ảnh + nhạc: phân tích nhạc, chọn hiệu ứng/chuyển cảnh theo nhịp, dựng FFmpeg |
 | `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
 | `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |
 | `core_video.py`, `scenes.py`, `textzone.py`, `beat.py`, `vocal_sep.py`, `subs.py`, `align.py` | FFmpeg, dò cảnh/chữ/beat, tách giọng, phụ đề, căn chữ |
