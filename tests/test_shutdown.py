@@ -16,6 +16,7 @@ def _job(tmp_path, monkeypatch):
     src.write_bytes(b"x")
     job = Job(url="", mode="cook", duration=0, voice="v", local=str(src), source="web")
     state.queue.jobs[job.id] = job
+    monkeypatch.setitem(state.queue.jobs, job.id, job)         # gỡ khỏi hàng đợi dùng chung sau test
     return job, src
 
 

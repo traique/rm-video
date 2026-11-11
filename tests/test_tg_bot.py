@@ -70,14 +70,14 @@ def test_stranger_is_refused_with_chat_id(tg):
 
 def test_link_mode_duration_creates_job(tg):
     feed, session = tg
-    before = set(state.queue.jobs)
+    before = {id(j) for j in state.queue.jobs.values()}      # so theo đối tượng: id job có thể trùng giữa các test
 
     async def flow():
         await feed(_msg(111, "https://www.tiktok.com/@a/video/123"))
         await feed(_cb(111, "mode:cook"))
         await feed(_cb(111, "dur:30"))
     asyncio.run(flow())
-    new = [j for k, j in state.queue.jobs.items() if k not in before]
+    new = [j for j in state.queue.jobs.values() if id(j) not in before]
     assert len(new) == 1 and new[0].mode == "cook" and new[0].duration == 30 and new[0].chat_id == 111
 
 
