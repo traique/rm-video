@@ -41,7 +41,11 @@ EDITABLE = {
     "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
     "TTS_RATE": "+8%",
     "TTS_PITCH": "+0Hz",
-    "TTS_PROVIDER": "edge",            # edge (mặc định: Hoài My, lỗi thì đọc đoạn đó bằng CapCut) | capcut
+    "TTS_PROVIDER": "vieneu",          # vieneu (giọng miền Nam đọc trên Kaggle; chưa có Kaggle/lỗi -> edge) | edge | capcut
+    "VIENEU_VOICE_FEMALE": "Mỹ Duyên", # giọng nữ VieNeu (miền Nam: Mỹ Duyên, Thục Đoan, Thùy Dung, Kim Thanh; clone = giọng mẫu)
+    "VIENEU_VOICE_MALE": "Adam",       # giọng nam VieNeu (miền Nam: Adam, Thái Sơn, Minh Triết, Đức Trí)
+    "KAGGLE_USERNAME": "",             # tên tài khoản Kaggle (kaggle.com/<tên>)
+    "KAGGLE_API_TOKEN": "",            # Kaggle -> Settings -> API Tokens -> Generate New Token
     "CAPCUT_VOICE_FEMALE": "multi_female_yangguangnv_uranus_bigtts",
     "CAPCUT_VOICE_MALE": "multi_male_felipe_uranus_bigtts",
     "VOICE_SEPARATION": "1",           # 1 = tách giọng gốc bằng AI (chế độ nấu ăn); 0 = chỉ tắt tiếng nền lúc người gốc nói
@@ -73,7 +77,8 @@ EDITABLE = {
     "FB_PAGE_ID": "",                  # id Fanpage đăng lên
     "FB_PAGE_TOKEN": "",               # Page access token (quyền pages_manage_posts, pages_read_engagement, pages_show_list)
 }
-SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES", "FB_PAGE_TOKEN"}
+SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES", "FB_PAGE_TOKEN",
+               "KAGGLE_API_TOKEN"}
 _ID_LIST = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
@@ -153,8 +158,10 @@ def save_settings(updates: dict):
                 raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
             if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):
                 raise ValueError(f"{k} phải là các số chat_id cách nhau dấu phẩy")
-            if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge"):
-                raise ValueError("TTS_PROVIDER chỉ nhận: capcut, edge")
+            if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge", "vieneu"):
+                raise ValueError("TTS_PROVIDER chỉ nhận: vieneu, edge, capcut")
+            if k == "KAGGLE_USERNAME" and not re.fullmatch(r"[A-Za-z0-9_-]{2,40}", v):
+                raise ValueError("KAGGLE_USERNAME là tên tài khoản Kaggle (chữ, số, gạch dưới)")
             if k == "AUTO_POST" and v not in ("0", "1"):
                 raise ValueError("AUTO_POST chỉ nhận: 0, 1")
             if k == "AUTO_PER_DAY" and not (v.isdigit() and 1 <= int(v) <= 4):
@@ -216,3 +223,13 @@ def admin_chat_id() -> int | None:
         if ids:
             return int(ids[0])
     return None
+
+
+def default_voice(male: bool = False) -> str:
+    """Giọng mặc định theo TTS_PROVIDER (web 'Nữ/Nam mặc định', Telegram, tự động đăng)."""
+    g = globals()                        # các cài đặt sửa được nạp động bằng _apply()
+    if g["TTS_PROVIDER"] == "vieneu":
+        return "vieneu:" + (g["VIENEU_VOICE_MALE"] if male else g["VIENEU_VOICE_FEMALE"])
+    if g["TTS_PROVIDER"] == "capcut":
+        return g["CAPCUT_VOICE_MALE"] if male else g["CAPCUT_VOICE_FEMALE"]
+    return VOICE_MALE if male else VOICE_FEMALE

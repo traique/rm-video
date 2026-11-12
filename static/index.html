@@ -76,6 +76,8 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
     <div id="set_fields"></div>
     <label>Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
     <input id="logo_file" type="file" accept="image/png">
+    <label>Giọng mẫu cho giọng nhân bản VieNeu (3-15 giây, ít tạp âm, giọng bạn được phép dùng) — chọn "clone" ở VIENEU_VOICE_*</label>
+    <input id="vref_file" type="file" accept="audio/*,video/*">
     <button id="save_set">Lưu cài đặt</button>
     <div class="mut" style="margin-top:8px">Bỏ trống = không đổi · nhập <b>-</b> = xóa, quay về biến môi trường · key hiển thị dạng che bớt.</div>
   </details>
@@ -209,6 +211,10 @@ document.querySelector('#save_set').onclick=async()=>{
   if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
     const lr=await fetch('/api/logo',{method:'POST',body:lf});
     $('msg').textContent=lr.ok?'✅ Đã lưu logo':'❌ '+await lr.text();if(!lr.ok)return;$('logo_file').value='';}
+  if($('vref_file').files.length){const vf=new FormData();vf.append('ref',$('vref_file').files[0]);
+    const vr=await fetch('/api/voice_ref',{method:'POST',body:vf});
+    $('msg').textContent=vr.ok?'✅ Đã lưu giọng mẫu ('+(await vr.json()).seconds+' giây)':'❌ '+await vr.text();if(!vr.ok)return;
+    $('vref_file').value='';loadVoices();}
   const body={};document.querySelectorAll('[data-k]').forEach(el=>{if(el.value.trim())body[el.dataset.k]=el.value});
   const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
   $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();

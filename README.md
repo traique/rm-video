@@ -74,7 +74,29 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 
 `/start` → gửi link **hoặc gửi thẳng file video đính kèm (≤ 20MB, giới hạn Bot API)** → chọn chế độ (🍲/📦) → chọn thời lượng → nhận output.mp4, caption là content đăng luôn.
 
-## Giọng đọc (mặc định: Hoài My của edge-tts)
+## 🎙 Giọng miền Nam VieNeu + phần nặng chạy trên Kaggle (mặc định)
+
+`TTS_PROVIDER=vieneu`: giọng nữ **Mỹ Duyên**, nam **Adam** (VieNeu-TTS v3 Turbo, Apache-2.0, giọng có sẵn dùng được
+cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần): Botkeep vẫn tải
+video, bóc lời, nhờ AI viết lời, làm ảnh bìa; khi lời đã chốt, bot gửi MỘT notebook riêng tư sang Kaggle để đọc giọng
++ tách giọng gốc + dựng 1080p, rồi tải video về. Notebook không chứa key API nào (lời đã viết xong ở Botkeep).
+
+Cài: tạo tài khoản kaggle.com, xác minh số điện thoại (Settings -> Account), tạo token (Settings -> API Tokens ->
+Generate New Token), điền `KAGGLE_USERNAME` + `KAGGLE_API_TOKEN` trong Cài đặt, gõ `kaggle_test` vào console.
+
+- Đo thật (Kaggle T4): đọc 21 câu ~3-8 giây, dựng 60 giây 1080p ~2 phút (Botkeep ~19 phút), tách giọng gốc 60 giây
+  ~1 phút; mỗi lần chạy thêm ~2 phút khởi động (cài thư viện, nạp model).
+- Hết giờ GPU tuần đó thì tự chạy CPU trên Kaggle (giọng đọc ~1x thời gian thực, không tốn giờ GPU).
+- Kaggle lỗi / chưa cài / video tải lên từ máy (Kaggle cần link để tự tải) -> làm trên Botkeep bằng giọng edge đúng
+  giới tính (Hoài My / Nam Minh), có ghi chú trong kết quả.
+- Số được đọc kiểu miền Nam ("100g" -> "một trăm gam", "1/3" -> "một phần ba", "1500" -> "một ngàn năm trăm").
+- Mỹ Duyên đọc ~3.1 chữ/giây (Adam 4.15): AI tự viết lời ngắn hơn cho vừa khung hình.
+- Giọng nhân bản: tải đoạn giọng mẫu 3-15 giây trong Cài đặt rồi chọn `clone` ở `VIENEU_VOICE_FEMALE/MALE`. Chỉ dùng
+  giọng của bạn hoặc người đã đồng ý (điều khoản của model cấm nhân bản giọng người khác khi chưa được phép).
+- Kaggle là nền tảng cho khoa học dữ liệu; dùng làm máy chạy cho kênh nội dung có thể bị xem là lạm dụng -> bot luôn
+  có đường lùi về Botkeep. Chi tiết, số đo: `docs/KAGGLE_PLAN.md`.
+
+## Giọng đọc edge-tts / CapCut
 
 24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo các khoảng có tiếng của chính giọng đã tạo (lệch ~70ms, không gọi mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ (lệch ~85ms, chậm hơn). Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
 

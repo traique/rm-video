@@ -120,6 +120,25 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## 🎙 Giọng miền Nam VieNeu (Mỹ Duyên / Adam) + phần nặng chạy trên Kaggle
+
+Người dùng chọn: Kaggle cho mọi video nhưng chỉ phần nặng; giọng nữ Mỹ Duyên, nam Adam; chỉ model cho phép thương mại.
+
+| Thay đổi | Kiểm |
+| --- | --- |
+| `TTS_PROVIDER=vieneu` (mặc định), `VIENEU_VOICE_FEMALE/MALE`, `KAGGLE_USERNAME`, `KAGGLE_API_TOKEN` (che như các key khác) | test |
+| `kaggle_worker.py` (Botkeep): khi lời đã chốt, gửi MỘT notebook riêng tư (code nén + kịch bản JSON, không key API) -> chờ -> tải video; hết giờ GPU thì chạy CPU; lỗi bất kỳ -> làm trên Botkeep bằng giọng edge đúng giới tính | máy chủ Kaggle giả + pipeline giả lập Kaggle lỗi |
+| `kaggle_job.py` (trên Kaggle): VieNeu đọc giọng -> xếp giọng một tốc độ chung -> phụ đề -> tách giọng gốc -> dựng 1080p | chạy tại máy thử với giọng giả (dựng thật); chạy thật trên Kaggle |
+| `kaggle_api.py`: API kagglesdk (`api.kaggle.com/v1/...`, Bearer token kiểu mới, User-Agent `kaggle-api/` — thiếu là 404) | đo thật |
+| `vi_text.py`: số -> chữ kiểu miền Nam (100g, 1/3, 60%, 5-7, 1,5kg, 1.000.000đ) cho VieNeu | test |
+| Tốc độ đọc theo giọng (Mỹ Duyên 3.08, Adam 4.15 chữ/giây, đo thật) -> AI viết lời vừa khung hình | test |
+| Giọng nhân bản: tải đoạn mẫu 3-15 giây trong Cài đặt, chọn `clone` | test |
+| Console `kaggle_test` (token + giờ GPU còn lại) | — |
+
+Chạy thật trên Kaggle (video mì xào bò 64s, giọng Mỹ Duyên): tải video Facebook, nạp model ~12s, đọc 21 câu ~15s, tách
+giọng gốc 68s, dựng 1080p 130s (Botkeep ~19 phút). Lỗi tìm được khi chạy thật: `/tmp` và `/kaggle/working` khác ổ ->
+`os.replace` lỗi, đổi sang `shutil.move`.
+
 ## Rà soát trước deploy (tự động đăng, xếp giọng)
 
 Rà độc lập phần mới tìm 9 lỗi, đã sửa hết, mỗi lỗi có test:

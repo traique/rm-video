@@ -1,6 +1,6 @@
 # Kế hoạch: đẩy phần nặng sang Kaggle + giọng miền Nam/miền Tây chạy local
 
-Trạng thái: **đã thống nhất, chưa code tích hợp**. Ghi lại để phiên làm việc sau tiếp tục đúng hướng.
+Trạng thái: **đã tích hợp** (kaggle_api.py, kaggle_worker.py, kaggle_job.py, vi_text.py). Giọng chọn: nữ Mỹ Duyên, nam Adam.
 
 ## Quyết định của người dùng (12/11/2026)
 

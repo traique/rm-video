@@ -13,6 +13,7 @@ import core_video
 import cover as cover_mod
 import highlights
 import ingredients
+import kaggle_worker
 import metrics
 import ocr_text
 import offline
@@ -552,10 +553,24 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         out_dur = render_dur = cut
         job.out_dur = out_dur
     _plan_separation()
+    # Giọng VieNeu: đọc giọng + tách giọng gốc + dựng chạy trên Kaggle (kaggle_worker); Botkeep chỉ bóc lời + AI viết.
+    why_local = kaggle_worker.usable(job)
+    remote = not why_local
+    prompt_engine.set_voice_rate(kaggle_worker.words_per_sec(job.voice) if remote else None)
+    if kaggle_worker.voice_name(job.voice) and why_local:
+        job.error = (job.error or "") + f"ℹ️ Giọng VieNeu chưa dùng được ({why_local}): đọc bằng giọng edge. "
     # Tách giọng gốc (nặng CPU) bắt đầu NGAY, chạy trong lúc chờ AI viết kịch bản và đọc giọng (việc mạng, CPU
-    # rảnh). Trước đây chỉ bắt đầu cùng lúc đọc giọng nên thời gian chờ AI bị phí.
-    amb_task = asyncio.create_task(_ambient())
-    tasks.append(amb_task)
+    # rảnh). Trước đây chỉ bắt đầu cùng lúc đọc giọng nên thời gian chờ AI bị phí. Chạy trên Kaggle thì Kaggle tách.
+    amb_task = None if remote else asyncio.create_task(_ambient())
+    if amb_task:
+        tasks.append(amb_task)
+
+    def _local_ambient():
+        nonlocal amb_task
+        if amb_task is None:                            # Kaggle lỗi / không dùng: tách giọng trên Botkeep
+            amb_task = asyncio.create_task(_ambient())
+            tasks.append(amb_task)
+        return amb_task
 
     # ----- Đường chính: giọng KHỚP HÌNH -----
     segs = [s for s in segs if s[0] < out_dur - 0.5]
@@ -583,8 +598,9 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                              "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")}
                             for s in timed["segments"]]
-            amb_task.cancel()        # dừng chờ duyệt: tách giọng làm sau, lúc render bản đã duyệt
-            await asyncio.gather(amb_task, return_exceptions=True)
+            if amb_task:
+                amb_task.cancel()    # dừng chờ duyệt: tách giọng làm sau, lúc render bản đã duyệt
+                await asyncio.gather(amb_task, return_exceptions=True)
             if not job.local:        # nguồn từ link/Telegram: giữ lại để render sau khi duyệt KHÔNG phải tải lại (#8)
                 keep = os.path.join(config.UPLOAD_DIR, f"review_{job.id}{os.path.splitext(inp)[1] or '.mp4'}")
                 await asyncio.to_thread(shutil.move, inp, keep)
@@ -636,6 +652,36 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
                 job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
                 await _shorten(sure_long, est)
 
+        pre_cover = None
+        if remote:
+            post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+            pre_cover = _start_cover(post_title)        # ảnh bìa làm trên Botkeep trong lúc Kaggle chạy
+            try:
+                spec = kaggle_worker.build_spec(
+                    job, segs_t, out_dur, render_dur, stretch, not is_long, post_title, bands, pos_y, sep, speech,
+                    config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION)
+                job.step = "Kaggle: chuẩn bị"
+                res = await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
+            except Exception as e:
+                logging.warning("Kaggle lỗi, làm tiếp trên Botkeep: %s", e)
+                metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
+                job.error = (job.error or "") + f"ℹ️ Kaggle lỗi ({str(e)[:160]}): đọc giọng edge + dựng trên Botkeep. "
+                _local_ambient()
+            else:
+                metrics.record("kaggle", "kaggle")
+                job.srt = res.get("srt") or ""
+                job.error = (job.error or "") + "".join(res.get("notes") or [])
+                await _finish_cover(pre_cover)
+                job.final_segments = final_timeline(segs_t, res["plan"], out_dur)
+                tm = res.get("timings") or {}
+                job.error = (job.error or "") + (
+                    f"ℹ️ Giọng VieNeu {kaggle_worker.voice_name(job.voice)} đọc trên Kaggle "
+                    f"({'GPU' if res.get('gpu') else 'CPU'}): đọc giọng {tm.get('tts', 0):.0f}s, dựng {tm.get('render', 0):.0f}s"
+                    + ("; đã tách bỏ giọng gốc bằng AI" if res.get("amb") else "")
+                    + (f"; {len(res['too_long'])} đoạn vẫn hơi dài (đọc nhanh hơn)" if res.get("too_long") else "")
+                    + ". ")
+                return res["video"]
+        _local_ambient()
         job.step = f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep["ok"] else "")
         clips = list(await _gather_all([_one(s) for s in segs_t]))
         durs = await _durs(clips)
@@ -661,11 +707,11 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
                 subs_mod.write_ass(words, ass, pos_y, config.SUB_STYLE)
                 got_subs = True
         job.step = "Chờ tách giọng gốc xong" if sep["ok"] else "Render (FFmpeg)"
-        amb_wav, gate = await amb_task
+        amb_wav, gate = await _local_ambient()
         job.step = "Render (FFmpeg)"
         out = os.path.join(tmp, "output.mp4")
         post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
-        cover_task = _start_cover(post_title)
+        cover_task = pre_cover or _start_cover(post_title)
         notes = []
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
@@ -717,7 +763,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
 
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
-    amb_wav, gate = await amb_task
+    amb_wav, gate = await _local_ambient()
     post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
     cover_task = _start_cover(post_title)
     notes = []

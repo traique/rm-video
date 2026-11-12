@@ -2,6 +2,7 @@
 2 provider: Gemini -> OpenRouter (chuẩn OpenAI-compatible) -> mẫu dự phòng.
 LUẬT CỨNG: giữ nguyên văn định lượng công thức, giá, địa chỉ, tên quán/thương hiệu."""
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -381,8 +382,17 @@ _CTA_RE = re.compile(r"giỏ hàng|góc (trái|phải) màn hình|link (ở|dư�
                      r"(bà con|mọi người|anh chị|các bạn|cả nhà)( nhớ| hãy| cứ)? (mua|đặt|chốt)\b", re.IGNORECASE)
 
 
+_VOICE_RATE = contextvars.ContextVar("voice_rate", default=None)
+
+
+def set_voice_rate(rate: float | None):
+    """Tốc độ đọc của giọng job đang làm (chữ/giây). VieNeu Mỹ Duyên chỉ ~3.1 chữ/giây (Adam 4.15): AI phải viết lời
+    ngắn hơn cho vừa khung hình. Biến theo ngữ cảnh asyncio: mỗi job một giá trị."""
+    _VOICE_RATE.set(rate)
+
+
 def _rate() -> float:
-    return WORDS_PER_SEC.get(config.TTS_PROVIDER, 2.8)
+    return _VOICE_RATE.get() or WORDS_PER_SEC.get(config.TTS_PROVIDER, 2.8)
 
 
 def words_per_sec() -> float:

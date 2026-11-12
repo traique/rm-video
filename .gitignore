@@ -10,6 +10,7 @@ jobs.db
 stt_cache.json
 speed.json
 assets/logo.png
+assets/voice_ref.mp3
 potoken/
 tools/
 work/

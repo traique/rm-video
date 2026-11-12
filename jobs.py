@@ -8,6 +8,7 @@ import time
 
 import config
 import core_video
+import kaggle_worker
 from queue_manager import Job, phase_times
 from pipeline import run_job
 from review import OST_TAG, REVIEW_HELP
@@ -161,7 +162,10 @@ def job_budget(job: Job) -> float:
     if not job.out_dur:
         return base
     per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)
-    return min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
+    budget = min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
+    if job.voice.startswith("vieneu:"):           # chờ Kaggle (hàng chờ GPU + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
+        budget += kaggle_worker.TIMEOUT
+    return budget
 
 
 def cancel_job(jid: int) -> str:

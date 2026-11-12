@@ -589,16 +589,26 @@ async def remux(src: str, dst: str):
 _EDGE_VOICES = {config.VOICE_FEMALE, config.VOICE_MALE}
 
 
+def _vieneu_male(voice: str) -> bool:
+    if not (voice or "").startswith("vieneu:"):
+        return False
+    import kaggle_worker
+    return kaggle_worker.is_male(voice)
+
+
 def _capcut_fallback_voice(voice: str) -> str:
     """Giọng CapCut thay khi edge-tts lỗi hẳn. CapCut có liệt kê "Hoai My"/"Nam Minh" nhưng gọi thì lỗi
     TTSInvalidSpeaker (thử 11/2026) -> dùng giọng nữ/nam CapCut trong Cài đặt (mặc định Ban Mai / Giọng Nam Trầm)."""
-    male = voice == config.VOICE_MALE or ("male" in voice.lower() and "female" not in voice.lower())
+    male = voice == config.VOICE_MALE or ("male" in voice.lower() and "female" not in voice.lower()) or _vieneu_male(voice)
     return config.CAPCUT_VOICE_MALE if male else config.CAPCUT_VOICE_FEMALE
 
 
 def _edge_fallback_voice(voice: str) -> str:
+    """Giọng edge thay thế: VieNeu (chạy trên Kaggle) lỗi / chưa cấu hình -> Hoài My hoặc Nam Minh đúng giới tính."""
     if voice in _EDGE_VOICES:
         return voice
+    if (voice or "").startswith("vieneu:"):
+        return config.VOICE_MALE if _vieneu_male(voice) else config.VOICE_FEMALE
     return config.VOICE_MALE if ("male" in voice and "female" not in voice) else config.VOICE_FEMALE
 
 

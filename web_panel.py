@@ -47,9 +47,9 @@ def _parse_duration(v) -> tuple:
 
 def _pick_voice(v: str) -> str:
     if v == "male":
-        return config.CAPCUT_VOICE_MALE if config.TTS_PROVIDER == "capcut" else config.VOICE_MALE
+        return config.default_voice(male=True)
     if not v or v == "female":
-        return config.CAPCUT_VOICE_FEMALE if config.TTS_PROVIDER == "capcut" else config.VOICE_FEMALE
+        return config.default_voice()
     return v[:80]   # id giọng cụ thể do người dùng chọn trong dropdown
 
 
@@ -184,8 +184,15 @@ def _is_https(request: web.Request) -> bool:
 
 _ONOFF = [["1", "Bật"], ["0", "Tắt"]]
 _SETTING_OPTIONS = {
-    "TTS_PROVIDER": [["edge", "Edge TTS (mặc định: Hoài My; lỗi thì đoạn đó đọc bằng CapCut)"],
+    "TTS_PROVIDER": [["vieneu", "VieNeu giọng miền Nam, đọc trên Kaggle (mặc định; chưa có Kaggle / lỗi -> Edge)"],
+                     ["edge", "Edge TTS (Hoài My; lỗi thì đoạn đó đọc bằng CapCut)"],
                      ["capcut", "CapCut (lỗi thì đọc bằng edge-tts)"]],
+    "VIENEU_VOICE_FEMALE": [["Mỹ Duyên", "Mỹ Duyên (đọc truyện)"], ["Thục Đoan", "Thục Đoan (kể chuyện)"],
+                            ["Thùy Dung", "Thùy Dung (tin tức, đọc nhanh)"], ["Kim Thanh", "Kim Thanh (đọc truyện)"],
+                            ["clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)"]],
+    "VIENEU_VOICE_MALE": [["Adam", "Adam (tự nhiên)"], ["Thái Sơn", "Thái Sơn (kể chuyện)"],
+                          ["Minh Triết", "Minh Triết (tin tức)"], ["Đức Trí", "Đức Trí (đọc truyện)"],
+                          ["clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)"]],
     "AUTO_POST": [["0", "Tắt"], ["1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage"]],
     "AUTO_MODE": [["cook", "Nấu ăn"], ["review", "Review"]],
     "SPEECH_STYLE": [["mien_tay", "Miền Tây (tui, bà con, nè, nghen)"], ["mien_nam", "Miền Nam"], ["pho_thong", "Phổ thông"]],
@@ -503,6 +510,12 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             # CapCut có liệt kê Hoai My / Nam Minh nhưng đọc là lỗi TTSInvalidSpeaker (thử 11/2026): bỏ khỏi danh sách
             voices += [{"id": v["id"], "name": "CapCut · " + v["name"]} for v in tts_capcut.list_voices()
                        if v["id"] not in (config.VOICE_FEMALE, config.VOICE_MALE)]
+        if config.TTS_PROVIDER == "vieneu":
+            import kaggle_worker
+            voices += [{"id": f"vieneu:{n}", "name": f"VieNeu · {n} (miền Nam, nữ)"} for n in kaggle_worker.SOUTH_FEMALE]
+            voices += [{"id": f"vieneu:{n}", "name": f"VieNeu · {n} (miền Nam, nam)"} for n in kaggle_worker.SOUTH_MALE]
+            if os.path.exists(kaggle_worker.VOICE_REF):
+                voices.append({"id": "vieneu:clone", "name": "VieNeu · giọng nhân bản (đoạn mẫu đã tải lên)"})
         voices += [{"id": config.VOICE_FEMALE, "name": "Edge · Hoài My"}, {"id": config.VOICE_MALE, "name": "Edge · Nam Minh"}]
         return web.json_response(voices)
 
@@ -624,6 +637,40 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             f.write(data)
         return web.json_response({"ok": True})
 
+    async def upload_voice_ref(request):
+        """Đoạn giọng mẫu cho giọng nhân bản VieNeu (3-15 giây, giọng bạn có quyền dùng). Chuẩn hoá thành mp3 mono
+        24kHz, cắt còn 10 giây; file gốc không giữ."""
+        _check(request)
+        import kaggle_worker
+        reader = await request.multipart()
+        part = await reader.next()
+        if not part:
+            raise web.HTTPBadRequest(text="Chưa chọn file giọng mẫu")
+        data = await part.read()
+        if len(data) > 5 * 1024 * 1024:
+            raise web.HTTPBadRequest(text="Giọng mẫu tối đa 5MB")
+        tmp = kaggle_worker.VOICE_REF + ".upload"
+        out = kaggle_worker.VOICE_REF + ".tmp.mp3"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            p = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-v", "error", "-y", "-i", tmp, "-t", "10", "-vn", "-ac", "1", "-ar", "24000", "-b:a", "96k",
+                out, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+            _, err = await p.communicate()
+            if p.returncode != 0 or not os.path.exists(out):
+                raise web.HTTPBadRequest(text="Không đọc được file âm thanh: " + err.decode(errors="replace")[-200:])
+            import core_video
+            dur = await core_video.probe_duration(out)
+            if dur < 3:
+                raise web.HTTPBadRequest(text=f"Giọng mẫu chỉ {dur:.1f} giây, cần 3-15 giây")
+            os.replace(out, kaggle_worker.VOICE_REF)
+        finally:
+            for f in (tmp, out):
+                if os.path.exists(f):
+                    os.remove(f)
+        return web.json_response({"ok": True, "seconds": round(dur, 1)})
+
     app = web.Application(client_max_size=config.MAX_UPLOAD + 5 * 1024 * 1024)
     app.router.add_get("/", index)
     app.router.add_get("/health", health)
@@ -641,6 +688,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     app.router.add_post("/api/jobs/{id}/cancel", cancel)
     app.router.add_post("/api/jobs/{id}/approve", approve)
     app.router.add_post("/api/logo", upload_logo)
+    app.router.add_post("/api/voice_ref", upload_voice_ref)
     app.router.add_post("/api/upload", upload)
     app.router.add_get("/api/voices", list_voices)
     app.router.add_get("/api/settings", get_settings)

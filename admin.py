@@ -24,7 +24,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "giọng Piper, dò chữ OCR) | setup_youtube / remove_youtube (deno cho YouTube, ~100MB) | "
                 "setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | clean (dọn bộ nhớ đệm pip + cache) | "
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py) | "
-                "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page)")
+                "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
+                "kaggle_test (thử token Kaggle + giờ GPU còn lại)")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -119,6 +120,17 @@ async def console():
                 logging.info("Tự động đăng: %s", await autopost.tick(force=True))
             elif low == "auto_resume":
                 logging.info("Tự động đăng: %s", await autopost.resume())
+            elif low == "kaggle_test":
+                import kaggle_api
+                if not kaggle_api.configured():
+                    logging.info("❌ Chưa điền KAGGLE_USERNAME / KAGGLE_API_TOKEN trong Cài đặt")
+                else:
+                    try:
+                        q = await asyncio.to_thread(kaggle_api.quota)
+                        logging.info("✅ Kaggle dùng được: còn %.1f giờ GPU tuần này (làm mới %s)",
+                                     q["gpu_left"] / 3600, q["refresh"])
+                    except Exception as e:
+                        logging.info("❌ Kaggle lỗi: %s", e)
             elif low == "fb_test":
                 try:
                     logging.info("✅ Token dùng được cho Fanpage: %s", await autopost.check_token())

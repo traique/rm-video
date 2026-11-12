@@ -87,10 +87,12 @@ def test_review_reply_approves_with_ost(tg):
               approved=[{"i": 0, "start": 0.0, "slot": 2.0, "text": "Một", "ost": "new"},
                         {"i": 1, "start": 2.0, "slot": 2.0, "text": "Hai", "ost": "new"}])
     state.queue.jobs[src.id] = src
+    before = set(map(id, state.queue.jobs.values()))
     asyncio.run(feed(_msg(111, "1: gốc")))
     assert src.status == "approved"
-    new = max(state.queue.jobs.values(), key=lambda j: j.id)
-    assert [s["ost"] for s in new.approved] == ["new", "orig"]
+    # job mới = job vừa thêm (không lấy theo số lớn nhất: test khác dựng JobQueue mới làm bộ đếm số job quay về 1)
+    new = [j for j in state.queue.jobs.values() if id(j) not in before]
+    assert len(new) == 1 and [s["ost"] for s in new[0].approved] == ["new", "orig"]
 
 
 def test_polling_retries_instead_of_crashing(monkeypatch):

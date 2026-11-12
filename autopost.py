@@ -496,7 +496,7 @@ async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random)
             if why:
                 _fail(st, vid, src, now, why, hard=True)
                 continue
-            voice = config.CAPCUT_VOICE_FEMALE if config.TTS_PROVIDER == "capcut" else config.VOICE_FEMALE
+            voice = config.default_voice()
             mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
             job = Job(url=url, mode=mode, duration=0, voice=voice, source="auto",
                       long_mode="full" if dur > config.MAX_DURATION else "", chat_id=config.admin_chat_id() or 0,
