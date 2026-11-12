@@ -219,10 +219,18 @@ def test_pipeline_runs_heavy_part_on_kaggle(kaggle_fakes, monkeypatch, tmp_path)
         return {"ok": True, "video": out, "plan": plan, "too_long": [], "srt": "1\n00:00:00,000 --> 00:00:01,000\nx\n",
                 "amb": True, "notes": [], "timings": {"tts": 4, "render": 60}, "gpu": True}
     monkeypatch.setattr(kaggle_worker, "produce", fake_produce)
+    shortened = []
+
+    async def fake_shorten(items):
+        shortened.extend(i for i, _, _ in items)
+        return {i: " ".join(t.split()[:2]) for i, t, _ in items}
+    monkeypatch.setattr(pipeline.prompt_engine, "shorten", fake_shorten)
     job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Mỹ Duyên")
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
     assert os.path.exists(out) and kaggle_fakes["tts"] == 0                  # không đọc giọng trên Botkeep
+    # Mỹ Duyên ~3.1 chữ/giây: "Lời mới đoạn k nè" (5 chữ ~1.6s) không vừa khe ~1.3s -> rút gọn TRƯỚC khi gửi Kaggle
+    assert shortened and all(len(s["text"].split()) <= 2 for s in got["spec"]["segments"] if s["i"] in shortened)
     assert got["spec"]["voice"]["name"] == "Mỹ Duyên" and got["spec"]["segments"]
     assert "Kaggle (GPU)" in job.error and job.srt.startswith("1")
 

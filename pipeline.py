@@ -645,7 +645,10 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         # ước lượng độ dài TRƯỚC khi đọc (kiểu VideoLingo): đoạn chắc chắn tràn thì rút gọn luôn, đỡ một lượt
         # gọi TTS không chính thức rồi lại phải đọc lại. Ước lượng thận trọng (x0.85) để không rút gọn nhầm.
         if not job.approved:
-            est = [0.0 if sg.get("ost") == "orig" else len(sg["text"].split()) / prompt_engine.words_per_sec() * 0.85
+            # chạy trên Kaggle: biết đúng tốc độ của giọng VieNeu và KHÔNG có vòng AI rút gọn sau khi đọc (Kaggle không
+            # giữ key) -> ước tính đủ (x1.0); trên Botkeep còn vòng rút gọn sau nên ước tính thận trọng (x0.85)
+            est_k = 1.0 if remote else 0.85
+            est = [0.0 if sg.get("ost") == "orig" else len(sg["text"].split()) / prompt_engine.words_per_sec() * est_k
                    for sg in segs_t]
             _, sure_long = core_video.plan_voice(est, segs_t, out_dur)
             if sure_long:
