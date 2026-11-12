@@ -81,6 +81,16 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
   </details>
 </div>
 <div class="card">
+  <details id="auto_box"><summary><b>🤖 Tự động đăng Facebook</b> <span class="mut">(kênh nguồn → làm lại → đăng Fanpage giờ vàng; bật trong Cài đặt: AUTO_POST, AUTO_SOURCES, FB_PAGE_ID, FB_PAGE_TOKEN)</span></summary>
+    <pre id="auto_status" class="mut" style="white-space:pre-wrap;margin:8px 0"></pre>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="auto_now" style="flex:1">▶️ Lấy video ngay</button>
+      <button id="auto_test" style="flex:1;background:var(--mut)">🔑 Thử token Fanpage</button>
+      <button id="auto_resume" style="flex:1;background:var(--mut)">↺ Chạy lại sau lỗi</button>
+    </div>
+  </details>
+</div>
+<div class="card">
   <b>⬇️ Trình tải video (YouTube / TikTok / Facebook)</b>
   <label>Dán link rồi bấm Xem định dạng — hoặc tải thẳng chất lượng tốt nhất</label>
   <input id="dl_url" placeholder="https://www.youtube.com/watch?v=...">
@@ -204,6 +214,17 @@ document.querySelector('#save_set').onclick=async()=>{
   $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();
   if(r.ok){document.querySelectorAll('[data-k]').forEach(el=>el.value='');loadSettings();}
 };
+async function autoCall(act){
+  try{
+    const r=await fetch('/api/autopost'+(act?'/'+act:''),{method:act?'POST':'GET',headers:hdr()});
+    const d=r.ok?await r.json():{text:'❌ '+await r.text()};
+    $('auto_status').textContent=(act?d.text+'\n\n':'')+(d.status||d.text||'');
+  }catch(e){$('auto_status').textContent='❌ '+e}
+}
+$('auto_box').addEventListener('toggle',()=>{if($('auto_box').open)autoCall('')});
+$('auto_now').onclick=()=>{$('auto_status').textContent='Đang tìm video...';autoCall('now')};
+$('auto_test').onclick=()=>autoCall('test');
+$('auto_resume').onclick=()=>autoCall('resume');
 function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
   const cur=$('voice').value;
   $('voice').innerHTML=vs.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('');

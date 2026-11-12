@@ -576,7 +576,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         job.script = spoken_script(timed["segments"]) or timed["script"]
         if not job.approved:
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"], credit_line(job))
-        if allow_review and (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
+        if allow_review and job.source != "auto" and (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
             job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
                              "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")}
                             for s in timed["segments"]]

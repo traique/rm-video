@@ -27,3 +27,4 @@ golden/.golden_jobs.db
 .local/
 recent_looks.json
 render_speed.json
+autopost.json

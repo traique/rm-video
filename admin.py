@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 
+import autopost
 import cache
 import config
 import core_video
@@ -22,7 +23,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "tự quay lại bản cũ nếu hỏng) | setup_offline / remove_offline (gói offline ~185MB: tách giọng nhanh, "
                 "giọng Piper, dò chữ OCR) | setup_youtube / remove_youtube (deno cho YouTube, ~100MB) | "
                 "setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | clean (dọn bộ nhớ đệm pip + cache) | "
-                "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py)")
+                "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py) | "
+                "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page)")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -111,6 +113,20 @@ async def console():
                     logging.info("Hàng đợi đang có video, chạy bộ video mẫu sau khi xong để không tranh CPU.")
                 else:
                     spawn(run_golden(arg))
+            elif low in ("auto", "auto_status"):
+                logging.info(autopost.status_text())
+            elif low == "auto_now":
+                logging.info("Tự động đăng: %s", await autopost.tick(force=True))
+            elif low == "auto_resume":
+                st = autopost.load_state()
+                st["paused"] = ""
+                autopost.save_state(st)
+                logging.info("Tự động đăng: chạy lại. %s", await autopost.tick())
+            elif low == "fb_test":
+                try:
+                    logging.info("✅ Token dùng được cho Fanpage: %s", await autopost.check_token())
+                except Exception as e:
+                    logging.info("❌ Token Fanpage lỗi: %s", e)
             elif low.startswith("cancel "):
                 logging.info(cancel_job(int(low.split()[1])))
             else:

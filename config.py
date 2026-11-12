@@ -41,7 +41,7 @@ EDITABLE = {
     "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
     "TTS_RATE": "+8%",
     "TTS_PITCH": "+0Hz",
-    "TTS_PROVIDER": "capcut",          # capcut | edge
+    "TTS_PROVIDER": "edge",            # edge (mặc định: Hoài My, lỗi thì đọc đoạn đó bằng CapCut) | capcut
     "CAPCUT_VOICE_FEMALE": "multi_female_yangguangnv_uranus_bigtts",
     "CAPCUT_VOICE_MALE": "multi_male_felipe_uranus_bigtts",
     "VOICE_SEPARATION": "1",           # 1 = tách giọng gốc bằng AI (chế độ nấu ăn); 0 = chỉ tắt tiếng nền lúc người gốc nói
@@ -64,8 +64,16 @@ EDITABLE = {
     "ALLOWED_SOURCES": "",             # kênh nguồn được phép (tên kênh/uploader, cách nhau dấu phẩy); trống = mọi kênh
     "ALLOWED_USERS": "",               # chat_id/user_id Telegram được dùng bot, cách nhau dấu phẩy
     "ADMIN_CHAT_ID": "",               # nơi nhận cảnh báo (dịch vụ ngoài hỏng); trống = người đầu tiên trong ALLOWED_USERS
+    # 🤖 Tự động đăng (autopost.py): lấy video ngẫu nhiên không trùng từ kênh nguồn -> làm lại -> đăng Fanpage giờ vàng
+    "AUTO_POST": "0",                  # 1 = bật
+    "AUTO_SOURCES": "",                # kênh Facebook nguồn (link kênh hoặc tên kênh), cách nhau dấu phẩy
+    "AUTO_PER_DAY": "2",               # số video đăng mỗi ngày (1-6)
+    "AUTO_TIMES": "",                  # trống = bot tự chọn giờ vàng theo lượt xem; hoặc cố định "11:30,20:30"
+    "AUTO_MODE": "cook",               # chế độ làm lại: cook | review
+    "FB_PAGE_ID": "",                  # id Fanpage đăng lên
+    "FB_PAGE_TOKEN": "",               # Page access token (quyền pages_manage_posts, pages_read_engagement, pages_show_list)
 }
-SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES"}
+SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES", "FB_PAGE_TOKEN"}
 _ID_LIST = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
@@ -147,6 +155,20 @@ def save_settings(updates: dict):
                 raise ValueError(f"{k} phải là các số chat_id cách nhau dấu phẩy")
             if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge"):
                 raise ValueError("TTS_PROVIDER chỉ nhận: capcut, edge")
+            if k == "AUTO_POST" and v not in ("0", "1"):
+                raise ValueError("AUTO_POST chỉ nhận: 0, 1")
+            if k == "AUTO_PER_DAY" and not (v.isdigit() and 1 <= int(v) <= 6):
+                raise ValueError("AUTO_PER_DAY là số 1-6")
+            if k == "AUTO_TIMES" and not re.fullmatch(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*", v):
+                raise ValueError("AUTO_TIMES dạng 11:30,20:30 (giờ Việt Nam)")
+            if k == "AUTO_MODE" and v not in ("cook", "review"):
+                raise ValueError("AUTO_MODE chỉ nhận: cook, review")
+            if k == "FB_PAGE_ID" and not v.isdigit():
+                raise ValueError("FB_PAGE_ID là dãy số id của Fanpage")
+            if k == "AUTO_SOURCES":
+                import autopost
+                for s in re.split(r"[,\s]+", v):
+                    autopost.normalize_source(s)        # ném ValueError nếu không phải kênh Facebook
             cur[k] = v
     tmp = SETTINGS_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:          # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang

@@ -58,7 +58,22 @@ def test_plan_voice_never_overlaps_and_flags_too_long():
 
 def test_plan_voice_natural_when_fits():
     plan, too_long = core_video.plan_voice([1.0], [{"start": 1.0, "slot": 2.0, "span": 1.0}], 5.0)
-    assert too_long == [] and plan[0]["start"] == 1.0 and 0.92 <= plan[0]["factor"] <= 1.1
+    assert too_long == [] and plan[0]["start"] == 1.0 and plan[0]["factor"] == 1.0   # không bao giờ làm chậm
+
+
+def test_plan_voice_one_speed_for_whole_video():
+    """Botkeep 11/2026: "giọng lúc nhanh lúc chậm" — mỗi đoạn từng co giãn riêng 0.92x-1.35x. Giờ cả video một tốc
+    độ chung; từng đoạn chỉ lệch tối đa 5% (đoạn bị báo quá dài tối đa 10%)."""
+    segs = [{"start": 3.0 * k, "slot": 3.0, "span": 3.0} for k in range(10)]
+    durs = [2.0, 3.2, 1.5, 3.3, 2.8, 3.25, 1.0, 3.1, 2.9, 2.5]
+    plan, too_long = core_video.plan_voice(durs, segs, 30.0)
+    base = core_video.voice_base_factor(durs, segs, 30.0)
+    assert 1.0 <= base <= core_video.VOICE_MAX_BASE
+    for i, p in enumerate(plan):
+        assert base - 1e-6 <= p["factor"] <= base * (core_video.VOICE_LAST if i in too_long else core_video.VOICE_DEV) + 1e-6
+    for a, b in zip(plan, plan[1:]):
+        assert b["start"] >= a["end"]
+    assert max(p["factor"] for p in plan) / min(p["factor"] for p in plan) <= 1.1
 
 
 # ---------- chia đoạn theo thao tác ----------

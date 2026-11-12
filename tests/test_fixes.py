@@ -50,14 +50,14 @@ def test_long_video_retries_only_failed_batch(monkeypatch):
 
     async def fake_timed(title, desc, mode, part, end, images_for=None, extra=""):
         calls["n"] += 1
-        if part[0][0] == 28.0 and calls.setdefault("failed", 0) == 0:     # lô thứ 2 lỗi lần đầu
+        if part[0][0] == 56.0 and calls.setdefault("failed", 0) == 0:     # lô thứ 2 lỗi lần đầu
             calls["failed"] = 1
             return None
         return {"segments": [{"i": k, "start": s[0], "slot": 1.0, "text": f"lời {s[0]:.0f}", "orig": s[2]}
                              for k, s in enumerate(part)], "title": "t", "caption": "c", "hashtags": "#a"}
     monkeypatch.setattr(prompt_engine, "generate_timed", fake_timed)
-    segs = [(float(i), i + 0.8, f"gốc {i}") for i in range(60)]
-    out = asyncio.run(prompt_engine.generate_timed_any("", "", "cook", segs, 61.0))
+    segs = [(2.0 * i, 2.0 * i + 1.6, f"gốc số {i}.") for i in range(60)]   # câu trọn, cách 2s: không bị gộp
+    out = asyncio.run(prompt_engine.generate_timed_any("", "", "cook", segs, 121.0))
     assert out is not None and len(out["segments"]) == 60
     assert calls["n"] == 4                                   # 3 lô + 1 lần gọi lại
 

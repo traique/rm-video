@@ -74,9 +74,42 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 
 `/start` → gửi link **hoặc gửi thẳng file video đính kèm (≤ 20MB, giới hạn Bot API)** → chọn chế độ (🍲/📦) → chọn thời lượng → nhận output.mp4, caption là content đăng luôn.
 
-## Giọng đọc CapCut/TikTok (mặc định)
+## Giọng đọc (mặc định: Hoài My của edge-tts)
 
 24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo các khoảng có tiếng của chính giọng đã tạo (lệch ~70ms, không gọi mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ (lệch ~85ms, chậm hơn). Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
+
+Mặc định `TTS_PROVIDER=edge`, giọng Hoài My (`vi-VN-HoaiMyNeural`) cho mọi chế độ. edge-tts lỗi (thử 6 lần) thì
+riêng đoạn đó đọc bằng giọng nữ CapCut trong Cài đặt (`CAPCUT_VOICE_FEMALE`, mặc định Ban Mai). CapCut có liệt kê
+"Hoai My" / "Nam Minh" nhưng gọi thì lỗi `TTSInvalidSpeaker` (thử 11/2026) nên không dùng được làm dự phòng.
+Cả video đọc cùng một tốc độ (tối đa 1.12x), từng đoạn chỉ lệch ≤5%; lời gốc bị máy nghe cắt vụn được gộp thành câu
+trọn trước khi AI viết lại.
+
+## 🤖 Tự động đăng Fanpage (kênh nguồn → làm lại → giờ vàng)
+
+Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook nguồn, cách nhau dấu phẩy),
+`FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng),
+`AUTO_MODE` (cook | review). Theo dõi ở ô **🤖 Tự động đăng Facebook** trên web hoặc lệnh console `auto`.
+
+- Mỗi lần lấy NGẪU NHIÊN một video mới của kênh nguồn (đọc tab Reels + Video của kênh, không cần đăng nhập: ~10 video
+  mới nhất mỗi tab). Video đã dùng không bao giờ dùng lại; video quá 5 phút / không phải của chủ kênh bị bỏ qua.
+- Chỉ thêm job khi hàng đợi trống (video bạn gửi luôn làm trước), làm sẵn cho các khung giờ trong 36 giờ tới rồi
+  **hẹn giờ đăng phía Facebook**, nên máy chậm hay bot khởi động lại không làm lỡ giờ.
+- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag + dòng ghi nguồn.
+- Giờ vàng: ban đầu 11:30 và 20:30 (giờ Việt Nam). Mỗi bài sau 24 giờ được đọc lượt xem; khung nào trung bình cao hơn
+  được chọn nhiều hơn, thỉnh thoảng thử khung khác. Hai khung trong ngày cách nhau ≥ 3 giờ.
+- Lỗi token (hết hạn, thiếu quyền) thì dừng và báo Telegram admin; sửa token rồi gõ `auto_resume` (hoặc bấm nút trên web).
+
+Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
+1. developers.facebook.com → My Apps → tạo app (loại Business).
+2. Tools → Graph API Explorer: chọn app, **Get User Access Token** với quyền `pages_show_list`,
+   `pages_read_engagement`, `pages_manage_posts` → Generate.
+3. Tools → Access Token Debugger: dán token → **Extend Access Token** (token người dùng 60 ngày).
+4. Trong Graph API Explorer dùng token 60 ngày đó gọi `me/accounts`: lấy `id` (= `FB_PAGE_ID`) và `access_token`
+   (= `FB_PAGE_TOKEN`) của Fanpage. Token Page lấy từ token người dùng dài hạn không hết hạn.
+5. Dán vào Cài đặt, bấm **🔑 Thử token Fanpage** (hoặc gõ `fb_test`).
+
+Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
+bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình và ghi nguồn nhưng không thay được quyền tác giả.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 

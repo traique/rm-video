@@ -349,6 +349,7 @@ def _probe_formats_sync(url: str, tmpdir: str) -> dict:
                         "size_mb": round(a_sz / 1048576) or None})
     return {"title": clean_title(info.get("title") or ""), "thumbnail": info.get("thumbnail") or "",
             "duration": int(info.get("duration") or 0), "uploader": info.get("uploader") or "",
+            "uploader_id": str(info.get("uploader_id") or info.get("channel_id") or ""),
             "max_height": max_h, "max_short": max_short, "options": options}
 
 
@@ -589,6 +590,8 @@ _EDGE_VOICES = {config.VOICE_FEMALE, config.VOICE_MALE}
 
 
 def _capcut_fallback_voice(voice: str) -> str:
+    """Giọng CapCut thay khi edge-tts lỗi hẳn. CapCut có liệt kê "Hoai My"/"Nam Minh" nhưng gọi thì lỗi
+    TTSInvalidSpeaker (thử 11/2026) -> dùng giọng nữ/nam CapCut trong Cài đặt (mặc định Ban Mai / Giọng Nam Trầm)."""
     male = voice == config.VOICE_MALE or ("male" in voice.lower() and "female" not in voice.lower())
     return config.CAPCUT_VOICE_MALE if male else config.CAPCUT_VOICE_FEMALE
 
@@ -752,31 +755,59 @@ def speech_windows(speech: list, total: float, pad: float = 0.3, merge: float = 
     return [(round(a, 2), round(b, 2)) for a, b in out]
 
 
+VOICE_MAX_BASE = 1.12      # tốc độ chung tối đa cho cả video (nhanh hơn nghe vội)
+VOICE_DEV = 1.05           # mỗi đoạn được nhanh hơn tốc độ chung tối đa 5%: tai gần như không nghe ra
+VOICE_LAST = 1.10          # đoạn vẫn tràn sau khi AI đã rút gọn: nhanh hơn tốc độ chung tối đa 10%
+VOICE_HARD = 1.25          # chỉ khi đụng mốc cứng (cửa sổ giữ tiếng gốc / hết video): thà nhanh còn hơn đè tiếng
+
+
+def _next_start(segs: list, i: int, total_dur: float) -> float:
+    return segs[i + 1]["start"] if i + 1 < len(segs) else total_dur
+
+
+def voice_base_factor(durs: list, segs: list, total_dur: float) -> float:
+    """MỘT tốc độ đọc cho cả video: phân vị 80% của tốc độ từng đoạn cần để vừa khe (cho lấn nhẹ 0.35s), kẹp trong
+    [1.0, VOICE_MAX_BASE]. Trước đây mỗi đoạn co giãn riêng 0.92x-1.35x -> nghe lúc nhanh lúc chậm (Botkeep 11/2026)."""
+    need = []
+    for i, (d, s) in enumerate(zip(durs, segs)):
+        if s.get("ost") == "orig" or d <= 0:
+            continue
+        nxt = _next_start(segs, i, total_dur)
+        hard = i + 1 >= len(segs) or segs[i + 1].get("ost") == "orig"
+        need.append(d / max(0.5, nxt - s["start"] + (0.0 if hard else 0.35)))
+    if not need:
+        return 1.0
+    need.sort()
+    return round(min(VOICE_MAX_BASE, max(1.0, need[int(0.8 * (len(need) - 1))])), 3)
+
+
 def plan_voice(durs: list, segs: list, total_dur: float):
-    """Xếp các đoạn giọng lên trục thời gian. durs: độ dài giọng gốc từng đoạn;
-    segs: [{start, slot, span}]. Không bao giờ cắt cụt chữ: thứ tự ưu tiên khi đoạn dài hơn khe:
-    (1) bắt đầu sớm hơn tối đa 0.5s nếu đoạn trước đã xong, (2) nói nhanh hơn tới 1.25x,
-    (3) lấn sang khe sau tối đa 0.35s (đoạn sau lùi theo), (4) báo "quá dài" để AI viết ngắn lại.
+    """Xếp các đoạn giọng lên trục thời gian. durs: độ dài giọng (tới hết tiếng nói) từng đoạn;
+    segs: [{start, slot, span}]. Cả video đọc cùng MỘT tốc độ (voice_base_factor), không bao giờ làm chậm. Đoạn dài
+    hơn khe, theo thứ tự: (1) bắt đầu sớm hơn tối đa 0.5s nếu đoạn trước đã xong, (2) nhanh hơn tốc độ chung tối đa
+    5%, (3) lấn sang khe sau tối đa 0.35s (đoạn sau lùi theo), (4) báo "quá dài" để AI viết ngắn lại; vẫn tràn thì
+    nhanh hơn tối đa 10% (25% nếu đụng cửa sổ giữ tiếng gốc hoặc hết video). Không cắt cụt chữ.
     Trả về (placements [{start, factor, end}], danh sách chỉ số đoạn quá dài)."""
+    base = voice_base_factor(durs, segs, total_dur)
     plan, too_long, prev_end = [], [], 0.0
     for i, (d, s) in enumerate(zip(durs, segs)):
-        nxt = segs[i + 1]["start"] if i + 1 < len(segs) else total_dur
+        nxt = _next_start(segs, i, total_dur)
         if s.get("ost") == "orig":           # đoạn giữ nguyên tiếng gốc: không đọc, đoạn sau không được mượn lùi vào
             plan.append({"start": round(s["start"], 3), "factor": 1.0, "end": round(s["start"], 3)})
             prev_end = max(prev_end, nxt - 0.12)
             continue
-        into_orig = i + 1 < len(segs) and segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc
+        last = i + 1 >= len(segs)
+        hard = last or segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc / quá hết video
         start = max(s["start"], prev_end + 0.12)
-        want = max(0.5, min(s.get("span", s["slot"]), nxt - start))
-        f = max(0.92, min(d / want, 1.1))          # vùng tự nhiên: hầu như không nghe ra co giãn
+        f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
-        if start + d / f > nxt:                     # (2) nói nhanh hơn
-            f = min(d / max(0.3, nxt - start), 1.25)
-        limit = (nxt + (0.0 if into_orig else 0.35)) if i + 1 < len(segs) else total_dur - 0.05
+        if start + d / f > nxt:                     # (2) nhanh hơn tốc độ chung một chút
+            f = min(d / max(0.3, nxt - start), base * VOICE_DEV)
+        limit = total_dur - 0.05 if last else nxt + (0.0 if hard else 0.35)
         if start + d / f > limit:                   # (3) vẫn tràn quá giới hạn lấn
             too_long.append(i)
-            f = min(d / max(0.3, limit - start), 1.35)
+            f = max(f, min(d / max(0.3, limit - start), VOICE_HARD if hard else base * VOICE_LAST))
         end = start + d / f
         plan.append({"start": round(start, 3), "factor": round(f, 4), "end": round(end, 3)})
         prev_end = end

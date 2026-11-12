@@ -304,7 +304,7 @@ def setup(bot):
         if config.TTS_PROVIDER == "capcut":
             voice = config.CAPCUT_VOICE_FEMALE if p["mode"] == "cook" else config.CAPCUT_VOICE_MALE
         else:
-            voice = config.VOICE_FEMALE if p["mode"] == "cook" else config.VOICE_MALE
+            voice = config.VOICE_FEMALE                     # Hoài My (edge) cho mọi chế độ
         choice = cb.data.split(":")[1]
         if choice == "review":
             pending[cb.message.chat.id] = p

@@ -184,7 +184,10 @@ def _is_https(request: web.Request) -> bool:
 
 _ONOFF = [["1", "Bật"], ["0", "Tắt"]]
 _SETTING_OPTIONS = {
-    "TTS_PROVIDER": [["capcut", "CapCut (tự nhiên, khuyên dùng)"], ["edge", "Edge TTS (dự phòng)"]],
+    "TTS_PROVIDER": [["edge", "Edge TTS (mặc định: Hoài My; lỗi thì đoạn đó đọc bằng CapCut)"],
+                     ["capcut", "CapCut (lỗi thì đọc bằng edge-tts)"]],
+    "AUTO_POST": [["0", "Tắt"], ["1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage"]],
+    "AUTO_MODE": [["cook", "Nấu ăn"], ["review", "Review"]],
     "SPEECH_STYLE": [["mien_tay", "Miền Tây (tui, bà con, nè, nghen)"], ["mien_nam", "Miền Nam"], ["pho_thong", "Phổ thông"]],
     "SUB_STYLE": [["karaoke", "Karaoke (sáng dần theo giọng)"], ["box", "Hộp nền đen"], ["outline", "Chữ trắng viền đen"], ["plain", "Vàng gọn"]],
     "QUALITY": [["fast", "Nhanh: luôn 720p, superfast (nhanh ~2.3 lần)"],
@@ -497,9 +500,38 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         voices = [{"id": "female", "name": "Nữ mặc định (Cài đặt)"}, {"id": "male", "name": "Nam mặc định (Cài đặt)"}]
         if config.TTS_PROVIDER == "capcut":
             import tts_capcut
-            voices += [{"id": v["id"], "name": "CapCut · " + v["name"]} for v in tts_capcut.list_voices()]
+            # CapCut có liệt kê Hoai My / Nam Minh nhưng đọc là lỗi TTSInvalidSpeaker (thử 11/2026): bỏ khỏi danh sách
+            voices += [{"id": v["id"], "name": "CapCut · " + v["name"]} for v in tts_capcut.list_voices()
+                       if v["id"] not in (config.VOICE_FEMALE, config.VOICE_MALE)]
         voices += [{"id": config.VOICE_FEMALE, "name": "Edge · Hoài My"}, {"id": config.VOICE_MALE, "name": "Edge · Nam Minh"}]
         return web.json_response(voices)
+
+    async def auto_status(request):
+        _check(request)
+        import autopost
+        return web.json_response({"text": autopost.status_text()})
+
+    async def auto_action(request):
+        _check(request)
+        import autopost
+        act = request.match_info["act"]
+        try:
+            if act == "now":
+                msg = await autopost.tick(force=True)
+            elif act == "test":
+                msg = "✅ Token dùng được cho Fanpage: " + await autopost.check_token()
+            elif act == "resume":
+                st = autopost.load_state()
+                st["paused"] = ""
+                autopost.save_state(st)
+                msg = "Đã chạy lại. " + await autopost.tick()
+            else:
+                raise web.HTTPNotFound()
+        except web.HTTPException:
+            raise
+        except Exception as e:
+            msg = f"❌ {str(e)[:300]}"
+        return web.json_response({"text": msg, "status": autopost.status_text()})
 
     async def get_settings(request):
         _check(request)
@@ -615,5 +647,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     app.router.add_post("/api/upload", upload)
     app.router.add_get("/api/voices", list_voices)
     app.router.add_get("/api/settings", get_settings)
+    app.router.add_get("/api/autopost", auto_status)
+    app.router.add_post("/api/autopost/{act}", auto_action)
     app.router.add_post("/api/settings", set_settings)
     return app

@@ -50,6 +50,8 @@ async def main():
     logging.info("Dung lượng: %s", disk_report())
     warn_low_disk()
     spawn(_ffmpeg_selftest())
+    import autopost
+    spawn(autopost.run_forever())                  # 🤖 tự động đăng Facebook (AUTO_POST=1 mới chạy)
     import potoken_setup
     if not potoken_setup.js_runtime():
         logging.info("YouTube: chưa cài bộ giải JavaScript (deno). Cần tải YouTube thì gõ  setup_youtube  (~100MB).")
