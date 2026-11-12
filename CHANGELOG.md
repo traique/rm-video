@@ -120,6 +120,28 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Video thật bản 25 (bản 26): 30 giây đầu không có giọng, phân tích hình lâu
+
+Đo trên video cá kèo 220s bạn gửi: tách giọng cả video gốc và video ra, so từng giây.
+
+| Hiện tượng | Nguyên nhân (đo được) | Sửa |
+| --- | --- | --- |
+| 0-29s video ra không có giọng mới (giọng gốc đã tách sạch, còn -45 dB) | Video gốc 0-29s người gốc NÓI liên tục: âm tiết 60-140ms, ít nốt giữ (giống hệt phần có lời, không phải bài hát); giọng hơn nhạc 10-18 dB, không tệ hơn phần bóc được. Whisper turbo lượt đầu bịa "Các bạn hãy đăng ký kênh để ủng hộ kênh", lượt nghe lại CÙNG model chỉ ra "Cá vào gãy là". 52-82s cũng vậy (8 chữ cho 30s lời) | Nghe lại bằng `whisper-large-v3` (bản đầy đủ) + khoá ngôn ngữ; vẫn < 0.4 chữ/giây thì nhờ Gemini nghe quãng đó, lấy bản nhiều lời hơn. Lời gốc bắt đầu sau 3s thì AI viết câu mở đầu ở 0s |
+| Whisper lặp "Các cá kèo sẽ giòn lâu từ trong ra ngoài." 4 lần (84-100s), "Các bạn có thể nhìn thấy cá kèo..." 2 lần | Whisper lặp vòng | Bỏ đoạn gần y hệt 1-2 câu trước (trong 30s) hoặc là câu đó lặp hai lần; câu nói TIẾP câu trước không tính |
+| Giọng mới chỉ phủ 68/220s, lặng giữa câu trung vị 2.4s | 60s lời bị sót, và lỗi của bản 25: lời nhắc đổi thành "tối đa n từ" -> AI chỉ viết 67% số chữ (bản 24 "khoảng n từ": 100%), giọng phủ ~53% mỗi khe | Giao KHOẢNG "lo-hi từ" (lo = 80% hi) |
+| "xuống." đọc một mình; "...thì Các cá" \| "kèo sẽ giòn..." (cắt giữa tên cá kèo) | Whisper kéo dài mốc chữ cuối; câu gộp sẽ > 6s | Mẩu kết câu đứng lẻ về câu trước (cách ≤ 3s); câu bị cắt ngang gộp tới 9s |
+| AI bị bắt viết lại 2 lượt vì "thiếu cua" (bóc lời "Các c. cua, cá kèo"); các lần trước "thiếu mè, bịa dầu mè" (bóc lời "dòng mè"), "thiếu ớt" ("ớt" = ướp) | Báo động giả do lỗi bóc lời — lần chạy nào cũng có, tốn 2 lượt AI, có nguy cơ AI nhét cua vào món cá | Lúc quyết định viết lại: bỏ qua nguyên liệu chỉ nhắc 1 lần; "mè"/"dầu mè", "dừa"/"nước cốt dừa" coi là một. Vẫn bắt đổi sang thứ khác (gà -> trứng gà, hoa hồi -> cá hồi) |
+| "Bóc lời + phân tích hình" 400s cho video 220s | Bóc lời (cả nghe lại) chỉ ~17s. Phân tích hình giải mã ĐỦ 30 khung/giây (6.600 khung 720p) trên Botkeep ~380s — 80% là giải mã | `SCENE_ANALYSIS` (Cài đặt): **Nhẹ** (mặc định) chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI vẫn đủ; đo 1 luồng 26.2s -> 1.05s (~25 lần nhanh hơn, Botkeep ~15-20s); **Vừa** thêm dò chuyển cảnh, bỏ khung phụ khi giải mã (26.2 -> 14.2s, 11/12 điểm chuyển cảnh, lệch < 0.1s); **Kỹ** như cũ. Video không lời / cắt phần / đoạn hay tự dò chuyển cảnh mức Vừa; khung chính quá thưa thì tự làm mức Vừa |
+
+| Job 2, 3 lỗi "Video dài 220s, vượt giới hạn 90s" (gửi lại link 3 lần mới chạy) | Ô thời lượng mặc định «Giữ nguyên» vẫn bị giới hạn 90s — giới hạn đặt ra vì Botkeep dựng chậm | «Giữ nguyên» + Kaggle bật: video ≤ 5 phút tự làm nguyên cả video (kèm ghi chú). Chọn 30/60/90 giây, cắt phần, đoạn hay: như cũ. Không có Kaggle: như cũ |
+
+Gemini nghe lại mỗi quãng tối đa 45 giây (Gemini quá tải/treo không làm job chờ hàng chục phút).
+
+Phân tích hình dùng để làm gì: (1) dò chữ in cứng — che phụ đề gốc và đặt phụ đề mới đúng chỗ (quan trọng nhất,
+giữ ở mọi mức); (2) ảnh bìa — chấm điểm khung đẹp; (3) ảnh từng đoạn cho AI nhìn khi viết lời (2 lần gần đây Gemini
+quá tải nên viết không kèm ảnh); (4) điểm chuyển cảnh — câu mới bắt đầu đúng lúc đổi cảnh (video cá kèo chỉ có 12
+điểm, 150 giây giữa là một cảnh liền) và bắt buộc cho video không lời (mỗi cảnh một câu).
+
 ## Video thật bản 24 (bản 25): cuối video còn giọng gốc, giọng đọc chưa trơn
 
 Đo trên video bạn gửi (mì xào bò 173s, dựng trên Kaggle) bằng cách tách giọng cả video gốc lẫn video ra rồi so từng giây.

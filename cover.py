@@ -39,10 +39,14 @@ def _raw_frames(args: list, pre_vf: str = "") -> np.ndarray:
     return np.frombuffer(raw[: n * SW * SH * 3], np.uint8).reshape(n, SH, SW, 3)
 
 
-def frames_sync(src: str, thumbs_dir: str | None) -> tuple:
-    """(thời điểm trên video gốc, khung SHxSWx3). Ưu tiên ảnh thu nhỏ có sẵn; không có thì giải mã khung khoá."""
+def frames_sync(src: str, thumbs_dir: str | None, thumb_times: list | None = None) -> tuple:
+    """(thời điểm trên video gốc, khung SHxSWx3). Ưu tiên ảnh thu nhỏ có sẵn (2 khung/giây, hoặc ảnh khung chính kèm
+    mốc thời gian ở mức phân tích nhẹ); không có thì giải mã khung khoá."""
     if thumbs_dir and os.path.isdir(thumbs_dir) and os.listdir(thumbs_dir):
         fr = _raw_frames(["-framerate", str(scenes.THUMB_FPS), "-i", os.path.join(thumbs_dir, "%05d.jpg")])
+        if thumb_times:
+            k = min(len(fr), len(thumb_times))
+            return np.array(thumb_times[:k], dtype=float), fr[:k]
         return np.arange(len(fr)) / scenes.THUMB_FPS, fr
     err = subprocess.run(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
                           "-fps_mode", "passthrough", "-f", "null", "-"], capture_output=True, text=True, timeout=180).stderr
@@ -220,12 +224,13 @@ async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: s
 
 
 async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
-                     end: float | None = None, bands=None, thumbs_dir: str | None = None) -> str | None:
+                     end: float | None = None, bands=None, thumbs_dir: str | None = None,
+                     thumb_times: list | None = None) -> str | None:
     """Toàn bộ quy trình (thời gian theo video GỐC). Không bao giờ ném lỗi: trả None nếu không làm được."""
     if config.COVER == "0":
         return None
     try:
-        times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir)
+        times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
         if not len(frames):
             return None
         sc = score_frames(frames, times, src_dur, mode, cuts, end)

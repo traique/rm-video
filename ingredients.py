@@ -80,20 +80,25 @@ def _ctx_skip(alias: str, syl: list, i: int) -> bool:
     return prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt)
 
 
-def find(text: str) -> set:
-    """Tập chỉ số nhóm nguyên liệu xuất hiện (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+def counts(text: str) -> dict:
+    """{chỉ số nhóm nguyên liệu: số lần nhắc} (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
     syl = _syllables(text)
     used = [False] * len(syl)
-    found = set()
+    found: dict = {}
     for alias, gi in _ALIASES:
         a = alias.split()
         n = len(a)
         for i in range(len(syl) - n + 1):
             if syl[i:i + n] == a and not any(used[i:i + n]) and not (n == 1 and _ctx_skip(alias, syl, i)):
-                found.add(gi)
+                found[gi] = found.get(gi, 0) + 1
                 for j in range(i, i + n):
                     used[j] = True
     return found
+
+
+def find(text: str) -> set:
+    """Tập chỉ số nhóm nguyên liệu xuất hiện (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+    return set(counts(text))
 
 
 def _loose(text: str) -> str:
@@ -117,6 +122,31 @@ def check(orig: str, new: str) -> tuple:
     added = [GROUPS[i][0] for i in sorted(b - a)
              if not any(_loose(al) in lo for al in GROUPS[i])]
     return missing, added
+
+
+_FORMS = ("dầu", "nước cốt", "nước")   # máy nghe hay làm mất chữ đầu: "dầu mè" -> "dòng mè" (chỉ còn "mè")
+
+
+def check_rewrite(orig: str, new: str) -> tuple:
+    """Như check(), dùng để QUYẾT ĐỊNH bắt AI viết lại, bỏ hai kiểu báo động giả lần nào cũng gặp trong log thật
+    (mỗi lần tốn 2 lượt AI và có nguy cơ AI nhét nguyên liệu lạ vào món):
+    - gốc "mè" (máy nghe "dòng mè"), mới "dầu mè": cùng nguyên liệu khác dạng (dầu/nước/nước cốt) -> coi là một;
+    - nguyên liệu chỉ nhắc ĐÚNG MỘT LẦN trong lời gốc hay là chữ máy nghe nhầm ("Các c. cua, cá kèo" trong món cá kèo,
+      "ớt" của "ướp", "giá" của "giá đầm mì") -> không bắt phải có."""
+    a, b = counts(orig), find(new)
+    lo = _loose(orig)
+    missing = [i for i in sorted(a) if i not in b]
+    added = [i for i in sorted(b - set(a)) if not any(_loose(al) in lo for al in GROUPS[i])]
+
+    def form_of(x, y):          # y là x ở dạng khác: "mè" -> "dầu mè" (KHÔNG dùng "nằm trong": gà ⊂ trứng gà,
+        return any(y == f"{f} {x}" for f in _FORMS)      # hồi ⊂ cá hồi, bắp ⊂ bắp cải là các thứ khác hẳn)
+    for m in list(missing):
+        for d in list(added):
+            if any(form_of(p, q) or form_of(q, p) for p in GROUPS[m] for q in GROUPS[d]):
+                missing.remove(m)
+                added.remove(d)
+                break
+    return [GROUPS[i][0] for i in missing if a[i] >= 2], [GROUPS[i][0] for i in added]
 
 
 def mask(text: str) -> list:

@@ -99,6 +99,14 @@ async def deliver(job: Job, path: str, label: str, caption: str):
             logging.warning("Gửi ảnh bìa qua Telegram lỗi: %s", e)
 
 
+def auto_full(job: Job) -> bool:
+    """«Giữ nguyên» (không chọn thời lượng / chế độ dài) + Kaggle bật: video dài ≤ LONG_MAX làm NGUYÊN cả video thay vì báo
+    lỗi "vượt giới hạn 90s" (log 12/11/2026: gửi lại link 3 lần mới chạy). Giới hạn 90s là vì Botkeep dựng chậm; không có
+    Kaggle thì giữ như cũ (5 phút dựng trên Botkeep mất cả tiếng)."""
+    return (not job.long_mode and not job.duration and job.source != "auto" and job.mode in ("cook", "review")
+            and not kaggle_worker.enabled())
+
+
 def check_source_allowed(job: Job):
     """ALLOWED_SOURCES (Cài đặt): chỉ remake video của các kênh đã được phép (kênh của bạn, kênh đã cấp phép).
     Trống = không giới hạn. So khớp không phân biệt hoa thường với uploader / uploader_id."""
@@ -262,7 +270,7 @@ async def process_split(job: Job, tmp: str):
 
 async def _highlight_images(src: str, tmp: str, dur: float) -> tuple:
     """Một lượt giải mã: điểm chuyển cảnh + ảnh thu nhỏ; lấy ~1 ảnh mỗi max(8s, dur/60) cho AI xem. (cuts, ảnh, giây)."""
-    cuts, _ = await scenes.analyze(src, tmp, dur, False)
+    cuts, _ = await scenes.analyze(src, tmp, dur, False, scenes.cut_mode())   # cần điểm chuyển cảnh + ảnh 2/giây
     a = scenes._ANALYZED.get(src)
     if not a or not a["n"] or not config.GEMINI_API_KEY:
         return cuts, [], []
@@ -476,7 +484,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     else:
         job.step = "Tải video (yt-dlp)"
         inp, title, desc, job.source_meta = await core_video.download(
-            job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION)
+            job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == "full" or auto_full(job)
+            else config.MAX_DURATION)
         check_source_allowed(job)
 
     if job.mode == "download":
@@ -536,6 +545,10 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         return out
 
     src_dur = await core_video.probe_duration(inp)
+    if auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
+        job.long_mode = "full"
+        job.error = (job.error or "") + (f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
+                                         f"(≤{config.LONG_MAX // 60} phút, dựng trên Kaggle). ")
     stretch = 1.0
     if job.duration and job.duration > src_dur + 1:
         # làm chậm NGAY TRONG lần render cuối thay vì mã hoá riêng cả video một lần (lỗi #7: thêm một thế hệ nén
@@ -556,7 +569,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         job.error = (job.error or "") + f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {limit}s đầu (chọn chế độ video dài để làm hết). "
     target = job.duration or int(vid_dur)
 
-    job.step = "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)"
+    job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
+                else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
     src_hash = await asyncio.to_thread(cache.file_hash, inp)
     audio_mp3 = os.path.join(tmp, "audio.mp3")
     await core_video.extract_audio(inp, audio_mp3)
@@ -585,6 +599,12 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                f"người gốc nói {secs:.0f}s > {SEP_MAX_SPEECH}s; cài gói offline để tách nhanh")
         sep.update(ok=job.mode == "cook" and not why, windows=win, secs=secs, why=why,
                    engines=(["kim"] if kim else []) + (["fast"] if fast else []))
+
+    async def _late_cuts():
+        """Phân tích nhẹ không dò chuyển cảnh; video không lời mới cần (mỗi cảnh một câu): dò ở mức vừa lúc này."""
+        job.step = "Video không lời: dò chuyển cảnh"
+        cuts[:] = [round(c * stretch, 2) for c in await scenes.detect_cuts(inp)]
+        return len(cuts) >= 2
 
     def keyframes_for(sg):                              # ảnh cho AI: đổi mốc về trục thời gian của video gốc
         return scenes.keyframes(inp, [(a / stretch, b / stretch, t) for a, b, t in sg])
@@ -620,7 +640,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         a = scenes._ANALYZED.get(inp)
         t = asyncio.create_task(cover_mod.make_cover(
             inp, tmp, job.mode, post_title, src_dur, cuts=[c / stretch for c in cuts],
-            end=out_dur / stretch, bands=bands, thumbs_dir=a["dir"] if a else None))
+            end=out_dur / stretch, bands=bands, thumbs_dir=a["dir"] if a else None,
+            thumb_times=a.get("times") if a else None))
         tasks.append(t)
         return t
 
@@ -672,12 +693,12 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                  "title": "", "caption": "", "hashtags": "", "fresh": 1.0}
     elif len(segs) >= 2:
         segs = scenes.snap_to_cuts(segs, cuts)          # câu mới vang lên đúng lúc chuyển cảnh
-        job.step = f"Viết lại {len(segs)} đoạn theo mốc lời + {len(cuts)} điểm chuyển cảnh (AI)"
+        job.step = f"Viết lại {len(segs)} đoạn theo mốc lời" + (f" + {len(cuts)} điểm chuyển cảnh" if cuts else "") + " (AI)"
         timed = await prompt_engine.generate_timed_any(
             title, desc, job.mode, segs, out_dur,
             images_for=keyframes_for)                   # AI nhìn ảnh từng đoạn để lời khớp hình
-    elif len(cuts) >= 2:                                # video không lời: AI nhìn ảnh từng cảnh
-        sc = scenes.scene_segments(cuts, out_dur)
+    elif len(cuts) >= 2 or (not cuts and scenes.mode() == "light" and await _late_cuts()):
+        sc = scenes.scene_segments(cuts, out_dur)       # video không lời: AI nhìn ảnh từng cảnh
         job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
         timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc, await keyframes_for(sc), out_dur)
     if timed:
@@ -844,7 +865,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         drift = max(abs(p["start"] - s["start"]) for p, s in zip(plan, segs_t))
         job.error = (job.error or "") + (
             (f"ℹ️ Lời mới {timed['fresh'] * 100:.0f}% khác lời gốc; " if "fresh" in timed else "ℹ️ ")
-            + f"{len(clips)} đoạn giọng, {len(cuts)} điểm chuyển cảnh; lệch tối đa {drift:.1f}s"
+            + f"{len(clips)} đoạn giọng" + (f", {len(cuts)} điểm chuyển cảnh" if cuts else "") + f"; lệch tối đa {drift:.1f}s"
             + (f"; {fast} đoạn nói nhanh" if fast else "")
             + (f"; {len(too_long)} đoạn vẫn hơi dài" if too_long else "")
             + (f"; đã che {len(bands)} dải chữ gốc" if bands else "") + ".")

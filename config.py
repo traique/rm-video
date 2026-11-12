@@ -59,6 +59,7 @@ EDITABLE = {
     "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
     "COVER": "1",                      # 1 = tự tạo ảnh bìa (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)
     "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
+    "SCENE_ANALYSIS": "light",         # light | fast | full: phân tích hình (chữ in cứng, ảnh bìa, ảnh cho AI, chuyển cảnh)
     "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
     "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
     "SUB_TIMING": "spread",            # spread = rải chữ trên khoảng có tiếng của giọng (lệch ~70ms); stt = nghe lại bằng STT CapCut
@@ -155,6 +156,8 @@ def save_settings(updates: dict):
                 raise ValueError("ASR_ORDER là danh sách groq, gemini, capcut cách nhau dấu phẩy")
             if k == "TEXT_DETECT" and v not in ("heuristic", "ocr"):
                 raise ValueError("TEXT_DETECT chỉ nhận: heuristic, ocr")
+            if k == "SCENE_ANALYSIS" and v not in ("light", "fast", "full"):
+                raise ValueError("SCENE_ANALYSIS chỉ nhận: light, fast, full")
             if k == "SUB_TIMING" and v not in ("spread", "stt"):
                 raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
             if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):

@@ -356,18 +356,19 @@ LUẬT BẮT BUỘC:
   Ví dụ — gốc: "trước tiên cắt thành dải dài sau đó cắt thành miếng vừa ăn" → mới: "Đầu tiên mình xẻ thịt thành từng dải, rồi thái nhỏ cỡ vừa miệng."
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
-- Mỗi đoạn có SỐ TỪ TỐI ĐA (ghi kèm; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết gần sát nhưng KHÔNG vượt: ít quá thì giọng hết sớm và lệch hình, vượt thì tràn sang đoạn sau và phải cắt bớt. Khe ngắn thì viết một câu ngắn trọn ý, đừng nhồi.
+- Mỗi đoạn có KHOẢNG SỐ TỪ ghi kèm (vd "10-13 từ"; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết TRONG khoảng đó: ít hơn thì giọng hết sớm, video bị lặng dài; nhiều hơn thì tràn sang đoạn sau và phải cắt bớt. Khe dài thì diễn đạt đầy đủ hơn (tả độ vàng, tiếng xèo đang thấy trên hình), KHÔNG thêm thao tác, nguyên liệu hay số liệu mới.
 - Giọng nói chuyện tự nhiên: câu ngắn, có dấu câu ngắt hơi. Đoạn đầu mở bằng 1 câu hook ngắn gây tò mò.
 - ĐỘNG TỪ ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) phải MỞ ĐẦU bằng chính hành động đang diễn ra trên hình, vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Lật mặt nào, khi thịt đã vàng đều." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Áp chảo với lửa vừa." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
+- Đoạn ghi "(chưa có lời gốc)" là phần MỞ ĐẦU trước khi người gốc nói: viết 1 câu hook giới thiệu món theo tiêu đề và hình, không thêm nguyên liệu hay số liệu mà lời gốc không có.
 - Không emoji trong "text".
 
 Thể loại: {mode}
 Tiêu đề gốc: {title}
 Mô tả gốc: {desc}
 
-CÁC ĐOẠN (số thứ tự | thời điểm | tối đa số từ | lời gốc):
+CÁC ĐOẠN (số thứ tự | thời điểm | số từ | lời gốc):
 {segments}
 
 Trả về DUY NHẤT JSON hợp lệ, không markdown:
@@ -409,6 +410,7 @@ def spoken_words(text: str) -> int:
 SENT_MAX = 6.0          # một câu đọc liền dài tối đa (giây): dài hơn thì lời mới lệch khỏi hình đang chiếu
 FRAG_WORDS = 4          # mẩu cụt chưa hết câu tối đa chừng này chữ thì được dời tới đọc liền với câu sau
 MIN_SLOT = 3.0          # khe ngắn hơn thế này (người gốc nói liền) thì gộp với câu sau cho AI đủ chỗ viết câu tự nhiên
+SENT_CUT_MAX = 9.0      # câu bị cắt ngang (chưa có dấu câu) được gộp dài tới chừng này: câu dài còn hơn câu cụt
 _CLAUSE_END = (".", "!", "?", "…", ",", ";", ":")
 _SENT_END = (".", "!", "?", "…")
 
@@ -447,6 +449,15 @@ def merge_sentences(segments: list, out_dur: float) -> list:
                 if en - ns <= SENT_MAX + 1.5:
                     out[-1] = (round(ns, 2), en, f"{ptx} {tx}")
                     continue
+            if cut and en - pst <= SENT_CUT_MAX:
+                # câu dài bị cắt ngang ("Bởi vì lúc chiên cá kèo thì Các cá" | "kèo sẽ giòn lâu..." — cắt giữa tên
+                # "cá kèo", AI viết thành "Lúc này cá sẽ" | "giòn rụm...", Botkeep 12/11/2026): thà một câu dài
+                out[-1] = (pst, en, f"{ptx} {tx}")
+                continue
+            if tiny(st, en, tx) and not opens and st - pen <= 3.0:
+                # mẩu kết câu đứng lẻ ("xuống." sau "...để cho nó ráo dầu", từng còn lại một mình): về câu trước
+                out[-1] = (pst, en, f"{ptx} {tx}")
+                continue
         out.append((st, en, tx))
     # khe quá ngắn: người gốc nói nhanh, máy cắt mỗi 1.5-2.5s -> giọng mới (Mỹ Duyên ~3.1 chữ/giây) chỉ được 4-6 chữ,
     # AI viết câu cụt hoặc viết quá rồi bị nén (Botkeep 12/11/2026: 19/46 đoạn vượt số từ, 16 đoạn bị rút gọn thành
@@ -466,19 +477,32 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     return out
 
 
+INTRO_MIN = 3.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu mở đầu ở giây 0
+INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (một câu hook, phần còn lại của quãng để im)
+
+
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
-                         images_for=None, extra: str = "", avoid: list | None = None) -> dict:
+                         images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
-    Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ."""
+    Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
+    intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
+    kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu)."""
     segments = merge_sentences(segments, out_dur)
+    if intro and segments and segments[0][0] >= INTRO_MIN:
+        segments = [(0.0, min(segments[0][0], INTRO_SPEAK), "")] + segments
     slots = []
     for k, (st, en, tx) in enumerate(segments):
         nxt = segments[k + 1][0] if k + 1 < len(segments) else out_dur
         slot = max(1.0, min(nxt, out_dur) - st)
         span = max(0.8, min(en, st + slot) - st)          # người gốc nói trong khoảng này
         mx = max(3, min(int(slot * _rate() * 0.92), int(len(tx.split()) * 1.15) + 1))
+        if not tx:                                         # câu mở đầu: một câu hook, không theo số chữ lời gốc
+            mx = max(5, min(int(min(slot, INTRO_SPEAK) * _rate() * 0.92), 16))
         slots.append((k, st, slot, mx, tx, span))
-    desc_lines = "\n".join(f"{k} | {st:.1f}s | tối đa {mx} từ | {tx}" for k, st, slot, mx, tx, _ in slots)
+    # khoảng "lo-mx": bản 25 ghi "tối đa mx" thì AI chỉ viết ~67% (giọng phủ ~53% khe, video lặng nhiều — Botkeep
+    # 12/11/2026); bản 24 ghi "khoảng mx" thì viết đủ nhưng 19/46 đoạn vượt. Khoảng giữ AI sát số từ cả hai phía.
+    desc_lines = "\n".join(f"{k} | {st:.1f}s | {max(2, round(mx * 0.8))}-{mx} từ | {tx or '(chưa có lời gốc)'}"
+                           for k, st, slot, mx, tx, _ in slots)
     prompt = TIMED_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
     ost_auto = config.OST_AUTO == "1"
@@ -543,7 +567,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
                 Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
                 new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
-                miss, added = ingredients.check(orig_all, new_all)
+                miss, added = ingredients.check_rewrite(orig_all, new_all)
                 mn, an = ingredients.check_numbers(orig_all, new_all)
                 return _bad(g, osts), miss + mn, added + an
 
@@ -592,7 +616,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             d["_issues"] = (miss, added)
             out = []
             for k, st, slot, mx, tx, span in slots:
-                ost = d["_ost"].get(k, "new")
+                ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
                 # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
                 text = got.get(k, "") if ost == "orig" else (got.get(k) or tx)
                 # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
@@ -699,7 +723,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
             f"không chào lại. Lời GỐC ngay trước phần này là «{prev_orig}» — chỉ để hiểu mạch, KHÔNG viết lại "
             "câu đó; đoạn 0 của phần này phải nói đúng lời gốc của chính đoạn 0. Đoạn cuối của phần này "
             "chưa phải kết video" + (".\n" if b + BATCH < len(segments) else ", trừ khi đây là phần cuối.\n"))
-        return await generate_timed(title, desc, mode, part, end, images_for, extra)
+        return await generate_timed(title, desc, mode, part, end, images_for, extra, intro=b == 0)
 
     # các lô chạy song song TỐI ĐA 2 (ngữ cảnh lấy từ lời gốc, không phải chờ lô trước viết xong); nhiều hơn
     # dễ chạm hạn mức Gemini miễn phí. Lô nào lỗi thì gọi lại riêng lô đó một lần, không bỏ cả kịch bản.

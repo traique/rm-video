@@ -48,7 +48,8 @@ def test_long_video_retries_only_failed_batch(monkeypatch):
     """Lỗi N2: một lô lỗi không được làm mất cả kịch bản khớp hình của video dài."""
     calls = {"n": 0}
 
-    async def fake_timed(title, desc, mode, part, end, images_for=None, extra=""):
+    async def fake_timed(title, desc, mode, part, end, images_for=None, extra="", intro=True):
+        calls.setdefault("intro", []).append(intro)
         calls["n"] += 1
         if part[0][0] == 56.0 and calls.setdefault("failed", 0) == 0:     # lô thứ 2 lỗi lần đầu
             calls["failed"] = 1
@@ -60,6 +61,7 @@ def test_long_video_retries_only_failed_batch(monkeypatch):
     out = asyncio.run(prompt_engine.generate_timed_any("", "", "cook", segs, 121.0))
     assert out is not None and len(out["segments"]) == 60
     assert calls["n"] == 4                                   # 3 lô + 1 lần gọi lại
+    assert calls["intro"].count(True) == 1                   # chỉ lô đầu được thêm câu mở đầu
 
 
 def test_promo_cut_kept_after_review(monkeypatch):

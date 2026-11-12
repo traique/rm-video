@@ -6,8 +6,26 @@ import re
 import subprocess
 
 
-_ANALYZED: dict = {}      # path -> {"dir": thư mục ảnh thu nhỏ, "n": số ảnh}  (để keyframes khỏi tua lại video)
+_ANALYZED: dict = {}      # path -> {"dir": thư mục ảnh thu nhỏ, "n": số ảnh, "times": mốc từng ảnh (chế độ nhẹ)}
 THUMB_FPS = 2
+
+
+def mode() -> str:
+    """SCENE_ANALYSIS: light | fast | full (xem config)."""
+    import config
+    m = (getattr(config, "SCENE_ANALYSIS", "") or "light").strip()
+    return m if m in ("light", "fast", "full") else "light"
+
+
+def cut_mode() -> str:
+    """Việc CẦN điểm chuyển cảnh (video không lời, cắt phần, đoạn hay): chế độ nhẹ thì dò ở mức vừa."""
+    return "full" if mode() == "full" else "fast"
+
+
+def _decode_opts(m: str) -> list:
+    """Mức "vừa": bỏ khung không tham chiếu (B) + bỏ lọc khử khối khi giải mã. Đo video 220s 720p, 1 luồng: 26.2s ->
+    14.2s, vẫn dò được 11/12 điểm chuyển cảnh (lệch < 0.1s). Botkeep cùng video: ~380s."""
+    return ["-skip_frame", "noref", "-skip_loop_filter", "all", "-flags2", "fast"] if m == "fast" else []
 
 
 def _parse_cuts(err: str, min_gap: float = 0.8) -> list[float]:
@@ -20,11 +38,54 @@ def _parse_cuts(err: str, min_gap: float = 0.8) -> list[float]:
     return cuts
 
 
-def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold: float = 0.3):
-    """MỘT lượt giải mã cho cả 3 việc (trước đây là 2 lượt giải mã + 1 lần tua cho mỗi ảnh):
-    điểm chuyển cảnh, ảnh thu nhỏ 2 khung/giây cho AI nhìn, khung xám cho dò chữ in cứng."""
+def _light_sync(path: str, tmpdir: str, dur: float, want_gray: bool):
+    """Mức "nhẹ": chỉ giải mã KHUNG CHÍNH (Facebook/TikTok ~1 khung mỗi 2-5 giây; video 220s: 44 khung, ~1/150 công
+    giải mã) cho ảnh AI nhìn + ảnh bìa + dò chữ in cứng. Không dò điểm chuyển cảnh. Khung chính quá thưa (video mã hoá
+    lạ) thì trả None để làm mức vừa."""
     import os
     import textzone
+    tdir = os.path.join(tmpdir, "thumbs_kf")
+    os.makedirs(tdir, exist_ok=True)
+    gray = os.path.join(tmpdir, "gray_kf.raw")
+    fc = ("[0:v]showinfo,split=2[t][g];[t]scale=384:-2[to];"
+          f"[g]scale={textzone._W}:{textzone._H},format=gray[go]") if want_gray else "[0:v]showinfo,scale=384:-2[to]"
+    outs = ["-map", "[to]", "-fps_mode", "passthrough", "-q:v", "5", os.path.join(tdir, "%05d.jpg")]
+    if want_gray:
+        outs += ["-map", "[go]", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-y", gray]
+    import core_video
+    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-y", "-skip_frame", "nokey", "-i", path, "-an",
+                             "-filter_complex", fc] + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    core_video.RUNNING.add(proc)
+    try:
+        err = proc.communicate()[1]
+    finally:
+        core_video.RUNNING.discard(proc)
+    times = [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
+    n = len(os.listdir(tdir))
+    if n < max(4, min(12, dur / 10)) or len(times) < n:
+        return None
+    _ANALYZED[path] = {"dir": tdir, "n": n, "times": times[:n]}
+    while len(_ANALYZED) > 4:
+        _ANALYZED.pop(next(iter(_ANALYZED)))
+    bands = []
+    if want_gray and os.path.exists(gray):
+        bands = textzone.bands_from_raw(open(gray, "rb").read())
+        os.remove(gray)
+    return [], bands
+
+
+def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold: float = 0.3, m: str = ""):
+    """MỘT lượt giải mã cho cả 3 việc (trước đây là 2 lượt giải mã + 1 lần tua cho mỗi ảnh):
+    điểm chuyển cảnh, ảnh thu nhỏ 2 khung/giây cho AI nhìn, khung xám cho dò chữ in cứng.
+    m (SCENE_ANALYSIS): light = chỉ khung chính, không dò chuyển cảnh; fast = bỏ khung phụ khi giải mã; full = mọi khung."""
+    import os
+    import textzone
+    m = m or mode()
+    if m == "light":
+        got = _light_sync(path, tmpdir, dur, want_gray)
+        if got is not None:
+            return got
+        m = "fast"
     tdir = os.path.join(tmpdir, "thumbs")
     os.makedirs(tdir, exist_ok=True)
     gray = os.path.join(tmpdir, "gray.raw")
@@ -37,8 +98,8 @@ def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold
         fc += f";[g]fps={textzone._N / max(dur, 1):.5f},scale={textzone._W}:{textzone._H},format=gray[go]"  # như cũ
         outs += ["-map", "[go]", "-f", "rawvideo", "-pix_fmt", "gray", "-y", gray]
     import core_video
-    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-y", "-i", path, "-an", "-filter_complex", fc] + outs,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-y", *_decode_opts(m), "-i", path, "-an", "-filter_complex", fc]
+                            + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     core_video.RUNNING.add(proc)                  # bấm Hủy / quá hạn là giết được ngay
     try:
         err = proc.communicate()[1]
@@ -54,10 +115,10 @@ def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold
     return _parse_cuts(err), bands
 
 
-async def analyze(path: str, tmpdir: str, dur: float, want_gray: bool):
+async def analyze(path: str, tmpdir: str, dur: float, want_gray: bool, m: str = ""):
     """Trả (cuts, bands). Lỗi thì quay về cách cũ từng việc riêng."""
     try:
-        return await asyncio.to_thread(_analyze_sync, path, tmpdir, dur, want_gray)
+        return await asyncio.to_thread(_analyze_sync, path, tmpdir, dur, want_gray, 0.3, m)
     except Exception:
         import textzone
         return await detect_cuts(path), (await textzone.detect_text_bands(path) if want_gray else [])
@@ -68,7 +129,7 @@ async def analyze_cached(path: str, tmpdir: str, dur: float, want_gray: bool, sr
     """analyze() có cache theo hash nguồn. Lần render sau khi duyệt không cần ảnh cho AI nên dùng thẳng
     kết quả cũ (điểm cảnh + dải chữ), không giải mã lại cả video."""
     import cache
-    k = cache.key("scenes", src_hash, want_gray)
+    k = cache.key("scenes", src_hash, want_gray, mode())
     if not need_thumbs:
         d = cache.get_json("scenes", k)
         if d:
@@ -83,7 +144,7 @@ async def analyze_cached(path: str, tmpdir: str, dur: float, want_gray: bool, sr
 
 def _cuts_sync(path: str, threshold: float = 0.3, min_gap: float = 0.8) -> list[float]:
     err = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-i", path, "-an", "-vf",
+        ["ffmpeg", "-hide_banner", *_decode_opts(cut_mode()), "-i", path, "-an", "-vf",
          f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
         capture_output=True, text=True).stderr
     cuts = []
@@ -152,7 +213,10 @@ async def keyframes(path: str, segs: list) -> list[bytes]:
     for a, b, _ in segs:
         t = (a + b) / 2
         if a_ and a_["n"]:
-            k = min(a_["n"], max(1, int(round(t * THUMB_FPS)) + 1))
+            if a_.get("times"):                            # mức nhẹ: ảnh ở mốc khung chính, lấy ảnh gần nhất
+                k = 1 + min(range(len(a_["times"])), key=lambda i: abs(a_["times"][i] - t))
+            else:
+                k = min(a_["n"], max(1, int(round(t * THUMB_FPS)) + 1))
             p = os.path.join(a_["dir"], f"{k:05d}.jpg")
             if os.path.exists(p):
                 out.append(open(p, "rb").read())

@@ -20,14 +20,16 @@ import vocab
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
 
-async def _groq_post(audio_path: str, prompt: str):
+async def _groq_post(audio_path: str, prompt: str, model: str = "", language: str = ""):
     """Một lượt gọi Groq. Trả (mã HTTP, json hoặc chuỗi lỗi)."""
     with open(audio_path, "rb") as f:
         form = aiohttp.FormData()
-        form.add_field("model", config.GROQ_WHISPER_MODEL)
+        form.add_field("model", model or config.GROQ_WHISPER_MODEL)
         form.add_field("response_format", "verbose_json")
         form.add_field("timestamp_granularities[]", "word")
         form.add_field("timestamp_granularities[]", "segment")     # cần no_speech_prob để lọc chữ "bịa"
+        if language:                                 # khoá ngôn ngữ: Whisper đoán sai ngôn ngữ ở quãng có nhạc
+            form.add_field("language", language)
         if prompt:                                   # từ điển: Whisper viết theo chính tả trong prompt
             form.add_field("prompt", prompt)
         form.add_field("file", f, filename="audio.mp3", content_type="audio/mpeg")
@@ -54,22 +56,59 @@ async def _groq(audio_path: str, prompt: str = ""):
     dur = float(d.get("duration") or 0) or max([float(x.get("end") or 0) for x in d.get("segments") or []] + [0.0])
     added = 0
     if units:                                 # video có lời: nghe lại các quãng dài không có chữ nào
-        units, pieces, added = await _fill_holes(audio_path, units, pieces, dur)
+        units, pieces, added = await _fill_holes(audio_path, units, pieces, dur, lang_code(d.get("language")))
     text = (" ".join(t for _, t in sorted(pieces)) if nbad or added else (d.get("text") or "")).strip()
     return text, chunk_units(units)
 
 
-def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
-    """Kết quả Groq -> (từ [(đầu, cuối, chữ)], câu [(đầu, chữ)], số đoạn bỏ). Bỏ đoạn Whisper nghe nhầm; strict: lượt
-    nghe lại quãng trống, chặt hơn (_weak)."""
-    segs = d.get("segments") or []
+_LANG = {"vietnamese": "vi", "english": "en", "chinese": "zh", "thai": "th", "korean": "ko", "japanese": "ja",
+         "indonesian": "id", "malay": "ms", "khmer": "km", "lao": "lo", "spanish": "es", "french": "fr"}
 
-    def junk(x):
-        return _hallucinated(x) or (strict and _weak(x))
-    bad = [(float(x["start"]), float(x["end"])) for x in segs if junk(x)]
+
+def lang_code(v) -> str:
+    """Ngôn ngữ Groq trả về ("vietnamese" / "vi") -> mã ISO-639-1 để khoá lượt nghe lại; không rõ thì rỗng."""
+    v = str(v or "").strip().lower()
+    return v if re.fullmatch(r"[a-z]{2}", v) else _LANG.get(v, "")
+
+
+def _norm(t: str) -> str:
+    return " ".join(re.findall(r"\w+", unicodedata.normalize("NFC", t or "").lower()))
+
+
+def _loops(segs: list) -> set:
+    """Chỉ số các đoạn Whisper LẶP LẠI câu vừa nói (lặp vòng qua nhiều đoạn): lỗi thật 12/11/2026 "Các cá kèo sẽ giòn
+    lâu từ trong ra ngoài." ở 84.6s, 93.9s, 98.3s (2 lần trong một đoạn). So với 1-2 đoạn giữ lại ngay trước (và cả
+    hai ghép lại, vì Whisper hay cắt câu lặp ở chỗ khác) trong vòng 30s: gần như y hệt, hoặc là câu đó lặp hai lần.
+    Câu NÓI TIẾP câu trước ("Cho cá vào chảo" -> "Cho cá vào chảo rồi chiên vàng") không tính."""
+    import difflib
+
+    def sim(a, b):
+        return difflib.SequenceMatcher(None, a, b).ratio()
+    out, kept = set(), []
+    for k, x in enumerate(segs):
+        t = _norm(x.get("text"))
+        st = float(x.get("start") or 0)
+        prev = [p for j, p in kept[-2:] if st - float(segs[j].get("start") or 0) <= 30]
+        cands = [c for c in prev + ([prev[0] + " " + prev[1]] if len(prev) == 2 else []) if len(c.split()) >= 4]
+        if len(t.split()) >= 4 and any(sim(t, c) >= 0.85 or sim(t, c + " " + c) >= 0.9 for c in cands):
+            out.add(k)
+            continue
+        kept.append((k, t))
+    return out
+
+
+def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
+    """Kết quả Groq -> (từ [(đầu, cuối, chữ)], câu [(đầu, chữ)], số đoạn bỏ). Bỏ đoạn Whisper nghe nhầm và đoạn lặp
+    vòng; strict: lượt nghe lại quãng trống, chặt hơn (_weak)."""
+    segs = d.get("segments") or []
+    loops = _loops(segs)
+
+    def junk(x, k=-1):
+        return _hallucinated(x) or (strict and _weak(x)) or k in loops
+    bad = [(float(x["start"]), float(x["end"])) for k, x in enumerate(segs) if junk(x, k)]
     if bad:
-        logging.info("Bỏ %d đoạn Whisper nghe nhầm (nhạc/im lặng): %s", len(bad),
-                     " | ".join((x.get("text") or "").strip()[:40] for x in segs if junk(x)))
+        logging.info("Bỏ %d đoạn Whisper nghe nhầm (nhạc/im lặng/lặp lại): %s", len(bad),
+                     " | ".join((x.get("text") or "").strip()[:40] for k, x in enumerate(segs) if junk(x, k)))
 
     def ok(a, b):
         m = (a + b) / 2
@@ -78,9 +117,9 @@ def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
              for x in d.get("words", []) if (x.get("word") or "").strip() and ok(float(x["start"]), float(x["end"]))]
     if not units and not d.get("words"):   # không có mốc từ -> dùng segment của Whisper
         units = [(offset + float(x["start"]), offset + float(x["end"]), (x.get("text") or "").strip())
-                 for x in segs if (x.get("text") or "").strip() and not junk(x)]
+                 for k, x in enumerate(segs) if (x.get("text") or "").strip() and not junk(x, k)]
     pieces = [(offset + float(x["start"]), (x.get("text") or "").strip())
-              for x in segs if (x.get("text") or "").strip() and not junk(x)]
+              for k, x in enumerate(segs) if (x.get("text") or "").strip() and not junk(x, k)]
     if not segs and units:                 # không có segment: ghép chữ thành câu
         pieces = [(units[0][0], " ".join(u[2] for u in units))]
     return units, pieces, len(bad)
@@ -89,6 +128,9 @@ def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
 HOLE_MIN = 8.0        # quãng ≥ 8s không có chữ nào (giữa video có lời) thì nghe lại riêng quãng đó
 HOLE_N = 4            # tối đa số quãng nghe lại mỗi video
 HOLE_TOTAL = 180.0    # và tổng số giây nghe lại (hạn mức Groq tính theo giây audio)
+HOLE_MODEL = "whisper-large-v3"   # bản ĐẦY ĐỦ (lượt đầu mặc định bản turbo): khác model thì khác kiểu nghe sót
+HOLE_ENOUGH = 0.4     # nghe lại mà < 0.4 chữ/giây của quãng thì nhờ Gemini nghe thêm
+HOLE_GEMINI_TIMEOUT = 45.0
 
 
 def find_holes(units: list, dur: float, min_len: float = HOLE_MIN) -> list:
@@ -112,11 +154,39 @@ async def _cut_audio(src: str, dst: str, start: float, length: float):
         raise RuntimeError(err.decode(errors="replace")[-150:])
 
 
-async def _fill_holes(audio_path: str, units: list, pieces: list, dur: float) -> tuple:
+async def _recheck_groq(clip: str, lang: str) -> tuple:
+    """(mã HTTP, kết quả) của lượt nghe lại bằng Groq: model đầy đủ, khoá ngôn ngữ, không kèm prompt (prompt có tiêu đề
+    là thứ Whisper hay chép lại). Model đầy đủ không dùng được (tài khoản không có) thì dùng model của lượt đầu."""
+    status, d = await _groq_post(clip, "", model=HOLE_MODEL, language=lang)
+    if status in (400, 403, 404) and HOLE_MODEL != config.GROQ_WHISPER_MODEL:
+        status, d = await _groq_post(clip, "", language=lang)
+    return status, d
+
+
+async def _recheck_gemini(clip: str, offset: float, a: float, b: float) -> tuple:
+    """Gemini nghe quãng Whisper bỏ sót (Whisper nghe hỏng cả 2 lượt ở quãng có nhạc: 0-29s video cá kèo 12/11/2026,
+    người gốc nói liên tục). Trả (từ, câu) đã đổi mốc về trục cả video."""
+    if not (config.GEMINI_API_KEY and "gemini" in asr_order()):
+        return [], []
+    try:
+        # trần 45s: Gemini quá tải hay treo (log 12/11: 503 liên tục), 4 quãng x 2 lần x 120s là chờ cả chục phút
+        text, words = await asyncio.wait_for(_gemini_words(clip), HOLE_GEMINI_TIMEOUT)
+    except Exception as e:
+        logging.warning("Gemini nghe lại quãng %.0f-%.0fs lỗi: %s", a, b, (str(e) or type(e).__name__)[:120])
+        return [], []
+    u = [(offset + x, offset + y, w) for x, y, w in words
+         if a - 0.05 <= offset + (x + y) / 2 <= b + 0.05 and not _hallucinated({"text": w})]
+    if _hallucinated({"text": text}) or not u:
+        return [], []
+    return u, [(u[0][0], " ".join(w for _, _, w in u))]
+
+
+async def _fill_holes(audio_path: str, units: list, pieces: list, dur: float, lang: str = "") -> tuple:
     """Whisper hay bịa một câu ở quãng nhạc rồi NHẢY QUA cả khung 30s phía sau, bỏ sót lời thật (lỗi thật 12/11/2026:
     giây 143-170 người gốc rắc tiêu, ngò rí, chốt món mà bản bóc lời trống trơn -> video không có lời mới ở đó và
-    giọng gốc lọt ra). Nghe lại riêng từng quãng trống dài (không kèm prompt để khỏi chép lại tiêu đề), chặt hơn lượt
-    đầu vì quãng trống thường chỉ có nhạc. Trả (units, pieces, số chữ thêm)."""
+    giọng gốc lọt ra). Nghe lại riêng từng quãng trống dài: Groq model đầy đủ, khoá ngôn ngữ, chặt hơn lượt đầu; ra quá
+    ít chữ (video cá kèo: 30s người gốc nói liên tục mà Whisper chỉ ra "Cá vào gãy là") thì nhờ Gemini nghe, lấy bản
+    nhiều lời thật hơn. Trả (units, pieces, số chữ thêm)."""
     holes = find_holes(units, dur)
     picked, total = [], 0.0
     for a, b in sorted(holes, key=lambda h: h[0] - h[1]):            # quãng dài nhất trước
@@ -127,29 +197,34 @@ async def _fill_holes(audio_path: str, units: list, pieces: list, dur: float) ->
     for a, b in sorted(picked):
         s = max(0.0, a - 0.3)
         clip = f"{audio_path}.hole{int(a)}.mp3"
+        u, p, src, stop = [], [], "Groq", False
         try:
             await _cut_audio(audio_path, clip, s, b + 0.3 - s)
-            status, d = await _groq_post(clip, "")
+            status, d = await _recheck_groq(clip, lang)
+            if status == 200:
+                u, p, _ = _parse(d, offset=s, strict=True)
+                u = [x for x in u if a - 0.05 <= (x[0] + x[1]) / 2 <= b + 0.05]
+                p = [x for x in p if a - 0.5 <= x[0] <= b]
+            else:
+                logging.warning("Nghe lại quãng %.0f-%.0fs: Groq %s", a, b, status)
+                stop = status == 429                 # hết hạn mức Groq: quãng sau cũng sẽ lỗi
+            if len(u) < HOLE_ENOUGH * (b - a):
+                gu, gp = await _recheck_gemini(clip, s, a, b)
+                if len(gu) > len(u):
+                    u, p, src = gu, gp, "Gemini"
         except Exception as e:
             logging.warning("Nghe lại quãng %.0f-%.0fs lỗi: %s", a, b, str(e)[:120])
-            continue
         finally:
             if os.path.exists(clip):
                 os.remove(clip)
-        if status != 200:
-            logging.warning("Nghe lại quãng %.0f-%.0fs: Groq %s", a, b, status)
-            if status == 429:                    # hết hạn mức: các quãng sau cũng sẽ lỗi
-                break
-            continue
-        u, p, _ = _parse(d, offset=s, strict=True)
-        u = [x for x in u if a - 0.05 <= (x[0] + x[1]) / 2 <= b + 0.05]
-        p = [x for x in p if a - 0.5 <= x[0] <= b]
         logging.info("Nghe lại quãng %.0f-%.0fs không có chữ: %s", a, b,
-                     f"thêm {len(u)} từ «{' '.join(t for _, t in p)[:80]}»" if u else "không có lời")
+                     f"{src} thêm {len(u)} từ «{' '.join(t for _, t in p)[:80]}»" if u else "không có lời")
         if u:
             units += u
             pieces += p
             added += len(u)
+        if stop:
+            break
     return sorted(units), sorted(pieces), added
 
 
@@ -228,8 +303,13 @@ def gemini_units(resp) -> list:
 
 
 async def _gemini(audio_path: str):
-    """gemini-3.5-transcribe với mốc từng từ. Gọi API v1beta: google-genai 3.x mặc định v1, mà v1 (11/2026)
-    chưa có trường audio_transcription_config (lỗi 400 'Unknown name audioTranscriptionConfig')."""
+    text, units = await _gemini_words(audio_path)
+    return text, chunk_units(units)
+
+
+async def _gemini_words(audio_path: str):
+    """gemini-3.5-transcribe với mốc từng từ -> (chữ, [(đầu, cuối, từ)]). Gọi API v1beta: google-genai 3.x mặc định
+    v1, mà v1 (11/2026) chưa có trường audio_transcription_config (lỗi 400 'Unknown name audioTranscriptionConfig')."""
     from google import genai
     from google.genai import types
     with open(audio_path, "rb") as f:
@@ -248,7 +328,7 @@ async def _gemini(audio_path: str):
             await asyncio.sleep(3)
     units = gemini_units(resp)
     text = gemini_text(resp) or " ".join(u[2] for u in units)
-    return text, chunk_units(units)
+    return text, units
 
 
 def gemini_text(resp) -> str:

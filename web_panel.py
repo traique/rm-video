@@ -209,6 +209,10 @@ _SETTING_OPTIONS = {
     "COVER": [["1", "Bật (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)"], ["0", "Tắt"]],
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
     "TEXT_DETECT": [["heuristic", "Heuristic (mặc định, không cần cài)"], ["ocr", "Model OCR (bắt chữ màu, cần setup_offline)"]],
+    "SCENE_ANALYSIS": [["light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn "
+                                 "câu theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"],
+                       ["fast", "Vừa: thêm dò chuyển cảnh để câu mới bắt đầu đúng lúc đổi cảnh (~200 giây)"],
+                       ["full", "Kỹ: giải mã mọi khung như bản cũ (~380 giây)"]],
     "TTS_OFFLINE": [["0", "Tắt"], ["1", "Bật giọng Piper khi CapCut + edge đều lỗi (xem lưu ý giấy phép)"]],
     "OST_AUTO": [["0", "Tắt (chỉ khi bạn chọn trong màn duyệt)"], ["1", "AI được đề xuất đoạn giữ tiếng gốc"]],
     "ASR_ORDER": [["groq,gemini,capcut", "Groq → Gemini → CapCut"], ["gemini,groq,capcut", "Gemini → Groq → CapCut"],

@@ -169,12 +169,19 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Tốc độ khung**: nguồn ≤30fps giữ nguyên; >30 chia đều (50→25, 60→30) — ép 50→30 hoặc 25→30 gây giật.
 - **Nguồn nhỏ** (vd 360×640): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to (render nhanh ~1.7x).
 - **Bóc lời bỏ sót**: Whisper hay bịa một câu chào kết ("Đừng quên đăng ký kênh...") hoặc chép lại tiêu đề VIẾT HOA ở
-  quãng nhạc rồi nhảy qua cả khung 30 giây lời thật. Bot bỏ các câu đó (cả câu lặp vòng) và nghe lại riêng từng quãng
-  ≥ 8 giây không có chữ nào (tối đa 4 quãng / 180 giây, không kèm prompt); tiêu đề VIẾT HOA được đổi thành chữ thường
-  trước khi làm prompt.
+  quãng nhạc rồi nhảy qua cả khung 30 giây lời thật, hoặc lặp đi lặp lại một câu. Bot bỏ các câu đó và nghe lại riêng
+  từng quãng ≥ 8 giây không có chữ nào (tối đa 4 quãng / 180 giây): Groq `whisper-large-v3` bản đầy đủ, khoá ngôn ngữ,
+  không kèm prompt; vẫn ra < 0.4 chữ/giây thì nhờ Gemini (`GEMINI_ASR_MODEL`) nghe quãng đó, lấy bản nhiều lời hơn.
+  Tiêu đề VIẾT HOA được đổi thành chữ thường trước khi làm prompt. Lời gốc bắt đầu sau giây thứ 3 thì AI viết thêm câu
+  mở đầu ở giây 0.
 - **Gộp lời gốc thành câu**: mẩu cụt ("sau", "Sau khi mình") dời tới đọc liền với câu sau; mẩu 1-2 chữ kết câu
-  ("cái thìa.") về với câu trước; khe < 3 giây mà người gốc nói liền thì gộp với câu sau (câu gộp ≤ 6 giây) để giọng
-  mới đủ chỗ đọc một câu tự nhiên thay vì câu cụt kiểu "Thêm vào.".
+  ("cái thìa.", "xuống.") về với câu trước; câu bị cắt ngang gộp tới 9 giây; khe < 3 giây mà người gốc nói liền thì
+  gộp với câu sau (câu gộp ≤ 6 giây). AI được giao KHOẢNG số chữ cho mỗi đoạn ("10-13 từ") để giọng phủ kín khe.
+- **Phân tích hình** (`SCENE_ANALYSIS`, chạy trên Botkeep cùng lúc bóc lời): dò chữ in cứng (che phụ đề gốc, đặt phụ
+  đề mới đúng chỗ), ảnh bìa, ảnh cho AI nhìn khi viết lời, và (mức Vừa/Kỹ) điểm chuyển cảnh để câu mới bắt đầu đúng
+  lúc đổi cảnh. **Nhẹ** (mặc định): chỉ đọc khung chính (~1 khung / 2-5 giây), video 220s ~20 giây trên Botkeep;
+  **Vừa**: thêm dò chuyển cảnh, giải mã bỏ khung phụ (~200 giây); **Kỹ**: mọi khung như bản cũ (~380 giây). Video không
+  lời, chế độ cắt phần và đoạn hay luôn dò chuyển cảnh (mức Vừa).
 - **Tiếng nền** khi không tách giọng AI: tắt/bật dần 0.15s, gộp các lần người gốc nói cách nhau <0.8s (hết chập chờn); không giữ lớp nền lúc người gốc nói vì đo được vẫn lọt lời.
 - Gemini dùng chế độ JSON; JSON hỏng vẫn cứu từng đoạn thay vì bỏ cả lượt viết lại.
 

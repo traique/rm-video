@@ -87,7 +87,7 @@ def test_groq_prompt_has_no_label_to_echo(monkeypatch):
 def test_groq_drops_hallucinated_segments(monkeypatch):
     import transcribe
 
-    async def fake_post(path, prompt):
+    async def fake_post(path, prompt, **kw):
         return 200, {"text": "Từ khóa xin chào cả nhà Ghiền Mì Gõ",
                      "segments": [{"start": 0, "end": 0.4, "text": "Từ khóa", "no_speech_prob": 0.1, "avg_logprob": -0.3},
                                   {"start": 0.5, "end": 2.0, "text": "xin chào cả nhà", "no_speech_prob": 0.02,
@@ -127,6 +127,6 @@ def test_merge_sentences_joins_cut_fragments():
     out = prompt_engine.merge_sentences(segs, 80)
     assert [t for _, _, t in out] == ["Cái công dụng làm cho cái bò mình nó mềm.", "Rồi để nghỉ 5 phút.",
                                       "1 phần 3 muỗng đường, 1 phần 4 muỗng dầu hào,",
-                                      "xong lúc này mọi người",
-                                      "cho vào nồi luộc chín đều rồi vớt ra để ráo nước."]   # gộp sẽ dài > 6s
+                                      "xong lúc này mọi người cho vào nồi luộc chín đều rồi vớt ra để ráo nước."]
+    # câu bị cắt ngang: gộp dù dài 8.5s > SENT_MAX (từ bản 26: câu dài còn hơn câu cụt "Xong rồi nè.")
     assert out[0][:2] == (19.9, 24.6)
