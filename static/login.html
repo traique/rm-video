@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Đăng nhập — Video Bot</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f5f4;--card:#fff;--text:#1c1917;--mut:#78716c;--line:#e7e5e4;--acc:#ea580c}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--card:#292524;--text:#fafaf9;--mut:#a8a29e;--line:#44403c}}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);
+  font:15px/1.5 system-ui,sans-serif;padding:16px env(safe-area-inset-right,16px) env(safe-area-inset-bottom,16px) env(safe-area-inset-left,16px)}
+.card{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px}
+h1{font-size:1.25em;margin:0 0 4px}.mut{color:var(--mut);font-size:.9em;margin:0 0 18px}
+label{display:block;font-size:.85em;color:var(--mut);margin:10px 0 4px}
+input,button{width:100%;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+button{background:var(--acc);color:#fff;border:0;font-weight:600;margin-top:14px;cursor:pointer}
+button:disabled{opacity:.5}
+#msg{min-height:1.4em;margin-top:10px;font-size:.9em}.err{color:#dc2626}
+</style></head><body>
+<form class="card" id="f" autocomplete="on">
+  <h1>🎬 Video Bot</h1>
+  <p class="mut">Đăng nhập để vào bảng điều khiển.</p>
+  <label for="pw">Mật khẩu web (WEB_PASSWORD)</label>
+  <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+  <button id="btn" type="submit">Đăng nhập</button>
+  <div id="msg" aria-live="polite"></div>
+</form>
+<script>
+const $=id=>document.getElementById(id);
+const next=(()=>{try{const n=new URLSearchParams(location.search).get('next')||'/';return n.startsWith('/')&&!n.startsWith('//')?n:'/'}catch(e){return '/'}})();
+fetch('/api/me').then(r=>r.json()).then(d=>{
+  if(!d.password_set){$('msg').innerHTML='<span class="err">⚠️ Chưa đặt WEB_PASSWORD nên web panel đang khoá. Đặt biến môi trường WEB_PASSWORD rồi khởi động lại bot.</span>';$('btn').disabled=true;}
+  else if(d.authed)location.replace(next);
+}).catch(()=>{});
+$('f').onsubmit=async e=>{
+  e.preventDefault();$('btn').disabled=true;$('msg').textContent='Đang kiểm tra...';
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('pw').value})});
+    if(r.ok){location.replace(next);return;}
+    $('msg').innerHTML='<span class="err">❌ '+String(await r.text()).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))+'</span>';
+  }catch(err){$('msg').innerHTML='<span class="err">❌ Không kết nối được máy chủ.</span>';}
+  $('pw').value='';$('btn').disabled=false;$('pw').focus();
+};
+</script></body></html>

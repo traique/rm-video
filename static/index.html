@@ -25,12 +25,7 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
 </style></head><body><main>
 <h1>🎬 Video Bot — bảng điều khiển</h1>
 <div class="card">
-  <div id="auth_box">
-    <label>Mật khẩu web (WEB_PASSWORD)</label>
-    <div style="display:flex;gap:8px"><input id="pw" type="password" autocomplete="current-password" placeholder="nhập rồi bấm Đăng nhập">
-      <button id="login_btn" style="width:auto;margin-top:0">Đăng nhập</button></div>
-  </div>
-  <div id="authed_box" class="mut" style="display:none">✅ Đã đăng nhập · <a href="#" id="logout_link">Đăng xuất</a></div>
+  <div id="authed_box" class="mut">✅ Đã đăng nhập · <a href="#" id="logout_link">Đăng xuất</a></div>
   <div id="video_src">
   <label>Link video (TikTok / Facebook / YouTube...) — nhiều link thì mỗi link một dòng — hoặc chọn file bên dưới</label>
   <textarea id="url" rows="2" placeholder="https://..." style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit"></textarea>
@@ -123,21 +118,13 @@ const $=id=>document.getElementById(id);
 const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 try{localStorage.removeItem('pw')}catch(e){}   // bản cũ lưu mật khẩu ở đây: xoá đi
 const hdr=()=>({'Content-Type':'application/json'});
-async function checkAuth(){
+async function checkAuth(){   // phiên hết hạn (30 ngày) hoặc đã đăng xuất ở tab khác -> về trang đăng nhập
   try{const d=await (await fetch('/api/me')).json();
-    if(!d.password_set){$('auth_box').innerHTML='<p class="st-error">⚠️ Chưa đặt WEB_PASSWORD nên web panel đang khoá. Đặt biến môi trường WEB_PASSWORD rồi khởi động lại bot.</p>';return false;}
-    $('auth_box').style.display=d.authed?'none':'block';$('authed_box').style.display=d.authed?'block':'none';return d.authed;
+    if(!d.authed){location.replace('/login');return false;}
+    return true;
   }catch(e){return false}
 }
-async function doLogin(){
-  const r=await fetch('/api/login',{method:'POST',headers:hdr(),body:JSON.stringify({password:$('pw').value})});
-  $('pw').value='';
-  $('msg').textContent=r.ok?'✅ Đã đăng nhập':'❌ '+await r.text();
-  if(r.ok){await checkAuth();loadSettings();loadVoices();refresh();startEvents();}
-}
-$('login_btn').onclick=doLogin;
-$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
-$('logout_link').onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.reload();};
+$('logout_link').onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.replace('/login');};
 const MNOTE={music:'Thay hẳn: bot dò BPM điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat. Nhạc nền: lấy đoạn hay nhất của bài, trộn dưới tiếng gốc.',
   photo:'Bot dò nhịp + đoạn cao trào của nhạc, chọn hiệu ứng và chuyển cảnh theo kiểu nhạc (êm / nhún / sôi), cắt cảnh đúng beat.'};
 $('mode').onchange=()=>{const v=$('mode').value,m=v=='music',d=v=='download',ph=v=='photo';
@@ -191,7 +178,7 @@ const FIELD='width:100%;padding:10px;border:1px solid var(--line);border-radius:
 async function loadSettings(){
   try{
     const r=await fetch('/api/settings',{headers:hdr()});
-    if(!r.ok){$('set_fields').innerHTML='<p class="mut">'+(r.status==403?esc(await r.text()):'Đăng nhập ở ô trên cùng để xem và sửa cài đặt.')+'</p>';return;}
+    if(!r.ok){$('set_fields').innerHTML='<p class="mut">'+(r.status==403?esc(await r.text()):'Phiên đăng nhập đã hết, tải lại trang để đăng nhập.')+'</p>';return;}
     const d=await r.json();
     $('set_fields').innerHTML=Object.entries(d).map(([k,v])=>{
       let f;
@@ -239,7 +226,7 @@ function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
 async function refresh(){
   try{
     const r=await fetch('/api/jobs',{headers:hdr()});
-    if(!r.ok){$('qinfo').textContent=' — '+(r.status==401?'đăng nhập ở ô trên cùng':'lỗi '+r.status);return}
+    if(!r.ok){$('qinfo').textContent=' — '+(r.status==401?'phiên hết hạn, tải lại trang':'lỗi '+r.status);return}
     render(await r.json());
   }catch(e){}
 }

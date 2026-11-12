@@ -24,6 +24,7 @@ from queue_manager import Job, JobQueue, QueueFull, phase_times
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_HTML = os.path.join(_DIR, "static", "index.html")
+LOGIN_HTML = os.path.join(_DIR, "static", "login.html")
 
 _STEP_LABEL = {"queued": "Đang chờ", "processing": "Đang xử lý", "done": "Xong", "error": "Lỗi",
                "review": "📝 Chờ duyệt", "cancelled": "Đã hủy", "approved": "Đã duyệt"}
@@ -253,8 +254,16 @@ def _cleanup(*paths):
 def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     hooks = hooks or {}
 
-    async def index(_):
+    async def index(request):
+        """Bảng điều khiển chỉ hiện khi đã đăng nhập; chưa thì sang trang đăng nhập riêng (/login)."""
+        if not _authed(request):
+            raise web.HTTPFound("/login")
         return web.FileResponse(INDEX_HTML, headers={"Cache-Control": "no-cache"})
+
+    async def login_page(request):
+        if _authed(request):
+            raise web.HTTPFound("/")
+        return web.FileResponse(LOGIN_HTML, headers={"Cache-Control": "no-cache"})
 
     async def health(_):
         # công khai cho uptime-check nên không lộ gì ngoài "còn sống" và số job chờ
@@ -684,6 +693,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     app = web.Application(client_max_size=config.MAX_UPLOAD + 5 * 1024 * 1024)
     app.router.add_get("/", index)
+    app.router.add_get("/login", login_page)
     app.router.add_get("/health", health)
     app.router.add_get("/api/me", me)
     app.router.add_post("/api/login", login)

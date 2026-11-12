@@ -62,6 +62,9 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 
 ## Web panel (link web của Botkeep)
 
+Có trang đăng nhập riêng (`/login`): chưa đăng nhập thì mọi đường dẫn của bảng điều khiển chuyển về đó; đăng nhập xong
+mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nhập. Phiên giữ 30 ngày (cookie HttpOnly, SameSite=Strict).
+
 - Đăng nhập, rồi dán link video **hoặc tải file video lên trực tiếp** để remake, chọn chế độ / thời lượng / giọng.
 - **⚙️ Cài đặt ngay trên web**: key, model, cookies YouTube, giọng đọc, `ALLOWED_USERS`, `ALLOWED_SOURCES`... lưu vào
   `settings.json`, áp dụng ngay. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.

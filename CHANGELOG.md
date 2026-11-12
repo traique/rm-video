@@ -120,6 +120,12 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Trang đăng nhập riêng cho web
+
+`/login` (static/login.html): `/` chưa có phiên hợp lệ thì chuyển hướng sang đó; đăng nhập xong về `/` (hoặc `next` nếu
+là đường dẫn nội bộ); đã đăng nhập mà mở `/login` thì về `/`; đăng xuất về `/login`. Bỏ ô mật khẩu trên trang chính.
+Kiểm: test đủ luồng; khởi động bot thật đi 9 bước bằng cookie (chuyển hướng, sai/đúng mật khẩu, API, đăng xuất).
+
 ## Mọi chế độ dựng trên Kaggle
 
 | Việc | Cách làm | Kiểm |

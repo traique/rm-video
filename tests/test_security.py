@@ -304,3 +304,28 @@ def test_too_long_points_to_long_video_buttons():
     assert "Video dài: remake nguyên" in core_video._long_hint(110, 90)
     assert "Cắt thành phần" in core_video._long_hint(400, 300)
     assert "Chỉ tải về" in core_video._long_hint(900, 300)
+
+
+def test_login_page_gates_dashboard(monkeypatch, tmp_path):
+    """Trang đăng nhập riêng: chưa đăng nhập thì / chuyển sang /login; đăng nhập xong /login chuyển về /;
+    đăng xuất xong lại bị chặn. Các API vẫn đòi phiên như cũ."""
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            r = await c.get("/", allow_redirects=False)
+            assert r.status == 302 and r.headers["Location"] == "/login"
+            r = await c.get("/login")
+            assert r.status == 200 and "WEB_PASSWORD" in await r.text() and "name=\"password\"" in await r.text()
+            assert (await c.get("/api/jobs")).status == 401
+            r = await c.post("/api/login", json={"password": "pw-123"})
+            assert r.status == 200
+            r = await c.get("/", allow_redirects=False)
+            assert r.status == 200 and "bảng điều khiển" in await r.text()
+            r = await c.get("/login", allow_redirects=False)
+            assert r.status == 302 and r.headers["Location"] == "/"
+            assert (await c.post("/api/logout")).status == 200
+            assert (await c.get("/", allow_redirects=False)).status == 302
+            # chưa đặt mật khẩu: trang đăng nhập vẫn mở được để báo lý do, bảng điều khiển vẫn chặn
+            monkeypatch.setattr(config, "WEB_PASSWORD", "")
+            assert (await c.get("/login")).status == 200
+            assert (await c.get("/", allow_redirects=False)).status == 302
+    asyncio.run(go())
