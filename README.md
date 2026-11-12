@@ -94,7 +94,7 @@ Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook
   mới nhất mỗi tab). Video đã dùng không bao giờ dùng lại; video quá 5 phút / không phải của chủ kênh bị bỏ qua.
 - Chỉ thêm job khi hàng đợi trống (video bạn gửi luôn làm trước), làm sẵn cho các khung giờ trong 36 giờ tới rồi
   **hẹn giờ đăng phía Facebook**, nên máy chậm hay bot khởi động lại không làm lỡ giờ.
-- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag + dòng ghi nguồn.
+- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag (không ghi nguồn).
 - Giờ vàng: ban đầu 11:30 và 20:30 (giờ Việt Nam). Mỗi bài sau 24 giờ được đọc lượt xem; khung nào trung bình cao hơn
   được chọn nhiều hơn, thỉnh thoảng thử khung khác. Hai khung trong ngày cách nhau ≥ 3 giờ.
 - Lỗi token (hết hạn, thiếu quyền) thì dừng và báo Telegram admin; sửa token rồi gõ `auto_resume` (hoặc bấm nút trên web).
@@ -109,7 +109,7 @@ Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
 5. Dán vào Cài đặt, bấm **🔑 Thử token Fanpage** (hoặc gõ `fb_test`).
 
 Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
-bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình và ghi nguồn nhưng không thay được quyền tác giả.
+bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình nhưng không thay được quyền tác giả.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 
@@ -142,7 +142,7 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Cache theo bước** (`cache/`, trần `CACHE_MAX_MB`): đoạn giọng, kết quả dò cảnh/dải chữ, tiếng nền đã tách giọng. Duyệt kịch bản xong render lại không tải lại video, không gọi AI, chỉ đọc lại đoạn đã sửa.
 - **Ước tính thời gian** hiện trên web, tự học tốc độ máy sau mỗi job (`speed.json`).
 - **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt. Mỗi đoạn chọn được **lời mới / giữ tiếng gốc (không đọc) / đọc lời mới lót tiếng gốc** (web: ô chọn dưới mỗi đoạn; Telegram: "số: gốc", "số: lót gốc", "số: mới"); `OST_AUTO=1` cho AI tự đề xuất (tối đa 1/5 số đoạn, chỉ đoạn không có bước/nguyên liệu/con số). Hàng đợi đầy vẫn duyệt được (job đã duyệt được vượt giới hạn); đoạn quảng cáo cuối đã cắt lúc viết kịch bản vẫn được cắt khi render bản duyệt.
-- **Ghi nguồn** (`SOURCE_CREDIT=1`, mặc định): nội dung đăng có dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI". `ALLOWED_SOURCES`: chỉ remake video của các kênh trong danh sách (kênh của bạn / đã được cấp phép).
+- **Ghi nguồn** (`SOURCE_CREDIT=1`, mặc định TẮT): bật thì nội dung đăng có dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI". `ALLOWED_SOURCES`: chỉ remake video của các kênh trong danh sách (kênh của bạn / đã được cấp phép).
 - **Nhiều link một lúc**: mỗi link một dòng (web) hoặc nhiều link trong một tin (Telegram), tối đa 10.
 - **Kiểm con số bằng máy**: số có đơn vị (2 quả, 200g, 15 phút, 35k) phải khớp lời gốc, như kiểm nguyên liệu (~270 nhóm). Vi phạm → AI viết lại.
 - **Thương hiệu** (Cài đặt): `BRAND_NAME` màn kết 2.2s cuối, logo PNG upload trong Cài đặt (góc phải trên), `BRAND_INTRO` tiêu đề 3s đầu. `SUB_STYLE`: karaoke | box | outline | plain.

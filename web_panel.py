@@ -205,7 +205,7 @@ _SETTING_OPTIONS = {
                   ["gemini,capcut", "Gemini → CapCut"], ["groq,capcut", "Groq → CapCut"]],
     "SUB_TIMING": [["spread", "Theo khoảng có tiếng của giọng (mặc định, lệch ~70ms, không gọi mạng)"],
                    ["stt", "Nghe lại bằng STT CapCut (lệch ~85ms, chậm thêm 7-11 giây)"]],
-    "SOURCE_CREDIT": [["1", "Bật (ghi nguồn + Giọng đọc AI)"], ["0", "Tắt"]],
+    "SOURCE_CREDIT": [["0", "Tắt (mặc định)"], ["1", "Bật (ghi nguồn + Giọng đọc AI)"]],
     "CUT_PROMO": [["1", "Bật (cắt quảng cáo sản phẩm của người gốc ở cuối)"], ["0", "Tắt"]],
 }
 

@@ -60,7 +60,7 @@ EDITABLE = {
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
     "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
     "QUALITY": "balanced",             # fast (720p) | balanced (1080p, máy chậm tự 720p) | high (chuẩn TVC, chậm ~2x)
-    "SOURCE_CREDIT": "1",              # 1 = thêm dòng ghi nguồn + "Giọng đọc AI" vào nội dung đăng
+    "SOURCE_CREDIT": "0",              # 1 = thêm dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI" vào nội dung đăng (mặc định tắt)
     "ALLOWED_SOURCES": "",             # kênh nguồn được phép (tên kênh/uploader, cách nhau dấu phẩy); trống = mọi kênh
     "ALLOWED_USERS": "",               # chat_id/user_id Telegram được dùng bot, cách nhau dấu phẩy
     "ADMIN_CHAT_ID": "",               # nơi nhận cảnh báo (dịch vụ ngoài hỏng); trống = người đầu tiên trong ALLOWED_USERS

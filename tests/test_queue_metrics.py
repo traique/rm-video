@@ -157,6 +157,7 @@ def test_ffmpeg_threads(monkeypatch):
 def test_credit_line_in_post(monkeypatch):
     import pipeline
     import prompt_engine
+    assert config.EDITABLE["SOURCE_CREDIT"] == "0"          # người dùng 11/2026: mặc định không ghi nguồn
     monkeypatch.setattr(config, "SOURCE_CREDIT", "1")
     job = _mk(source_meta={"uploader": "Bếp Nhà Mình"})
     credit = pipeline.credit_line(job)
