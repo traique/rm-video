@@ -87,7 +87,7 @@ trọn trước khi AI viết lại.
 ## 🤖 Tự động đăng Fanpage (kênh nguồn → làm lại → giờ vàng)
 
 Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook nguồn, cách nhau dấu phẩy),
-`FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng),
+`FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (1-4, mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng),
 `AUTO_MODE` (cook | review). Theo dõi ở ô **🤖 Tự động đăng Facebook** trên web hoặc lệnh console `auto`.
 
 - Mỗi lần lấy NGẪU NHIÊN một video mới của kênh nguồn (đọc tab Reels + Video của kênh, không cần đăng nhập: ~10 video
@@ -97,7 +97,13 @@ Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook
 - ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag (không ghi nguồn).
 - Giờ vàng: ban đầu 11:30 và 20:30 (giờ Việt Nam). Mỗi bài sau 24 giờ được đọc lượt xem; khung nào trung bình cao hơn
   được chọn nhiều hơn, thỉnh thoảng thử khung khác. Hai khung trong ngày cách nhau ≥ 3 giờ.
-- Lỗi token (hết hạn, thiếu quyền) thì dừng và báo Telegram admin; sửa token rồi gõ `auto_resume` (hoặc bấm nút trên web).
+- Không bao giờ đăng trùng: mỗi lượt chạy giữ khoá, ghi dấu "đang đăng" trước khi tải lên; bot dừng đúng lúc đang tải
+  thì KHÔNG tự đăng lại mà báo bạn kiểm tra Fanpage.
+- Không đăng video kém: AI lỗi (dùng kịch bản mẫu) hoặc lời mới khác lời gốc < 70% thì bỏ, chọn video khác.
+- Lỗi tạm (mạng, hết hạn mức AI, Facebook giới hạn) thì nghỉ rồi thử lại (video nguồn 6 giờ, đăng bài 5 → 60 phút);
+  một video lỗi 2 lần thì bỏ hẳn; 3 video liên tiếp không đăng được, lỗi token / sai id Page / bị chặn thì dừng hẳn và
+  báo Telegram admin; sửa xong gõ `auto_resume` (hoặc bấm nút trên web). File trạng thái hỏng thì giữ bản cũ
+  (`autopost.json.bad`) và dừng chờ bạn.
 
 Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
 1. developers.facebook.com → My Apps → tạo app (loại Business).

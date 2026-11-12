@@ -118,10 +118,7 @@ async def console():
             elif low == "auto_now":
                 logging.info("Tự động đăng: %s", await autopost.tick(force=True))
             elif low == "auto_resume":
-                st = autopost.load_state()
-                st["paused"] = ""
-                autopost.save_state(st)
-                logging.info("Tự động đăng: chạy lại. %s", await autopost.tick())
+                logging.info("Tự động đăng: %s", await autopost.resume())
             elif low == "fb_test":
                 try:
                     logging.info("✅ Token dùng được cho Fanpage: %s", await autopost.check_token())

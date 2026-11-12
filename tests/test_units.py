@@ -133,3 +133,14 @@ def test_beat_sync_prefers_closest_ratio():
     assert s["speed"] == 1.0
     s = beat.compute_sync(100, 0.0, 150, 0.0)
     assert 0.8 <= s["speed"] <= 1.25
+
+
+def test_plan_voice_never_slower_than_base_and_zero_length():
+    """Rà soát trước deploy: đoạn trước tràn qua mốc đoạn sau -> f = d/0.3 có thể < 1 (chậm lại) hoặc < 0.5 (atempo
+    của ffmpeg báo lỗi); đoạn TTS rỗng (d=0) -> chia cho 0."""
+    segs = [{"start": 0.0, "slot": 1.0, "span": 1.0}, {"start": 1.0, "slot": 0.2, "span": 0.2},
+            {"start": 1.2, "slot": 0.2, "span": 0.2}, {"start": 1.4, "slot": 3.0, "span": 3.0}]
+    plan, _ = core_video.plan_voice([3.0, 0.12, 0.0, 1.0], segs, 5.0)
+    base = core_video.voice_base_factor([3.0, 0.12, 0.0, 1.0], segs, 5.0)
+    assert all(p["factor"] >= base - 1e-9 and p["factor"] >= 1.0 for p in plan)
+    assert plan[2]["end"] == plan[2]["start"]

@@ -62,6 +62,7 @@ class Job:
     images: list = field(default_factory=list)   # chế độ 📸 ảnh + nhạc: ảnh tải lên qua web (đường dẫn)
     tg_images: list = field(default_factory=list)   # ... hoặc file_id ảnh gửi qua Telegram
     music_mix: str = ""       # chế độ 🎵: "" = thay nhạc + khớp beat; "bg" = làm nhạc nền, giữ tiếng gốc
+    no_autopost: str = ""     # lý do KHÔNG được tự đăng Fanpage (AI lỗi -> kịch bản mẫu, lời mới gần như chép lời gốc)
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job

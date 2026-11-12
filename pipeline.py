@@ -281,6 +281,7 @@ def credit_line(job: Job) -> str:
     return " · ".join(parts)
 
 
+AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
 SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 
@@ -574,6 +575,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
         timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc, await keyframes_for(sc), out_dur)
     if timed:
         job.script = spoken_script(timed["segments"]) or timed["script"]
+        if timed.get("fresh", 1.0) < AUTO_MIN_FRESH:            # AI lỗi một phần -> nhiều đoạn giữ nguyên lời gốc
+            job.no_autopost = f"lời mới chỉ {timed['fresh'] * 100:.0f}% khác lời gốc"
         if not job.approved:
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"], credit_line(job))
         if allow_review and job.source != "auto" and (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
@@ -692,6 +695,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list):
     pack = await prompt_engine.generate(title, desc, job.mode, text, target)
     if pack.get("fallback"):
         job.error = "⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt."
+        job.no_autopost = "AI viết kịch bản lỗi, video dùng kịch bản mẫu"
     job.script = pack["script"]
     job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
 

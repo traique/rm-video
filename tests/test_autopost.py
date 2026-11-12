@@ -16,6 +16,7 @@ from queue_manager import Job
 @pytest.fixture(autouse=True)
 def _cfg(monkeypatch, tmp_path):
     monkeypatch.setattr(autopost, "STATE_FILE", str(tmp_path / "ap.json"))
+    monkeypatch.setattr(autopost, "_POSTED", {})     # test khác tạo JobQueue mới -> số job đánh lại từ đầu
     for k, v in (("AUTO_POST", "1"), ("AUTO_SOURCES", "duynauan"), ("AUTO_PER_DAY", "2"), ("AUTO_TIMES", ""),
                  ("AUTO_MODE", "cook"), ("FB_PAGE_ID", "111"), ("FB_PAGE_TOKEN", "tok"), ("TTS_PROVIDER", "edge")):
         monkeypatch.setattr(config, k, v)
@@ -260,3 +261,205 @@ def test_web_status_and_actions(monkeypatch, tmp_path):
             assert "FB_PAGE_TOKEN" in d["text"] and "Tự động đăng" in d["status"]
             assert (await c.post("/api/autopost/xoa", headers={"X-Auth": "pw-123"})).status == 404
     asyncio.run(go())
+
+
+# ---------------- các lỗi tìm được khi rà soát trước deploy ----------------
+
+def _done_job(tmp_path, **kw):
+    out = tmp_path / "o.mp4"
+    out.write_bytes(b"x" * 100)
+    job = Job(url="u", mode="cook", duration=0, voice="", source="auto", status="done", **kw)
+    job.parts, job.out_dur, job.post = [{"label": "Video", "path": str(out)}], 40.0, "📌 Tiêu đề\nnội dung"
+    return job
+
+
+def _pending_for(job, slot="20:30"):
+    st = autopost.load_state()
+    st["pending"] = {"job": job.id, "vid": "555", "source": "s", "slot_ts": _ts(12, slot), "slot": slot, "dur": 40}
+    st["used"]["555"] = {"job": job.id}
+    autopost.save_state(st)
+
+
+def test_concurrent_ticks_publish_once(monkeypatch, tmp_path):
+    import state
+    job = _done_job(tmp_path)
+    monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+    monkeypatch.setattr(state.queue, "pending", 1)
+    _pending_for(job)
+    calls = []
+
+    async def slow_publish(*a, **k):
+        calls.append(1)
+        await asyncio.sleep(0.2)
+        return "R1", "reel"
+    monkeypatch.setattr(autopost, "publish", slow_publish)
+
+    async def both():
+        return await asyncio.gather(autopost.tick(now=_ts(12, "10:00")), autopost.tick(now=_ts(12, "10:00")))
+    a, b = asyncio.run(both())
+    assert len(calls) == 1 and "một lượt khác" in (a + b)
+    assert len(autopost.load_state()["posts"]) == 1
+
+
+def test_never_republish_after_crash_or_failed_save(monkeypatch, tmp_path):
+    import state
+    job = _done_job(tmp_path)
+    monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+    monkeypatch.setattr(state.queue, "pending", 1)
+    calls = []
+
+    async def pub(*a, **k):
+        calls.append(1)
+        return "R1", "reel"
+    monkeypatch.setattr(autopost, "publish", pub)
+    # (a) bot chết đúng lúc đang tải lên: lần sau KHÔNG đăng lại, chỉ báo kiểm tra
+    _pending_for(job)
+    st = autopost.load_state()
+    st["pending"]["publishing"] = _ts(12, "09:59")
+    autopost.save_state(st)
+    asyncio.run(autopost.tick(now=_ts(12, "10:00")))
+    st = autopost.load_state()
+    assert calls == [] and st["pending"] is None and st["used"]["555"]["skip"] == "dừng giữa lúc đăng"
+    # (b) đăng xong nhưng ghi file lỗi: lượt sau đọc lại pending cũ mà vẫn không đăng lần hai
+    _pending_for(job)
+    real_save = autopost.save_state
+    n = {"saves": 0}
+
+    def flaky_save(st, path=None):
+        n["saves"] += 1
+        if n["saves"] >= 2:                     # lần ghi dấu "đang đăng" OK, các lần sau (sau khi đăng) lỗi
+            raise OSError("No space left on device")
+        real_save(st, path)
+    monkeypatch.setattr(autopost, "save_state", flaky_save)
+    with pytest.raises(OSError):
+        asyncio.run(autopost.tick(now=_ts(12, "10:00")))
+    monkeypatch.setattr(autopost, "save_state", real_save)
+    st = autopost.load_state()                  # trên đĩa vẫn là pending + dấu "đang đăng"
+    st["pending"].pop("publishing", None)       # (kể cả khi dấu này cũng mất)
+    autopost.save_state(st)
+    asyncio.run(autopost.tick(now=_ts(12, "10:02")))
+    assert len(calls) == 1 and len(autopost.load_state()["posts"]) == 1
+
+
+def test_temporary_errors_back_off_instead_of_burning_videos(monkeypatch, tmp_path):
+    import core_video
+    import state
+    monkeypatch.setattr(state.queue, "pending", 0)
+    listed = []
+
+    def listing(src):
+        listed.append(src)
+        return ["900000001", "900000002"], "777"
+    monkeypatch.setattr(autopost, "list_channel_sync", listing)
+
+    async def probe_down(url, td):
+        raise RuntimeError("Tải video lỗi: HTTP Error 503")
+    monkeypatch.setattr(core_video, "probe_formats", probe_down)
+    t0 = _ts(12, "09:00")
+    asyncio.run(autopost.tick(now=t0))
+    st = autopost.load_state()
+    assert st["used"] == {} and st["fails"]["900000001"]["n"] == 1          # chưa bỏ: chỉ nghỉ 6 giờ
+    asyncio.run(autopost.tick(now=t0 + 120))
+    assert autopost.load_state()["fails"]["900000001"]["n"] == 1 and len(listed) == 1   # chưa tới giờ thử lại
+    asyncio.run(autopost.tick(now=t0 + autopost.RETRY_AFTER + 60))
+    st = autopost.load_state()
+    assert st["fails"]["900000001"]["n"] == 2 and "900000001" in st["used"]  # lỗi 2 lần mới bỏ hẳn
+
+    def listing_down(src):
+        listed.append(src)
+        raise RuntimeError("HTTP 429")
+    monkeypatch.setattr(autopost, "list_channel_sync", listing_down)
+    st["listing"] = {}
+    autopost.save_state(st)
+    for k in range(3):
+        asyncio.run(autopost.tick(now=t0 + 7 * 3600 + 120 * k))
+    assert len(listed) == 3                    # t0, sau 6 giờ, lần lỗi lúc 7 giờ; không đọc lại mỗi 2 phút sau lỗi
+
+
+def test_failed_jobs_retry_then_pause_after_streak(monkeypatch, tmp_path):
+    import state
+    monkeypatch.setattr(state.queue, "pending", 1)
+    sent = []
+
+    async def admin(text):
+        sent.append(text)
+    monkeypatch.setattr(state, "notify_admin", admin)
+    t = _ts(12, "09:00")
+    for k in range(3):
+        job = Job(url="u", mode="cook", duration=0, voice="", source="auto", status="error", error="Ổ đĩa đầy")
+        monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+        _pending_for(job)
+        asyncio.run(autopost.tick(now=t + k))
+    st = autopost.load_state()
+    assert "3 video liên tiếp" in st["paused"] and len(sent) == 1
+    assert st["fails"]["555"]["n"] == 3 and "555" in st["used"]
+
+
+def test_weak_script_never_published(monkeypatch, tmp_path):
+    import state
+    job = _done_job(tmp_path, no_autopost="AI viết kịch bản lỗi, video dùng kịch bản mẫu")
+    monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+    monkeypatch.setattr(state.queue, "pending", 1)
+    _pending_for(job)
+    calls = []
+
+    async def pub(*a, **k):
+        calls.append(1)
+        return "R", "reel"
+    monkeypatch.setattr(autopost, "publish", pub)
+    asyncio.run(autopost.tick(now=_ts(12, "10:00")))
+    st = autopost.load_state()
+    assert calls == [] and st["pending"] is None and "kịch bản mẫu" in st["fails"]["555"]["why"]
+
+
+def test_publish_error_backoff_and_pause_codes(monkeypatch, tmp_path):
+    import state
+    job = _done_job(tmp_path)
+    monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+    monkeypatch.setattr(state.queue, "pending", 1)
+    _pending_for(job)
+    calls = []
+
+    async def rate_limited(*a, **k):
+        calls.append(1)
+        raise autopost.FBError("Facebook lỗi 4: Application request limit reached", 4)
+    monkeypatch.setattr(autopost, "publish", rate_limited)
+    t = _ts(12, "10:00")
+    with pytest.raises(autopost.FBError):
+        asyncio.run(autopost.tick(now=t))
+    assert asyncio.run(autopost.tick(now=t + 120)).startswith("chờ thử đăng lại") and len(calls) == 1
+    st = autopost.load_state()
+    assert st["pending"]["tries"] == 1 and not st["paused"]
+
+    async def wrong_page(*a, **k):
+        raise autopost.FBError("Facebook lỗi 100: Unsupported post request", 100)
+    monkeypatch.setattr(autopost, "publish", wrong_page)
+    with pytest.raises(autopost.FBError):
+        asyncio.run(autopost.tick(now=t + 600))
+    st = autopost.load_state()
+    assert st["paused"] and st["pending"]["job"] == job.id                  # dừng nhưng vẫn giữ video để đăng lại
+
+
+def test_source_without_scheme_and_settings_change_apply_now(monkeypatch):
+    n = autopost.normalize_source
+    for s in ("facebook.com/duynauan", "www.facebook.com/duynauan/", "m.facebook.com/duynauan/reels"):
+        assert n(s) == "https://www.facebook.com/duynauan"
+    monkeypatch.setattr(autopost, "EXPLORE", 0.0)
+    st = autopost.load_state()
+    now = _ts(12, "06:00")
+    assert [t for _, t in autopost.upcoming_slots(st, now, random.Random(0))][:2] == ["11:30", "20:30"]
+    monkeypatch.setattr(config, "AUTO_TIMES", "08:00,13:00")
+    assert [t for _, t in autopost.upcoming_slots(st, now, random.Random(0))][:2] == ["08:00", "13:00"]
+    st["posts"].append({"time": _ts(13, "08:00")})                         # ngày đã có bài hẹn: giữ khung cũ
+    monkeypatch.setattr(config, "AUTO_TIMES", "09:00")
+    days = {t for ts, t in autopost.upcoming_slots(st, now, random.Random(0))
+            if datetime.fromtimestamp(ts, autopost.VN).day == 13}
+    assert days == {"08:00", "13:00"}
+
+
+def test_corrupt_state_kept_and_paused(monkeypatch, tmp_path):
+    open(autopost.STATE_FILE, "w").write('{"used": {"1": ')
+    st = autopost.load_state()
+    assert st["paused"] and os.path.exists(autopost.STATE_FILE + ".bad")
+    assert asyncio.run(autopost.tick()).startswith("đang dừng")
+    assert autopost.load_state()["paused"]                                  # lần sau vẫn dừng (đã ghi lại)

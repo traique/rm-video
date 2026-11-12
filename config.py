@@ -67,7 +67,7 @@ EDITABLE = {
     # 🤖 Tự động đăng (autopost.py): lấy video ngẫu nhiên không trùng từ kênh nguồn -> làm lại -> đăng Fanpage giờ vàng
     "AUTO_POST": "0",                  # 1 = bật
     "AUTO_SOURCES": "",                # kênh Facebook nguồn (link kênh hoặc tên kênh), cách nhau dấu phẩy
-    "AUTO_PER_DAY": "2",               # số video đăng mỗi ngày (1-6)
+    "AUTO_PER_DAY": "2",               # số video đăng mỗi ngày (1-4)
     "AUTO_TIMES": "",                  # trống = bot tự chọn giờ vàng theo lượt xem; hoặc cố định "11:30,20:30"
     "AUTO_MODE": "cook",               # chế độ làm lại: cook | review
     "FB_PAGE_ID": "",                  # id Fanpage đăng lên
@@ -157,8 +157,8 @@ def save_settings(updates: dict):
                 raise ValueError("TTS_PROVIDER chỉ nhận: capcut, edge")
             if k == "AUTO_POST" and v not in ("0", "1"):
                 raise ValueError("AUTO_POST chỉ nhận: 0, 1")
-            if k == "AUTO_PER_DAY" and not (v.isdigit() and 1 <= int(v) <= 6):
-                raise ValueError("AUTO_PER_DAY là số 1-6")
+            if k == "AUTO_PER_DAY" and not (v.isdigit() and 1 <= int(v) <= 4):
+                raise ValueError("AUTO_PER_DAY là số 1-4 (các khung giờ cách nhau ít nhất 3 tiếng)")
             if k == "AUTO_TIMES" and not re.fullmatch(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*", v):
                 raise ValueError("AUTO_TIMES dạng 11:30,20:30 (giờ Việt Nam)")
             if k == "AUTO_MODE" and v not in ("cook", "review"):

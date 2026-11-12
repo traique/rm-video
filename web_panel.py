@@ -521,10 +521,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             elif act == "test":
                 msg = "✅ Token dùng được cho Fanpage: " + await autopost.check_token()
             elif act == "resume":
-                st = autopost.load_state()
-                st["paused"] = ""
-                autopost.save_state(st)
-                msg = "Đã chạy lại. " + await autopost.tick()
+                msg = await autopost.resume()
             else:
                 raise web.HTTPNotFound()
         except web.HTTPException:

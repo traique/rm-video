@@ -56,12 +56,30 @@ class FBError(RuntimeError):
 # ---------------- trạng thái ----------------
 
 def load_state(path: str | None = None) -> dict:
+    """File hỏng KHÔNG được lặng lẽ thay bằng trạng thái rỗng (mất danh sách video đã dùng -> đăng lại video cũ,
+    mất lịch đã hẹn -> hẹn trùng giờ): đổi tên thành .bad, dừng tự động đăng và báo lý do."""
+    path = path or STATE_FILE
     try:
-        with open(path or STATE_FILE, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             st = json.load(f)
-    except (OSError, ValueError):
+        if not isinstance(st, dict):
+            raise ValueError("nội dung không phải object JSON")
+    except FileNotFoundError:
         st = {}
-    for k, v in (("used", {}), ("posts", []), ("listing", {}), ("days", {}), ("pending", None), ("paused", "")):
+    except (OSError, ValueError) as e:
+        try:
+            os.replace(path, path + ".bad")
+        except OSError:
+            pass
+        logging.error("autopost.json hỏng (%s), đã đổi tên thành autopost.json.bad", e)
+        st = {"paused": f"autopost.json hỏng ({str(e)[:60]}), đã lưu bản cũ thành autopost.json.bad — kiểm tra "
+                        "rồi gõ auto_resume (danh sách video đã dùng bắt đầu lại từ đầu)"}
+        try:                                    # ghi ngay trạng thái dừng: ai đọc tiếp (vòng chạy, web) cũng thấy
+            save_state(dict(st), path)
+        except OSError:
+            pass
+    for k, v in (("used", {}), ("posts", []), ("listing", {}), ("days", {}), ("pending", None), ("paused", ""),
+                 ("fails", {}), ("streak", 0)):
         st.setdefault(k, v)
     return st
 
@@ -94,7 +112,9 @@ def normalize_source(s: str) -> str:
     s = (s or "").strip()
     if not s:
         return ""
-    if not s.startswith(("http://", "https://")):
+    if re.match(r"(?i)^(?:[\w-]+\.)*facebook\.com/", s):          # "facebook.com/x", "m.facebook.com/x"
+        s = "https://" + s
+    elif not s.startswith(("http://", "https://")):
         s = "https://www.facebook.com/" + s.lstrip("@/")
     parts = urllib.parse.urlsplit(s)
     host = (parts.hostname or "").lower()
@@ -113,7 +133,7 @@ def normalize_source(s: str) -> str:
 
 def per_day() -> int:
     try:
-        return max(1, min(6, int(config.AUTO_PER_DAY)))
+        return max(1, min(4, int(config.AUTO_PER_DAY)))          # 4 khung cách nhau >= 3 giờ là tối đa hợp lý
     except (TypeError, ValueError):
         return 2
 
@@ -243,12 +263,29 @@ def choose_slots(st: dict, n: int, rnd: random.Random) -> list:
     return sorted(chosen, key=_hm)
 
 
+def _settings_fp() -> str:
+    return f"{','.join(fixed_times())}|{per_day()}"
+
+
+def _day_busy(st: dict, day: str) -> bool:
+    """Ngày đó đã có bài hẹn / video đang làm: giữ nguyên khung giờ của ngày (không hẹn thêm lệch giờ)."""
+    times = [p.get("time", 0) for p in st["posts"]] + ([st["pending"].get("slot_ts", 0)] if st.get("pending") else [])
+    return any(datetime.fromtimestamp(t, VN).date().isoformat() == day for t in times if t)
+
+
 def day_slots(st: dict, day: str, rnd: random.Random) -> list:
-    if day not in st["days"]:
-        st["days"][day] = choose_slots(st, per_day(), rnd)
-        for old in sorted(st["days"])[:-10]:
-            st["days"].pop(old, None)
-    return st["days"][day]
+    """Khung giờ của một ngày, chọn một lần rồi giữ. Đổi AUTO_TIMES / AUTO_PER_DAY thì chọn lại ngay cho các ngày
+    chưa có bài nào (trước đây phải chờ ~2 ngày)."""
+    d = st["days"].get(day)
+    fp = _settings_fp()
+    if isinstance(d, dict) and d.get("fp") == fp:
+        return d["slots"]
+    if d is not None and _day_busy(st, day):
+        return d["slots"] if isinstance(d, dict) else d
+    st["days"][day] = {"fp": fp, "slots": choose_slots(st, per_day(), rnd)}
+    for old in sorted(st["days"])[:-10]:
+        st["days"].pop(old, None)
+    return st["days"][day]["slots"]
 
 
 def upcoming_slots(st: dict, now: float, rnd: random.Random, horizon: float = HORIZON) -> list:
@@ -406,6 +443,25 @@ def _output_files(job) -> tuple:
     return video, thumb
 
 
+RETRY_AFTER = 6 * 3600         # video / kênh / lượt xem đọc lỗi: thử lại sau 6 giờ, không gọi Facebook mỗi 2 phút
+MAX_VIDEO_FAILS = 2            # một video nguồn lỗi (tải / làm / AI) chừng này lần thì bỏ hẳn
+STREAK_PAUSE = 3               # chừng này video liên tiếp không đăng được thì dừng hẳn, báo admin
+PAUSE_CODES = {190, 10, 200, 100, 368}   # token hết hạn / thiếu quyền / sai id Page / bị Facebook chặn: cần người sửa
+_LOCK = asyncio.Lock()
+_POSTED: dict = {}             # job id -> bài đã đăng (trong bộ nhớ): ghi file lỗi cũng không đăng lại
+
+
+def _fail(st: dict, vid: str, src: str, now: float, why: str, hard: bool = False):
+    """Ghi một lần lỗi của video nguồn. Lỗi cố định (khác kênh, quá dài...) hoặc lỗi lặp lại MAX_VIDEO_FAILS lần thì bỏ
+    hẳn; lỗi tạm (mạng, hết hạn mức AI, đầy ổ...) thì cho video đó nghỉ RETRY_AFTER rồi thử lại."""
+    f = st["fails"].setdefault(vid, {"n": 0})
+    f["n"], f["next"], f["why"] = f["n"] + 1, now + RETRY_AFTER, why[:120]
+    if hard or f["n"] >= MAX_VIDEO_FAILS:
+        st["used"][vid] = {"at": now, "source": src, "skip": why[:120]}
+    else:
+        st["used"].pop(vid, None)
+
+
 async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random) -> str:
     import core_video
     from queue_manager import Job, QueueFull
@@ -414,29 +470,31 @@ async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random)
     rnd.shuffle(srcs)
     for src in srcs:
         lst = st["listing"].get(src)
-        if not lst or now - lst.get("at", 0) > LIST_TTL:
+        if not lst or (now - lst.get("at", 0) > LIST_TTL and now - lst.get("fail_at", 0) > RETRY_AFTER / 6):
             try:
                 ids, owner = await asyncio.to_thread(list_channel_sync, src)
-            except Exception as e:
+                lst = st["listing"][src] = {"at": now, "ids": ids, "owner": owner}
+            except Exception as e:                      # nhớ lần lỗi: không đọc lại kênh mỗi 2 phút
                 logging.warning("Tự động đăng: không đọc được kênh %s (%s)", src, str(e)[:120])
-                continue
-            lst = st["listing"][src] = {"at": now, "ids": ids, "owner": owner}
-        cands = [v for v in lst["ids"] if v not in st["used"]]
+                lst = st["listing"][src] = {**(lst or {"ids": [], "owner": ""}), "fail_at": now,
+                                            "err": str(e)[:120]}
+        cands = [v for v in lst.get("ids", []) if v not in st["used"]
+                 and st["fails"].get(v, {}).get("next", 0) <= now]
         rnd.shuffle(cands)
-        for vid in cands[:5]:
+        for vid in cands[:3]:
             url = f"https://www.facebook.com/reel/{vid}/"
             try:
                 with tempfile.TemporaryDirectory() as td:
                     info = await core_video.probe_formats(url, td)
             except Exception as e:
-                st["used"][vid] = {"at": now, "source": src, "skip": f"không xem được: {str(e)[:80]}"}
+                _fail(st, vid, src, now, f"không xem được: {str(e)[:80]}")
                 continue
             dur, up = info.get("duration") or 0, str(info.get("uploader_id") or "")
             why = ("khác kênh" if lst.get("owner") and up and up != lst["owner"] else
                    f"dài {dur}s > {config.LONG_MAX}s" if dur > config.LONG_MAX else
                    "quá ngắn" if 0 < dur < 5 else "")
             if why:
-                st["used"][vid] = {"at": now, "source": src, "skip": why}
+                _fail(st, vid, src, now, why, hard=True)
                 continue
             voice = config.CAPCUT_VOICE_FEMALE if config.TTS_PROVIDER == "capcut" else config.VOICE_FEMALE
             mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
@@ -456,24 +514,46 @@ async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random)
     return "hết video mới ở các kênh nguồn (chờ kênh đăng thêm)"
 
 
+async def _job_failed(st: dict, p: dict, now: float, why: str) -> str:
+    from state import notify_admin
+    logging.warning("Tự động đăng: video %s không đăng được (%s), chọn video khác", p["vid"], why)
+    _fail(st, p["vid"], p["source"], now, why)
+    st["pending"] = None
+    st["streak"] = st.get("streak", 0) + 1
+    if st["streak"] >= STREAK_PAUSE:
+        st["paused"] = f"{st['streak']} video liên tiếp không đăng được, lần cuối: {why[:150]}"
+        await notify_admin(f"⛔ Tự động đăng đã dừng: {st['paused']}. Sửa xong gõ  auto_resume  (hoặc bấm nút trên web).")
+    return why
+
+
 async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
     from state import notify_admin, queue
     p = st["pending"]
+    if p["job"] in _POSTED:                     # đã đăng ở lượt trước nhưng ghi file lỗi: chỉ ghi lại, KHÔNG đăng lại
+        if not any(x.get("job") == p["job"] for x in st["posts"]):
+            st["posts"].append(_POSTED[p["job"]])
+        st["pending"] = None
+        return f"job #{p['job']} đã đăng trước đó"
+    if p.get("publishing"):                     # bot dừng / ghi file lỗi đúng lúc đang tải lên: không biết đã lên chưa
+        st["pending"] = None
+        st["used"][p["vid"]] = {"at": now, "source": p["source"], "skip": "dừng giữa lúc đăng"}
+        await notify_admin(f"⚠️ Bot dừng đúng lúc đang đăng video #{p['job']} lên Fanpage. Mở Fanpage kiểm tra (kể cả "
+                           "mục bài đã lên lịch); bot KHÔNG tự đăng lại video này để tránh trùng.")
+        return f"job #{p['job']} dừng giữa lúc đăng, không đăng lại"
+    if p.get("next_try", 0) > now:
+        return "chờ thử đăng lại lúc " + datetime.fromtimestamp(p["next_try"], VN).strftime("%H:%M")
     job = queue.jobs.get(p["job"])
     if job is None:
-        st["pending"] = None
-        return "job tự động không còn (đã bị xoá)"
+        return await _job_failed(st, p, now, "job tự động không còn trong danh sách")
     if job.status in ("queued", "processing", "approved"):
         return f"đang làm job #{job.id}"
     if job.status != "done":
-        logging.warning("Tự động đăng: job #%s %s (%s), chọn video khác", job.id, job.status, job.error[:120])
-        st["used"].setdefault(p["vid"], {})["skip"] = f"job {job.status}"
-        st["pending"] = None
-        return f"job #{job.id} {job.status}"
+        return await _job_failed(st, p, now, f"job #{job.id} {job.status}: {(job.error or '')[:100]}")
+    if getattr(job, "no_autopost", ""):         # AI lỗi / lời mới gần như chép lời gốc: không đăng công khai
+        return await _job_failed(st, p, now, f"job #{job.id}: {job.no_autopost}")
     video, thumb = _output_files(job)
     if not video:
-        st["pending"] = None
-        return f"job #{job.id} không còn file video"
+        return await _job_failed(st, p, now, f"job #{job.id} không còn file video")
     when = p["slot_ts"]
     if when < now + LEAD:                       # trễ khung giờ (máy chậm/bot tắt): sang khung trống kế tiếp
         nxt = free_slots(st, now, rnd)
@@ -481,21 +561,31 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         p["slot"] = nxt[0][1] if nxt else datetime.fromtimestamp(now, VN).strftime("%H:%M")
     title, desc = _post_text(job)
     dur = job.out_dur or p.get("dur") or 0
+    p["publishing"] = now
+    save_state(st)                              # ghi dấu TRƯỚC khi tải lên; ghi lỗi thì dừng, chưa đăng gì
     try:
         fb_id, kind = await publish(video, title, desc, dur, when, thumb)
     except Exception as e:
+        p.pop("publishing", None)
         p["tries"] = p.get("tries", 0) + 1
-        if isinstance(e, FBError) and e.code in (190, 10, 200):    # token hết hạn / thiếu quyền: dừng, chờ người sửa
-            st["paused"] = str(e)
-            await notify_admin(f"⛔ Tự động đăng Facebook đã dừng: {e}. Cập nhật FB_PAGE_TOKEN trong Cài đặt rồi "
-                               "gõ  auto_resume  vào console.")
-        elif p["tries"] >= 3:                    # lỗi khác 3 lần liền: bỏ video này, làm video khác
-            st["pending"] = None
-            await notify_admin(f"⚠️ Đăng video #{job.id} lên Fanpage lỗi 3 lần ({str(e)[:150]}), bỏ qua video này.")
+        p["next_try"] = now + min(3600, 300 * 2 ** (p["tries"] - 1))     # 5, 10, 20, 40, 60 phút
+        code = e.code if isinstance(e, FBError) else 0
+        if code in PAUSE_CODES or p["tries"] >= 5:
+            st["paused"] = str(e)[:200]
+            await notify_admin(f"⛔ Tự động đăng Facebook đã dừng: {str(e)[:200]}. Kiểm tra FB_PAGE_ID / FB_PAGE_TOKEN "
+                               f"trong Cài đặt rồi gõ  auto_resume  (video #{job.id} vẫn giữ để đăng lại).")
         raise
-    st["posts"].append({"fb_id": fb_id, "kind": kind, "job": job.id, "vid": p["vid"], "source": p["source"],
-                        "slot": p["slot"], "time": when or now, "views": None})
+    rec = {"fb_id": fb_id, "kind": kind, "job": job.id, "vid": p["vid"], "source": p["source"],
+           "slot": p["slot"], "time": when or now, "views": None}
+    _POSTED[job.id] = rec
+    st["posts"].append(rec)
     st["pending"] = None
+    st["streak"] = 0
+    st["fails"].pop(p["vid"], None)
+    try:
+        save_state(st)                          # ghi ngay, không đợi cuối lượt
+    except OSError as e:
+        logging.error("Tự động đăng: đã đăng %s nhưng không ghi được autopost.json (%s)", fb_id, e)
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Tự động đăng: %s %s lên Page, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"📅 Đã {'hẹn đăng' if when else 'đăng'} video #{job.id} lên Fanpage lúc {at}: {title[:80]}")
@@ -503,25 +593,38 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
 
 
 async def _update_views(st: dict, now: float):
-    todo = [p for p in st["posts"] if p.get("views") is None and p.get("fb_id")
-            and now - p.get("time", now) >= 24 * 3600]
+    """Lượt xem sau 24 giờ cho việc chọn giờ vàng. Đọc lỗi thì 6 giờ sau mới thử lại; quá 7 ngày thì thôi (không ghi
+    0: số 0 giả làm lệch việc chọn giờ)."""
+    todo = [p for p in st["posts"] if p.get("views") is None and p.get("fb_id") and not p.get("views_done")
+            and now - p.get("time", now) >= 24 * 3600 and now - p.get("views_try", 0) >= RETRY_AFTER]
     if not todo:
         return
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as s:
-        for p in todo[:5]:
+        for p in todo[:3]:
+            p["views_try"] = now
             try:
                 v = await views_of(p["fb_id"], s)
             except Exception as e:
                 logging.info("Tự động đăng: chưa đọc được lượt xem %s (%s)", p["fb_id"], str(e)[:100])
                 v = None
-            if v is not None or now - p["time"] > 7 * 86400:
-                p["views"] = v if v is not None else 0
+            if v is not None:
+                p["views"] = v
                 logging.info("Tự động đăng: bài %s khung %s được %s lượt xem sau 24 giờ", p["fb_id"], p["slot"], v)
+            elif now - p["time"] > 7 * 86400:
+                p["views_done"] = True
 
 
 async def tick(now: float | None = None, rnd: random.Random | None = None, force: bool = False) -> str:
     """Một vòng: xong job thì đăng; còn khung giờ trống trong 36 giờ tới mà hàng đợi rảnh thì lấy video mới.
-    force=True: không chờ hàng đợi trống."""
+    force=True: không chờ hàng đợi trống. Chỉ MỘT lượt chạy tại một thời điểm (vòng nền, nút web, lệnh console):
+    hai lượt cùng lúc từng có thể đăng trùng một video."""
+    if _LOCK.locked():
+        return "một lượt khác đang chạy, thử lại sau ít phút"
+    async with _LOCK:
+        return await _tick(now, rnd, force)
+
+
+async def _tick(now, rnd, force) -> str:
     from state import queue
     now = now or time.time()
     rnd = rnd or random.Random()
@@ -534,7 +637,7 @@ async def tick(now: float | None = None, rnd: random.Random | None = None, force
     try:
         if st["pending"]:
             msg = await _finish_pending(st, now, rnd)
-            if st["pending"]:
+            if st["pending"] or st["paused"]:
                 return msg
         try:
             await _update_views(st, now)
@@ -548,6 +651,15 @@ async def tick(now: float | None = None, rnd: random.Random | None = None, force
         return await _pick_and_queue(st, slots[0], now, rnd)
     finally:
         save_state(st)
+
+
+async def resume() -> str:
+    async with _LOCK:
+        st = load_state()
+        st["paused"] = ""
+        st["streak"] = 0
+        save_state(st)
+    return "Đã chạy lại. " + await tick()
 
 
 def status_text() -> str:
@@ -583,7 +695,8 @@ async def run_forever(every: float = 120):
     while True:
         try:
             msg = await tick()
-            if msg and not msg.startswith(("AUTO_POST đang tắt", "đang làm", "đã đủ", "chờ hàng đợi")):
+            if msg and not msg.startswith(("AUTO_POST đang tắt", "đang làm", "đã đủ", "chờ hàng đợi", "một lượt",
+                                           "chờ thử đăng lại", "đang dừng", "thiếu FB", "chưa có kênh")):
                 logging.info("Tự động đăng: %s", msg)
         except Exception as e:
             logging.warning("Tự động đăng lỗi: %s", str(e)[:200])

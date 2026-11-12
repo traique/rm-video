@@ -796,6 +796,10 @@ def plan_voice(durs: list, segs: list, total_dur: float):
             plan.append({"start": round(s["start"], 3), "factor": 1.0, "end": round(s["start"], 3)})
             prev_end = max(prev_end, nxt - 0.12)
             continue
+        if d <= 0:                           # đoạn không có tiếng (TTS rỗng): giữ chỗ, không chia cho 0
+            plan.append({"start": round(max(s["start"], prev_end), 3), "factor": base,
+                         "end": round(max(s["start"], prev_end), 3)})
+            continue
         last = i + 1 >= len(segs)
         hard = last or segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc / quá hết video
         start = max(s["start"], prev_end + 0.12)
@@ -803,7 +807,7 @@ def plan_voice(durs: list, segs: list, total_dur: float):
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
         if start + d / f > nxt:                     # (2) nhanh hơn tốc độ chung một chút
-            f = min(d / max(0.3, nxt - start), base * VOICE_DEV)
+            f = max(base, min(d / max(0.3, nxt - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung
         limit = total_dur - 0.05 if last else nxt + (0.0 if hard else 0.35)
         if start + d / f > limit:                   # (3) vẫn tràn quá giới hạn lấn
             too_long.append(i)

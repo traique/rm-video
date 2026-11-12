@@ -172,3 +172,23 @@ def test_separation_overlaps_ai_step(fakes, tmp_path, monkeypatch):
     (tmp_path / "w").mkdir()
     asyncio.run(pipeline.process(job, str(tmp_path / "w")))
     assert events.index("sep-start") < events.index("ai-end")
+
+
+def test_auto_job_never_waits_for_review_and_flags_copied_script(fakes, monkeypatch, tmp_path):
+    """🤖 Tự đăng: job tự động không dừng chờ duyệt (kể cả REVIEW_SCRIPT=1) và bị gắn cờ không được đăng khi lời mới
+    gần như chép lời gốc (AI lỗi một phần)."""
+    monkeypatch.setattr(config, "REVIEW_SCRIPT", "1")
+    orig_timed = prompt_engine.generate_timed_any
+
+    async def copied(*a, **k):
+        d = await orig_timed(*a, **k)
+        d["fresh"] = 0.4
+        return d
+    monkeypatch.setattr(prompt_engine, "generate_timed_any", copied)
+    src = str(tmp_path / "up" / "auto.mp4")
+    _video(src)
+    job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src, source="auto")
+    (tmp_path / "wa").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "wa")))
+    assert out != "REVIEW" and os.path.exists(out)
+    assert "40%" in job.no_autopost
