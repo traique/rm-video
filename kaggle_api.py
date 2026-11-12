@@ -5,6 +5,8 @@ API của thư viện chính thức (kagglesdk): POST https://api.kaggle.com/v1/
 bằng `kaggle-api/`) — đo thật 12/11/2026."""
 import json
 import os
+import re
+import threading
 import time
 
 import requests
@@ -20,17 +22,57 @@ class KaggleError(RuntimeError):
     pass
 
 
-def creds() -> tuple:
-    return (config.KAGGLE_USERNAME or "").strip(), (config.KAGGLE_API_TOKEN or "").strip()
+def clean_user(v: str) -> str:
+    """'https://www.kaggle.com/QueTrai/' / '@quetrai' / ' quetrai ' -> 'quetrai'."""
+    v = (v or "").strip()
+    v = re.sub(r"(?i)^(https?://)?(www\.)?kaggle\.com/", "", v).strip("/@ ")
+    return v.split("/")[0].lower()
+
+
+def token() -> str:
+    return (config.KAGGLE_API_TOKEN or "").strip()
+
+
+_OWNER: dict = {}          # token -> username chủ token (chỉ lưu khi hỏi Kaggle thành công)
+_OWNER_LOCK = threading.Lock()
+
+
+def owner() -> str:
+    """Username thật của chủ token (Kaggle IntrospectToken). '' nếu không hỏi được."""
+    tok = token()
+    if not tok:
+        return ""
+    with _OWNER_LOCK:
+        if tok in _OWNER:
+            return _OWNER[tok]
+    d = call("IntrospectToken", {"token": tok}, service="security.OAuthService", timeout=30)
+    name = clean_user(str(d.get("username") or ""))
+    if name:
+        with _OWNER_LOCK:
+            _OWNER[tok] = name
+    return name
+
+
+def user() -> str:
+    """Username dùng trong slug notebook. Lấy theo token: điền sai KAGGLE_USERNAME (dán cả link, sai chính tả) thì
+    Kaggle tưởng là notebook mới và báo 409 'title already in use' — đo thật 12/11/2026."""
+    try:
+        name = owner()
+    except KaggleError:
+        name = ""
+    name = name or clean_user(config.KAGGLE_USERNAME)
+    if not name:
+        raise KaggleError("Không biết tên tài khoản Kaggle: điền KAGGLE_USERNAME trong Cài đặt")
+    return name
 
 
 def configured() -> bool:
-    user, tok = creds()
-    return bool(user and tok)
+    """Chỉ cần token: tên tài khoản tự lấy theo token (KAGGLE_USERNAME chỉ để dự phòng)."""
+    return bool(token())
 
 
 def call(method: str, body: dict, service: str = KERNELS, timeout: float = 120) -> dict:
-    _, tok = creds()
+    tok = token()
     try:
         r = requests.post(f"{API}/{service}/{method}", json=body, timeout=timeout,
                           headers={"Authorization": f"Bearer {tok}", "User-Agent": UA,
@@ -64,32 +106,34 @@ def quota() -> dict:
 
 
 def push(slug: str, title: str, text: str, gpu: bool = True) -> dict:
-    user, _ = creds()
-    body = {"slug": f"{user}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
+    body = {"slug": f"{user()}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
             "isPrivate": True, "enableGpu": gpu, "enableInternet": True, "datasetDataSources": [],
             "kernelDataSources": [], "competitionDataSources": [], "modelDataSources": [], "categoryIds": []}
     if gpu:
         body["machineShape"] = "NvidiaTeslaT4"
-    d = call("SaveKernel", body)
+    try:
+        d = call("SaveKernel", body)
+    except KaggleError as e:
+        if "409" in str(e) and "title" in str(e).lower():
+            raise KaggleError(f"Kaggle báo trùng tên notebook: tài khoản '{body['slug'].split('/')[0]}' không phải chủ "
+                              "token. Sửa KAGGLE_USERNAME trong Cài đặt cho đúng tên ở kaggle.com/<tên>") from None
+        raise
     if d.get("error"):
         raise KaggleError(f"Kaggle không nhận notebook: {d['error']}")
     return d
 
 
 def status(slug: str) -> tuple:
-    user, _ = creds()
-    d = call("GetKernelSessionStatus", {"userName": user, "kernelSlug": slug})
+    d = call("GetKernelSessionStatus", {"userName": user(), "kernelSlug": slug})
     return str(d.get("status") or ""), d.get("failureMessage") or ""
 
 
 def cancel(slug: str):
-    user, _ = creds()
-    call("CancelKernelSession", {"userName": user, "kernelSlug": slug})
+    call("CancelKernelSession", {"userName": user(), "kernelSlug": slug})
 
 
 def outputs(slug: str) -> dict:
-    user, _ = creds()
-    return call("ListKernelSessionOutput", {"userName": user, "kernelSlug": slug, "pageSize": 200})
+    return call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 200})
 
 
 def download(url: str, dst: str, max_bytes: int = 1 << 31):

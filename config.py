@@ -163,6 +163,8 @@ def save_settings(updates: dict):
                 raise ValueError("TTS_PROVIDER chỉ nhận: vieneu, edge, capcut")
             if k == "KAGGLE_USE" and v not in ("0", "1"):
                 raise ValueError("KAGGLE_USE chỉ nhận: 0, 1")
+            if k == "KAGGLE_USERNAME":     # nhận cả dạng dán link: https://www.kaggle.com/<tên>
+                v = re.sub(r"(?i)^(https?://)?(www\.)?kaggle\.com/", "", v).strip("/@ ").split("/")[0].lower()
             if k == "KAGGLE_USERNAME" and not re.fullmatch(r"[A-Za-z0-9_-]{2,40}", v):
                 raise ValueError("KAGGLE_USERNAME là tên tài khoản Kaggle (chữ, số, gạch dưới)")
             if k == "AUTO_POST" and v not in ("0", "1"):

@@ -669,8 +669,11 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         data = await part.read()
         if len(data) > 5 * 1024 * 1024:
             raise web.HTTPBadRequest(text="Giọng mẫu tối đa 5MB")
-        tmp = kaggle_worker.VOICE_REF + ".upload"
-        out = kaggle_worker.VOICE_REF + ".tmp.mp3"
+        # tên tạm riêng cho mỗi lần tải: bấm Lưu 2 lần thì 2 request chạy song song, dùng chung tên là request này
+        # xoá mất file của request kia (lỗi thật: "ffprobe lỗi: voice_ref.mp3.tmp.mp3: No such file")
+        tag = secrets.token_hex(6)
+        tmp = f"{kaggle_worker.VOICE_REF}.{tag}.upload"
+        out = f"{kaggle_worker.VOICE_REF}.{tag}.tmp.mp3"
         try:
             with open(tmp, "wb") as f:
                 f.write(data)
@@ -681,7 +684,10 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             if p.returncode != 0 or not os.path.exists(out):
                 raise web.HTTPBadRequest(text="Không đọc được file âm thanh: " + err.decode(errors="replace")[-200:])
             import core_video
-            dur = await core_video.probe_duration(out)
+            try:
+                dur = await core_video.probe_duration(out)
+            except RuntimeError as e:
+                raise web.HTTPBadRequest(text=f"Không đọc được độ dài giọng mẫu: {str(e)[-150:]}") from None
             if dur < 3:
                 raise web.HTTPBadRequest(text=f"Giọng mẫu chỉ {dur:.1f} giây, cần 3-15 giây")
             os.replace(out, kaggle_worker.VOICE_REF)

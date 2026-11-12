@@ -195,6 +195,10 @@ async function loadSettings(){
   }catch(e){$('set_fields').innerHTML='<p class="mut">Không tải được cài đặt: '+esc(String(e))+'</p>';}
 }
 document.querySelector('#save_set').onclick=async()=>{
+  const btn=$('save_set');if(btn.disabled)return;btn.disabled=true;
+  try{await saveSettings()}catch(e){$('msg').textContent='❌ '+e}finally{btn.disabled=false}
+};
+async function saveSettings(){
   if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
     const lr=await fetch('/api/logo',{method:'POST',body:lf});
     $('msg').textContent=lr.ok?'✅ Đã lưu logo':'❌ '+await lr.text();if(!lr.ok)return;$('logo_file').value='';}
@@ -206,7 +210,7 @@ document.querySelector('#save_set').onclick=async()=>{
   const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
   $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();
   if(r.ok){document.querySelectorAll('[data-k]').forEach(el=>el.value='');loadSettings();}
-};
+}
 async function autoCall(act){
   try{
     const r=await fetch('/api/autopost'+(act?'/'+act:''),{method:act?'POST':'GET',headers:hdr()});

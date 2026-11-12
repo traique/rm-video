@@ -138,7 +138,7 @@ def enabled() -> str:
     if config.KAGGLE_USE == "0":
         return "KAGGLE_USE=0"
     if not kaggle_api.configured():
-        return "chưa điền KAGGLE_USERNAME / KAGGLE_API_TOKEN trong Cài đặt"
+        return "chưa điền KAGGLE_API_TOKEN trong Cài đặt"
     return ""
 
 

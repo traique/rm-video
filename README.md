@@ -85,7 +85,7 @@ video, bóc lời, nhờ AI viết lời, làm ảnh bìa; khi lời đã chốt
 + tách giọng gốc + dựng 1080p, rồi tải video về. Notebook không chứa key API nào (lời đã viết xong ở Botkeep).
 
 Cài: tạo tài khoản kaggle.com, xác minh số điện thoại (Settings -> Account), tạo token (Settings -> API Tokens ->
-Generate New Token), điền `KAGGLE_USERNAME` + `KAGGLE_API_TOKEN` trong Cài đặt, gõ `kaggle_test` vào console.
+Generate New Token), điền `KAGGLE_API_TOKEN` trong Cài đặt (tên tài khoản bot tự lấy theo token; `KAGGLE_USERNAME` chỉ dự phòng), gõ `kaggle_test` vào console.
 
 - Đo thật (Kaggle T4): đọc 21 câu ~3-8 giây, dựng 60 giây 1080p ~2 phút (Botkeep ~19 phút), tách giọng gốc 60 giây
   ~1 phút; mỗi lần chạy thêm ~2 phút khởi động (cài thư viện, nạp model).

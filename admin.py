@@ -123,12 +123,17 @@ async def console():
             elif low == "kaggle_test":
                 import kaggle_api
                 if not kaggle_api.configured():
-                    logging.info("❌ Chưa điền KAGGLE_USERNAME / KAGGLE_API_TOKEN trong Cài đặt")
+                    logging.info("❌ Chưa điền KAGGLE_API_TOKEN trong Cài đặt")
                 else:
                     try:
+                        who = await asyncio.to_thread(kaggle_api.owner)
                         q = await asyncio.to_thread(kaggle_api.quota)
-                        logging.info("✅ Kaggle dùng được: còn %.1f giờ GPU tuần này (làm mới %s)",
-                                     q["gpu_left"] / 3600, q["refresh"])
+                        logging.info("✅ Kaggle dùng được: tài khoản %s, còn %.1f giờ GPU tuần này (làm mới %s)",
+                                     who or "?", q["gpu_left"] / 3600, q["refresh"])
+                        typed = kaggle_api.clean_user(config.KAGGLE_USERNAME)
+                        if who and typed and typed != who:
+                            logging.info("ℹ️ KAGGLE_USERNAME đang điền '%s' nhưng token là của '%s' — bot tự dùng '%s'",
+                                         typed, who, who)
                     except Exception as e:
                         logging.info("❌ Kaggle lỗi: %s", e)
             elif low == "fb_test":

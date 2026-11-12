@@ -120,6 +120,16 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Sửa lỗi từ log Botkeep (bản 24)
+
+| Lỗi thật | Nguyên nhân | Sửa |
+| --- | --- | --- |
+| `Kaggle lỗi 409 ở SaveKernel: title "rmvideo worker" is already in use` -> mọi job lùi về Botkeep (giọng edge, chậm) | `KAGGLE_USERNAME` không khớp chủ token (dán cả link, có `@`, gõ sai): Kaggle tưởng là notebook mới trùng tên. Biến môi trường Botkeep không qua bước kiểm tra của web | Tên tài khoản lấy theo token (Kaggle `IntrospectToken`, hỏi 1 lần rồi nhớ); `KAGGLE_USERNAME` chỉ để dự phòng, nhận cả dạng link. `kaggle_test` in tên tài khoản thật và báo nếu điền khác. Đo thật: link, tên sai, để trống đều đẩy đúng notebook |
+| Tải giọng mẫu: `ffprobe lỗi: voice_ref.mp3.tmp.mp3: No such file` (lỗi 500) | Bấm Lưu 2 lần -> 2 lần tải chạy song song dùng chung tên file tạm, lần này xoá file của lần kia | Tên tạm riêng mỗi lần; nút Lưu khoá trong lúc lưu; đọc độ dài lỗi thì báo 400 dễ hiểu |
+
+`edge-tts ... NoAudioReceived` trong log là Microsoft chập chờn khi đã lùi về Botkeep: bot đã đọc tối đa 3 đoạn cùng lúc
+và thử lại 6 lần nên job vẫn xong. Kaggle chạy được thì giọng VieNeu đọc trên Kaggle, không gặp lỗi này.
+
 ## Rà soát trước deploy (lần 2: Kaggle + trang đăng nhập)
 
 Rà độc lập tìm 7 lỗi, đã sửa hết, mỗi lỗi có test:

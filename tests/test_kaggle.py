@@ -96,8 +96,15 @@ def test_kernel_text_has_code_and_no_secrets(monkeypatch):
 # ---------------- client API với máy chủ Kaggle giả ----------------
 
 class _Fake:
-    def __init__(self):
-        self.calls, self.status = [], ["QUEUED", "RUNNING", "COMPLETE"]
+    def __init__(self, owner=""):
+        self.calls, self.status, self.owner = [], ["QUEUED", "RUNNING", "COMPLETE"], owner
+
+
+@pytest.fixture(autouse=True)
+def _no_owner_cache():
+    kaggle_api._OWNER.clear()
+    yield
+    kaggle_api._OWNER.clear()
 
 
 def _server(fake):
@@ -112,6 +119,17 @@ def _server(fake):
             fake.calls.append((method, body, self.headers.get("Authorization")))
             if method == "GetKernelSessionStatus":
                 out = {"status": fake.status.pop(0) if fake.status else "COMPLETE"}
+            elif method == "IntrospectToken":
+                out = {"active": True, "username": fake.owner} if fake.owner else {}
+            elif method == "SaveKernel" and fake.owner and not body["slug"].startswith(fake.owner + "/"):
+                # Kaggle thật: slug sai tên chủ token -> tưởng notebook mới -> trùng tiêu đề (đo 12/11/2026)
+                data = json.dumps({"error": {"code": 409, "message": 'The requested title "t" is already in use by '
+                                             "a notebook. Please choose another title."}}).encode()
+                self.send_response(409)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
             else:
                 out = {"SaveKernel": {"ref": "/code/u/rmvideo-worker", "versionNumber": 3},
                        "GetAcceleratorQuotaStatistics": {"gpuQuota": {"timeUsed": "600s",
@@ -152,6 +170,53 @@ def test_api_client_against_fake_kaggle(monkeypatch):
             kaggle_api.wait("rmvideo-worker", 60, every=0, sleep=lambda s: None)
     finally:
         srv.shutdown()
+
+
+@pytest.mark.parametrize("typed", ["https://www.kaggle.com/QueTrai/", "@quetrai", "quetrai1", ""])
+def test_username_comes_from_token_owner(monkeypatch, typed):
+    """Lỗi thật trên Botkeep: KAGGLE_USERNAME điền sai -> 409 'title already in use' -> mọi job rơi về Botkeep."""
+    fake = _Fake(owner="quetrai")
+    srv = _server(fake)
+    monkeypatch.setattr(kaggle_api, "API", f"http://127.0.0.1:{srv.server_port}/v1")
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", typed)
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    try:
+        assert kaggle_api.configured()
+        kaggle_api.push("rmvideo-worker", "t", "print(1)", gpu=False)
+        kaggle_api.status("rmvideo-worker")
+        saves = [b for m, b, _ in fake.calls if m == "SaveKernel"]
+        assert saves[-1]["slug"] == "quetrai/rmvideo-worker"
+        assert fake.calls[-1][1]["userName"] == "quetrai"
+        assert sum(m == "IntrospectToken" for m, _, _ in fake.calls) == 1      # hỏi 1 lần rồi nhớ
+    finally:
+        srv.shutdown()
+
+
+def test_wrong_username_without_introspect_gives_clear_409(monkeypatch):
+    fake = _Fake(owner="quetrai")
+    srv = _server(fake)
+    monkeypatch.setattr(kaggle_api, "API", f"http://127.0.0.1:{srv.server_port}/v1")
+    monkeypatch.setattr(kaggle_api, "owner", lambda: (_ for _ in ()).throw(kaggle_api.KaggleError("mạng lỗi")))
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "quetrai1")
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    try:
+        with pytest.raises(kaggle_api.KaggleError, match="KAGGLE_USERNAME"):
+            kaggle_api.push("rmvideo-worker", "t", "print(1)", gpu=False)
+    finally:
+        srv.shutdown()
+
+
+@pytest.mark.parametrize("v,want", [("https://www.kaggle.com/quetrai", "quetrai"), ("kaggle.com/QueTrai/code", "quetrai"),
+                                    ("@quetrai", "quetrai"), (" quetrai ", "quetrai"), ("", "")])
+def test_clean_user(v, want):
+    assert kaggle_api.clean_user(v) == want
+
+
+def test_settings_accept_kaggle_profile_link(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "SETTINGS_FILE", str(tmp_path / "s.json"))
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "")
+    config.save_settings({"KAGGLE_USERNAME": "https://www.kaggle.com/QueTrai"})
+    assert json.load(open(tmp_path / "s.json"))["KAGGLE_USERNAME"] == "quetrai"
 
 
 # ---------------- phần chạy trên Kaggle (giọng giả, dựng thật) ----------------
@@ -271,6 +336,15 @@ def test_voice_ref_upload(monkeypatch, tmp_path):
                 fd.add_field("ref", open(p, "rb"), filename=os.path.basename(p))
                 r = await c.post("/api/voice_ref", data=fd, headers={"X-Auth": "pw-123"})
                 assert r.status == want, await r.text()
+            # bấm Lưu 2 lần: 2 lần tải chạy song song không được xoá file tạm của nhau (lỗi thật trên Botkeep)
+            async def up():
+                fd = FormData()
+                fd.add_field("ref", open(good, "rb"), filename="g.wav")
+                r = await c.post("/api/voice_ref", data=fd, headers={"X-Auth": "pw-123"})
+                return r.status, await r.text()
+            for st, txt in await asyncio.gather(up(), up(), up()):
+                assert st == 200, txt
+            assert not [f for f in os.listdir(tmp_path) if ".upload" in f or ".tmp.mp3" in f]
             r = await c.get("/api/voices", headers={"X-Auth": "pw-123"})
             return [v["id"] for v in await r.json()]
     monkeypatch.setattr(config, "TTS_PROVIDER", "vieneu")
