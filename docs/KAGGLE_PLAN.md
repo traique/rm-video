@@ -54,6 +54,40 @@ Kaggle = thợ chạy theo lô (job nặng):
 
 Ước tính: video 3 phút ~10-15 phút trên Kaggle (vài phút khởi động). 2 video/ngày ~3 giờ GPU/tuần.
 
+## Kết quả chạy thử thật trên Kaggle (12/11/2026, tài khoản quetrai, notebook riêng tư `rm-video-poc`)
+
+Máy: 2x Tesla T4, 4 lõi CPU, 31GB RAM, Python 3.13, ffmpeg 6.1.1 (có NVENC), 20GB đĩa. Hạn mức: GPU 108.000s = 30
+giờ/tuần, TPU 20 giờ, làm mới thứ Bảy.
+
+| Bước | Thời gian |
+| --- | --- |
+| Tải video Facebook (reel 173s, AV1 1080p) từ Kaggle | 4.4s — tải được |
+| Tách giọng gốc 60s (Kim_Vocal_2, onnxruntime CPU 4 lõi; onnxruntime-gpu 1.31 không thấy CUDA) | 67s |
+| Dựng 60s 1080p, chuỗi lọc nấu ăn + x264 veryfast (Botkeep ~19.4 giây/giây -> ~19 phút) | 125s |
+| Như trên nhưng h264_nvenc (bộ lọc màu vẫn trên CPU) | 87s |
+| Cài vieneu (cách đúng, xem dưới) | 21s |
+| Nạp model VieNeu v3 Turbo (GPU, lần đầu tải từ Hugging Face) | 51s |
+| Đọc 21 câu x 8 giọng (GPU, infer_batch) | 3-8s mỗi giọng, RTF ~0.06 |
+| Đọc bằng ONNX CPU (4 lõi Kaggle) | RTF 0.84 |
+| Nhân bản giọng từ đoạn mẫu (1 câu, gồm khử nhiễu mẫu) | 18s |
+| Cả phiên chỉ phần giọng | ~3.2 phút |
+
+Cài VieNeu trên Kaggle — ĐỪNG dùng `vieneu[cuda]` (ép torch 2.8 -> hỏng torchvision/transformers của Kaggle).
+Cách chạy được: `pip install --no-deps vieneu sea-g2p && pip install onnxruntime kaldi-native-fbank soxr
+"transformers==4.57.6" safetensors` (giữ torch 2.11+cu130 sẵn có). `Vieneu()` tự dùng GPU.
+Chọn giọng bằng TÊN NGẮN (cột 2 của `list_preset_voices()`, vd "Thục Đoan"), không phải nhãn hiển thị.
+
+Giọng miền Nam (nhãn của model) và độ dài khi đọc cùng 21 câu (~190 chữ):
+Thùy Dung (nữ, tin tức) 46.7s · Minh Triết (nam, tin tức) 49.8s · Adam (nam, tự nhiên) 54.1s · Thục Đoan (nữ, kể
+chuyện) 56.0s · Thái Sơn (nam, kể chuyện) 57.3s · Mỹ Duyên (nữ, đọc truyện) 69.3s · Đức Trí (nam, đọc truyện) 72.3s ·
+Kim Thanh (nữ, đọc truyện) 73.1s. Giọng "đọc truyện" chậm hơn ~50%: lời AI viết phải ngắn hơn (tốc độ đọc theo giọng).
+
+API Kaggle: `POST https://api.kaggle.com/v1/kernels.KernelsApiService/<SaveKernel|GetKernelSessionStatus|
+ListKernelSessionOutput|GetAcceleratorQuotaStatistics>`, `Authorization: Bearer <token>`, và User-Agent phải bắt
+đầu bằng `kaggle-api/` (không thì Kaggle trả 404 cho mọi request). SaveKernel: slug `user/slug`, text, language
+python, kernelType script, isPrivate, enableGpu, enableInternet, machineShape `NvidiaTeslaT4`; trạng thái QUEUED ->
+RUNNING -> COMPLETE/ERROR; ListKernelSessionOutput trả {files:[{fileName,url}], log}.
+
 ## Các bước
 
 1. **Thử trên Kaggle (chưa đụng code bot)**: notebook đo thời gian thật: 8 giọng miền Nam đọc kịch bản mì xào bò
