@@ -49,6 +49,11 @@ def context_terms(title: str, desc: str = "") -> list:
 def groq_prompt(title: str, desc: str = "") -> str:
     """Prompt cho Whisper: một câu tiếng Việt có tiêu đề + từ cần viết đúng, cắt cho vừa giới hạn token."""
     head = _clean(title)[:120]
+    letters = [c for c in head if c.isalpha()]
+    if letters and sum(c.isupper() for c in letters) > 0.5 * len(letters):
+        # tiêu đề VIẾT HOA (hay gặp ở reels): Whisper coi prompt là lời nói ngay trước đoạn audio, gặp quãng nhạc thì
+        # chép lại tiêu đề thành câu HOA ("CÔNG THỨC MÌ XÀ BÒ ...") rồi bỏ sót lời thật phía sau (lỗi thật 12/11/2026)
+        head = head[:1].upper() + head[1:].lower()
     terms = user_terms() + [t for t in context_terms(title, desc) if t.lower() not in {u.lower() for u in user_terms()}]
     if not head and not terms:
         return ""

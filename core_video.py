@@ -769,6 +769,8 @@ VOICE_MAX_BASE = 1.12      # tốc độ chung tối đa cho cả video (nhanh h
 VOICE_DEV = 1.05           # mỗi đoạn được nhanh hơn tốc độ chung tối đa 5%: tai gần như không nghe ra
 VOICE_LAST = 1.10          # đoạn vẫn tràn sau khi AI đã rút gọn: nhanh hơn tốc độ chung tối đa 10%
 VOICE_HARD = 1.25          # chỉ khi đụng mốc cứng (cửa sổ giữ tiếng gốc / hết video): thà nhanh còn hơn đè tiếng
+VOICE_SPILL = 0.35         # đoạn dài được lấn sang khe đoạn sau tối thiểu chừng này (đoạn sau lùi theo)
+VOICE_SPILL_MAX = 1.0      # ... và tới 1s nếu đoạn sau đọc ngắn, còn dư khe: đoạn sau lùi mà vẫn xong trong khe của nó
 
 
 def _next_start(segs: list, i: int, total_dur: float) -> float:
@@ -791,12 +793,22 @@ def voice_base_factor(durs: list, segs: list, total_dur: float) -> float:
     return round(min(VOICE_MAX_BASE, max(1.0, need[int(0.8 * (len(need) - 1))])), 3)
 
 
+def _spill(durs: list, segs: list, i: int, base: float, total_dur: float) -> float:
+    """Đoạn i được lấn sang khe đoạn i+1 bao nhiêu giây: phần khe còn dư của đoạn i+1 (đọc ở tốc độ chung), trong
+    [VOICE_SPILL, VOICE_SPILL_MAX]."""
+    j = i + 1
+    free = _next_start(segs, j, total_dur) - segs[j]["start"] - max(0.0, durs[j]) / base - 0.12
+    return min(VOICE_SPILL_MAX, max(VOICE_SPILL, free))
+
+
 def plan_voice(durs: list, segs: list, total_dur: float):
     """Xếp các đoạn giọng lên trục thời gian. durs: độ dài giọng (tới hết tiếng nói) từng đoạn;
     segs: [{start, slot, span}]. Cả video đọc cùng MỘT tốc độ (voice_base_factor), không bao giờ làm chậm. Đoạn dài
-    hơn khe, theo thứ tự: (1) bắt đầu sớm hơn tối đa 0.5s nếu đoạn trước đã xong, (2) nhanh hơn tốc độ chung tối đa
-    5%, (3) lấn sang khe sau tối đa 0.35s (đoạn sau lùi theo), (4) báo "quá dài" để AI viết ngắn lại; vẫn tràn thì
-    nhanh hơn tối đa 10% (25% nếu đụng cửa sổ giữ tiếng gốc hoặc hết video). Không cắt cụt chữ.
+    hơn khe, theo thứ tự: (1) bắt đầu sớm hơn tối đa 0.5s nếu đoạn trước đã xong, (2) lấn sang khe sau (đoạn sau lùi
+    theo): tối thiểu 0.35s, tới 1s nếu đoạn sau đọc ngắn còn dư khe, (3) nhanh hơn tốc độ chung tối đa 5%, (4) báo
+    "quá dài" để AI viết ngắn lại; vẫn tràn thì nhanh hơn tối đa 10% (25% nếu đụng cửa sổ giữ tiếng gốc hoặc hết
+    video). Không cắt cụt chữ. Lấn trước, tăng tốc sau: giọng giữ đều một tốc độ, và đỡ phải bắt AI nén lời (Botkeep
+    12/11/2026: 16/46 đoạn bị rút gọn thành câu cụt kiểu "Thêm vào.").
     Trả về (placements [{start, factor, end}], danh sách chỉ số đoạn quá dài)."""
     base = voice_base_factor(durs, segs, total_dur)
     plan, too_long, prev_end = [], [], 0.0
@@ -816,10 +828,10 @@ def plan_voice(durs: list, segs: list, total_dur: float):
         f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
-        if start + d / f > nxt:                     # (2) nhanh hơn tốc độ chung một chút
-            f = max(base, min(d / max(0.3, nxt - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung
-        limit = total_dur - 0.05 if last else nxt + (0.0 if hard else 0.35)
-        if start + d / f > limit:                   # (3) vẫn tràn quá giới hạn lấn
+        limit = total_dur - 0.05 if last else nxt + (0.0 if hard else _spill(durs, segs, i, base, total_dur))
+        if start + d / f > limit:                   # (2) đã lấn hết phần cho phép -> (3) nhanh hơn tốc độ chung chút
+            f = max(base, min(d / max(0.3, limit - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung
+        if start + d / f > limit:                   # (4) vẫn tràn quá giới hạn lấn
             too_long.append(i)
             f = max(f, min(d / max(0.3, limit - start), VOICE_HARD if hard else base * VOICE_LAST))
         end = start + d / f

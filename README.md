@@ -83,6 +83,8 @@ mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nh�
 cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần): Botkeep vẫn tải
 video, bóc lời, nhờ AI viết lời, làm ảnh bìa; khi lời đã chốt, bot gửi MỘT notebook riêng tư sang Kaggle để đọc giọng
 + tách giọng gốc + dựng 1080p, rồi tải video về. Notebook không chứa key API nào (lời đã viết xong ở Botkeep).
+Trên Kaggle giọng gốc được tách khỏi CẢ BÀI (không chỉ các quãng bóc lời thấy có người nói), chạy song song với đọc
+giọng: bóc lời có sót một quãng thì giọng gốc vẫn không lọt ra.
 
 Cài: tạo tài khoản kaggle.com, xác minh số điện thoại (Settings -> Account), tạo token (Settings -> API Tokens ->
 Generate New Token), điền `KAGGLE_API_TOKEN` trong Cài đặt (tên tài khoản bot tự lấy theo token; `KAGGLE_USERNAME` chỉ dự phòng), gõ `kaggle_test` vào console.
@@ -166,6 +168,13 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Cắt quảng cáo của người gốc** (`CUT_PROMO=1`): đoạn cuối video giới thiệu sản phẩm / giỏ hàng / kêu gọi mua (dò trên lời gốc, chịu lỗi máy nghe như "chào hàng"=giỏ hàng) bị cắt bỏ cả hình lẫn tiếng. Chỉ cắt khi đoạn đó nằm ở nửa sau và kéo tới hết video, ≥40% câu có dấu hiệu bán hàng.
 - **Tốc độ khung**: nguồn ≤30fps giữ nguyên; >30 chia đều (50→25, 60→30) — ép 50→30 hoặc 25→30 gây giật.
 - **Nguồn nhỏ** (vd 360×640): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to (render nhanh ~1.7x).
+- **Bóc lời bỏ sót**: Whisper hay bịa một câu chào kết ("Đừng quên đăng ký kênh...") hoặc chép lại tiêu đề VIẾT HOA ở
+  quãng nhạc rồi nhảy qua cả khung 30 giây lời thật. Bot bỏ các câu đó (cả câu lặp vòng) và nghe lại riêng từng quãng
+  ≥ 8 giây không có chữ nào (tối đa 4 quãng / 180 giây, không kèm prompt); tiêu đề VIẾT HOA được đổi thành chữ thường
+  trước khi làm prompt.
+- **Gộp lời gốc thành câu**: mẩu cụt ("sau", "Sau khi mình") dời tới đọc liền với câu sau; mẩu 1-2 chữ kết câu
+  ("cái thìa.") về với câu trước; khe < 3 giây mà người gốc nói liền thì gộp với câu sau (câu gộp ≤ 6 giây) để giọng
+  mới đủ chỗ đọc một câu tự nhiên thay vì câu cụt kiểu "Thêm vào.".
 - **Tiếng nền** khi không tách giọng AI: tắt/bật dần 0.15s, gộp các lần người gốc nói cách nhau <0.8s (hết chập chờn); không giữ lớp nền lúc người gốc nói vì đo được vẫn lọt lời.
 - Gemini dùng chế độ JSON; JSON hỏng vẫn cứu từng đoạn thay vì bỏ cả lượt viết lại.
 

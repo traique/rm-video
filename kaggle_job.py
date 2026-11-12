@@ -27,7 +27,8 @@ def prepare_env(spec: dict, app: str = APP):
     with open(os.path.join(app, "settings.json"), "w", encoding="utf-8") as f:
         json.dump(spec.get("settings") or {}, f, ensure_ascii=False)
     for k, v in (("JOBS_DB", "/tmp/rm_jobs.db"), ("RENDER_SPEED_FILE", "/tmp/rm_speed.json"),
-                 ("RECENT_LOOKS", "/tmp/rm_looks.json"), ("SEP_BUDGET", "1500")):
+                 ("RECENT_LOOKS", "/tmp/rm_looks.json"), ("SEP_BUDGET", "1500"),
+                 ("SEP_THREADS", str(os.cpu_count() or 4))):      # mặc định 2 luồng là cho Botkeep 1.5 vCPU
         os.environ.setdefault(k, v)
     if spec.get("logo_b64"):
         import base64
@@ -155,33 +156,43 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     segs = spec["segments"]
     out_dur = float(spec["out_dur"])
     items = [(k, s["text"]) for k, s in enumerate(segs) if s.get("ost") != "orig" and (s.get("text") or "").strip()]
-    t0 = time.time()
-    voiced = await synth(items, tmp)
-    t["tts"] = round(time.time() - t0, 1)
-    clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
-    durs = [await core_video.speech_duration(c["path"], c.get("words")) if c["path"] else 0.0 for c in clips]
-    plan, too_long = core_video.plan_voice(durs, segs, out_dur)
-    voice_track = os.path.join(tmp, "voice.wav")
-    await core_video.compose_voice(clips, plan, voice_track, out_dur)
-    srt, ass = "", None
-    if spec.get("subs"):
-        words = await core_video.words_for_track(clips, plan, voice_track,
-                                                 ["" if s.get("ost") == "orig" else s["text"] for s in segs])
-        if words:
-            srt = subs_mod.to_srt(words)
-            ass = os.path.join(tmp, "subs.ass")
-            subs_mod.write_ass(words, ass, spec.get("pos_y"), config.SUB_STYLE)
-    amb, gate = None, None
-    if spec.get("mode") == "cook":
-        sep = spec.get("sep") or {}
-        if sep.get("ok"):
+    sep_task = None
+    if spec.get("mode") == "cook" and (spec.get("sep") or {}).get("ok"):
+        async def _sep():
             t0 = time.time()
             p = os.path.join(tmp, "ambient.wav")
-            if await vocal_sep.remove_voice(inp, p, windows=sep.get("windows")):
-                amb = p
+            # CẢ BÀI, không chỉ các quãng bóc lời thấy người gốc nói: bóc lời sót một quãng (Whisper bịa câu "Đừng
+            # quên đăng ký kênh" rồi bỏ qua ~27s lời thật, lỗi thật 12/11/2026) thì quãng đó vẫn còn nguyên giọng gốc.
+            # Botkeep chậm mới phải tiết kiệm; Kaggle dư CPU (cả bài 173s ~2 phút, chạy song song với đọc giọng).
+            ok = await vocal_sep.remove_voice(inp, p, windows=None)
             t["sep"] = round(time.time() - t0, 1)
-        if not amb:
-            gate = [tuple(x) for x in spec.get("speech") or []] or [(0.0, 99999.0)]
+            return p if ok else None
+        sep_task = asyncio.create_task(_sep())
+    try:
+        t0 = time.time()
+        voiced = await synth(items, tmp)
+        t["tts"] = round(time.time() - t0, 1)
+        clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
+        durs = [await core_video.speech_duration(c["path"], c.get("words")) if c["path"] else 0.0 for c in clips]
+        plan, too_long = core_video.plan_voice(durs, segs, out_dur)
+        voice_track = os.path.join(tmp, "voice.wav")
+        await core_video.compose_voice(clips, plan, voice_track, out_dur)
+        srt, ass = "", None
+        if spec.get("subs"):
+            words = await core_video.words_for_track(clips, plan, voice_track,
+                                                     ["" if s.get("ost") == "orig" else s["text"] for s in segs])
+            if words:
+                srt = subs_mod.to_srt(words)
+                ass = os.path.join(tmp, "subs.ass")
+                subs_mod.write_ass(words, ass, spec.get("pos_y"), config.SUB_STYLE)
+        amb = await sep_task if sep_task else None
+    finally:
+        if sep_task and not sep_task.done():          # lỗi giữa chừng: không để tiến trình tách giọng chạy mồ côi
+            sep_task.cancel()
+            await asyncio.gather(sep_task, return_exceptions=True)
+    gate = None
+    if spec.get("mode") == "cook" and not amb:
+        gate = [tuple(x) for x in spec.get("speech") or []] or [(0.0, 99999.0)]
     t0 = time.time()
     out = os.path.join(tmp, "output.mp4")
     notes: list = []

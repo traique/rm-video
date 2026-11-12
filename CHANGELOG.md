@@ -120,6 +120,16 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Video thật bản 24 (bản 25): cuối video còn giọng gốc, giọng đọc chưa trơn
+
+Đo trên video bạn gửi (mì xào bò 173s, dựng trên Kaggle) bằng cách tách giọng cả video gốc lẫn video ra rồi so từng giây.
+
+| Hiện tượng | Nguyên nhân (đo được) | Sửa |
+| --- | --- | --- |
+| Giây 143.7-166.7 của video ra trùng y hệt âm thanh gốc (tương quan 1.00), có giọng người gốc, không có giọng mới | Whisper bịa "Đừng quên đăng ký kênh để nhận thêm những video mới nhé." ở 140.4s rồi nhảy qua ~27s lời thật (rắc tiêu, ngò rí, "nhân công thức lên", chốt món — các lần chạy trước bóc được), câu kế là tiêu đề VIẾT HOA chép lại từ prompt. Kaggle chỉ tách giọng các khúc 5.75s có chạm quãng bóc lời thấy người nói, nên 4 khúc đó giữ nguyên âm thanh gốc. Bản 23 chạy Botkeep (video > 120s không tách giọng, tắt tiếng nền theo lời bóc được, lần đó bóc đủ) nên không bị | Kaggle tách giọng CẢ BÀI (4 luồng, chạy song song với đọc giọng — không chậm hơn), kể cả khi bóc lời không thấy chữ nào. Bóc lời: bỏ câu chào kết kiểu YouTube, câu lặp vòng, câu VIẾT HOA; nghe lại riêng từng quãng ≥ 8s không có chữ (không kèm prompt, lọc chặt hơn); tiêu đề VIẾT HOA đổi thành chữ thường trước khi làm prompt; cache bóc lời cũ bị bỏ (có thể thiếu cả quãng lời) |
+| Giọng mới: 50 câu, 22 chỗ lặng > 1s, 9 chỗ > 2s; "sau" đọc một mình rồi im 6.1s; "Thêm vào.", "Phi thơm lên." | Lời gốc bị máy nghe cắt vụn ("...70g." \| "cái thìa." \| "70g cải thảo.") — Whisper kéo dài mốc chữ cuối tới tận câu sau nên quy tắc gộp cũ (theo độ dài mẩu) không bắt được | Mẩu 1-2 chữ KẾT câu về với câu trước ("70g cải thìa" về đúng câu); mẩu cụt ≤ 4 chữ MỞ câu mới dời tới sát câu sau và đọc liền |
+| 16/46 đoạn bị AI rút gọn ("AI nén lời") | Khe trung vị chỉ 2.8s: giọng Mỹ Duyên ~3.1 chữ/giây chỉ được 4-6 chữ/đoạn ở 21 đoạn; AI vượt số từ giao ở 19/46 đoạn (trung bình +2.6 từ) rồi bị nén | Khe < 3s mà người gốc nói liền thì gộp với câu sau (câu gộp ≤ 6s): trên đúng lời của video này 43 -> 31 đoạn, khe trung vị 2.8s -> 4.5s, đoạn chỉ được ≤ 6 chữ 21 -> 2. Xếp giọng: lấn sang khe dư của câu sau tới 1s (câu sau lùi theo, vẫn xong trong khe của nó) TRƯỚC khi nói nhanh hay bắt AI rút gọn. AI được giao "TỐI ĐA n từ" (số đọc thành chữ cũng tính: 100g = 3 từ); ước lượng độ dài đếm chữ đọc ra |
+
 ## Sửa lỗi từ log Botkeep (bản 24)
 
 | Lỗi thật | Nguyên nhân | Sửa |

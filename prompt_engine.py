@@ -356,7 +356,7 @@ LUẬT BẮT BUỘC:
   Ví dụ — gốc: "trước tiên cắt thành dải dài sau đó cắt thành miếng vừa ăn" → mới: "Đầu tiên mình xẻ thịt thành từng dải, rồi thái nhỏ cỡ vừa miệng."
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
-- Mỗi đoạn có SỐ TỪ mục tiêu (ghi kèm), viết sát con số đó: ít quá thì giọng hết sớm và lệch hình, nhiều quá thì tràn sang đoạn sau.
+- Mỗi đoạn có SỐ TỪ TỐI ĐA (ghi kèm; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết gần sát nhưng KHÔNG vượt: ít quá thì giọng hết sớm và lệch hình, vượt thì tràn sang đoạn sau và phải cắt bớt. Khe ngắn thì viết một câu ngắn trọn ý, đừng nhồi.
 - Giọng nói chuyện tự nhiên: câu ngắn, có dấu câu ngắt hơi. Đoạn đầu mở bằng 1 câu hook ngắn gây tò mò.
 - ĐỘNG TỪ ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) phải MỞ ĐẦU bằng chính hành động đang diễn ra trên hình, vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Lật mặt nào, khi thịt đã vàng đều." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Áp chảo với lửa vừa." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
@@ -400,8 +400,17 @@ def words_per_sec() -> float:
     return _rate()
 
 
+def spoken_words(text: str) -> int:
+    """Số chữ thật sự đọc ra: "100g" là 3 chữ "một trăm gam" (đếm thô thì ước lượng độ dài giọng bị hụt)."""
+    import vi_text
+    return len(vi_text.normalize(text or "").split())
+
+
 SENT_MAX = 6.0          # một câu đọc liền dài tối đa (giây): dài hơn thì lời mới lệch khỏi hình đang chiếu
+FRAG_WORDS = 4          # mẩu cụt chưa hết câu tối đa chừng này chữ thì được dời tới đọc liền với câu sau
+MIN_SLOT = 3.0          # khe ngắn hơn thế này (người gốc nói liền) thì gộp với câu sau cho AI đủ chỗ viết câu tự nhiên
 _CLAUSE_END = (".", "!", "?", "…", ",", ";", ":")
+_SENT_END = (".", "!", "?", "…")
 
 
 def merge_sentences(segments: list, out_dur: float) -> list:
@@ -409,24 +418,48 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     những mẩu cụt ("Sau khi mình" | "luộc ... vớt ra" | "cho mình." | "Rồi"); AI viết từng mẩu thành một câu riêng
     và mỗi mẩu được đọc riêng với ngữ điệu kết câu -> nghe ngắt câu vô lý (Botkeep 11/2026). Gộp khi: đoạn bắt đầu
     quá sát đoạn trước (< 1.1s), hoặc câu trước chưa xong (không kết bằng dấu câu) / một trong hai chỉ 1-2 chữ, miễn
-    là cả câu gộp không dài quá SENT_MAX giây."""
+    là cả câu gộp không dài quá SENT_MAX giây.
+    Mẩu 1-2 chữ chỉ gộp NGƯỢC về câu trước khi nó KẾT câu ("...70g." + "cái thìa."); mẩu không dấu đứng sau một câu
+    đã xong là ĐẦU câu mới ("sau" | 6s nghỉ | "khi bò nó tái..."): mẩu cụt như vậy (≤ FRAG_WORDS chữ) được dời tới sát
+    câu sau và đọc liền — trước đây đọc "Sau." một mình rồi im 6 giây (Botkeep 12/11/2026). Mốc thời gian của Whisper
+    hay kéo dài chữ cuối tới tận câu sau nên không dựa vào độ dài mẩu."""
     # nguồn bóc lời không có dấu câu (cả bài không đoạn nào kết bằng dấu) thì không suy "câu chưa xong" được
     punct = sum((t or "").rstrip().endswith(_CLAUSE_END) for _, _, t in segments) >= max(1, 0.2 * len(segments))
 
-    def tiny(a, b, t):                       # mẩu vụn: "Rồi", "sau", "Sau khi" (1 chữ, hoặc 2 chữ nói vội)
-        n = len(t.split())
-        return n <= 1 or (n <= 2 and b - a < 1.5)
+    def n(t):
+        return len(t.split())
+
+    def tiny(a, b, t):       # mẩu vụn: "Rồi", "sau", "cái thìa." (không có dấu câu thì 2 chữ phải là nói vội)
+        return n(t) <= 1 or (n(t) <= 2 and (punct or b - a < 1.5))
     out = []
     for st, en, tx in segments:
         tx = (tx or "").strip()
         if out:
             pst, pen, ptx = out[-1]
-            cut = punct and not ptx.rstrip().endswith(_CLAUSE_END)
-            small = tiny(st, en, tx) or tiny(pst, pen, ptx)
+            cut = punct and not ptx.rstrip().endswith(_CLAUSE_END)          # câu trước chưa xong
+            opens = punct and not tx.rstrip().endswith(_CLAUSE_END) and ptx.rstrip().endswith(_SENT_END)
+            small = tiny(pst, pen, ptx) or (tiny(st, en, tx) and not opens)
             if st - pst < 1.1 or ((cut or small) and en - pst <= SENT_MAX):
                 out[-1] = (pst, en, f"{ptx} {tx}".strip())
                 continue
+            if (cut or tiny(pst, pen, ptx)) and n(ptx) <= FRAG_WORDS and not ptx.rstrip().endswith(_SENT_END):
+                ns = max(pst, st - (n(ptx) / 4.0 + 0.25))   # mẩu cụt nói ~4 chữ/giây, sát trước câu sau
+                if en - ns <= SENT_MAX + 1.5:
+                    out[-1] = (round(ns, 2), en, f"{ptx} {tx}")
+                    continue
         out.append((st, en, tx))
+    # khe quá ngắn: người gốc nói nhanh, máy cắt mỗi 1.5-2.5s -> giọng mới (Mỹ Duyên ~3.1 chữ/giây) chỉ được 4-6 chữ,
+    # AI viết câu cụt hoặc viết quá rồi bị nén (Botkeep 12/11/2026: 19/46 đoạn vượt số từ, 16 đoạn bị rút gọn thành
+    # "Thêm vào.", "Phi thơm lên."). Gộp với đoạn sau khi người gốc nói liền (nghỉ < 0.8s), câu gộp ≤ SENT_MAX.
+    out2 = []
+    for st, en, tx in out:
+        if out2:
+            pst, pen, ptx = out2[-1]
+            if st - pst < MIN_SLOT and st - pen < 0.8 and en - pst <= SENT_MAX:
+                out2[-1] = (pst, en, f"{ptx} {tx}")
+                continue
+        out2.append((st, en, tx))
+    out = out2
     if len(out) >= 2 and out_dur - out[-1][0] < 1.2:
         a, b = out[-2], out[-1]
         out[-2:] = [(a[0], b[1], a[2] + " " + b[2])]
@@ -445,7 +478,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         span = max(0.8, min(en, st + slot) - st)          # người gốc nói trong khoảng này
         mx = max(3, min(int(slot * _rate() * 0.92), int(len(tx.split()) * 1.15) + 1))
         slots.append((k, st, slot, mx, tx, span))
-    desc_lines = "\n".join(f"{k} | {st:.1f}s | khoảng {mx} từ | {tx}" for k, st, slot, mx, tx, _ in slots)
+    desc_lines = "\n".join(f"{k} | {st:.1f}s | tối đa {mx} từ | {tx}" for k, st, slot, mx, tx, _ in slots)
     prompt = TIMED_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
     ost_auto = config.OST_AUTO == "1"

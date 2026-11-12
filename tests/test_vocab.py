@@ -117,7 +117,8 @@ def test_cached_fake_segments_dropped():
 
 def test_merge_sentences_joins_cut_fragments():
     """Botkeep 11/2026: lời gốc bị cắt vụn ("Sau khi mình" | "luộc ... vớt ra" | "Rồi") -> AI viết từng mẩu thành câu
-    riêng, đọc rời rạc. Gộp thành câu trọn, nhưng giữ riêng từng món trong danh sách nguyên liệu (kết bằng dấu phẩy)."""
+    riêng, đọc rời rạc. Gộp thành câu trọn. Danh sách nguyên liệu khe ~2s/món nói liền: gộp 2 món một câu (từ bản 25,
+    khe 2s chỉ đủ 5-6 chữ giọng Mỹ Duyên -> AI viết câu cụt hoặc bị nén)."""
     import prompt_engine
     segs = [(19.9, 21.0, "Cái công dụng làm"), (21.1, 24.6, "cho cái bò mình nó mềm."),
             (24.7, 26.0, "Rồi"), (26.1, 27.7, "để nghỉ 5 phút."),
@@ -125,7 +126,7 @@ def test_merge_sentences_joins_cut_fragments():
             (50.0, 52.0, "xong lúc này mọi người"), (52.1, 58.5, "cho vào nồi luộc chín đều rồi vớt ra để ráo nước.")]
     out = prompt_engine.merge_sentences(segs, 80)
     assert [t for _, _, t in out] == ["Cái công dụng làm cho cái bò mình nó mềm.", "Rồi để nghỉ 5 phút.",
-                                      "1 phần 3 muỗng đường,", "1 phần 4 muỗng dầu hào,",
+                                      "1 phần 3 muỗng đường, 1 phần 4 muỗng dầu hào,",
                                       "xong lúc này mọi người",
                                       "cho vào nồi luộc chín đều rồi vớt ra để ráo nước."]   # gộp sẽ dài > 6s
     assert out[0][:2] == (19.9, 24.6)

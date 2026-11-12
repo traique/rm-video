@@ -50,39 +50,154 @@ async def _groq(audio_path: str, prompt: str = ""):
         metrics.record("asr", "groq", ok=False, detail=f"{status} {d}")
         return "", []
     metrics.record("asr", "groq")
+    units, pieces, nbad = _parse(d)
+    dur = float(d.get("duration") or 0) or max([float(x.get("end") or 0) for x in d.get("segments") or []] + [0.0])
+    added = 0
+    if units:                                 # video có lời: nghe lại các quãng dài không có chữ nào
+        units, pieces, added = await _fill_holes(audio_path, units, pieces, dur)
+    text = (" ".join(t for _, t in sorted(pieces)) if nbad or added else (d.get("text") or "")).strip()
+    return text, chunk_units(units)
+
+
+def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
+    """Kết quả Groq -> (từ [(đầu, cuối, chữ)], câu [(đầu, chữ)], số đoạn bỏ). Bỏ đoạn Whisper nghe nhầm; strict: lượt
+    nghe lại quãng trống, chặt hơn (_weak)."""
     segs = d.get("segments") or []
-    bad = [(float(x["start"]), float(x["end"])) for x in segs if _hallucinated(x)]
+
+    def junk(x):
+        return _hallucinated(x) or (strict and _weak(x))
+    bad = [(float(x["start"]), float(x["end"])) for x in segs if junk(x)]
     if bad:
         logging.info("Bỏ %d đoạn Whisper nghe nhầm (nhạc/im lặng): %s", len(bad),
-                     " | ".join((x.get("text") or "").strip()[:40] for x in segs if _hallucinated(x)))
+                     " | ".join((x.get("text") or "").strip()[:40] for x in segs if junk(x)))
 
     def ok(a, b):
         m = (a + b) / 2
         return not any(s - 0.05 <= m <= e + 0.05 for s, e in bad)
-    units = [(float(x["start"]), float(x["end"]), (x.get("word") or "").strip())
+    units = [(offset + float(x["start"]), offset + float(x["end"]), (x.get("word") or "").strip())
              for x in d.get("words", []) if (x.get("word") or "").strip() and ok(float(x["start"]), float(x["end"]))]
     if not units and not d.get("words"):   # không có mốc từ -> dùng segment của Whisper
-        units = [(float(x["start"]), float(x["end"]), (x.get("text") or "").strip())
-                 for x in segs if (x.get("text") or "").strip() and not _hallucinated(x)]
-    text = (" ".join((x.get("text") or "").strip() for x in segs if not _hallucinated(x)) if bad
-            else (d.get("text") or "")).strip()
-    return text, chunk_units(units)
+        units = [(offset + float(x["start"]), offset + float(x["end"]), (x.get("text") or "").strip())
+                 for x in segs if (x.get("text") or "").strip() and not junk(x)]
+    pieces = [(offset + float(x["start"]), (x.get("text") or "").strip())
+              for x in segs if (x.get("text") or "").strip() and not junk(x)]
+    if not segs and units:                 # không có segment: ghép chữ thành câu
+        pieces = [(units[0][0], " ".join(u[2] for u in units))]
+    return units, pieces, len(bad)
+
+
+HOLE_MIN = 8.0        # quãng ≥ 8s không có chữ nào (giữa video có lời) thì nghe lại riêng quãng đó
+HOLE_N = 4            # tối đa số quãng nghe lại mỗi video
+HOLE_TOTAL = 180.0    # và tổng số giây nghe lại (hạn mức Groq tính theo giây audio)
+
+
+def find_holes(units: list, dur: float, min_len: float = HOLE_MIN) -> list:
+    """Các quãng [a, b] dài ≥ min_len không có chữ nào (kể cả đầu và cuối video)."""
+    holes, prev = [], 0.0
+    for a, b, _ in sorted(units):
+        if a - prev >= min_len:
+            holes.append((round(prev, 2), round(a, 2)))
+        prev = max(prev, b)
+    if dur - prev >= min_len:
+        holes.append((round(prev, 2), round(dur, 2)))
+    return holes
+
+
+async def _cut_audio(src: str, dst: str, start: float, length: float):
+    p = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{length:.2f}", "-i", src, "-vn", "-ac", "1",
+        "-ar", "16000", "-b:a", "48k", dst, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+    _, err = await p.communicate()
+    if p.returncode != 0:
+        raise RuntimeError(err.decode(errors="replace")[-150:])
+
+
+async def _fill_holes(audio_path: str, units: list, pieces: list, dur: float) -> tuple:
+    """Whisper hay bịa một câu ở quãng nhạc rồi NHẢY QUA cả khung 30s phía sau, bỏ sót lời thật (lỗi thật 12/11/2026:
+    giây 143-170 người gốc rắc tiêu, ngò rí, chốt món mà bản bóc lời trống trơn -> video không có lời mới ở đó và
+    giọng gốc lọt ra). Nghe lại riêng từng quãng trống dài (không kèm prompt để khỏi chép lại tiêu đề), chặt hơn lượt
+    đầu vì quãng trống thường chỉ có nhạc. Trả (units, pieces, số chữ thêm)."""
+    holes = find_holes(units, dur)
+    picked, total = [], 0.0
+    for a, b in sorted(holes, key=lambda h: h[0] - h[1]):            # quãng dài nhất trước
+        if len(picked) < HOLE_N and total + (b - a) <= HOLE_TOTAL:
+            picked.append((a, b))
+            total += b - a
+    units, pieces, added = list(units), list(pieces), 0
+    for a, b in sorted(picked):
+        s = max(0.0, a - 0.3)
+        clip = f"{audio_path}.hole{int(a)}.mp3"
+        try:
+            await _cut_audio(audio_path, clip, s, b + 0.3 - s)
+            status, d = await _groq_post(clip, "")
+        except Exception as e:
+            logging.warning("Nghe lại quãng %.0f-%.0fs lỗi: %s", a, b, str(e)[:120])
+            continue
+        finally:
+            if os.path.exists(clip):
+                os.remove(clip)
+        if status != 200:
+            logging.warning("Nghe lại quãng %.0f-%.0fs: Groq %s", a, b, status)
+            if status == 429:                    # hết hạn mức: các quãng sau cũng sẽ lỗi
+                break
+            continue
+        u, p, _ = _parse(d, offset=s, strict=True)
+        u = [x for x in u if a - 0.05 <= (x[0] + x[1]) / 2 <= b + 0.05]
+        p = [x for x in p if a - 0.5 <= x[0] <= b]
+        logging.info("Nghe lại quãng %.0f-%.0fs không có chữ: %s", a, b,
+                     f"thêm {len(u)} từ «{' '.join(t for _, t in p)[:80]}»" if u else "không có lời")
+        if u:
+            units += u
+            pieces += p
+            added += len(u)
+    return sorted(units), sorted(pieces), added
 
 
 # Câu Whisper hay "bịa" ở chỗ chỉ có nhạc/im lặng (học từ phụ đề YouTube), và nhãn từ điển cũ bị chép lại
 _FAKE = re.compile(r"ghiền mì gõ|vietsub|subtitles? by|amara\.org", re.I)
 _FAKE_WHOLE = re.compile(r"^\W*(?:từ\s+kh(?:óa|oá|oa)|keywords?)\W*$", re.I)   # "khóa" / "khoá"
+# Câu chào kết kiểu YouTube mà Whisper bịa ra ở quãng nhạc — lỗi thật 12/11/2026: "Đừng quên đăng ký kênh để nhận thêm
+# những video mới nhé." ở giây 140 rồi Whisper bỏ qua luôn ~27s người gốc nói thật phía sau
+_OUTRO = re.compile(r"(?:đừng quên|nhớ|hãy)\s+(?:bấm\s+)?(?:like|đăng\s*ký|subscribe)|đăng\s*ký\s+kênh\s+để|"
+                    r"nhận\s+thêm\s+(?:những\s+)?video|hẹn\s+gặp\s+lại\s+(?:các\s+bạn\s+)?trong\s+(?:những\s+)?video|"
+                    r"cảm\s+ơn\s+(?:các\s+bạn\s+)?đã\s+(?:xem|theo\s+dõi)\s+video", re.I)
+
+
+def _repeats(text: str) -> bool:
+    """Whisper lặp vòng: một cụm 2-4 chữ lặp liền ≥ 3 lần ("ĐỪC BÀ NGON ĐỪC BÀ NGON ĐỪC BÀ NGON")."""
+    w = re.findall(r"\w+", text.lower())
+    for n in (2, 3, 4):
+        for i in range(len(w) - 3 * n + 1):
+            if w[i:i + n] == w[i + n:i + 2 * n] == w[i + 2 * n:i + 3 * n]:
+                return True
+    return False
+
+
+def _shouting(text: str) -> bool:
+    """Cả câu viết HOA: lời nói thật không ra chữ hoa; đây là Whisper chép lại tiêu đề HOA trong prompt."""
+    letters = [c for c in text if c.isalpha()]
+    return len(letters) >= 12 and sum(c.isupper() for c in letters) >= 0.7 * len(letters)
 
 
 def _hallucinated(seg: dict) -> bool:
-    """Đoạn Whisper nghe nhầm: quy tắc im lặng của chính Whisper (no_speech_prob > 0.6 và avg_logprob < -1)
-    hoặc câu quảng cáo/nhãn hay bị bịa."""
+    """Đoạn Whisper nghe nhầm: quy tắc im lặng của chính Whisper (no_speech_prob > 0.6 và avg_logprob < -1),
+    câu quảng cáo/nhãn/chào kết hay bị bịa, câu lặp vòng hoặc chữ HOA cả câu."""
     text = unicodedata.normalize("NFC", (seg.get("text") or "").strip())
     try:
         silent = float(seg.get("no_speech_prob") or 0) > 0.6 and float(seg.get("avg_logprob") or 0) < -1.0
     except (TypeError, ValueError):
         silent = False
-    return silent or bool(_FAKE.search(text) or _FAKE_WHOLE.match(text))
+    return silent or bool(_FAKE.search(text) or _FAKE_WHOLE.match(text) or _OUTRO.search(text)
+                          or _repeats(text) or _shouting(text))
+
+
+def _weak(seg: dict) -> bool:
+    """Lượt NGHE LẠI một quãng trống: quãng đó thường chỉ có nhạc nên chặt hơn lượt đầu."""
+    try:
+        return (float(seg.get("no_speech_prob") or 0) > 0.5 or float(seg.get("avg_logprob") or 0) < -0.9
+                or float(seg.get("compression_ratio") or 0) > 2.4)
+    except (TypeError, ValueError):
+        return True
 
 
 def drop_fake_segments(segs: list) -> list:
@@ -185,6 +300,7 @@ def chunk_units(units, max_dur: float = 3.2, gap: float = 0.3, min_dur: float = 
 
 
 _CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stt_cache.json")
+CACHE_V = 2     # 2: nghe lại quãng trống + bỏ câu chào kết/chữ HOA bịa (bản bóc lời cũ có thể thiếu cả quãng lời)
 
 
 def _cache_key(path: str) -> str:
@@ -203,14 +319,14 @@ async def transcribe_segments(audio_path: str, title: str = "", desc: str = ""):
     try:
         key = _cache_key(audio_path)
         cache = json.load(open(_CACHE, encoding="utf-8")) if os.path.exists(_CACHE) else {}
-        if key in cache:
+        if key in cache and cache[key].get("v") == CACHE_V:
             return vocab.fix_segments(cache[key]["text"], drop_fake_segments([tuple(x) for x in cache[key]["segs"]]))
     except Exception:
         key, cache = "", {}
     text, segs = await _transcribe_uncached(audio_path, prompt)
     if key and text:
         try:
-            cache[key] = {"text": text, "segs": segs}
+            cache[key] = {"v": CACHE_V, "text": text, "segs": segs}
             for old in list(cache)[:-40]:
                 cache.pop(old)
             json.dump(cache, open(_CACHE, "w", encoding="utf-8"), ensure_ascii=False)

@@ -56,7 +56,7 @@ def test_long_video_retries_only_failed_batch(monkeypatch):
         return {"segments": [{"i": k, "start": s[0], "slot": 1.0, "text": f"lời {s[0]:.0f}", "orig": s[2]}
                              for k, s in enumerate(part)], "title": "t", "caption": "c", "hashtags": "#a"}
     monkeypatch.setattr(prompt_engine, "generate_timed", fake_timed)
-    segs = [(2.0 * i, 2.0 * i + 1.6, f"gốc số {i}.") for i in range(60)]   # câu trọn, cách 2s: không bị gộp
+    segs = [(2.0 * i, 2.0 * i + 1.0, f"gốc số {i}.") for i in range(60)]   # câu trọn, nghỉ 1s giữa câu: không gộp
     out = asyncio.run(prompt_engine.generate_timed_any("", "", "cook", segs, 121.0))
     assert out is not None and len(out["segments"]) == 60
     assert calls["n"] == 4                                   # 3 lô + 1 lần gọi lại

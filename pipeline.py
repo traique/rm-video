@@ -740,8 +740,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
             # chạy trên Kaggle: biết đúng tốc độ của giọng VieNeu và KHÔNG có vòng AI rút gọn sau khi đọc (Kaggle không
             # giữ key) -> ước tính đủ (x1.0); trên Botkeep còn vòng rút gọn sau nên ước tính thận trọng (x0.85)
             est_k = 1.0 if remote else 0.85
-            est = [0.0 if sg.get("ost") == "orig" else len(sg["text"].split()) / prompt_engine.words_per_sec() * est_k
-                   for sg in segs_t]
+            est = [0.0 if sg.get("ost") == "orig" else
+                   prompt_engine.spoken_words(sg["text"]) / prompt_engine.words_per_sec() * est_k for sg in segs_t]
             _, sure_long = core_video.plan_voice(est, segs_t, out_dur)
             if sure_long:
                 job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
@@ -750,8 +750,9 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         pre_cover = None
         if remote:
             post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
-            sep_r = dict(sep, ok_remote=job.mode == "cook" and config.VOICE_SEPARATION != "0"
-                         and sep.get("windows") is not None)        # Kaggle 4 lõi: không cần giới hạn của Botkeep
+            # Kaggle 4 lõi: không cần giới hạn của Botkeep; tách CẢ BÀI nên không cần mốc lời (bóc lời không nghe được
+            # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
+            sep_r = dict(sep, ok_remote=job.mode == "cook" and config.VOICE_SEPARATION != "0")
             spec = None
             try:
                 spec = kaggle_worker.build_spec(
