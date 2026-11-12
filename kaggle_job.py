@@ -249,7 +249,7 @@ def main(spec: dict, out_dir: str = "/kaggle/working"):
     jobs = spec["jobs"] if spec.get("kind") == "batch" else [spec]
     results = []
     for k, sp in enumerate(jobs):
-        sp = {**{x: spec[x] for x in ("settings",) if x in spec}, **sp}
+        sp = {**{x: spec[x] for x in ("settings", "ref_b64", "ref_ext") if x in spec}, **sp}
         tag = "" if spec.get("kind") != "batch" else f"_{k}"
         try:
             res = asyncio.run(run_one(sp, f"/tmp/rm_job{tag or '_0'}"))

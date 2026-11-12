@@ -120,6 +120,20 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Rà soát trước deploy (lần 2: Kaggle + trang đăng nhập)
+
+Rà độc lập tìm 7 lỗi, đã sửa hết, mỗi lỗi có test:
+
+| Lỗi | Sửa |
+| --- | --- |
+| Trang đăng nhập nhận `?next=/\\evil.com` -> trình duyệt chuyển sang trang lạ (open redirect) | Bỏ hẳn tham số `next`, luôn về `/` |
+| `vi_text` gặp "12.5.2026", "1.000,5", "v1.2.3" thì ném lỗi -> cả phiên Kaggle đổ, tốn giờ GPU rồi mới lùi về Botkeep | Số lạ đọc từng cụm ("mười hai chấm năm chấm ..."), không bao giờ ném lỗi |
+| "5-7kg" -> "năm đến bảykg"; ngày "12/11" thành phân số; giờ "10:30" đọc sai | Khoảng + đơn vị/% xử lý trước; ngày/giờ đọc đúng kiểu |
+| Lô nhiều phần với giọng nhân bản: đoạn mẫu gói lặp theo từng phần -> notebook > 1MB, cả lô bị từ chối | Gói đoạn mẫu một lần cho cả lô |
+| `produce_batch` chỉ bắt `KaggleError`: lỗi khác làm mất hết các phần đang chờ, không lùi về Botkeep | Bắt mọi lỗi, từng phần làm trên Botkeep |
+| Phần Kaggle lỗi làm lại trên Botkeep thì bóc lời + gọi AI viết lại từ đầu (tốn tiền, lời khác) | Giữ lời đã chốt, đi đường "kịch bản đã duyệt" |
+| Hạn thời gian job cộng 50 phút một lần dù lô nhiều phần chờ lâu hơn; huỷ job thì phiên Kaggle vẫn chạy tốn giờ GPU | Hạn theo số phần; huỷ job gọi huỷ phiên Kaggle, dừng chờ ngay |
+
 ## Trang đăng nhập riêng cho web
 
 `/login` (static/login.html): `/` chưa có phiên hợp lệ thì chuyển hướng sang đó; đăng nhập xong về `/` (hoặc `next` nếu

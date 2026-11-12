@@ -164,7 +164,8 @@ def job_budget(job: Job) -> float:
     per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)
     budget = min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
     if not kaggle_worker.enabled():               # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
-        budget += kaggle_worker.TIMEOUT
+        parts = max(1, int(job.out_dur // (90 if job.long_mode == "split90" else 60)) + 1) if job.long_mode else 1
+        budget += kaggle_worker.TIMEOUT + kaggle_worker.TIMEOUT_PER_EXTRA * (parts - 1)
     return budget
 
 
@@ -179,6 +180,7 @@ def cancel_job(jid: int) -> str:
         return f"Job #{jid} sẽ bị bỏ qua khi tới lượt."
     if job.status == "processing" and current["job"] is job and current["task"]:
         current["task"].cancel()
+        kaggle_worker.abort()                  # phiên Kaggle đang chạy cho job này (nếu có) cũng dừng, khỏi tốn giờ GPU
         return f"Đang hủy job #{jid}..."
     return f"Job #{jid} đã kết thúc ({job.status})."
 

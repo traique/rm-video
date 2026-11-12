@@ -37,6 +37,18 @@ TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
 VOICE_REF = os.path.join(BASE, "assets", "voice_ref.mp3")
 LINK_TTL = 4 * 3600
 _LOCK = asyncio.Lock()
+_ABORT = {"flag": False, "running": False}
+
+
+def abort():
+    """Người dùng huỷ job đang chạy trên Kaggle: dừng chờ và yêu cầu Kaggle huỷ phiên (hết việc thì thôi)."""
+    if not _ABORT["running"]:
+        return
+    _ABORT["flag"] = True
+    try:
+        kaggle_api.cancel(SLUG)
+    except Exception as e:
+        logging.info("Không huỷ được phiên Kaggle: %s", e)
 
 # Giọng VieNeu v3 Turbo miền Nam (nhãn của model) và tốc độ đọc đo thật (chữ/giây, chỉ phần tiếng nói, 12/11/2026)
 SOUTH_FEMALE = ["Mỹ Duyên", "Thục Đoan", "Thùy Dung", "Kim Thanh"]
@@ -247,7 +259,11 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st)
+    _ABORT.update(flag=False, running=True)
+    try:
+        kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st, stop=lambda: _ABORT["flag"])
+    finally:
+        _ABORT["running"] = False
     d = kaggle_api.outputs(SLUG)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     out = []
@@ -298,13 +314,14 @@ async def produce(spec: dict, tmp: str, on_step=None) -> dict:
 async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
     """Nhiều việc trong MỘT phiên (nạp model + tải nguồn một lần). Trả danh sách: kết quả hoặc KaggleError từng việc."""
     on_step = on_step or (lambda s: None)
-    spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in ("settings", "logo_b64")} for s in specs],
-            "settings": specs[0].get("settings"), "logo_b64": specs[0].get("logo_b64")}
+    shared = ("settings", "logo_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
+    spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in shared} for s in specs],
+            **{k: specs[0].get(k) for k in shared if specs[0].get(k)}}
     try:
         async with _LOCK:
             return await asyncio.to_thread(_run_sync, spec, tmp, on_step)
-    except KaggleError as e:
-        return [e] * len(specs)
+    except Exception as e:                       # mọi lỗi (kể cả lỗi gói notebook) -> từng phần làm trên Botkeep
+        return [e if isinstance(e, KaggleError) else KaggleError(str(e)[:300])] * len(specs)
     finally:
         release(spec)
 
@@ -313,8 +330,8 @@ async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
 
 class Deferred:
     """Phần đã chuẩn bị xong (lời đã chốt), chờ chạy chung một phiên Kaggle với các phần khác."""
-    def __init__(self, spec: dict, finish):
-        self.spec, self.finish = spec, finish
+    def __init__(self, spec: dict, finish, approved: list | None = None):
+        self.spec, self.finish, self.approved = spec, finish, approved or []
 
 
 _COLLECT = contextvars.ContextVar("kaggle_collect", default=None)

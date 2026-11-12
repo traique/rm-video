@@ -26,7 +26,7 @@ button:disabled{opacity:.5}
 </form>
 <script>
 const $=id=>document.getElementById(id);
-const next=(()=>{try{const n=new URLSearchParams(location.search).get('next')||'/';return n.startsWith('/')&&!n.startsWith('//')?n:'/'}catch(e){return '/'}})();
+const next='/';   // luôn về bảng điều khiển: không nhận ?next= (tránh bị dẫn sang trang khác)
 fetch('/api/me').then(r=>r.json()).then(d=>{
   if(!d.password_set){$('msg').innerHTML='<span class="err">⚠️ Chưa đặt WEB_PASSWORD nên web panel đang khoá. Đặt biến môi trường WEB_PASSWORD rồi khởi động lại bot.</span>';$('btn').disabled=true;}
   else if(d.authed)location.replace(next);

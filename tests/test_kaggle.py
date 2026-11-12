@@ -468,3 +468,71 @@ def test_split_runs_all_pieces_in_one_kaggle_session(kaggle_fakes, kaggle_on, mo
     videos = [p for p in job.parts if p["label"].startswith("Phần")]
     assert len(calls) == 1 and len(calls[0]) == len(videos) >= 2                    # một phiên cho mọi phần
     assert (kaggle_fakes["tts"] > 0) == fail_second                                  # phần lỗi làm lại trên Botkeep
+
+
+# ---------------- rà soát trước deploy (lần 2) ----------------
+
+@pytest.mark.parametrize("s,want", [
+    ("12.5.2026", "mười hai chấm năm chấm hai ngàn không trăm hai mươi sáu"),     # không bao giờ ném lỗi
+    ("1.000,5", "một chấm không chấm năm"),
+    ("5-7kg", "năm đến bảy ký"), ("50-60%", "năm mươi đến sáu mươi phần trăm"),
+    ("ngày 12/11", "ngày mười hai tháng mười một"), ("lúc 10:30", "lúc mười giờ ba mươi"),
+    ("sinh 1/2/2026", "sinh ngày một tháng hai năm hai ngàn không trăm hai mươi sáu")])
+def test_normalize_hard_cases(s, want):
+    assert vi_text.normalize(s) == want
+
+
+def test_login_page_has_no_next_redirect():
+    html = open(os.path.join(kaggle_worker.BASE, "static", "login.html"), encoding="utf-8").read()
+    assert "URLSearchParams" not in html and "const next='/'" in html
+
+
+def test_batch_shares_clone_ref_and_catches_any_error(monkeypatch, tmp_path):
+    ref = tmp_path / "ref.mp3"
+    ref.write_bytes(os.urandom(150_000))
+    monkeypatch.setattr(kaggle_worker, "VOICE_REF", str(ref))
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example.com")
+    job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:clone")
+    specs = [kaggle_worker.build_spec(job, [{"i": 0, "start": 0.0, "slot": 2.0, "span": 2.0, "text": "a", "ost": "new"}],
+                                      5.0, 0, 1.0, True, "T", [], None, {}, [], 90) for _ in range(6)]
+    seen = {}
+
+    def fake_run(spec, tmp, on_step):
+        seen["spec"] = spec
+        return [{"video": "x"}] * len(spec["jobs"])
+    monkeypatch.setattr(kaggle_worker, "_run_sync", fake_run)
+    asyncio.run(kaggle_worker.produce_batch(specs, str(tmp_path)))
+    assert "ref_b64" in seen["spec"] and all("ref_b64" not in j for j in seen["spec"]["jobs"])   # gói một lần
+    assert len(kaggle_worker.kernel_text(seen["spec"]).encode()) < 990_000
+
+    def boom(spec, tmp, on_step):
+        raise TypeError("spec không json hoá được")
+    monkeypatch.setattr(kaggle_worker, "_run_sync", boom)
+    res = asyncio.run(kaggle_worker.produce_batch(specs[:2], str(tmp_path)))
+    assert len(res) == 2 and all(isinstance(r, kaggle_api.KaggleError) for r in res)
+
+
+def test_piece_retry_keeps_script_and_cancel_aborts(kaggle_fakes, kaggle_on, monkeypatch, tmp_path):
+    import pipeline
+    monkeypatch.setattr(pipeline, "OUT_DIR", str(tmp_path / "out"))
+    os.makedirs(tmp_path / "out")
+    src = str(tmp_path / "up" / "long.mp4")
+    _long_video(src, 70)
+
+    async def all_fail(specs, tmp, on_step=None):
+        return [kaggle_api.KaggleError("hết giờ")] * len(specs)
+    monkeypatch.setattr(kaggle_worker, "produce_batch", all_fail)
+    job = Job(url="", mode="cook", duration=0, voice="vieneu:Adam", local=src, long_mode="split60", source="web")
+    (tmp_path / "w").mkdir()
+    asyncio.run(pipeline.process_split(job, str(tmp_path / "w")))
+    n_parts = len([p for p in job.parts if p["label"].startswith("Phần")])
+    assert n_parts >= 1 and kaggle_fakes["llm"] == n_parts          # làm lại trên Botkeep KHÔNG gọi AI thêm lần nào
+    # huỷ job đang chờ Kaggle: dừng chờ ngay + gọi huỷ phiên
+    calls = []
+    monkeypatch.setattr(kaggle_api, "cancel", lambda slug: calls.append(slug))
+    kaggle_worker._ABORT.update(flag=False, running=True)
+    kaggle_worker.abort()
+    assert calls == [kaggle_worker.SLUG] and kaggle_worker._ABORT["flag"]
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("RUNNING", ""))
+    with pytest.raises(kaggle_api.KaggleError, match="huỷ"):
+        kaggle_api.wait("x", 60, every=0, sleep=lambda s: None, stop=lambda: True)

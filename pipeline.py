@@ -219,8 +219,10 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                     logging.warning("%s: Kaggle lỗi (%s), làm trên Botkeep", label, e)
                     metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
                     sub.error = f"ℹ️ Kaggle lỗi ({str(e)[:120]}): làm trên Botkeep. "
+                    sub.approved, sub.post_keep = d.approved, sub.post      # lời đã chốt: không gọi AI lần nữa
                     job.step = f"{label}: làm trên Botkeep"
                     out = await process(sub, part_dir, allow_review=False, local_only=True)
+                    sub.post = sub.post or sub.post_keep
                 await _deliver(pc, label, sub, out)
                 ok += 1
             except Exception as e:
@@ -776,7 +778,11 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                     + ". ")
                 return res["video"]
             if spec is not None and kaggle_worker.collecting():
-                return kaggle_worker.Deferred(spec, _finish_remote)    # video dài: chạy chung một phiên với các phần khác
+                # video dài: chạy chung một phiên với các phần khác; kèm lời đã chốt để nếu Kaggle lỗi thì làm lại
+                # phần này trên Botkeep mà KHÔNG bóc lời + gọi AI lần nữa (đi đường "kịch bản đã duyệt")
+                return kaggle_worker.Deferred(spec, _finish_remote, [
+                    {"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
+                     "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")} for s in segs_t])
             if spec is not None:
                 pre_cover = _start_cover(post_title)    # ảnh bìa làm trên Botkeep trong lúc Kaggle chạy
                 try:

@@ -82,6 +82,11 @@ def status(slug: str) -> tuple:
     return str(d.get("status") or ""), d.get("failureMessage") or ""
 
 
+def cancel(slug: str):
+    user, _ = creds()
+    call("CancelKernelSession", {"userName": user, "kernelSlug": slug})
+
+
 def outputs(slug: str) -> dict:
     user, _ = creds()
     return call("ListKernelSessionOutput", {"userName": user, "kernelSlug": slug, "pageSize": 200})
@@ -111,11 +116,13 @@ DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
 
-def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=time.sleep) -> str:
+def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=time.sleep, stop=None) -> str:
     """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ)."""
     t0 = time.time()
     last = ""
     while True:
+        if stop is not None and stop():
+            raise KaggleError("đã huỷ")
         st, why = status(slug)
         up = st.upper()
         if on_status and st != last:
