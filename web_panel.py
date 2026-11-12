@@ -194,6 +194,8 @@ _SETTING_OPTIONS = {
                           ["Minh Triết", "Minh Triết (tin tức)"], ["Đức Trí", "Đức Trí (đọc truyện)"],
                           ["clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)"]],
     "AUTO_POST": [["0", "Tắt"], ["1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage"]],
+    "KAGGLE_USE": [["1", "Bật: đọc giọng + tách giọng + dựng chạy trên Kaggle (lỗi thì chạy trên Botkeep)"],
+                   ["0", "Tắt: mọi thứ chạy trên Botkeep"]],
     "AUTO_MODE": [["cook", "Nấu ăn"], ["review", "Review"]],
     "SPEECH_STYLE": [["mien_tay", "Miền Tây (tui, bà con, nè, nghen)"], ["mien_nam", "Miền Nam"], ["pho_thong", "Phổ thông"]],
     "SUB_STYLE": [["karaoke", "Karaoke (sáng dần theo giọng)"], ["box", "Hộp nền đen"], ["outline", "Chữ trắng viền đen"], ["plain", "Vàng gọn"]],
@@ -637,6 +639,15 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             f.write(data)
         return web.json_response({"ok": True})
 
+    async def kaggle_input(request):
+        """Link tạm cho Kaggle tải file đang nằm trên Botkeep (video tải lên, nhạc, ảnh). Không cần đăng nhập: mã 32 byte
+        ngẫu nhiên, chỉ trỏ đúng một file, hết hạn sau vài giờ (kaggle_worker.serve)."""
+        import kaggle_worker
+        path = kaggle_worker.served(request.match_info["token"])
+        if not path:
+            raise web.HTTPNotFound()
+        return web.FileResponse(path)
+
     async def upload_voice_ref(request):
         """Đoạn giọng mẫu cho giọng nhân bản VieNeu (3-15 giây, giọng bạn có quyền dùng). Chuẩn hoá thành mp3 mono
         24kHz, cắt còn 10 giây; file gốc không giữ."""
@@ -689,6 +700,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     app.router.add_post("/api/jobs/{id}/approve", approve)
     app.router.add_post("/api/logo", upload_logo)
     app.router.add_post("/api/voice_ref", upload_voice_ref)
+    app.router.add_get("/kin/{token}/{name}", kaggle_input)
     app.router.add_post("/api/upload", upload)
     app.router.add_get("/api/voices", list_voices)
     app.router.add_get("/api/settings", get_settings)

@@ -44,6 +44,7 @@ EDITABLE = {
     "TTS_PROVIDER": "vieneu",          # vieneu (giọng miền Nam đọc trên Kaggle; chưa có Kaggle/lỗi -> edge) | edge | capcut
     "VIENEU_VOICE_FEMALE": "Mỹ Duyên", # giọng nữ VieNeu (miền Nam: Mỹ Duyên, Thục Đoan, Thùy Dung, Kim Thanh; clone = giọng mẫu)
     "VIENEU_VOICE_MALE": "Adam",       # giọng nam VieNeu (miền Nam: Adam, Thái Sơn, Minh Triết, Đức Trí)
+    "KAGGLE_USE": "1",                 # 1 = phần nặng (đọc giọng, tách giọng, dựng) chạy trên Kaggle khi đã điền tài khoản
     "KAGGLE_USERNAME": "",             # tên tài khoản Kaggle (kaggle.com/<tên>)
     "KAGGLE_API_TOKEN": "",            # Kaggle -> Settings -> API Tokens -> Generate New Token
     "CAPCUT_VOICE_FEMALE": "multi_female_yangguangnv_uranus_bigtts",
@@ -160,6 +161,8 @@ def save_settings(updates: dict):
                 raise ValueError(f"{k} phải là các số chat_id cách nhau dấu phẩy")
             if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge", "vieneu"):
                 raise ValueError("TTS_PROVIDER chỉ nhận: vieneu, edge, capcut")
+            if k == "KAGGLE_USE" and v not in ("0", "1"):
+                raise ValueError("KAGGLE_USE chỉ nhận: 0, 1")
             if k == "KAGGLE_USERNAME" and not re.fullmatch(r"[A-Za-z0-9_-]{2,40}", v):
                 raise ValueError("KAGGLE_USERNAME là tên tài khoản Kaggle (chữ, số, gạch dưới)")
             if k == "AUTO_POST" and v not in ("0", "1"):

@@ -93,6 +93,13 @@ Generate New Token), điền `KAGGLE_USERNAME` + `KAGGLE_API_TOKEN` trong Cài �
 - Mỹ Duyên đọc ~3.1 chữ/giây (Adam 4.15): AI tự viết lời ngắn hơn cho vừa khung hình.
 - Giọng nhân bản: tải đoạn giọng mẫu 3-15 giây trong Cài đặt rồi chọn `clone` ở `VIENEU_VOICE_FEMALE/MALE`. Chỉ dùng
   giọng của bạn hoặc người đã đồng ý (điều khoản của model cấm nhân bản giọng người khác khi chưa được phép).
+- **Mọi chế độ dựng trên Kaggle** (`KAGGLE_USE=1`): remake với mọi giọng (VieNeu trên GPU; edge / CapCut đọc ngay trên
+  Kaggle, chạy CPU không tốn giờ GPU), 🎵 nhạc/nhảy, 📸 ảnh + nhạc, video dài cắt nhiều phần / đoạn hay (mọi phần chạy
+  chung MỘT phiên: tải nguồn + nạp model một lần). Phần nào Kaggle lỗi thì làm lại phần đó trên Botkeep.
+- **File trên Botkeep** (video tải lên, nhạc, ảnh, các phần đã cắt): Kaggle tải qua link tạm của web panel
+  (`/kin/<mã>`, mã ngẫu nhiên, hết hạn sau 4 giờ, huỷ ngay khi Kaggle xong) -> cần đặt **`PUBLIC_URL`** (link web
+  panel). Không có PUBLIC_URL: job từ link nền tảng vẫn chạy Kaggle (Kaggle tự tải, video dài tự cắt), file tải lên thì
+  làm trên Botkeep như cũ. Có link tạm thì Kaggle ưu tiên tải bản Botkeep (đúng file đã bóc lời / đo beat).
 - Kaggle là nền tảng cho khoa học dữ liệu; dùng làm máy chạy cho kênh nội dung có thể bị xem là lạm dụng -> bot luôn
   có đường lùi về Botkeep. Chi tiết, số đo: `docs/KAGGLE_PLAN.md`.
 

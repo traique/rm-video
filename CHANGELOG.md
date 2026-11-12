@@ -120,6 +120,18 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Mọi chế độ dựng trên Kaggle
+
+| Việc | Cách làm | Kiểm |
+| --- | --- | --- |
+| 1. Video tải lên / gửi Telegram | Link tạm `/kin/<mã>` trên web panel (cần PUBLIC_URL; mã 32 byte, hết hạn 4 giờ, huỷ khi Kaggle xong); Kaggle ưu tiên bản Botkeep, không được thì link nền tảng | test; chạy thật: link nền tảng hỏng -> tải bản dự phòng qua http |
+| 2. Giọng edge / CapCut | Đọc ngay trên Kaggle (dịch vụ mạng), chạy CPU không tốn giờ GPU; AI rút gọn trước theo tốc độ giọng | chạy thật: edge 7.4s, CapCut 4s, dựng 15s, cả lô 87s |
+| 3. 🎵 nhạc/nhảy, 📸 ảnh + nhạc | Botkeep tính beat / chọn seed + lịch sử công thức hiệu ứng; Kaggle chỉ dựng (render_music / slideshow.render) | test với Kaggle giả chạy đúng hàm thật; chạy thật lô nhạc nền (dựng 36s) + ảnh (15s, công thức pastel_soft trả về Botkeep), 86s CPU |
+| 4. Video dài nhiều phần | Mỗi phần chuẩn bị xong thì chờ (Deferred), mọi phần chạy chung MỘT phiên; có PUBLIC_URL thì Kaggle tải từng phần đã cắt, không có thì tự tải nguồn một lần rồi cắt y như Botkeep; phần lỗi làm lại trên Botkeep | test (cả trường hợp một phần lỗi); chạy thật lô 2 việc chung nguồn |
+
+Notebook Kaggle tối đa 1MB (đo thật: 3MB bị từ chối) nên file lớn luôn đi qua link. Cài đặt mới `KAGGLE_USE` (tắt nhanh
+Kaggle không cần xoá token).
+
 ## 🎙 Giọng miền Nam VieNeu (Mỹ Duyên / Adam) + phần nặng chạy trên Kaggle
 
 Người dùng chọn: Kaggle cho mọi video nhưng chỉ phần nặng; giọng nữ Mỹ Duyên, nam Adam; chỉ model cho phép thương mại.

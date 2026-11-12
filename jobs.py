@@ -163,7 +163,7 @@ def job_budget(job: Job) -> float:
         return base
     per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)
     budget = min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
-    if job.voice.startswith("vieneu:"):           # chờ Kaggle (hàng chờ GPU + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
+    if not kaggle_worker.enabled():               # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
         budget += kaggle_worker.TIMEOUT
     return budget
 

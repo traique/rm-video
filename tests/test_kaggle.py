@@ -50,7 +50,8 @@ def test_voice_defaults_and_edge_fallback(monkeypatch):
     assert core_video._edge_fallback_voice("vieneu:Mỹ Duyên") == config.VOICE_FEMALE
     assert core_video._capcut_fallback_voice("vieneu:Adam") == config.CAPCUT_VOICE_MALE
     assert kaggle_worker.words_per_sec("vieneu:Mỹ Duyên") == pytest.approx(3.08)
-    assert kaggle_worker.words_per_sec(config.VOICE_FEMALE) is None
+    assert kaggle_worker.words_per_sec(config.VOICE_FEMALE) == kaggle_worker.RATE_EDGE
+    assert kaggle_worker.voice_engine("vieneu:Adam") == "vieneu" and kaggle_worker.voice_engine(config.VOICE_MALE) == "edge"
     monkeypatch.setattr(config, "TTS_PROVIDER", "edge")
     assert config.default_voice() == config.VOICE_FEMALE
 
@@ -63,8 +64,13 @@ def test_usable_reasons(monkeypatch):
     monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
     assert kaggle_worker.usable(job) == ""
-    assert "link" in kaggle_worker.usable(Job(url="", mode="cook", duration=0, voice="vieneu:Adam"))
-    assert kaggle_worker.usable(Job(url="u", mode="cook", duration=0, voice=config.VOICE_FEMALE))
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    assert "PUBLIC_URL" in kaggle_worker.usable(Job(url="", mode="cook", duration=0, voice="vieneu:Adam"), "/x.mp4")
+    assert kaggle_worker.usable(Job(url="u", mode="cook", duration=0, voice=config.VOICE_FEMALE)) == ""   # edge cũng được
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example.com")
+    assert kaggle_worker.usable(Job(url="", mode="cook", duration=0, voice="vieneu:Adam"), "/x.mp4") == ""
+    monkeypatch.setattr(config, "KAGGLE_USE", "0")
+    assert kaggle_worker.usable(job) == "KAGGLE_USE=0"
 
 
 # ---------------- notebook: không lộ key, chạy được ----------------
@@ -76,7 +82,7 @@ def test_kernel_text_has_code_and_no_secrets(monkeypatch):
     job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Adam")
     spec = kaggle_worker.build_spec(job, [{"i": 0, "start": 0.0, "slot": 2.0, "span": 2.0, "text": "Xin chào",
                                           "ost": "new"}], 5.0, 0, 1.0, True, "T", [], None,
-                                    {"ok": True, "engines": ["kim"], "windows": [[0, 5]]}, [(0, 2)], 90)
+                                    {"ok_remote": True, "windows": [[0, 5]]}, [(0, 2)], 90)
     text = kaggle_worker.kernel_text(spec)
     compile(text, "kernel.py", "exec")
     for secret in ("AIza-bi-mat", "KGAT_bi_mat", "EAA-bi-mat"):
@@ -164,21 +170,21 @@ def test_kaggle_side_produce_with_fake_voice(tmp_path, monkeypatch):
     _video(inp)
     seen = []
 
-    def synth(items, tmp):
+    async def synth(items, tmp):
         out = {}
         for k, text in items:
             seen.append(text)
             p = os.path.join(tmp, f"v{k}.wav")
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=500:duration=1.2",
                             "-af", "apad=pad_dur=0.6", "-ar", "48000", p], check=True)
-            out[k] = p
+            out[k] = {"path": p, "words": None}
         return out
     spec = {"mode": "cook", "out_dur": 6.0, "render_dur": 0, "stretch": 1.0, "allow_hd": True, "title": "",
             "subs": True, "pos_y": None, "bands": [], "sep": {"ok": False}, "speech": [[0.5, 2.0]],
             "segments": [{"i": 0, "start": 0.0, "slot": 3.0, "span": 3.0, "text": "Cho 100g bò vô", "ost": "new"},
                          {"i": 1, "start": 3.0, "slot": 3.0, "span": 3.0, "text": "", "ost": "orig"}]}
     res = asyncio.run(kaggle_job.produce(spec, inp, str(tmp_path), synth))
-    assert seen == ["Cho một trăm gam bò vô"]                    # chỉ đoạn có lời mới, số đã thành chữ
+    assert seen == ["Cho 100g bò vô"]                            # chỉ đoạn có lời mới
     assert os.path.getsize(res["video"]) > 0 and res["plan"][0]["factor"] >= 1.0
     assert res["srt"] and "bò" in res["srt"] and res["amb"] is False
 
@@ -270,3 +276,195 @@ def test_voice_ref_upload(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "TTS_PROVIDER", "vieneu")
     ids = asyncio.run(go())
     assert os.path.exists(kaggle_worker.VOICE_REF) and "vieneu:clone" in ids and "vieneu:Mỹ Duyên" in ids
+
+
+def test_vieneu_synth_normalizes_numbers(monkeypatch, tmp_path):
+    import kaggle_job
+    got = {}
+
+    class FakeTTS:
+        def infer_batch(self, texts, voice):
+            got["texts"], got["voice"] = texts, voice
+            return [b"x"] * len(texts)
+
+        def save(self, a, p):
+            open(p, "wb").write(a)
+    monkeypatch.setattr(kaggle_job, "_vieneu", lambda: FakeTTS())
+    synth = kaggle_job.make_synth({"voice": {"engine": "vieneu", "name": "Mỹ Duyên"}}, None)
+    out = asyncio.run(synth([(0, "Cho 100g bò, 1/3 muỗng đường")], str(tmp_path)))
+    assert got == {"texts": ["Cho một trăm gam bò, một phần ba muỗng đường"], "voice": "Mỹ Duyên"}
+    assert os.path.exists(out[0]["path"]) and out[0]["words"] is None
+
+
+def test_edge_synth_on_kaggle_keeps_word_timings(monkeypatch, tmp_path):
+    import kaggle_job
+
+    async def fake_ex(text, voice, path):
+        open(path, "wb").write(b"x")
+        return [(0.0, 0.4, text.split()[0])], "edge"
+    monkeypatch.setattr(core_video, "synth_clip_ex", fake_ex)
+    synth = kaggle_job.make_synth({"voice": {"engine": "edge", "id": config.VOICE_FEMALE}}, None)
+    out = asyncio.run(synth([(0, "Xin chào"), (2, "Tạm biệt")], str(tmp_path)))
+    assert out[0]["words"] == [(0.0, 0.4, "Xin")] and out[2]["words"][0][2] == "Tạm"
+
+
+def test_temporary_input_links(monkeypatch, tmp_path):
+    from test_security import _client
+    f = tmp_path / "upload video.mp4"
+    f.write_bytes(b"VIDEO-DATA")
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    with pytest.raises(kaggle_api.KaggleError, match="PUBLIC_URL"):
+        kaggle_worker.ref(str(f))
+    assert kaggle_worker.ref(str(f), "https://youtu.be/x")["url"] == "https://youtu.be/x"     # có link: không cần
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example.com/")
+    r = kaggle_worker.ref(str(f), "https://youtu.be/x")
+    assert r["url"] and r["http"].startswith("https://bot.example.com/kin/") and r["name"] == "upload video.mp4"
+    tok = r["http"].split("/kin/")[1].split("/")[0]
+    assert len(tok) >= 40 and kaggle_worker.served(tok) == str(f)
+
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            ok = await c.get(f"/kin/{tok}/x.mp4")                     # không cần đăng nhập, chỉ cần đúng mã
+            bad = await c.get("/kin/sai-ma/x.mp4")
+            return ok.status, await ok.read(), bad.status
+    assert asyncio.run(go()) == (200, b"VIDEO-DATA", 404)
+    kaggle_worker.release({"src": r})                                  # Kaggle chạy xong: huỷ link
+    assert kaggle_worker.served(tok) is None
+    r2 = kaggle_worker.ref(str(f))
+    tok2 = r2["http"].split("/kin/")[1].split("/")[0]
+    monkeypatch.setattr(kaggle_worker.time, "time", lambda: 1e12)        # hết hạn
+    assert kaggle_worker.served(tok2) is None
+
+
+# ---------------- 🎵 / 📸 trên Kaggle (Kaggle giả chạy đúng hàm thật với đầu vào lấy qua link tạm) ----------------
+
+def _local(ref):
+    """Kaggle giả: lấy file qua link tạm của Botkeep (đúng như notebook thật)."""
+    tok = ref["http"].split("/kin/")[1].split("/")[0]
+    path = kaggle_worker.served(tok)
+    assert path, "link tạm không trỏ tới file"
+    return path
+
+
+@pytest.fixture
+def kaggle_on(monkeypatch):
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_USE", "1")
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example.com")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+
+
+def test_photo_mode_on_kaggle_keeps_effect_history(kaggle_on, monkeypatch, tmp_path):
+    import pipeline
+    import slideshow
+    import trendfx
+    from test_photo import _img, _song
+    song = _song(tmp_path / "song.mp3")
+    seen = {}
+
+    async def fake_produce(spec, tmp, on_step=None):
+        seen["spec"] = spec
+        imgs = [_local(r) for r in spec["images"]]
+        out = os.path.join(tmp, "kaggle.mp4")
+        plan = await slideshow.render(imgs, _local(spec["music"]), out, spec["duration"], seed=spec["seed"],
+                                      recent=spec["recent"])
+        return {"video": out, "plan": json.loads(json.dumps(plan, default=float)), "timings": {"render": 9}}
+    monkeypatch.setattr(kaggle_worker, "produce", fake_produce)
+    remembered = []
+    monkeypatch.setattr(trendfx, "remember", lambda name, path=None: remembered.append(name))
+    job = Job(url="", mode="photo", duration=8, voice="", images=[_img(tmp_path / "a.jpg", "1080x1350")],
+              music_local=song, title_hint="Đà Lạt", source="web")
+    out = asyncio.run(pipeline.process(job, str(tmp_path)))
+    assert out.endswith("kaggle.mp4") and seen["spec"]["kind"] == "photo" and isinstance(seen["spec"]["seed"], int)
+    assert remembered and "Kaggle (CPU)" in job.error and "BPM" in job.script
+
+
+def test_music_mode_on_kaggle_and_fallback(kaggle_on, monkeypatch, tmp_path):
+    import pipeline
+    from test_photo import _song
+    song = _song(tmp_path / "song.mp3")
+    vid = str(tmp_path / "dance.mp4")
+    _video(vid, 8)
+    seen = []
+
+    async def fake_produce(spec, tmp, on_step=None):
+        seen.append(spec)
+        out = os.path.join(tmp, "kaggle.mp4")
+        await core_video.render_music(_local(spec["src"]), _local(spec["music"]), out, spec["duration"],
+                                      **spec["music_args"])
+        return {"video": out, "timings": {"render": 5}}
+    monkeypatch.setattr(kaggle_worker, "produce", fake_produce)
+    job = Job(url="", mode="music", duration=0, voice="", local=vid, music_local=song, music_mix="bg", source="web")
+    (tmp_path / "a").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "a")))
+    assert out.endswith("kaggle.mp4") and seen[0]["kind"] == "music" and seen[0]["music_args"]["keep_orig"] is True
+
+    async def broken(spec, tmp, on_step=None):
+        raise kaggle_api.KaggleError("hết hạn mức")
+    monkeypatch.setattr(kaggle_worker, "produce", broken)
+    job2 = Job(url="", mode="music", duration=0, voice="", local=vid, music_local=song, source="web")
+    (tmp_path / "b").mkdir()
+    out2 = asyncio.run(pipeline.process(job2, str(tmp_path / "b")))
+    assert os.path.exists(out2) and not out2.endswith("kaggle.mp4") and "Kaggle lỗi" in job2.error
+
+
+def test_music_mode_without_public_url_stays_local(kaggle_on, monkeypatch, tmp_path):
+    import pipeline
+    from test_photo import _song
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    song = _song(tmp_path / "song.mp3")
+    vid = str(tmp_path / "dance.mp4")
+    _video(vid, 6)
+
+    async def never(spec, tmp, on_step=None):
+        raise AssertionError("không được gọi Kaggle khi Kaggle không lấy được file")
+    monkeypatch.setattr(kaggle_worker, "produce", never)
+    job = Job(url="", mode="music", duration=0, voice="", local=vid, music_local=song, music_mix="bg", source="web")
+    out = asyncio.run(pipeline.process(job, str(tmp_path)))
+    assert os.path.exists(out) and "PUBLIC_URL" in job.error
+
+
+# ---------------- video dài: mọi phần chung MỘT phiên Kaggle ----------------
+
+def _long_video(path, dur=130):
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc=duration={dur}:size=180x320:rate=15",
+                    "-f", "lavfi", "-i", f"sine=frequency=300:duration={dur}", "-c:v", "libx264", "-preset",
+                    "ultrafast", "-g", "30", "-c:a", "aac", "-shortest", path], check=True)
+
+
+@pytest.mark.parametrize("fail_second", [False, True])
+def test_split_runs_all_pieces_in_one_kaggle_session(kaggle_fakes, kaggle_on, monkeypatch, tmp_path, fail_second):
+    import pipeline
+    monkeypatch.setattr(pipeline, "OUT_DIR", str(tmp_path / "out"))
+    os.makedirs(tmp_path / "out")
+    src = str(tmp_path / "up" / "long.mp4")
+    _long_video(src)
+    calls = []
+
+    async def fake_batch(specs, tmp, on_step=None):
+        calls.append(specs)
+        res = []
+        for k, sp in enumerate(specs):
+            assert sp["kind"] == "remake" and _local(sp["src"]).endswith("piece.mp4")   # đúng file phần đã cắt
+            if fail_second and k == 1:
+                res.append(kaggle_api.KaggleError("Kaggle hết giờ"))
+                continue
+            out = os.path.join(tmp, f"k{k}.mp4")
+            _video(out, 3)
+            plan = [{"start": s["start"], "factor": 1.0, "end": s["start"] + 1} for s in sp["segments"]]
+            res.append({"video": out, "plan": plan, "too_long": [], "srt": "", "amb": False, "notes": [],
+                        "timings": {"tts": 1, "render": 2}, "gpu": True})
+        return res
+
+    async def never(spec, tmp, on_step=None):
+        raise AssertionError("video dài phải gom lô, không gửi từng phần")
+    monkeypatch.setattr(kaggle_worker, "produce_batch", fake_batch)
+    monkeypatch.setattr(kaggle_worker, "produce", never)
+    job = Job(url="", mode="cook", duration=0, voice="vieneu:Mỹ Duyên", local=src, long_mode="split60", source="web")
+    (tmp_path / "w").mkdir()
+    asyncio.run(pipeline.process_split(job, str(tmp_path / "w")))
+    videos = [p for p in job.parts if p["label"].startswith("Phần")]
+    assert len(calls) == 1 and len(calls[0]) == len(videos) >= 2                    # một phiên cho mọi phần
+    assert (kaggle_fakes["tts"] > 0) == fail_second                                  # phần lỗi làm lại trên Botkeep

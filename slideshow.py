@@ -500,7 +500,7 @@ async def _render_segments(plan: dict, grps: list, images: list, sizes: list, W:
 
 
 async def render(images: list, music: str, out: str, duration: float = 0, music_start: float | None = None,
-                 seed: int | None = None, template: str | None = None) -> dict:
+                 seed: int | None = None, template: str | None = None, recent: list | None = None) -> dict:
     """Dựng video từ 1-4 ảnh + nhạc. music_start: ép điểm bắt đầu nhạc (None = tự chọn đoạn hay nhất).
     seed None = ngẫu nhiên thật mỗi lần + tránh công thức hiệu ứng vừa dùng (trendfx): làm lại cùng ảnh + nhạc vẫn ra
     video khác. Dựng theo KHÚC ≤ GROUP cảnh (mỗi khúc một lệnh FFmpeg, chỉ hình; 2 khúc song song khi máy có ≥ 1.4
@@ -512,7 +512,9 @@ async def render(images: list, music: str, out: str, duration: float = 0, music_
     sizes = [await asyncio.to_thread(image_size, p) for p in images]
     info = await asyncio.to_thread(analyze_music, music)
     rnd_seed = secrets.randbits(32) if seed is None else seed
-    plan = plan_video(info, len(images), duration, rnd_seed, trendfx.load_recent() if seed is None else None, template)
+    # recent: lịch sử công thức do nơi gọi đưa vào (dựng trên Kaggle: lịch sử nằm ở Botkeep)
+    hist = recent if recent is not None else (trendfx.load_recent() if seed is None else None)
+    plan = plan_video(info, len(images), duration, rnd_seed, hist, template)
     if music_start is not None:
         plan["music_start"] = music_start
     # 1080p khi ảnh đủ lớn; QUALITY=fast (Cài đặt) thì 720p: mã hoá x264 chiếm ~75% thời gian dựng, 720p nhanh ~2 lần
