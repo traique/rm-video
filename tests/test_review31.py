@@ -330,3 +330,38 @@ def test_ai_fixing_transcription_typo_is_not_invention():
     assert cn("ngâm khoảng nửa tiếng", "ngâm 30 phút") == ([], [])             # nửa tiếng = 30 phút
     assert cn("tầm 1 tí con cá", "Một lát là cá tự bung") == ([], [])          # "một lát" chỉ thời gian ngắn
     assert cn("để yên", "chờ tầm 1 phút") == ([], ["1 phút"])                   # bịa số thật: vẫn bắt
+
+
+# ---------------- bản 34: PhoWhisper (tuỳ chọn KAGGLE_ASR) ----------------
+
+def test_phowhisper_option_in_spec_and_mount(tmp_path, monkeypatch):
+    import kaggle_job
+    job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="")
+    monkeypatch.setattr(config, "KAGGLE_ASR", "phowhisper")
+    assert kaggle_worker.analyze_spec(job, None, "Cá kèo chiên giòn", "", True, 90)["asr"] == "phowhisper"
+    assert kaggle_worker.analyze_spec(job, None, "Fried fish", "", True, 90)["asr"] == "large-v3"   # không phải tiếng Việt
+    monkeypatch.setattr(config, "KAGGLE_ASR", "large-v3")
+    assert kaggle_worker.analyze_spec(job, None, "Cá kèo", "", True, 90)["asr"] == "large-v3"
+    d = tmp_path / "notebooks" / "u" / "rmvideo-phowhisper" / "phowhisper-large-ct2"
+    d.mkdir(parents=True)
+    assert kaggle_job.mounted_dir("phowhisper-large-ct2", str(tmp_path)) is None     # chưa có model.bin: không phải model
+    (d / "model.bin").write_bytes(b"x")
+    assert kaggle_job.mounted_dir("phowhisper-large-ct2", str(tmp_path)) == str(d)
+    assert kaggle_job.mounted_dir("khac", str(tmp_path)) is None
+
+
+def test_analysis_push_falls_back_without_phowhisper_notebook(monkeypatch, tmp_path):
+    pushes = []
+
+    def push(slug, title, text, gpu=True, kernel_sources=None):
+        pushes.append(kernel_sources)
+        if kernel_sources:
+            raise kaggle_api.KaggleError("Kaggle không nhận notebook: kernel source not found")
+    monkeypatch.setattr(kaggle_api, "quota", lambda: {"gpu_left": 99999})
+    monkeypatch.setattr(kaggle_api, "push", push)
+    monkeypatch.setattr(kaggle_api, "wait", lambda *a, **k: None)
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": []})
+    with pytest.raises(kaggle_api.KaggleError, match="không trả kết quả"):
+        kaggle_worker._run_analysis_sync({"kind": "analyze", "src": {"url": "u"}, "token": "t", "asr": "phowhisper"},
+                                         str(tmp_path), lambda s: None)
+    assert pushes == [["rmvideo-phowhisper"], None]                     # thử gắn, lỗi thì chạy large-v3

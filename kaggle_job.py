@@ -272,6 +272,13 @@ async def analyze(spec: dict, tmp: str) -> dict:
             vocals = os.path.join(tmp, "audio16k.wav")
             await core_video._run_ffmpeg("-y", "-i", inp, "-vn", "-ac", "1", "-ar", "16000", vocals)
         t1 = time.time()
+        if spec.get("asr") == "phowhisper":              # model tiếng Việt (VinAI) gắn từ notebook rmvideo-phowhisper
+            ct2 = mounted_dir("phowhisper-large-ct2")
+            if ct2:
+                asr_local.MODEL = ct2
+                t["asr_model"] = "phowhisper-large"
+            else:
+                logging.warning("Không thấy model PhoWhisper trong /kaggle/input, bóc lời bằng large-v3")
         d = await asyncio.to_thread(asr_local.transcribe, vocals, spec.get("language") or "", spec.get("prompt") or "")
         t["asr"] = round(time.time() - t1, 1)
         cuts, bands = await scene_task
@@ -294,6 +301,16 @@ async def analyze(spec: dict, tmp: str) -> dict:
     return {"ok": True, "kind": "analyze", "token": spec.get("token", ""), "whisper": d, "cuts": cuts,
             "bands": [list(b) for b in bands], "dur": dur, "sep": sep_ok, "thumb_fps": scenes.THUMB_FPS,
             "timings": t, "files": files}
+
+
+def mounted_dir(name: str, root: str = "/kaggle/input") -> str | None:
+    """Thư mục `name` (vd model đã chuyển đổi) trong đầu ra notebook đã gắn vào phiên này."""
+    if not os.path.isdir(root):
+        return None
+    for r, dirs, files in os.walk(root):
+        if name in dirs and "model.bin" in os.listdir(os.path.join(r, name)):
+            return os.path.join(r, name)
+    return None
 
 
 def mounted_ambient(token: str, root: str = "/kaggle/input") -> str | None:

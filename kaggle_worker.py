@@ -26,6 +26,7 @@ from kaggle_api import KaggleError
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
 SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
+SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
 BUNDLE = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
           "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
           "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
@@ -273,7 +274,8 @@ def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: 
     return _common({"kind": "analyze", "job": job.id, "src": ref(local_path or job.local or None, job.url, "video",
                                                                   max_duration),
                     "want_gray": bool(want_gray), "language": "vi" if vi else "", "token": secrets.token_hex(8),
-                    "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook"})
+                    "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook",
+                    "asr": config.KAGGLE_ASR if vi else "large-v3"})   # PhoWhisper chỉ tiếng Việt
 
 
 def music_spec(job, inp: str, music: str, music_args: dict) -> dict:
@@ -366,7 +368,16 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     if not gpu:
         raise KaggleError("hết giờ GPU tuần này (Whisper trên CPU quá chậm): bóc lời trên Botkeep")
     on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
-    kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True)
+    src = [SLUG_PHOWHISPER] if spec.get("asr") == "phowhisper" else None
+    try:
+        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True, kernel_sources=src)
+    except KaggleError as e:
+        if not src:
+            raise
+        on_step("Kaggle: chưa có notebook PhoWhisper, dùng large-v3")   # tài khoản chưa chạy rmvideo-phowhisper
+        logging.warning("Không gắn được notebook %s (%s): bóc lời bằng large-v3", SLUG_PHOWHISPER, str(e)[:120])
+        spec = {**spec, "asr": "large-v3"}
+        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True)
 
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
