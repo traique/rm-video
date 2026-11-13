@@ -360,8 +360,10 @@ nên bot thử gắn ảnh bìa sau khi đăng (Facebook không nhận thì bỏ
   vào thẳng cảnh món (không mờ từ đen) vì khung đầu thường được lấy làm ảnh bìa; dưới giọng hook là tiếng xèo/giòn của
   chính cảnh đó (khi đã tách giọng gốc).
 - Câu hook viết riêng cho cảnh món (AI nhìn ảnh), đọc vừa 3 giây; không hiện phụ đề trùng với chữ hook.
-- Không làm khi: AI không thấy cảnh món đã xong rõ ràng, video gốc đã tự mở đầu bằng món, video không lời, chế độ
-  review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do.
+- Không làm khi: AI không thấy cảnh món đã xong rõ ràng, video gốc đã tự mở đầu bằng món (AI xem 4 khung trải trên
+  phần mở đầu, và bot so khung: phần mở đầu dùng lại đúng cảnh đó thì bỏ — nhiều kênh tự chiếu trước món ở 5-10 giây
+  đầu), video không lời, chế độ review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do;
+  khi đó câu hook vẫn đọc ngay giây 0 trên phần mở đầu sẵn có của video gốc.
 - Video ≤ 90 giây thì thêm 3 giây cũng không vượt 90 giây (bớt phần cuối) để vẫn đăng được Reels; chọn 30/60/90 giây
   thì giữ đúng độ dài đó. Duyệt kịch bản rồi render lại: dùng đúng đoạn mở đầu đã chọn.
 

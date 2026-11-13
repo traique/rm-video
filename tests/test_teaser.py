@@ -113,14 +113,16 @@ def test_ai_judge_with_opening_frame(monkeypatch):
         seen.update(n=len(images), prompt=prompt)
         return '{"best": 1, "reason": "dĩa thịt kho", "finished": true, "opens_with_dish": false}'
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
-    d = asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=b"o"))
-    assert d == {"best": 1, "finished": True, "opens_with_dish": False} and seen["n"] == 4
-    assert "Ảnh 3 (ảnh cuối cùng) là khung MỞ ĐẦU" in seen["prompt"] and seen["prompt"].count("Trả về DUY NHẤT JSON") == 1
+    heads = [b"o1", b"o2", b"o3", b"o4"]                                     # 4 khung trải trên 12 giây đầu video gốc
+    d = asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=heads, opening_secs=12))
+    assert d == {"best": 1, "finished": True, "opens_with_dish": False} and seen["n"] == 7
+    assert "Ảnh 3 đến Ảnh 6 (các ảnh cuối) là các khung trong 12 giây ĐẦU" in seen["prompt"]
+    assert "kể cả chỉ thoáng qua" in seen["prompt"] and seen["prompt"].count("Trả về DUY NHẤT JSON") == 1
 
-    async def picks_opening(*a, **k):                                         # chọn nhầm khung mở đầu: không hợp lệ
+    async def picks_opening(*a, **k):                                         # chọn nhầm khung đầu video: không hợp lệ
         return '{"best": 3, "reason": "", "finished": true, "opens_with_dish": false}'
     monkeypatch.setattr(prompt_engine, "_call_gemini", picks_opening)
-    assert asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=b"o")) is None
+    assert asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=heads)) is None
     assert asyncio.run(cover_mod.ai_pick([b"a", b"b", b"c"], "Thịt kho", "cook")) is None
 
 
@@ -152,8 +154,66 @@ def test_plan_teaser_picks_window(monkeypatch):
         assert t0 < 40.0 < t1
         return [41.5]                                                         # cảnh đổi 1.5s sau khung đẹp nhất
     monkeypatch.setattr(scenes, "cuts_near", near)
+    seen = []
+    monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda src, a, dur, win: seen.append((a, dur, win)) or (0.31, 2.0))
     tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [12.0], 58.0))
     assert tz == {"a": 38.35, "dur": 3.0, "still": False, "t": 40.0} and msg == ""
+    assert seen == [(38.35, 3.0, 9.0)]                                       # so với 9 giây đầu (15% của 60s)
+    # phần mở đầu video gốc dùng lại đúng cảnh này (video cá kèo: giây 3.5 giống cảnh giây 209.5 tới 0.97) -> bỏ
+    monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda *a: (0.97, 3.5))
+    tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [12.0], 58.0))
+    assert tz is None and m["t"] == 40.0 and msg == "video gốc đã chiếu trước cảnh món ở giây 4"
+
+
+def test_opening_window_and_times():
+    assert [cover_mod.opening_window(d) for d in (8, 30, 60, 220)] == [3.0, 4.5, 9.0, 12.0]
+    assert cover_mod.opening_times(12.0) == [0.5, 4.17, 7.83, 11.5]
+
+
+def _clip(path, src):
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"{src}=s=360x640:r=25", "-t", "3", "-c:v",
+                    "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path], check=True)
+
+
+def test_opening_repeat_detects_reused_final_shot(tmp_path):
+    """Video gốc mở đầu bằng đúng cảnh cuối (kiểu "xem trước món") -> giống ~1; mở đầu bằng cảnh khác -> thấp."""
+    a, b, c = (str(tmp_path / f"{k}.mp4") for k in "abc")
+    _clip(a, "smptebars")
+    _clip(b, "mandelbrot")
+    _clip(c, "testsrc2")
+
+    def join(out, parts):
+        lst = tmp_path / "l.txt"
+        lst.write_text("".join(f"file '{p}'\n" for p in parts))
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", out],
+                       check=True)
+        return out
+    reused = join(str(tmp_path / "reused.mp4"), [a, b, b, b, a])      # 0-3s cảnh A ... 12-15s cảnh A
+    fresh = join(str(tmp_path / "fresh.mp4"), [c, b, b, b, a])        # mở đầu bằng cảnh khác
+    sim, at = cover_mod.opening_repeat_sync(reused, 12.0, 3.0, 4.0)
+    assert sim >= cover_mod.REPEAT_SIM and at < 3.0
+    sim, _ = cover_mod.opening_repeat_sync(fresh, 12.0, 3.0, 4.0)
+    assert sim < cover_mod.REPEAT_SIM
+    assert cover_mod.opening_repeat_sync(str(tmp_path / "khong_co.mp4"), 12.0, 3.0, 4.0) == (0.0, 0.0)
+
+
+def test_best_moment_sends_opening_frames_to_ai(tmp_path, monkeypatch):
+    src = _red_blue(str(tmp_path / "rb.mp4"))
+    thumbs = tmp_path / "th"
+    thumbs.mkdir()
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", src, "-vf", "fps=2,scale=144:256", str(thumbs / "%05d.jpg")],
+                   check=True)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    got = {}
+
+    async def judge(images, title, mode, opening=None, opening_secs=0.0):
+        got.update(n=len(images), heads=len(opening or []), secs=opening_secs)
+        return {"best": 0, "finished": True, "opens_with_dish": False}
+    monkeypatch.setattr(cover_mod, "ai_judge", judge)
+    m = asyncio.run(cover_mod.best_moment(src, "cook", "Cá", 12.0, thumbs_dir=str(thumbs), opening=True))
+    assert m["ai"] and m["finished"] and got["n"] >= 2 and got["heads"] == 4 and got["secs"] == 3.0
+    m = asyncio.run(cover_mod.best_moment(src, "cook", "Cá", 12.0, thumbs_dir=str(thumbs)))   # ảnh bìa thường
+    assert got["heads"] == 0
 
 
 def test_cuts_near_reads_only_the_window(tmp_path):
@@ -179,6 +239,8 @@ def teaser_job(fakes, monkeypatch, tmp_path):  # noqa: F811
     async def near(*a):
         return []
     monkeypatch.setattr(scenes, "cuts_near", near)
+    # video thử (testsrc) gần như đứng yên: mọi khung giống nhau, không phải "video gốc chiếu trước món"
+    monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda *a: (0.1, 0.0))
 
     async def timed(title, desc, mode, segs, out_dur, images_for=None, teaser=0.0):
         seen["timed"] = {"segs": list(segs), "out_dur": out_dur, "teaser": teaser,

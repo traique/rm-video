@@ -121,13 +121,57 @@ COVER_PROMPT = """Dưới đây là {n} ảnh (Ảnh 0 đến Ảnh {last}) cắ
 Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn"}}"""
 
 # Đoạn mở đầu (bản 29): cùng lượt AI chọn ảnh bìa hỏi thêm ảnh đó có phải MÓN ĐÃ XONG không, và video gốc đã tự mở
-# đầu bằng món xong chưa (khung mở đầu gửi kèm là ảnh cuối cùng) — chưa thì chiếu trước cảnh món xong 3 giây.
+# đầu bằng món xong chưa — chưa thì chiếu trước cảnh món xong 3 giây. Bản 30: gửi NHIỀU khung trải trên các giây đầu
+# (video cá kèo 13/11/2026: giây 0.5 đang chiên, nhưng giây 3-6 đã chiếu trước dĩa cá thành phẩm -> một khung là thiếu,
+# đoạn mở đầu bị lặp đúng cảnh đầu video).
 TEASER_ASK = """
-Ảnh {opening} (ảnh cuối cùng) là khung MỞ ĐẦU của video gốc, chỉ để bạn so sánh — KHÔNG được chọn ảnh này làm ảnh bìa.
+Ảnh {first} đến Ảnh {last} (các ảnh cuối) là các khung trong {secs:.0f} giây ĐẦU của video gốc, theo thứ tự thời gian, chỉ để bạn so sánh — KHÔNG được chọn các ảnh này làm ảnh bìa.
 Trả lời thêm hai ý:
 - "finished": ảnh bạn chọn có phải MÓN ĐÃ HOÀN THÀNH không (đã nấu xong: bày ra dĩa/tô/nồi, đang gắp hoặc cắn thử) — true/false. Nguyên liệu sống, đang sơ chế, đang nấu dở trên bếp là false.
-- "opens_with_dish": khung mở đầu (Ảnh {opening}) đã cho thấy món hoàn thành chưa (video gốc tự mở đầu bằng món đã xong) — true/false.
+- "opens_with_dish": trong các khung đầu video (Ảnh {first} đến Ảnh {last}) có khung nào đã cho thấy món hoàn thành chưa — video gốc tự chiếu trước món đã xong, kể cả chỉ thoáng qua hay khác góc máy — true/false.
 Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn", "finished": true/false, "opens_with_dish": true/false}}"""
+
+OPENING_MAX = 12.0         # "phần mở đầu" của video gốc: tối đa 12 giây đầu (video cá kèo: xem trước 0-10s)
+REPEAT_SIM = 0.9           # khung đầu video giống cảnh mở đầu chừng này trở lên = video gốc dùng lại đúng cảnh đó
+
+
+def opening_window(src_dur: float) -> float:
+    """Số giây đầu video gốc coi là phần mở đầu: 15% độ dài, trong khoảng 3-12 giây."""
+    return round(min(OPENING_MAX, max(3.0, 0.15 * src_dur)), 2)
+
+
+def opening_times(window: float, n: int = 4) -> list:
+    """Các mốc lấy khung trải đều phần mở đầu (giây 0.5 ... gần hết cửa sổ) để AI xem video gốc mở đầu ra sao."""
+    if window <= 1.0:
+        return [0.0]
+    return [round(0.5 + (window - 1.0) * k / (n - 1), 2) for k in range(n)]
+
+
+def _small_frames(src: str, t0: float, dur: float, fps: float = 2.0, w: int = 24, h: int = 42) -> np.ndarray:
+    """Khung màu thu nhỏ (h x w x 3, float) trong [t0, t0 + dur] — chỉ giải mã đúng khúc đó."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
+                          "-vf", f"fps={fps},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True, timeout=120).stdout
+    n = len(raw) // (w * h * 3)
+    return np.frombuffer(raw[: n * w * h * 3], np.uint8).reshape(n, h, w, 3).astype(np.float32)
+
+
+def opening_repeat_sync(src: str, a: float, dur: float, window: float) -> tuple:
+    """(độ giống lớn nhất, giây) giữa các khung trong `window` giây đầu video gốc và cảnh [a - 1, a + dur + 1]
+    (tương quan chuẩn hoá trên ảnh màu nhỏ: cùng một cảnh quay ~0.95+, cảnh khác nhau thường < 0.5). Cao = video
+    gốc đã tự chiếu trước đúng cảnh đó ở phần mở đầu, chiếu thêm đoạn mở đầu sẽ lặp."""
+    head = _small_frames(src, 0.0, window)
+    shot = _small_frames(src, a - 1.0, dur + 2.0)
+    if not len(head) or not len(shot):
+        return 0.0, 0.0
+
+    def unit(x):
+        x = x.reshape(len(x), -1)
+        x = x - x.mean(axis=1, keepdims=True)
+        return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-6)
+    sim = unit(head) @ unit(shot).T
+    i = int(sim.max(axis=1).argmax())
+    return round(float(sim.max()), 3), round(i / 2.0, 1)
 
 try:
     from pydantic import BaseModel
@@ -141,21 +185,22 @@ except Exception:
     CoverOut = None
 
 
-async def ai_judge(images: list, title: str, mode: str, opening: bytes | None = None) -> dict | None:
-    """Gemini chọn ảnh bìa trong các ứng viên. opening: khung mở đầu video gốc (để AI cho biết ảnh chọn có phải món
+async def ai_judge(images: list, title: str, mode: str, opening=None, opening_secs: float = 0.0) -> dict | None:
+    """Gemini chọn ảnh bìa trong các ứng viên. opening: các khung đầu video gốc (để AI cho biết ảnh chọn có phải món
     đã xong và video gốc đã mở đầu bằng món chưa). Trả {"best", "finished", "opens_with_dish"} hoặc None."""
     if not config.GEMINI_API_KEY or len(images) < 2:
         return None
     import prompt_engine
     if prompt_engine.genai is None:
         return None
+    opening = [opening] if isinstance(opening, bytes) else [x for x in (opening or []) if x]
     kind = {"cook": "video nấu ăn", "review": "video review"}.get(mode, "video ngắn")
     prompt = COVER_PROMPT.format(n=len(images), last=len(images) - 1, kind=kind, title=title or "(không có)")
     if opening:
-        prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(opening=len(images))
+        prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(
+            first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX)
     try:
-        raw = await prompt_engine._call_gemini(prompt, images + ([opening] if opening else []), schema=CoverOut,
-                                               label="Ảnh", timeout=40)
+        raw = await prompt_engine._call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
         d = prompt_engine.loads_lenient(raw)
         best = int(d.get("best"))
         if 0 <= best < len(images):
@@ -268,8 +313,11 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
                 p = os.path.join(thumbs_dir or "", f"{i + 1:05d}.jpg")
                 images.append(open(p, "rb").read() if thumbs_dir and os.path.exists(p)
                               else await asyncio.to_thread(scenes._keyframe_sync, src, float(times[i])))
-            first = await asyncio.to_thread(scenes._keyframe_sync, src, min(0.5, src_dur / 10)) if opening else None
-            got = await ai_judge(images, title, mode, first or None)
+            heads, win = [], opening_window(src_dur)
+            if opening:                                   # các khung trải trên phần mở đầu video gốc
+                for t in opening_times(win):
+                    heads.append(await asyncio.to_thread(scenes._keyframe_sync, src, min(t, max(0.0, src_dur - 0.2))))
+            got = await ai_judge(images, title, mode, [h for h in heads if h], win)
             if got is not None:
                 best = cand[got["best"]]
         logging.info("Khung đẹp nhất: %.1fs (điểm %.2f, %d ứng viên%s)", float(times[best]), float(sc[best]),

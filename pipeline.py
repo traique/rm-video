@@ -439,7 +439,6 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
             "token": res.get("token", "") if fresh else "", "timings": res.get("timings") or {}}
 
 
-TEASER_MIN_AT = 4.0      # khung món đẹp nhất nằm trong 4 giây đầu: video gốc đã mở đầu bằng món, khỏi chiếu trước
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
 
 
@@ -458,12 +457,23 @@ async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: lis
                          else "AI chọn ảnh lỗi")
     if not m["finished"]:
         return None, m, "AI không thấy cảnh món đã xong rõ ràng"
-    if m["opens_with_dish"] or m["t"] < TEASER_MIN_AT:
+    win = cover_mod.opening_window(src_dur)
+    if m["opens_with_dish"] or m["t"] < win:          # khung đẹp nhất nằm ngay phần mở đầu cũng vậy
         return None, m, "video gốc đã mở đầu bằng món"
     T = core_video.TEASER_DUR
     near = await scenes.cuts_near(inp, m["t"] - T - 0.5, min(end, m["t"] + T + 0.5))
     known = {c for c in cuts if abs(c - m["t"]) <= T + 1}
     start, still = core_video.teaser_window(m["t"], sorted(set(near) | known), end, T)
+    # lưới an toàn không cần AI: phần mở đầu video gốc dùng lại ĐÚNG cảnh này (thường gặp: chiếu trước cảnh cuối) ->
+    # chiếu thêm đoạn mở đầu sẽ lặp y hệt (video cá kèo 13/11/2026: giây 3.5 giống cảnh giây 209.5 tới 0.96)
+    try:
+        sim, at = await asyncio.to_thread(cover_mod.opening_repeat_sync, inp, start, T, win)
+    except Exception as e:
+        logging.info("Không so được phần mở đầu (%s)", str(e)[:100])
+        sim, at = 0.0, 0.0
+    logging.info("Đoạn mở đầu: cảnh %.1fs, giống phần mở đầu gốc %.2f (giây %.1f)", start, sim, at)
+    if sim >= cover_mod.REPEAT_SIM:
+        return None, m, f"video gốc đã chiếu trước cảnh món ở giây {at:.0f}"
     return {"a": start, "dur": T, "still": still, "t": round(m["t"], 3)}, m, ""
 
 

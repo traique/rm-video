@@ -120,6 +120,21 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 30: không chiếu trước cảnh món khi video gốc đã tự mở đầu bằng món
+
+Video cá kèo bạn gửi (13/11/2026): đoạn mở đầu lặp y hệt đầu video. Video gốc tự mở đầu bằng ~10 giây "xem trước"
+(chiên → trút ra dĩa → dĩa cá kèo với rau → chén mắm me), dùng lại đúng các cảnh cuối video; AI chỉ được xem MỘT khung ở
+giây 0.5 (đang chiên trong chảo) nên trả lời "video gốc chưa mở đầu bằng món" -> bot chiếu thêm 3 giây dĩa cá (giây
+209.5) ngay trước phần xem trước có sẵn.
+
+| Sửa | Cách làm | Kiểm tra |
+| --- | --- | --- |
+| AI xem cả phần mở đầu | Gửi 4 khung trải trên phần mở đầu video gốc (15% độ dài, 3-12 giây; video 220s: giây 0.5 / 4.2 / 7.8 / 11.5) thay vì 1 khung; hỏi có khung nào đã cho thấy món xong chưa, kể cả thoáng qua hay khác góc máy | test |
+| So khung, không cần AI | So cảnh sẽ chiếu trước với từng khung trong phần mở đầu (tương quan trên ảnh màu thu nhỏ): giống ≥ 0.9 = video gốc dùng lại đúng cảnh đó -> bỏ đoạn mở đầu | video thật: cá kèo giây 3.5 giống cảnh 209.5s **0.97**; mì xào bò giây 8 giống cảnh cuối **0.98** (cũng mở đầu bằng 9.5s xem trước món); cảnh giữa video chỉ 0.24-0.27. Chạy lại đúng câu trả lời sai của AI trong log: cả hai video đều bỏ đoạn mở đầu |
+| Khung đẹp nhất nằm trong phần mở đầu | Bỏ đoạn mở đầu (trước đây chỉ xét 4 giây đầu) | test |
+
+Video bị bỏ đoạn mở đầu vẫn có giọng ngay đầu: câu hook đọc ở giây 0 trên phần xem trước có sẵn của video gốc (như bản 27).
+
 ## Bản 29: mở đầu bằng món thành phẩm + câu hook có giọng, ảnh bìa AI chọn cho Reels
 
 | Phần | Cách làm | Kiểm tra |
