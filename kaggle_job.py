@@ -157,7 +157,15 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     out_dur = float(spec["out_dur"])
     items = [(k, s["text"]) for k, s in enumerate(segs) if s.get("ost") != "orig" and (s.get("text") or "").strip()]
     sep_task = None
-    if spec.get("mode") == "cook" and (spec.get("sep") or {}).get("ok"):
+    reused = mounted_ambient(spec.get("amb_token", "")) if spec.get("mode") == "cook" else None
+    if reused:
+        t["sep"] = 0.0
+        logging.info("Dùng lại tiếng nền đã tách ở phiên phân tích: %s", reused)
+
+        async def _reuse():
+            return reused
+        sep_task = asyncio.create_task(_reuse())
+    elif spec.get("mode") == "cook" and (spec.get("sep") or {}).get("ok"):
         async def _sep():
             t0 = time.time()
             p = os.path.join(tmp, "ambient.wav")
@@ -205,11 +213,85 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             "notes": notes, "timings": t, "fast": sum(1 for p in plan if p["factor"] > 1.12)}
 
 
+async def analyze(spec: dict, tmp: str) -> dict:
+    """Bóc lời + phân tích hình (thay cho Botkeep, máy 1.5 lõi mất ~400s cho video 220s): tách giọng gốc khỏi nhạc
+    (GPU) -> Whisper large-v3 nghe GIỌNG SẠCH (asr_local); song song trên CPU: điểm chuyển cảnh, dải chữ in cứng, ảnh
+    thu nhỏ 2 khung/giây (scenes, mức Kỹ). Kết quả thô; Botkeep lọc câu bịa/lặp + chia đoạn (transcribe.py)."""
+    import zipfile
+
+    import asr_local
+    import core_video
+    import scenes
+    import vocal_sep
+    os.makedirs(tmp, exist_ok=True)
+    t0 = time.time()
+    inp = await fetch(spec["src"], tmp, "src")
+    t = {"download": round(time.time() - t0, 1)}
+    dur = await core_video.probe_duration(inp)
+
+    async def _scenes():
+        t1 = time.time()
+        r = await asyncio.to_thread(scenes._analyze_sync, inp, tmp, dur, bool(spec.get("want_gray", True)), 0.3,
+                                    "full")
+        t["scenes"] = round(time.time() - t1, 1)
+        return r
+    scene_task = asyncio.create_task(_scenes())
+    try:
+        t1 = time.time()
+        vocals, amb = os.path.join(tmp, "vocals16k.wav"), os.path.join(tmp, "ambient.wav")
+        os.environ.setdefault("SEP_DEVICE", "cuda")
+        sep_ok = await vocal_sep.remove_voice(inp, amb, windows=None, vocals_wav=vocals) and os.path.exists(vocals)
+        t["sep"] = round(time.time() - t1, 1)
+        if not sep_ok:                                  # không tách được: Whisper nghe thẳng âm thanh gốc
+            vocals = os.path.join(tmp, "audio16k.wav")
+            await core_video._run_ffmpeg("-y", "-i", inp, "-vn", "-ac", "1", "-ar", "16000", vocals)
+        t1 = time.time()
+        d = await asyncio.to_thread(asr_local.transcribe, vocals, spec.get("language") or "", spec.get("prompt") or "")
+        t["asr"] = round(time.time() - t1, 1)
+        cuts, bands = await scene_task
+    finally:
+        if not scene_task.done():
+            scene_task.cancel()
+            await asyncio.gather(scene_task, return_exceptions=True)
+    files = {}
+    a = scenes._ANALYZED.get(inp)
+    if a and a.get("n"):
+        zp = os.path.join(tmp, "thumbs.zip")
+        with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:     # JPEG đã nén: chỉ gói lại
+            for f in sorted(os.listdir(a["dir"])):
+                z.write(os.path.join(a["dir"], f), f)
+        files["thumbs.zip"] = zp
+    if sep_ok and spec.get("keep_ambient"):
+        fl = os.path.join(tmp, "ambient.flac")          # phiên dựng dùng lại, khỏi tách giọng lần nữa
+        await core_video._run_ffmpeg("-y", "-i", amb, "-c:a", "flac", "-compression_level", "5", fl)
+        files["ambient.flac"] = fl
+    return {"ok": True, "kind": "analyze", "token": spec.get("token", ""), "whisper": d, "cuts": cuts,
+            "bands": [list(b) for b in bands], "dur": dur, "sep": sep_ok, "thumb_fps": scenes.THUMB_FPS,
+            "timings": t, "files": files}
+
+
+def mounted_ambient(token: str, root: str = "/kaggle/input") -> str | None:
+    """Tiếng nền đã tách ở phiên phân tích của CHÍNH job này (notebook phân tích gắn vào làm dữ liệu vào, xem
+    kaggle_worker._run_sync): đúng mã job thì dùng lại, khỏi tách giọng lần nữa."""
+    if not token or not os.path.isdir(root):
+        return None
+    for r, _, files in os.walk(root):
+        if "result.json" in files and "ambient.flac" in files:
+            try:
+                if json.load(open(os.path.join(r, "result.json"), encoding="utf-8")).get("token") == token:
+                    return os.path.join(r, "ambient.flac")
+            except Exception:
+                continue
+    return None
+
+
 async def run_one(spec: dict, tmp: str) -> dict:
     import core_video
     os.makedirs(tmp, exist_ok=True)
     t0 = time.time()
     kind = spec.get("kind") or "remake"
+    if kind == "analyze":
+        return await analyze(spec, tmp)
     if kind == "photo":
         import slideshow
         images = [await fetch(r, tmp, f"img{k}") for k, r in enumerate(spec["images"])]
@@ -264,7 +346,11 @@ def main(spec: dict, out_dir: str = "/kaggle/working"):
         tag = "" if spec.get("kind") != "batch" else f"_{k}"
         try:
             res = asyncio.run(run_one(sp, f"/tmp/rm_job{tag or '_0'}"))
-            shutil.move(res.pop("video"), os.path.join(out_dir, f"output{tag}.mp4"))   # /tmp và /kaggle/working khác ổ
+            if res.get("video"):
+                shutil.move(res.pop("video"), os.path.join(out_dir, f"output{tag}.mp4"))   # /tmp và /kaggle/working khác ổ
+            for name, path in (res.pop("files", None) or {}).items():
+                base, ext = os.path.splitext(name)
+                shutil.move(path, os.path.join(out_dir, f"{base}{tag}{ext}"))
         except Exception:
             res = {"ok": False, "error": traceback.format_exc()[-2500:]}
             logging.error("Việc %s lỗi:\n%s", k, res["error"])

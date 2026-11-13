@@ -61,6 +61,49 @@ async def _groq(audio_path: str, prompt: str = ""):
     return text, chunk_units(units)
 
 
+LONG_SEG = 9.0          # câu Whisper dài hơn thế này thì tách ở quãng nghỉ lớn nhất bên trong
+
+
+def _split_long(a: float, b: float, text: str, words: list) -> list:
+    """Câu Whisper quá dài -> tách đôi ở quãng nghỉ lớn nhất (khoảng giữa 20-80% câu) theo mốc từng chữ."""
+    inner = [w for w in words if a - 0.05 <= (w[0] + w[1]) / 2 <= b + 0.05]
+    if b - a <= LONG_SEG or len(inner) < 6:
+        return [(a, b, text)]
+    lo, hi = a + 0.2 * (b - a), a + 0.8 * (b - a)
+    cand = [(inner[k + 1][0] - inner[k][1], k) for k in range(len(inner) - 1) if lo <= inner[k][1] <= hi]
+    if not cand:
+        return [(a, b, text)]
+    k = max(cand)[1]
+    left, right = inner[:k + 1], inner[k + 1:]
+    return (_split_long(a, left[-1][1], " ".join(w[2] for w in left), words)
+            + _split_long(right[0][0], b, " ".join(w[2] for w in right), words))
+
+
+def from_whisper(d: dict) -> tuple:
+    """Kết quả Whisper chạy TRÊN KAGGLE (asr_local; cùng dạng verbose_json của Groq) -> (text, đoạn) như
+    transcribe_segments: lọc câu bịa / chào kết / lặp vòng, chia đoạn, sửa chính tả theo từ điển. Không nghe lại quãng
+    trống: Kaggle đã nghe GIỌNG ĐÃ TÁCH khỏi nhạc, quãng trống là quãng không ai nói.
+    Chia theo CÂU của Whisper (không ghép từng chữ theo quãng nghỉ như Groq): Whisper trên Kaggle hay bỏ dấu câu ở các
+    khung sau, ghép từng chữ thì bị cắt cứng 4.6s giữa câu ("...mình đã chỉ" | "cho cả nhà"): video cá kèo 8 chỗ cắt
+    giữa câu, theo câu của Whisper còn 2 (đo thật 13/11/2026)."""
+    d = d or {}
+    segs = d.get("segments") or []
+    loops = _loops(segs)
+    words = [(float(w["start"]), float(w["end"]), (w.get("word") or "").strip()) for w in d.get("words") or []
+             if (w.get("word") or "").strip()]
+    bad = [x for k, x in enumerate(segs) if _hallucinated(x) or k in loops]
+    if bad:
+        logging.info("Bỏ %d đoạn Whisper nghe nhầm/lặp lại: %s", len(bad),
+                     " | ".join((x.get("text") or "").strip()[:40] for x in bad))
+    units = []
+    for k, x in enumerate(segs):
+        t = (x.get("text") or "").strip()
+        if t and not _hallucinated(x) and k not in loops:
+            units += _split_long(float(x["start"]), float(x["end"]), t, words)
+    text = " ".join(t for _, _, t in units).strip()
+    return vocab.fix_segments(text, chunk_units(units))
+
+
 _LANG = {"vietnamese": "vi", "english": "en", "chinese": "zh", "thai": "th", "korean": "ko", "japanese": "ja",
          "indonesian": "id", "malay": "ms", "khmer": "km", "lao": "lo", "spanish": "es", "french": "fr"}
 
@@ -363,8 +406,10 @@ def chunk_units(units, max_dur: float = 3.2, gap: float = 0.3, min_dur: float = 
         if first == "cho" and (nxt.startswith("đến") or nxt.startswith("tới") or len(tx.split()) > 1 and tx.split()[1].lower().startswith(("đến", "tới"))):
             first = ""      # "cho đến khi" là từ nối, không phải "cho [nguyên liệu]"
         long_enough = cur is not None and cur[1] - cur[0] >= min_dur
+        # chữ viết HOA giữa chừng = Whisper mở câu mới (nhiều khung không có dấu chấm: "...cả nhà rồi Kèo chiên giòn")
+        sentence = bool(cur) and tx[:1].isupper() and not cur[2].split()[-1][:1].isupper()
         natural = (st - cur[1] >= gap or cur[2].rstrip().endswith((".", "!", "?", ","))
-                   or (long_enough and first in _ACTION_START)) if cur else False
+                   or (long_enough and (first in _ACTION_START or sentence))) if cur else False
         # quá max_dur mà chưa gặp chỗ ngắt tự nhiên thì đi tiếp (tránh cắt giữa cụm "vàng đều tám | mặt"),
         # chỉ cắt cưỡng bức khi chạm hard_max
         if cur and (natural or en - cur[0] > hard_max):

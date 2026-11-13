@@ -80,11 +80,22 @@ mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nh�
 ## 🎙 Giọng miền Nam VieNeu + phần nặng chạy trên Kaggle (mặc định)
 
 `TTS_PROVIDER=vieneu`: giọng nữ **Mỹ Duyên**, nam **Adam** (VieNeu-TTS v3 Turbo, Apache-2.0, giọng có sẵn dùng được
-cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần): Botkeep vẫn tải
-video, bóc lời, nhờ AI viết lời, làm ảnh bìa; khi lời đã chốt, bot gửi MỘT notebook riêng tư sang Kaggle để đọc giọng
-+ tách giọng gốc + dựng 1080p, rồi tải video về. Notebook không chứa key API nào (lời đã viết xong ở Botkeep).
-Trên Kaggle giọng gốc được tách khỏi CẢ BÀI (không chỉ các quãng bóc lời thấy có người nói), chạy song song với đọc
-giọng: bóc lời có sót một quãng thì giọng gốc vẫn không lọt ra.
+cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần). Mỗi video remake
+dùng HAI notebook riêng tư, không chứa key API nào:
+
+1. **`rmvideo-analyze` — bóc lời + phân tích hình** (`KAGGLE_ANALYZE=1`, mặc định): Kaggle tự tải video, tách giọng
+   gốc khỏi nhạc trên GPU (Kim_Vocal_2), cho **Whisper large-v3 nghe giọng đã tách** (faster-whisper, MIT; lọc quãng
+   không người nói, không nối ngữ cảnh câu trước), song song dò điểm chuyển cảnh + chữ in cứng + ảnh thu nhỏ ở mức Kỹ.
+   Botkeep chỉ lọc câu bịa/lặp, chia đoạn theo câu của Whisper.
+2. Botkeep nhờ AI viết lời (key nằm ở Botkeep), làm ảnh bìa.
+3. **`rmvideo-worker` — đọc giọng + dựng**: gắn đầu ra của notebook phân tích làm dữ liệu vào nên DÙNG LẠI tiếng nền đã
+   tách (khớp mã job; không khớp thì tự tách lại), đọc giọng VieNeu, dựng, rồi Botkeep tải video về.
+
+Đo thật (Kaggle T4, video cá kèo 220s, 13/11/2026): phiên phân tích 3.6-3.9 phút (tách giọng GPU 34s, Whisper 55s
+gồm tải model, dò cảnh 59s song song); phiên dựng 6.4 phút (đọc 45 câu 16s, dựng 245s, không tách giọng lại). Bóc
+được cả 0-29s và 52-83s mà Groq Whisper (nghe thẳng âm thanh có nhạc) bỏ sót. Botkeep trước đây mất ~400 giây cho
+bóc lời + phân tích hình của video này. Phân tích Kaggle lỗi / hết giờ GPU -> bóc lời bằng Groq/Gemini + phân tích
+nhẹ trên Botkeep như cũ (có ghi chú). Kết quả phân tích được cache theo video (dựng lại bản đã duyệt không chạy lại).
 
 Cài: tạo tài khoản kaggle.com, xác minh số điện thoại (Settings -> Account), tạo token (Settings -> API Tokens ->
 Generate New Token), điền `KAGGLE_API_TOKEN` trong Cài đặt (tên tài khoản bot tự lấy theo token; `KAGGLE_USERNAME` chỉ dự phòng), gõ `kaggle_test` vào console.
@@ -177,7 +188,12 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Gộp lời gốc thành câu**: mẩu cụt ("sau", "Sau khi mình") dời tới đọc liền với câu sau; mẩu 1-2 chữ kết câu
   ("cái thìa.", "xuống.") về với câu trước; câu bị cắt ngang gộp tới 9 giây; khe < 3 giây mà người gốc nói liền thì
   gộp với câu sau (câu gộp ≤ 6 giây). AI được giao KHOẢNG số chữ cho mỗi đoạn ("10-13 từ") để giọng phủ kín khe.
-- **Phân tích hình** (`SCENE_ANALYSIS`, chạy trên Botkeep cùng lúc bóc lời): dò chữ in cứng (che phụ đề gốc, đặt phụ
+- **Câu hook + không kêu gọi đăng ký**: câu đầu video luôn là câu hook (món thành phẩm, mẹo, câu hỏi gây tò mò; không
+  chào hỏi — AI chào hỏi thì bị bắt viết lại); lời gốc bắt đầu sau giây thứ 2 thì có câu hook riêng ở giây 0. AI trả
+  thêm 3-7 chữ IN HOA in lên màn hình 3 giây đầu và ảnh bìa (thay cho tiêu đề bài đăng dài). Không có lời kêu gọi đăng
+  ký / theo dõi / like / share kênh ở bất kỳ đâu: câu gốc chỉ là lời kêu gọi thì bỏ trước khi đưa AI, AI viết thì bị bắt
+  viết lại, còn sót thì lọc từng vế trước khi đọc giọng; màn kết (`BRAND_NAME`) chỉ còn tên kênh.
+- **Phân tích hình trên Botkeep** (`SCENE_ANALYSIS`, khi không phân tích trên Kaggle; chạy cùng lúc bóc lời): dò chữ in cứng (che phụ đề gốc, đặt phụ
   đề mới đúng chỗ), ảnh bìa, ảnh cho AI nhìn khi viết lời, và (mức Vừa/Kỹ) điểm chuyển cảnh để câu mới bắt đầu đúng
   lúc đổi cảnh. **Nhẹ** (mặc định): chỉ đọc khung chính (~1 khung / 2-5 giây), video 220s ~20 giây trên Botkeep;
   **Vừa**: thêm dò chuyển cảnh, giải mã bỏ khung phụ (~200 giây); **Kỹ**: mọi khung như bản cũ (~380 giây). Video không

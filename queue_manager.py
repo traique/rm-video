@@ -65,6 +65,7 @@ class Job:
     no_autopost: str = ""     # lý do KHÔNG được tự đăng Fanpage (AI lỗi -> kịch bản mẫu, lời mới gần như chép lời gốc)
     remote_src: dict = field(default_factory=dict)   # Kaggle: đầu vào dựng sẵn (phần cắt từ video dài: tải nguồn + cắt)
     post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
+    hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job
@@ -81,6 +82,7 @@ PHASES = [
     (re.compile(r"^Phân tích nhạc|^Chọn đoạn nhạc"), "Phân tích nhạc"),
     (re.compile(r"^Tạo ảnh bìa"), "Ảnh bìa"),
     (re.compile(r"^Gửi"), "Gửi kết quả"),
+    (re.compile(r"^Kaggle"), "Kaggle: đọc giọng + dựng"),
 ]
 _PART = re.compile(r"^Phần \d+/\d+: |^Đoạn hay \d+/\d+: ")
 

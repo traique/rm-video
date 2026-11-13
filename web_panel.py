@@ -197,6 +197,8 @@ _SETTING_OPTIONS = {
     "AUTO_POST": [["0", "Tắt"], ["1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage"]],
     "KAGGLE_USE": [["1", "Bật: đọc giọng + tách giọng + dựng chạy trên Kaggle (lỗi thì chạy trên Botkeep)"],
                    ["0", "Tắt: mọi thứ chạy trên Botkeep"]],
+    "KAGGLE_ANALYZE": [["1", "Bật: bóc lời (Whisper nghe giọng đã tách khỏi nhạc) + phân tích hình trên Kaggle"],
+                       ["0", "Tắt: bóc lời bằng Groq/Gemini + phân tích hình trên Botkeep"]],
     "AUTO_MODE": [["cook", "Nấu ăn"], ["review", "Review"]],
     "SPEECH_STYLE": [["mien_tay", "Miền Tây (tui, bà con, nè, nghen)"], ["mien_nam", "Miền Nam"], ["pho_thong", "Phổ thông"]],
     "SUB_STYLE": [["karaoke", "Karaoke (sáng dần theo giọng)"], ["box", "Hộp nền đen"], ["outline", "Chữ trắng viền đen"], ["plain", "Vàng gọn"]],

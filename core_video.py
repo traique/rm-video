@@ -1475,17 +1475,25 @@ def encode_args(H: int, fps: float = 30.0) -> list:
 
 
 def _wrap(text: str, width: int) -> str:
-    """Xuống dòng tiêu đề cho vừa màn hình dọc (tối đa 3 dòng)."""
-    words, lines, cur = text.split(), [], ""
-    for w in words:
-        if len(cur) + len(w) + 1 > width and cur:
-            lines.append(cur)
-            cur = w
-        else:
-            cur = (cur + " " + w).strip()
-    if cur:
+    """Xuống dòng tiêu đề cho vừa màn hình dọc (tối đa 3 dòng), các dòng dài gần bằng nhau: ngắt tham lam ra
+    "CÁ KÈO GIÒN KHÔNG NHẢY" / "CHẢO" (một dòng cụt) — giờ ra "CÁ KÈO GIÒN" / "KHÔNG NHẢY CHẢO"."""
+    words = text.split()
+    if not words:
+        return ""
+    n = min(3, max(1, -(-len(text) // width)))
+    while True:
+        target, lines, cur = len(text) / n, [], ""
+        for w in words:
+            if cur and (len(cur) + 1 + len(w) > width
+                        or (len(lines) < n - 1 and abs(len(cur) - target) < abs(len(cur) + 1 + len(w) - target))):
+                lines.append(cur)
+                cur = w
+            else:
+                cur = (cur + " " + w).strip()
         lines.append(cur)
-    return "\n".join(lines[:3])
+        if len(lines) <= n or n >= 3:
+            return "\n".join(lines[:3])
+        n += 1
 
 
 async def source_info(path: str) -> tuple:
@@ -1531,7 +1539,7 @@ def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: s
 
 def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
                   logo_idx: int | None) -> str:
-    """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề 3s đầu, màn kết 2.2s cuối."""
+    """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh)."""
     k = H / 1280
     f = ""
     if title_files:
@@ -1546,9 +1554,8 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
               f",drawtext=fontfile={FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={int(62 * k)}:fontcolor=white:"
               f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
-              f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'"
-              f",drawtext=fontfile={FONT_PATH}:text='Theo dõi để xem thêm':fontsize={int(34 * k)}:fontcolor=0xFFE100:"
-              f"x=(w-text_w)/2:y=(h-text_h)/2+{int(50 * k)}:enable='gte(t,{st + 0.3:.2f})'")
+              f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'")
+        # bỏ dòng "Theo dõi để xem thêm": không kêu gọi đăng ký/theo dõi kênh ở cuối video (yêu cầu 13/11/2026)
     if logo_idx is not None:
         f += (f"[vb];[{logo_idx}:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
               f"[vb][lg]overlay=W-w-{int(24 * k)}:{int(24 * k)}")

@@ -5,6 +5,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import secrets
 import shutil
 
@@ -368,6 +369,75 @@ async def _ocr_bands(inp: str, src_dur: float, src_hash: str, fallback: list) ->
         return fallback
 
 
+ANALYZE_V = 1        # định dạng kết quả phân tích Kaggle trong cache (đổi khi đổi cách phân tích)
+
+
+def analyze_remote(job: Job, inp: str, local_only: bool) -> str:
+    """'' nếu bóc lời + phân tích hình của job này chạy trên Kaggle; không thì lý do. Phần cắt từ video dài (đang gom
+    lô) và bản đã duyệt (lấy từ cache) làm như cũ."""
+    if local_only:
+        return "chạy trên Botkeep theo yêu cầu"
+    if config.KAGGLE_ANALYZE == "0":
+        return "KAGGLE_ANALYZE=0"
+    if job.approved:
+        return "kịch bản đã duyệt"
+    if kaggle_worker.collecting():
+        return "phần của video dài"
+    if job.mode not in ("cook", "review"):
+        return "chế độ không cần bóc lời"
+    return kaggle_worker.usable(job, inp)
+
+
+async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, src_hash: str, want_gray: bool,
+                          run: bool = True) -> dict | None:
+    """Bóc lời + phân tích hình trên Kaggle: tách giọng gốc (GPU) -> Whisper large-v3 nghe giọng SẠCH; dò cảnh, chữ in
+    cứng, ảnh thu nhỏ ở mức Kỹ. Botkeep chỉ lọc + chia đoạn (transcribe.from_whisper). Có cache theo video (lần dựng
+    bản đã duyệt không chạy lại). run=False: chỉ lấy cache. Lỗi -> None (caller bóc lời trên Botkeep như cũ)."""
+    import transcribe
+    k = cache.key("kaggle_an", src_hash, want_gray, ANALYZE_V)
+    res = cache.get_json("kaggle_an", k)
+    zp = cache.get("kaggle_thumbs", k, ".zip") if res else None
+    fresh = False
+    if not res:
+        if not run:
+            return None
+        try:
+            spec = kaggle_worker.analyze_spec(job, inp, title, desc, want_gray,
+                                              config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION)
+            res = await kaggle_worker.analyze(spec, tmp, on_step=lambda st: setattr(job, "step", st))
+        except Exception as e:
+            logging.warning("Bóc lời trên Kaggle lỗi, làm trên Botkeep: %s", e)
+            metrics.record("kaggle", "analyze", ok=False, detail=str(e))
+            job.error = (job.error or "") + f"ℹ️ Bóc lời trên Kaggle lỗi ({str(e)[:140]}): bóc lời trên Botkeep. "
+            return None
+        metrics.record("kaggle", "analyze")
+        fresh = True
+        try:
+            cache.put_json("kaggle_an", k, {x: res.get(x) for x in ("whisper", "cuts", "bands", "dur", "sep", "timings")})
+            zp = res.get("thumbs_zip")
+            if zp:
+                cache.put("kaggle_thumbs", k, zp, ".zip")
+        except OSError:
+            pass
+    text, segs = transcribe.from_whisper(res.get("whisper") or {})
+    if zp and os.path.exists(zp):                       # ảnh 2 khung/giây cho AI nhìn + chấm ảnh bìa
+        import zipfile
+        d = os.path.join(tmp, "thumbs_kaggle")
+        os.makedirs(d, exist_ok=True)
+        with zipfile.ZipFile(zp) as z:
+            names = [n for n in z.namelist() if re.fullmatch(r"\d{5}\.jpg", n)]
+            for n in names:
+                z.extract(n, d)
+        scenes._ANALYZED[inp] = {"dir": d, "n": len(names)}
+    w = res.get("whisper") or {}
+    logging.info("Kaggle bóc lời: %d đoạn (%s, %s), %d điểm chuyển cảnh, %d dải chữ | %s", len(segs),
+                 w.get("language"), w.get("device"), len(res.get("cuts") or []), len(res.get("bands") or []),
+                 res.get("timings"))
+    return {"text": text, "segs": segs, "cuts": list(res.get("cuts") or []),
+            "bands": [tuple(b) for b in res.get("bands") or []], "ambient": res.get("ambient") if fresh else None,
+            "token": res.get("token", "") if fresh else "", "timings": res.get("timings") or {}}
+
+
 def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
     """Mốc cắt đoạn quảng cáo cuối của người gốc. Bản đã duyệt dùng lại ĐÚNG mốc đã quyết lúc viết kịch bản
     (kịch bản duyệt không có đoạn đó; trước đây bản duyệt render lại nguyên đoạn quảng cáo — lỗi N1)."""
@@ -569,15 +639,29 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         job.error = (job.error or "") + f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {limit}s đầu (chọn chế độ video dài để làm hết). "
     target = job.duration or int(vid_dur)
 
-    job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
-                else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
     src_hash = await asyncio.to_thread(cache.file_hash, inp)
-    audio_mp3 = os.path.join(tmp, "audio.mp3")
-    await core_video.extract_audio(inp, audio_mp3)
-    (text, raw_segs), (cuts, bands) = await asyncio.gather(
-        transcribe_segments(audio_mp3, title, desc),                     # ("", []) nếu không có nguồn STT
-        scenes.analyze_cached(inp, tmp, src_dur, bool(job.subs and job.cover), src_hash,
-                              need_thumbs=not job.approved))             # 1 lượt giải mã: cảnh + ảnh + dải chữ
+    want_gray = bool(job.subs and job.cover)
+    why_an = analyze_remote(job, inp, local_only)
+    an = None
+    if not why_an or job.approved:                      # bản đã duyệt: lấy kết quả lần đầu trong cache (nếu có)
+        job.step = "Bóc lời + phân tích hình trên Kaggle"
+        an = await kaggle_analysis(job, inp, tmp, title, desc, src_hash, want_gray, run=not why_an)
+    if an:
+        text, raw_segs, cuts, bands = an["text"], an["segs"], an["cuts"], an["bands"]
+        tm = an["timings"]
+        if tm:
+            job.error = (job.error or "") + (
+                f"ℹ️ Bóc lời + phân tích hình trên Kaggle (tách giọng {tm.get('sep', 0):.0f}s, Whisper "
+                f"{tm.get('asr', 0):.0f}s, dò cảnh {tm.get('scenes', 0):.0f}s). ")
+    else:
+        job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
+                    else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
+        audio_mp3 = os.path.join(tmp, "audio.mp3")
+        await core_video.extract_audio(inp, audio_mp3)
+        (text, raw_segs), (cuts, bands) = await asyncio.gather(
+            transcribe_segments(audio_mp3, title, desc),                 # ("", []) nếu không có nguồn STT
+            scenes.analyze_cached(inp, tmp, src_dur, want_gray, src_hash,
+                                  need_thumbs=not job.approved))         # 1 lượt giải mã: cảnh + ảnh + dải chữ
     if config.TEXT_DETECT == "ocr" and job.subs and job.cover and ocr_text.available():
         bands = await _ocr_bands(inp, src_dur, src_hash, bands)
     segs = [(round(a * stretch, 2), round(b * stretch, 2), t) for a, b, t in raw_segs]   # trục thời gian đã làm chậm
@@ -614,6 +698,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         không được -> tắt tiếng nền đúng lúc người gốc nói; không có mốc -> bỏ tiếng nền."""
         if job.mode != "cook":
             return None, None
+        if an and an.get("ambient") and os.path.exists(an["ambient"]):
+            return an["ambient"], None                  # đã tách CẢ BÀI trên Kaggle lúc phân tích
         if sep["ok"]:
             for k_eng, engine in enumerate(sep["engines"]):     # Kim_Vocal_2 (sạch hơn) -> Spleeter (nhanh hơn)
                 k = cache.key("ambient", src_hash, sep["windows"], engine)
@@ -703,6 +789,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         timed = await prompt_engine.generate_scenes(title, desc, job.mode, sc, await keyframes_for(sc), out_dur)
     if timed:
         job.script = spoken_script(timed["segments"]) or timed["script"]
+        if timed.get("hook") and not job.approved:
+            job.hook = timed["hook"]                    # chữ hook in màn hình 3 giây đầu + ảnh bìa
         if timed.get("fresh", 1.0) < AUTO_MIN_FRESH:            # AI lỗi một phần -> nhiều đoạn giữ nguyên lời gốc
             job.no_autopost = f"lời mới chỉ {timed['fresh'] * 100:.0f}% khác lời gốc"
         if not job.approved:
@@ -770,7 +858,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
 
         pre_cover = None
         if remote:
-            post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+            post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
             # Kaggle 4 lõi: không cần giới hạn của Botkeep; tách CẢ BÀI nên không cần mốc lời (bóc lời không nghe được
             # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
             sep_r = dict(sep, ok_remote=job.mode == "cook" and config.VOICE_SEPARATION != "0")
@@ -779,7 +867,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 spec = kaggle_worker.build_spec(
                     job, segs_t, out_dur, render_dur, stretch, not is_long, post_title, bands, pos_y, sep_r, speech,
                     config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION, local_path=inp,
-                    src=job.remote_src or None)
+                    src=job.remote_src or None, amb_token=an["token"] if an else "")
             except Exception as e:
                 job.error = (job.error or "") + f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. "
 
@@ -845,7 +933,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         amb_wav, gate = await _local_ambient()
         job.step = "Render (FFmpeg)"
         out = os.path.join(tmp, "output.mp4")
-        post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+        post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
         cover_task = pre_cover or _start_cover(post_title)
         notes = []
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
@@ -899,7 +987,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
     amb_wav, gate = await _local_ambient()
-    post_title = job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title
+    post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
     cover_task = _start_cover(post_title)
     notes = []
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,

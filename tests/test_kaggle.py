@@ -261,6 +261,7 @@ def kaggle_fakes(fakes, monkeypatch):  # noqa: F811
     monkeypatch.setattr(config, "TTS_PROVIDER", "vieneu")
     monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_ANALYZE", "0")      # phiên phân tích: test riêng (test_kaggle_analyze.py)
     return fakes
 
 
@@ -428,6 +429,7 @@ def kaggle_on(monkeypatch):
     monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example.com")
     monkeypatch.setattr(config, "GEMINI_API_KEY", "")
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(config, "KAGGLE_ANALYZE", "0")
 
 
 def test_photo_mode_on_kaggle_keeps_effect_history(kaggle_on, monkeypatch, tmp_path):

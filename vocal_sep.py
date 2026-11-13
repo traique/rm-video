@@ -55,10 +55,40 @@ def _model_path() -> str:
     return p
 
 
+def _cuda_providers(ort) -> list:
+    """SEP_DEVICE=cuda (Kaggle): chạy model trên GPU. onnxruntime-gpu cần thư viện CUDA/cuDNN: nạp sẵn qua PyTorch
+    (Kaggle có) rồi preload_dlls; không được thì về CPU (vẫn chạy, chỉ chậm hơn)."""
+    if os.environ.get("SEP_DEVICE") != "cuda":
+        return []
+    try:
+        import torch  # noqa: F401  (nạp libcudnn/libcublas của PyTorch vào tiến trình để onnxruntime thấy)
+    except Exception:
+        pass
+    try:
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls()
+    except Exception as e:
+        print(f"preload_dlls lỗi: {e}", file=sys.stderr)
+    if "CUDAExecutionProvider" in ort.get_available_providers():
+        return ["CUDAExecutionProvider"]
+    print("GPU: onnxruntime không có CUDAExecutionProvider, tách giọng bằng CPU", file=sys.stderr)
+    return []
+
+
 def _get_session():
     global _session
     if _session is None:
         import onnxruntime as ort
+        cuda = _cuda_providers(ort)
+        if cuda:
+            try:
+                _session = ort.InferenceSession(_model_path(), providers=cuda + ["CPUExecutionProvider"])
+                if "CUDAExecutionProvider" in _session.get_providers():
+                    print("GPU: tách giọng bằng CUDA", file=sys.stderr)
+                    return _session
+            except Exception as e:
+                print(f"GPU lỗi ({str(e)[:200]}), tách giọng bằng CPU", file=sys.stderr)
+            _session = None
         opt = ort.SessionOptions()
         opt.intra_op_num_threads = int(os.environ.get("SEP_THREADS", "2"))   # Botkeep 1.5 vCPU
         opt.inter_op_num_threads = 1
@@ -169,12 +199,16 @@ def _write_wav(path: str, x: np.ndarray):
                    input=pcm, check=True)
 
 
-def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None):
+def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None, vocals_wav: str = ""):
     mix = _decode(src, max_sec)
     if mix.shape[1] < SR:
         raise RuntimeError("audio quá ngắn")
     vocals = _separate(mix, windows) * 1.035           # hệ số bù chuẩn của Kim_Vocal_2
     _write_wav(ambient_wav, mix - vocals)
+    if vocals_wav:                                      # giọng đã tách (mono 16kHz) cho Whisper bóc lời trên Kaggle
+        pcm = (np.clip(vocals.mean(0), -1, 1) * 32767).astype("<i2").tobytes()
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", str(SR), "-ac", "1", "-i", "-",
+                        "-ar", "16000", vocals_wav], input=pcm, check=True)
 
 
 NEED_MB = 1450
@@ -199,7 +233,7 @@ def free_mb() -> int:
     return 99999
 
 
-async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None) -> bool:
+async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None, vocals_wav: str = "") -> bool:
     """Ghi tiếng nền ĐÃ BỎ GIỌNG NGƯỜI ra ambient_wav. Chạy trong TIẾN TRÌNH RIÊNG để ~1.3GB RAM
     của model được trả lại ngay khi xong. False nếu thiếu RAM/lỗi -> caller dùng cách dự phòng."""
     free = free_mb()
@@ -209,7 +243,7 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
     try:
         await asyncio.to_thread(_model_path)            # tải model (lần đầu) ngoài tiến trình con
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, os.path.abspath(__file__), src, ambient_wav, json.dumps(windows),
+            sys.executable, os.path.abspath(__file__), src, ambient_wav, json.dumps(windows), vocals_wav,
             stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
         import core_video
         core_video.RUNNING.add(proc)
@@ -223,7 +257,8 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
             core_video.RUNNING.discard(proc)
         log = err.decode(errors="ignore").strip().splitlines()
         if proc.returncode == 0 and os.path.exists(ambient_wav):
-            logging.info("Tách giọng AI: %s", log[-1] if log else "xong")
+            gpu = [x for x in log if x.startswith("GPU")]
+            logging.info("Tách giọng AI: %s%s", log[-1] if log else "xong", f" ({gpu[-1]})" if gpu else "")
             return True
         logging.warning("Tách giọng bỏ qua (mã %s): %s", proc.returncode, (log[-1] if log else "")[-200:])
         return False
@@ -236,4 +271,5 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
 
 
 if __name__ == "__main__":
-    _split_sync(sys.argv[1], sys.argv[2], windows=json.loads(sys.argv[3]) if len(sys.argv) > 3 else None)
+    _split_sync(sys.argv[1], sys.argv[2], windows=json.loads(sys.argv[3]) if len(sys.argv) > 3 else None,
+                vocals_wav=sys.argv[4] if len(sys.argv) > 4 else "")

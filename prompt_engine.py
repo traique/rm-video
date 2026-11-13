@@ -35,6 +35,7 @@ try:
         title: str
         caption: str
         hashtags: str
+        hook: str = ""
 
     class ShortOut(BaseModel):
         segments: list[SegOut]
@@ -55,6 +56,7 @@ try:
         title: str
         caption: str
         hashtags: str
+        hook: str = ""
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
     TimedOut = ShortOut = ScriptOut = TimedOstOut = None
 
@@ -110,7 +112,7 @@ Nhiệm vụ: viết voiceover gồm 1 câu hook giật gân (~3 giây đọc) n
 
 CÁCH VIẾT (quan trọng, để không bị nhận ra là chép lại):
 - DIỄN ĐẠT LẠI bằng lời của riêng bạn: không chép nguyên câu nào của lời thoại gốc (trừ số liệu, tên riêng), đổi cấu trúc câu, dùng từ đồng nghĩa đời thường.
-- Viết như đang NÓI CHUYỆN với người xem: câu ngắn 6-12 từ, dùng dấu phẩy và dấu chấm để ngắt hơi, thỉnh thoảng chen 1 câu cảm thán hoặc mẹo nhỏ ("nhìn kìa", "đấy", "mẹo là...") giữa các bước, kết bằng lời rủ rê tự nhiên.
+- Viết như đang NÓI CHUYỆN với người xem: câu ngắn 6-12 từ, dùng dấu phẩy và dấu chấm để ngắt hơi, thỉnh thoảng chen 1 câu cảm thán hoặc mẹo nhỏ ("nhìn kìa", "đấy", "mẹo là...") giữa các bước, kết bằng lời chốt tự nhiên về món (KHÔNG kêu gọi đăng ký / theo dõi / follow / like / share kênh).
 - Vẫn tuân thủ tuyệt đối LUẬT BẮT BUỘC ở trên: đủ bước, đúng thứ tự, nguyên văn mọi định lượng.
 
 Trả về DUY NHẤT một JSON hợp lệ, không markdown, không giải thích:
@@ -329,6 +331,7 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
     for k, (name, call) in enumerate(providers):
         try:
             pack = parse_pack(await call(prompt), title)
+            pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
             metrics.record("llm", name.lower(), fallback=k > 0)
             return pack
         except Exception as e:
@@ -357,11 +360,11 @@ LUẬT BẮT BUỘC:
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
 - Mỗi đoạn có KHOẢNG SỐ TỪ ghi kèm (vd "10-13 từ"; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết TRONG khoảng đó: ít hơn thì giọng hết sớm, video bị lặng dài; nhiều hơn thì tràn sang đoạn sau và phải cắt bớt. Khe dài thì diễn đạt đầy đủ hơn (tả độ vàng, tiếng xèo đang thấy trên hình), KHÔNG thêm thao tác, nguyên liệu hay số liệu mới.
-- Giọng nói chuyện tự nhiên: câu ngắn, có dấu câu ngắt hơi. Đoạn đầu mở bằng 1 câu hook ngắn gây tò mò.
+- Giọng nói chuyện tự nhiên: câu ngắn, có dấu câu ngắt hơi.
 - ĐỘNG TỪ ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) phải MỞ ĐẦU bằng chính hành động đang diễn ra trên hình, vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Lật mặt nào, khi thịt đã vàng đều." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Áp chảo với lửa vừa." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
-- Đoạn ghi "(chưa có lời gốc)" là phần MỞ ĐẦU trước khi người gốc nói: viết 1 câu hook giới thiệu món theo tiêu đề và hình, không thêm nguyên liệu hay số liệu mà lời gốc không có.
+- KHÔNG KÊU GỌI ĐĂNG KÝ / THEO DÕI KÊNH ở BẤT KỲ đoạn nào, kể cả đoạn cuối: không viết "đăng ký kênh", "theo dõi", "follow", "like share", "bấm chuông", "ủng hộ kênh", "hẹn gặp lại ở video sau". Lời gốc có câu đó thì bỏ ý đó: viết lời chốt về món ("Vậy là có dĩa cá kèo giòn rụm rồi nè.") hoặc để "text" rỗng.
 - Không emoji trong "text".
 
 Thể loại: {mode}
@@ -375,7 +378,56 @@ Trả về DUY NHẤT JSON hợp lệ, không markdown:
 {{"segments": [{{"i": 0, "text": "..."}}, ...],
 "title": "tiêu đề đăng bài <= 90 ký tự",
 "caption": "caption 2-3 câu để đăng, được dùng emoji",
-"hashtags": "5-8 hashtag cách nhau bởi dấu cách"}}"""
+"hashtags": "5-8 hashtag cách nhau bởi dấu cách",
+"hook": "3-7 chữ in lên màn hình 3 giây đầu"}}"""
+
+HOOK_RULE = """
+
+CÂU HOOK — ĐOẠN 0 (3 giây đầu quyết định người xem có lướt qua không):
+- Đoạn 0 là câu HOOK: nói NGAY điều hấp dẫn nhất của video — món thành phẩm ngon/lạ, mẹo bất ngờ, con số ấn tượng, hoặc một câu hỏi gây tò mò. Ví dụ: "Cá kèo chiên kiểu này giòn rụm mà hổng văng dầu nè!", "Bí quyết để cá kèo không nhảy khỏi chảo là đây!", "Chỉ 3 bước là có dĩa mì xào bò mềm ngon như ngoài tiệm!".
+- KHÔNG chào hỏi ("xin chào", "chào cả nhà", "hôm nay mình làm..."), KHÔNG giới thiệu kênh, KHÔNG nói "video này".
+- Lời gốc đoạn 0 có thao tác, nguyên liệu, số liệu nào thì câu hook vẫn nhắc đủ và đúng. Đoạn 0 ghi "(chưa có lời gốc)" là phần mở đầu trước khi người gốc nói: chỉ dựa vào tiêu đề và hình, không thêm nguyên liệu hay số liệu mà lời gốc không có.
+- "hook": 3-7 chữ IN HOA lên màn hình cùng lúc (vd "CÁ KÈO GIÒN KHÔNG VĂNG DẦU"), không dấu chấm, không emoji."""
+
+# Kêu gọi đăng ký / theo dõi kênh (người dùng không muốn có, kể cả cuối video — 13/11/2026). "theo dõi" chỉ tính khi đi
+# với kênh/trang/mình/để...: "theo dõi nhiệt độ", "theo dõi lửa" là thao tác nấu.
+_SUB_RE = re.compile(r"đăng\s*k[ýí]|subscri|\bsub\s+kênh|theo\s*dõi\s*(kênh|trang|page|fanpage|mình|tui|tôi|em|"
+                     r"để|nha|nhé|nghen|ngay|thêm)|\bfollow|bấm\s*(chuông|like|thích|tim)|nhấn\s*(chuông|like|theo dõi)|"
+                     r"\blike\s*(và|,|&)?\s*share|ủng\s*hộ\s*(kênh|mình|tui|em|page|video)|"
+                     r"hẹn\s*gặp\s*(lại\s*)?(các bạn|bà con|mọi người|cả nhà)?\s*(ở|trong)\s*(video|clip)|"
+                     r"xem\s*thêm\s*(nhiều\s*)?(video|clip)", re.IGNORECASE)
+_GREET_RE = re.compile(r"^\W*(xin\s+chào|chào\s+(mừng|cả\s+nhà|mọi\s+người|các\s+bạn|bà\s+con)|hello\b|"
+                       r"hôm\s+nay\s+(mình|tui|tôi|em|chúng\s+ta)\b)", re.IGNORECASE)
+
+
+def has_sub_cta(text: str) -> bool:
+    return bool(_SUB_RE.search(text or ""))
+
+
+def strip_sub_cta(text: str) -> str:
+    """Bỏ các vế kêu gọi đăng ký / theo dõi kênh khỏi lời đọc (lưới cuối, sau khi đã cấm AI viết). Tách theo vế (dấu
+    câu và dấu phẩy): "Xong rồi, cá giòn rụm, nhớ đăng ký kênh nha" -> "Xong rồi, cá giòn rụm."."""
+    if not has_sub_cta(text):
+        return text
+    parts = re.split(r"(?<=[.!?…,;])\s+", text.strip())
+    out = " ".join(p for p in parts if not has_sub_cta(p)).strip()
+    return (out[:-1] + ".") if out.endswith((",", ";")) else out
+
+
+def is_sub_cta_line(text: str) -> bool:
+    """Đoạn lời GỐC chỉ là lời kêu gọi đăng ký (bỏ ý đó thì còn < 3 chữ): bỏ trước khi đưa AI viết lại."""
+    return has_sub_cta(text) and len(strip_sub_cta(text).split()) < 3
+
+
+def clean_hook(text: str) -> str:
+    """Chữ hook in màn hình: một dòng ngắn (≤ 40 ký tự, cắt ở ranh giới từ), bỏ dấu cuối, không emoji/kêu gọi."""
+    t = re.sub(r"[^\w\s%,!?'-]", " ", text or "")
+    t = " ".join(t.split()).strip(" .,!?-")
+    if not t or has_sub_cta(t):
+        return ""
+    if len(t) > 40:
+        t = t[:41].rsplit(" ", 1)[0]
+    return t.upper()
 
 
 _CTA_RE = re.compile(r"giỏ hàng|góc (trái|phải) màn hình|link (ở|dưới|trong)|mã giảm|bấm vào (mua|link|giỏ)|"
@@ -413,6 +465,15 @@ MIN_SLOT = 3.0          # khe ngắn hơn thế này (người gốc nói liền
 SENT_CUT_MAX = 9.0      # câu bị cắt ngang (chưa có dấu câu) được gộp dài tới chừng này: câu dài còn hơn câu cụt
 _CLAUSE_END = (".", "!", "?", "…", ",", ";", ":")
 _SENT_END = (".", "!", "?", "…")
+# hư từ hầu như không đứng cuối câu: đoạn kết bằng các chữ này là câu bị cắt ngang ("Như vậy là đã" | "xong công
+# thức"). Cần khi bóc lời KHÔNG có dấu câu (Whisper trên Kaggle hay bỏ dấu ở các khung sau — đo thật 13/11/2026).
+_OPEN_END = {"là", "đã", "sẽ", "đang", "của", "và", "với", "thì", "mà", "để", "những", "các", "một", "khi", "nếu", "vì",
+             "nên", "cũng", "rất", "bị", "cái", "hay", "hoặc", "nhưng", "tại", "lúc", "từ", "về", "như", "càng", "chưa"}
+
+
+def _open_end(t: str) -> bool:
+    w = re.findall(r"\w+", (t or "").lower())
+    return bool(w) and w[-1] in _OPEN_END and not (t or "").rstrip().endswith(_SENT_END)
 
 
 def merge_sentences(segments: list, out_dur: float) -> list:
@@ -438,7 +499,7 @@ def merge_sentences(segments: list, out_dur: float) -> list:
         tx = (tx or "").strip()
         if out:
             pst, pen, ptx = out[-1]
-            cut = punct and not ptx.rstrip().endswith(_CLAUSE_END)          # câu trước chưa xong
+            cut = (punct and not ptx.rstrip().endswith(_CLAUSE_END)) or _open_end(ptx)   # câu trước chưa xong
             opens = punct and not tx.rstrip().endswith(_CLAUSE_END) and ptx.rstrip().endswith(_SENT_END)
             small = tiny(pst, pen, ptx) or (tiny(st, en, tx) and not opens)
             if st - pst < 1.1 or ((cut or small) and en - pst <= SENT_MAX):
@@ -477,7 +538,7 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     return out
 
 
-INTRO_MIN = 3.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu mở đầu ở giây 0
+INTRO_MIN = 2.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu hook riêng ở giây 0 (sớm hơn: đoạn 0 là hook)
 INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (một câu hook, phần còn lại của quãng để im)
 
 
@@ -487,8 +548,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
     intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
     kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu)."""
-    segments = merge_sentences(segments, out_dur)
-    if intro and segments and segments[0][0] >= INTRO_MIN:
+    segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)
+    if not segments:
+        return None
+    if intro and segments[0][0] >= INTRO_MIN:
         segments = [(0.0, min(segments[0][0], INTRO_SPEAK), "")] + segments
     slots = []
     for k, (st, en, tx) in enumerate(segments):
@@ -505,6 +568,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            for k, st, slot, mx, tx, _ in slots)
     prompt = TIMED_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
+    if intro:
+        prompt += HOOK_RULE
     ost_auto = config.OST_AUTO == "1"
     if ost_auto:
         prompt += OST_HINT
@@ -554,9 +619,13 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 continue
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
-                    or _CTA_RE.search(got[k]):                     # lặp câu lô trước / còn quảng cáo của người gốc
+                    or _CTA_RE.search(got[k]) or has_sub_cta(got[k]) \
+                    or _hook_bad(k, got[k]):                       # lặp câu lô trước / quảng cáo / kêu gọi đăng ký
                 out.append(k)
         return out
+
+    def _hook_bad(k, text):
+        return intro and k == 0 and bool(_GREET_RE.search(text or ""))
 
     orig_all = " ".join(s[4] for s in slots)
     for pk, (name, call) in enumerate(providers):
@@ -575,7 +644,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             for attempt in range(2):                    # tối đa 2 lần bắt viết lại
                 txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
                 severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
-                          or _CTA_RE.search(got.get(k, ""))]
+                          or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
+                          or _hook_bad(k, got.get(k, ""))]
                 # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
                 # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
                 too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
@@ -585,7 +655,14 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                                 name, attempt + 1, len(bad), miss, added)
                 why = []
                 ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
-                copies = [k for k in bad if k not in ads]
+                subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
+                hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
+                copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
+                if subs:
+                    why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
+                               "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
+                if hooks:
+                    why.append(f"đoạn 0 phải là CÂU HOOK gây tò mò, không chào hỏi («{got.get(0, '')}»)")
                 if too_copy and copies:
                     why.append("các đoạn sau thiếu hoặc chép gần nguyên lời gốc: " +
                                ", ".join(f"{k} («{got.get(k, '(thiếu)')}»)" for k in copies[:8]))
@@ -618,7 +695,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             for k, st, slot, mx, tx, span in slots:
                 ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
                 # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
-                text = got.get(k, "") if ost == "orig" else (got.get(k) or tx)
+                text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
                 # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
                 # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
                 out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
@@ -629,6 +706,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
             metrics.record("llm", name.lower(), fallback=pk > 0)
             return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
+                    "hook": clean_hook(d.get("hook") or "") if intro else "",
                     "title": (d.get("title") or title or script[:80]).strip(),
                     "caption": (d.get("caption") or script).strip(),
                     "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
@@ -656,18 +734,18 @@ async def shorten(items: list) -> dict:
     for call in providers:
         try:
             d = loads_lenient(await call(prompt))
-            return {int(x["i"]): x["text"].strip() for x in d.get("segments", []) if x.get("text")}
+            return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
         except Exception:
             logging.exception("shorten lỗi")
     return {}
 
 
-SCENE_PROMPT = """Bạn là biên kịch video ngắn tiếng Việt. Video không có lời thoại; dưới đây là ảnh đại diện của từng CẢNH theo thứ tự, kèm thời điểm và số từ tối đa. Viết lời thuyết minh cho TỪNG CẢNH, nói đúng điều đang thấy trong ảnh của cảnh đó (không đoán thứ không thấy, không bịa số liệu). Cảnh đầu mở bằng 1 câu hook gây tò mò. Giọng nói chuyện tự nhiên, câu ngắn, có dấu câu. Không emoji trong "text".
+SCENE_PROMPT = """Bạn là biên kịch video ngắn tiếng Việt. Video không có lời thoại; dưới đây là ảnh đại diện của từng CẢNH theo thứ tự, kèm thời điểm và số từ tối đa. Viết lời thuyết minh cho TỪNG CẢNH, nói đúng điều đang thấy trong ảnh của cảnh đó (không đoán thứ không thấy, không bịa số liệu). Cảnh đầu là CÂU HOOK: nói ngay điều hấp dẫn nhất (món thành phẩm, mẹo, câu hỏi gây tò mò), không chào hỏi, không giới thiệu kênh. KHÔNG kêu gọi đăng ký / theo dõi / like / share kênh ở bất kỳ cảnh nào. Giọng nói chuyện tự nhiên, câu ngắn, có dấu câu. Không emoji trong "text".
 Thể loại: {mode}
 Tiêu đề gốc: {title}
 Mô tả gốc: {desc}
 {scenes}
-Trả về DUY NHẤT JSON: {{"segments": [{{"i": 0, "text": "..."}}, ...], "title": "...", "caption": "... (được dùng emoji)", "hashtags": "..."}}"""
+Trả về DUY NHẤT JSON: {{"segments": [{{"i": 0, "text": "..."}}, ...], "title": "...", "caption": "... (được dùng emoji)", "hashtags": "...", "hook": "3-7 chữ IN HOA hiện trên màn hình 3 giây đầu"}}"""
 
 
 async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: list, out_dur: float):
@@ -682,7 +760,7 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
     try:
         raw = await _call_gemini(prompt, images, schema=TimedOut, label="Ảnh cảnh", timeout=90)
         d = loads_lenient(raw)
-        got = {int(x["i"]): (x.get("text") or "").strip() for x in d.get("segments", [])}
+        got = {int(x["i"]): strip_sub_cta((x.get("text") or "").strip()) for x in d.get("segments", [])}
         out = []
         for k, (st, en, _) in enumerate(segs):
             if got.get(k):
@@ -693,7 +771,7 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
         script = " ".join(x["text"] for x in out)
         metrics.record("llm", "gemini")
         return {"segments": out, "script": script, "title": (d.get("title") or title or script[:80]).strip(),
-                "caption": (d.get("caption") or script).strip(),
+                "caption": (d.get("caption") or script).strip(), "hook": clean_hook(d.get("hook") or ""),
                 "hashtags": (d.get("hashtags") or "#viral #fyp").strip()}
     except Exception as e:
         metrics.record("llm", "gemini", ok=False, detail=str(e))
@@ -709,7 +787,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
                              images_for=None):
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
     lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại."""
-    segments = merge_sentences(segments, out_dur)       # gộp TRƯỚC khi chia lô: câu không bị cắt ở ranh giới lô
+    segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)   # gộp TRƯỚC khi chia lô
     if len(segments) <= BATCH + 6:
         return await generate_timed(title, desc, mode, segments, out_dur, images_for)
     starts = list(range(0, len(segments), BATCH))
@@ -759,7 +837,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     merged = out
     script = " ".join(s["text"] for s in merged if s["text"])
     fresh = 1 - sum(s.get("copy", 0) for s in merged) / max(1, len(merged))
-    return {"segments": merged, "script": script, "fresh": round(fresh, 2),
+    return {"segments": merged, "script": script, "fresh": round(fresh, 2), "hook": first.get("hook", ""),
             "title": first["title"], "caption": first["caption"], "hashtags": first["hashtags"]}
 
 

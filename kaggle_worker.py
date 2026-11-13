@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import os
+import re
 import secrets
 import subprocess
 import time
@@ -24,20 +25,25 @@ from kaggle_api import KaggleError
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
+SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
 BUNDLE = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
           "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
-          "slideshow.py", "trendfx.py", "beat.py", "assets/BeVietnamPro-ExtraBold.ttf"]
+          "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
+          "assets/BeVietnamPro-ExtraBold.ttf"]
 BUNDLE_DIRS = ["capcut_tts_api"]
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
        "'transformers==4.57.6' safetensors yt-dlp edge-tts")
 PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu: khỏi cài model giọng
+# phiên phân tích: Whisper (faster-whisper) + tách giọng trên GPU (onnxruntime-gpu thay bản CPU mà faster-whisper kéo về)
+PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
+               "pip install -q onnxruntime-gpu)")
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
 VOICE_REF = os.path.join(BASE, "assets", "voice_ref.mp3")
 LINK_TTL = 4 * 3600
 _LOCK = asyncio.Lock()
-_ABORT = {"flag": False, "running": False}
+_ABORT = {"flag": False, "running": False, "slug": SLUG}
 
 
 def abort():
@@ -46,7 +52,7 @@ def abort():
         return
     _ABORT["flag"] = True
     try:
-        kaggle_api.cancel(SLUG)
+        kaggle_api.cancel(_ABORT.get("slug") or SLUG)
     except Exception as e:
         logging.info("Không huỷ được phiên Kaggle: %s", e)
 
@@ -171,14 +177,28 @@ def bundle_b64() -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+def _jobs(spec: dict) -> list:
+    return spec.get("jobs") if spec.get("kind") == "batch" else [spec]
+
+
+def needs_vieneu(spec: dict) -> bool:
+    return any((j.get("voice") or {}).get("engine") == "vieneu" for j in _jobs(spec)
+               if (j.get("kind") or "remake") == "remake")
+
+
 def needs_gpu(spec: dict) -> bool:
-    jobs = spec.get("jobs") if spec.get("kind") == "batch" else [spec]
-    return any((j.get("voice") or {}).get("engine") == "vieneu" for j in jobs if (j.get("kind") or "remake") == "remake")
+    return needs_vieneu(spec) or any(j.get("kind") == "analyze" for j in _jobs(spec))
+
+
+def pip_for(spec: dict) -> str:
+    if any(j.get("kind") == "analyze" for j in _jobs(spec)):
+        return PIP_ANALYZE
+    return PIP if needs_vieneu(spec) else PIP_LIGHT
 
 
 def kernel_text(spec: dict) -> str:
     spec_b64 = base64.b64encode(json.dumps(spec, ensure_ascii=False).encode()).decode()
-    pip = PIP if needs_gpu(spec) else PIP_LIGHT
+    pip = pip_for(spec)
     text = f'''# rm-video: job tự động (bot tạo, đừng sửa tay). Không chứa key API.
 import base64, io, json, subprocess, sys, zipfile
 APP = "/tmp/rm_app"
@@ -209,7 +229,7 @@ def _common(spec: dict) -> dict:
 
 def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str,
                bands, pos_y, sep: dict, speech: list, max_duration: int, local_path: str | None = None,
-               src: dict | None = None) -> dict:
+               src: dict | None = None, amb_token: str = "") -> dict:
     """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep."""
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
@@ -220,10 +240,23 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
             "sep": {"ok": bool(sep.get("ok_remote")), "windows": sep.get("windows")},
             "speech": [list(x) for x in speech or []],
             "voice": {"engine": engine, "name": voice_name(job.voice), "id": job.voice}}
+    if amb_token:
+        spec["amb_token"] = amb_token
     if voice_name(job.voice) == CLONE:
         spec["ref_b64"] = base64.b64encode(open(VOICE_REF, "rb").read()).decode()
         spec["ref_ext"] = ".mp3"
     return _common(spec)
+
+
+def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: bool, max_duration: int) -> dict:
+    """Việc bóc lời + phân tích hình (chạy TRƯỚC khi AI viết lời). Khoá ngôn ngữ tiếng Việt khi tiêu đề/mô tả có dấu
+    tiếng Việt (Whisper đoán ngôn ngữ trên quãng nhạc dạo hay sai); không thì để Whisper tự đoán (nguồn nước ngoài)."""
+    import vocab
+    vi = bool(re.search(r"[ăâđêôơưàáạảãèéẹẻẽìíịỉĩòóọỏõùúụủũỳýỵỷỹ]", f"{title} {desc}".lower()))
+    return _common({"kind": "analyze", "job": job.id, "src": ref(local_path or job.local or None, job.url, "video",
+                                                                  max_duration),
+                    "want_gray": bool(want_gray), "language": "vi" if vi else "", "token": secrets.token_hex(8),
+                    "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook"})
 
 
 def music_spec(job, inp: str, music: str, music_args: dict) -> dict:
@@ -255,11 +288,13 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             gpu = True
     n = len(jobs)
     on_step(f"Kaggle: gửi {'lô ' + str(n) + ' việc' if n > 1 else 'job'} ({'GPU' if gpu else 'CPU'})")
-    kaggle_api.push(SLUG, "rmvideo worker", kernel_text(spec), gpu=gpu)
+    reuse = any(j.get("amb_token") for j in jobs)        # tiếng nền đã tách ở phiên phân tích: gắn vào, khỏi tách lại
+    kaggle_api.push(SLUG, "rmvideo worker", kernel_text(spec), gpu=gpu,
+                    kernel_sources=[SLUG_ANALYZE] if reuse else None)
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _ABORT.update(flag=False, running=True)
+    _ABORT.update(flag=False, running=True, slug=SLUG)
     try:
         kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st, stop=lambda: _ABORT["flag"])
     finally:
@@ -295,6 +330,66 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
         except Exception as e:
             out.append(e if isinstance(e, KaggleError) else KaggleError(str(e)))
     return out
+
+
+TIMEOUT_ANALYZE = 30 * 60        # phân tích: hàng chờ máy + cài thư viện + tải model Whisper + chạy
+
+
+def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
+    """Phiên phân tích: trả kết quả (đã đọc result.json) + đường dẫn gói ảnh / tiếng nền đã tách nếu có."""
+    gpu = True
+    try:
+        gpu = kaggle_api.quota()["gpu_left"] >= GPU_MIN_LEFT
+    except KaggleError:
+        raise
+    except Exception:
+        pass
+    if not gpu:
+        raise KaggleError("hết giờ GPU tuần này (Whisper trên CPU quá chậm): bóc lời trên Botkeep")
+    on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
+    kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True)
+
+    def st(s, secs):
+        on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
+                f"({secs / 60:.0f} phút)")
+    _ABORT.update(flag=False, running=True, slug=SLUG_ANALYZE)
+    try:
+        kaggle_api.wait(SLUG_ANALYZE, TIMEOUT_ANALYZE, every=15, on_status=st, stop=lambda: _ABORT["flag"])
+    finally:
+        _ABORT["running"] = False
+    d = kaggle_api.outputs(SLUG_ANALYZE)
+    files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
+    if "result.json" not in files:
+        raise KaggleError("Kaggle không trả kết quả phân tích. Log: " + kaggle_api.log_tail(d, 600))
+    rj = os.path.join(tmp, "kaggle_analysis.json")
+    kaggle_api.download(files["result.json"], rj, 20 << 20)
+    res = json.load(open(rj, encoding="utf-8"))
+    if not res.get("ok"):
+        raise KaggleError("Phân tích trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
+    if res.get("token") != spec.get("token"):
+        raise KaggleError("kết quả phân tích không phải của job này (notebook bị việc khác ghi đè)")
+    on_step("Bóc lời + phân tích hình trên Kaggle: tải kết quả về")
+    for name, key in (("thumbs.zip", "thumbs_zip"), ("ambient.flac", "ambient")):
+        if name in files:
+            p = os.path.join(tmp, f"kaggle_{name}")
+            try:
+                kaggle_api.download(files[name], p, 400 << 20)
+                res[key] = p
+            except Exception as e:                  # thiếu ảnh / tiếng nền: vẫn dùng được lời đã bóc
+                logging.warning("Không tải được %s từ Kaggle: %s", name, e)
+    return res
+
+
+async def analyze(spec: dict, tmp: str, on_step=None) -> dict:
+    """Bóc lời + phân tích hình trên Kaggle. Trả kết quả thô (whisper, cuts, bands, ...) hoặc ném KaggleError."""
+    on_step = on_step or (lambda s: None)
+    try:
+        async with _LOCK:
+            res = await asyncio.to_thread(_run_analysis_sync, spec, tmp, on_step)
+    finally:
+        release(spec)
+    logging.info("Kaggle phân tích xong: %s", res.get("timings"))
+    return res
 
 
 async def produce(spec: dict, tmp: str, on_step=None) -> dict:

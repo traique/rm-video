@@ -105,10 +105,14 @@ def quota() -> dict:
             "gpu_used": secs(g.get("timeUsed")), "refresh": d.get("quotaRefreshTime", "")}
 
 
-def push(slug: str, title: str, text: str, gpu: bool = True) -> dict:
-    body = {"slug": f"{user()}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
+def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: list | None = None) -> dict:
+    """kernel_sources: slug các notebook khác của mình mà notebook này đọc đầu ra (gắn ở
+    /kaggle/input/notebooks/<tên>/<slug>/, bản chạy xong gần nhất — đo thật 13/11/2026)."""
+    u = user()
+    body = {"slug": f"{u}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
             "isPrivate": True, "enableGpu": gpu, "enableInternet": True, "datasetDataSources": [],
-            "kernelDataSources": [], "competitionDataSources": [], "modelDataSources": [], "categoryIds": []}
+            "kernelDataSources": [f"{u}/{k}" for k in kernel_sources or []], "competitionDataSources": [],
+            "modelDataSources": [], "categoryIds": []}
     if gpu:
         body["machineShape"] = "NvidiaTeslaT4"
     try:

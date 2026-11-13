@@ -166,6 +166,8 @@ def job_budget(job: Job) -> float:
     if not kaggle_worker.enabled():               # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
         parts = max(1, int(job.out_dur // (90 if job.long_mode == "split90" else 60)) + 1) if job.long_mode else 1
         budget += kaggle_worker.TIMEOUT + kaggle_worker.TIMEOUT_PER_EXTRA * (parts - 1)
+        if config.KAGGLE_ANALYZE != "0" and job.mode in ("cook", "review"):
+            budget += kaggle_worker.TIMEOUT_ANALYZE           # thêm phiên bóc lời + phân tích hình trên Kaggle
     return budget
 
 

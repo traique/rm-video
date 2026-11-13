@@ -120,6 +120,23 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 27: bóc lời + phân tích hình trên Kaggle, câu hook, bỏ lời kêu gọi đăng ký
+
+Chạy thật trên Kaggle T4 với video cá kèo 220s (13/11/2026):
+
+| Phần | Cách làm | Đo thật |
+| --- | --- | --- |
+| Bóc lời | Notebook riêng `rmvideo-analyze`: tách giọng gốc khỏi nhạc trên GPU (onnxruntime-gpu, nạp CUDA qua `preload_dlls`) -> **Whisper large-v3 nghe giọng đã tách** (faster-whisper; tự giải mã âm thanh vì PyAV trên Kaggle lệch phiên bản; nạp sẵn libcublas/libcudnn của các gói nvidia-*; GPU lỗi thì chạy CPU). Botkeep lọc câu bịa/chào kết/lặp vòng, chia đoạn THEO CÂU CỦA WHISPER (Whisper trên Kaggle hay bỏ dấu câu ở khung sau: ghép từng chữ thì 8 chỗ cắt giữa câu, theo câu còn 2), câu > 9s tách ở quãng nghỉ lớn nhất | 94 câu, 840 chữ; bóc được 0-29s ("mẹo làm cá kèo chiên giòn… không nhảy ra", "bỏ đá vào", "nghỉ ngơi 30 phút") và 52-83s mà Groq bỏ sót. Tách giọng GPU 34s (CPU 209s), Whisper 55s gồm tải model 3GB |
+| Phân tích hình | Cùng phiên, CPU song song: điểm chuyển cảnh + chữ in cứng + ảnh 2 khung/giây ở mức Kỹ; ảnh gửi về Botkeep cho AI nhìn và chấm ảnh bìa | 59s (Botkeep: ~380s) |
+| Dựng | Notebook `rmvideo-worker` gắn đầu ra của `rmvideo-analyze` (kernelDataSources, đo thật: gắn ở `/kaggle/input/notebooks/<tên>/<slug>/`) -> dùng lại tiếng nền đã tách nếu khớp mã job | 6.4 phút, tách giọng 0s |
+| Cả phiên phân tích | Hàng chờ + cài thư viện + tải model + chạy | 3.6-3.9 phút. Ước tính cả job video này ~12 phút (bản 25: 19.3 phút) |
+| Câu hook | Đoạn 0 luôn là câu hook (luật riêng, chỉ ở lô đầu); AI chào hỏi ("Xin chào cả nhà...") thì bị bắt viết lại; lời gốc bắt đầu sau 2s thì có câu hook riêng ở 0s; AI trả 3-7 chữ IN HOA in màn hình 3 giây đầu + ảnh bìa, ngắt dòng cân nhau | test |
+| Không kêu gọi đăng ký | Câu gốc chỉ là lời kêu gọi đăng ký/theo dõi -> bỏ trước khi đưa AI; AI viết -> bắt viết lại; còn sót -> lọc từng vế trước khi đọc (cả lời video không lời, rút gọn, kịch bản liền); màn kết bỏ dòng "Theo dõi để xem thêm"; "theo dõi nhiệt độ/lửa" không bị tính | test |
+| Ngắt câu | Câu kết bằng hư từ ("là", "đã", "thì"...) là câu chưa xong (cần khi không có dấu câu); chữ HOA giữa chừng = câu mới | test, chạy trên lời thật |
+| Cài đặt mới | `KAGGLE_ANALYZE` (1 = bóc lời + phân tích trên Kaggle) | |
+
+Phần cắt từ video dài (✂️ / ✨) vẫn bóc lời + phân tích trên Botkeep (các phần đã gom chung một phiên dựng Kaggle).
+
 ## Video thật bản 25 (bản 26): 30 giây đầu không có giọng, phân tích hình lâu
 
 Đo trên video cá kèo 220s bạn gửi: tách giọng cả video gốc và video ra, so từng giây.
