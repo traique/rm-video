@@ -347,6 +347,24 @@ Giọng CapCut không trả mốc từng từ: bot đo các khoảng **có tiế
 
 Mỗi video có thêm **ảnh bìa** (`COVER=1`): bot chấm điểm khung hình (độ nét, độ rực màu, độ sáng, vị trí — nấu ăn ưu tiên món đã xong ở cuối video; bỏ khung sát chuyển cảnh, khung tối, màn kết, đoạn quảng cáo đã cắt), có key Gemini thì AI chọn trong 6 ứng viên. Ảnh chỉnh màu y như video, che dải chữ gốc, tiêu đề vàng viền đen, logo kênh. Telegram: video có ảnh xem trước + ảnh bìa gửi riêng để đăng; web: link "Ảnh bìa". Chạy song song với render (~1 giây CPU).
 
+Tự động đăng: video > 90 giây gửi ảnh bìa cùng lúc đăng; Reels (≤ 90 giây) thì API đăng Reels không có chỗ gửi ảnh bìa
+nên bot thử gắn ảnh bìa sau khi đăng (Facebook không nhận thì bỏ qua, bài vẫn giữ — video nấu ăn có đoạn mở đầu thì khung
+đầu đã là cảnh món đẹp nhất).
+
+## 🎬 Mở đầu bằng món thành phẩm (video nấu ăn có lời)
+
+`TEASER=1` (mặc định, cần key Gemini): AI chọn khoảnh khắc món đã xong đẹp nhất (cũng là ảnh bìa), video mở đầu bằng
+**3 giây cảnh đó** kèm **câu hook có giọng ngay giây 0** và chữ hook to giữa màn hình, rồi mới vào video từ đầu.
+
+- Đoạn mở đầu nằm trong cùng một cảnh (không vắt qua chuyển cảnh); cảnh ngắn hơn 3 giây thì đứng hình. Đẩy cận nhẹ,
+  vào thẳng cảnh món (không mờ từ đen) vì khung đầu thường được lấy làm ảnh bìa; dưới giọng hook là tiếng xèo/giòn của
+  chính cảnh đó (khi đã tách giọng gốc).
+- Câu hook viết riêng cho cảnh món (AI nhìn ảnh), đọc vừa 3 giây; không hiện phụ đề trùng với chữ hook.
+- Không làm khi: AI không thấy cảnh món đã xong rõ ràng, video gốc đã tự mở đầu bằng món, video không lời, chế độ
+  review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do.
+- Video ≤ 90 giây thì thêm 3 giây cũng không vượt 90 giây (bớt phần cuối) để vẫn đăng được Reels; chọn 30/60/90 giây
+  thì giữ đúng độ dài đó. Duyệt kịch bản rồi render lại: dùng đúng đoạn mở đầu đã chọn.
+
 ## Từ điển bóc lời
 
 `ASR_VOCAB` (Cài đặt): tên món, nguyên liệu, tên riêng của kênh, cách nhau dấu phẩy. Bot gửi kèm tiêu đề video + từ điển + nguyên liệu thấy trong tiêu đề/mô tả cho Groq Whisper (tham số `prompt`, ≤224 token) để viết đúng chính tả; sau khi nghe, cụm nghe gần đúng (sai dấu, nhầm s/x, d/gi/r, ch/tr) được sửa theo từ điển (chỉ cụm ≥2 âm tiết, khác không quá nửa số âm tiết). Từ điển cũng được đưa vào lời nhắc AI viết kịch bản. (Gemini transcribe chưa nhận từ điển cùng lúc với mốc từng từ.)

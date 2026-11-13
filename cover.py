@@ -120,18 +120,30 @@ def pick_candidates(times: np.ndarray, scores: np.ndarray, k: int = N_CAND, min_
 COVER_PROMPT = """Dưới đây là {n} ảnh (Ảnh 0 đến Ảnh {last}) cắt từ một {kind} có tiêu đề «{title}». Chọn MỘT ảnh làm ẢNH BÌA hấp dẫn nhất để người lướt mạng dừng lại xem: món ăn/sản phẩm chính rõ nét, đầy đủ, màu đẹp, trông ngon; không bị tay, dụng cụ hay hơi nước che; không mờ nhoè vì chuyển động; không phải cảnh chuyển tiếp hay khung tối. Với video nấu ăn, ưu tiên món đã hoàn thành.
 Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn"}}"""
 
+# Đoạn mở đầu (bản 29): cùng lượt AI chọn ảnh bìa hỏi thêm ảnh đó có phải MÓN ĐÃ XONG không, và video gốc đã tự mở
+# đầu bằng món xong chưa (khung mở đầu gửi kèm là ảnh cuối cùng) — chưa thì chiếu trước cảnh món xong 3 giây.
+TEASER_ASK = """
+Ảnh {opening} (ảnh cuối cùng) là khung MỞ ĐẦU của video gốc, chỉ để bạn so sánh — KHÔNG được chọn ảnh này làm ảnh bìa.
+Trả lời thêm hai ý:
+- "finished": ảnh bạn chọn có phải MÓN ĐÃ HOÀN THÀNH không (đã nấu xong: bày ra dĩa/tô/nồi, đang gắp hoặc cắn thử) — true/false. Nguyên liệu sống, đang sơ chế, đang nấu dở trên bếp là false.
+- "opens_with_dish": khung mở đầu (Ảnh {opening}) đã cho thấy món hoàn thành chưa (video gốc tự mở đầu bằng món đã xong) — true/false.
+Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn", "finished": true/false, "opens_with_dish": true/false}}"""
+
 try:
     from pydantic import BaseModel
 
     class CoverOut(BaseModel):
         best: int
         reason: str
+        finished: bool = False
+        opens_with_dish: bool = False
 except Exception:
     CoverOut = None
 
 
-async def ai_pick(images: list, title: str, mode: str) -> int | None:
-    """Gemini chọn ảnh bìa trong các ứng viên; lỗi/không có key -> None."""
+async def ai_judge(images: list, title: str, mode: str, opening: bytes | None = None) -> dict | None:
+    """Gemini chọn ảnh bìa trong các ứng viên. opening: khung mở đầu video gốc (để AI cho biết ảnh chọn có phải món
+    đã xong và video gốc đã mở đầu bằng món chưa). Trả {"best", "finished", "opens_with_dish"} hoặc None."""
     if not config.GEMINI_API_KEY or len(images) < 2:
         return None
     import prompt_engine
@@ -139,16 +151,28 @@ async def ai_pick(images: list, title: str, mode: str) -> int | None:
         return None
     kind = {"cook": "video nấu ăn", "review": "video review"}.get(mode, "video ngắn")
     prompt = COVER_PROMPT.format(n=len(images), last=len(images) - 1, kind=kind, title=title or "(không có)")
+    if opening:
+        prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(opening=len(images))
     try:
-        raw = await prompt_engine._call_gemini(prompt, images, schema=CoverOut, label="Ảnh", timeout=40)
+        raw = await prompt_engine._call_gemini(prompt, images + ([opening] if opening else []), schema=CoverOut,
+                                               label="Ảnh", timeout=40)
         d = prompt_engine.loads_lenient(raw)
         best = int(d.get("best"))
         if 0 <= best < len(images):
-            logging.info("AI chọn ảnh bìa %d/%d: %s", best, len(images), str(d.get("reason", ""))[:120])
-            return best
+            logging.info("AI chọn ảnh bìa %d/%d%s: %s", best, len(images),
+                         f" (món xong: {d.get('finished')}, gốc mở đầu bằng món: {d.get('opens_with_dish')})"
+                         if opening else "", str(d.get("reason", ""))[:120])
+            return {"best": best, "finished": d.get("finished") is True,
+                    "opens_with_dish": d.get("opens_with_dish") is True}
     except Exception as e:
         logging.warning("AI chọn ảnh bìa lỗi (%s), lấy ảnh điểm cao nhất", str(e)[:100])
     return None
+
+
+async def ai_pick(images: list, title: str, mode: str) -> int | None:
+    """Gemini chọn ảnh bìa trong các ứng viên; lỗi/không có key -> None."""
+    d = await ai_judge(images, title, mode)
+    return d["best"] if d else None
 
 
 # ---------- 3. dựng ảnh ----------
@@ -223,12 +247,12 @@ async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: s
     return big if os.path.exists(big) else None
 
 
-async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
-                     end: float | None = None, bands=None, thumbs_dir: str | None = None,
-                     thumb_times: list | None = None) -> str | None:
-    """Toàn bộ quy trình (thời gian theo video GỐC). Không bao giờ ném lỗi: trả None nếu không làm được."""
-    if config.COVER == "0":
-        return None
+async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
+                      end: float | None = None, thumbs_dir: str | None = None, thumb_times: list | None = None,
+                      opening: bool = False) -> dict | None:
+    """Khung đẹp nhất của video (thời gian theo video GỐC): chấm điểm rồi AI chọn trong 6 ứng viên. opening=True: gửi
+    kèm khung mở đầu để AI cho biết ảnh chọn có phải món đã xong không và video gốc đã mở đầu bằng món chưa (đoạn mở
+    đầu, bản 29). Trả {"t", "score", "n", "ai", "finished", "opens_with_dish"} hoặc None. Không ném lỗi."""
     try:
         times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
         if not len(frames):
@@ -237,19 +261,41 @@ async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: flo
         cand = pick_candidates(times, sc)
         if not cand:
             return None
-        best = cand[0]
+        best, got = cand[0], None
         if len(cand) >= 2 and config.GEMINI_API_KEY:
             images = []
             for i in cand:
                 p = os.path.join(thumbs_dir or "", f"{i + 1:05d}.jpg")
                 images.append(open(p, "rb").read() if thumbs_dir and os.path.exists(p)
                               else await asyncio.to_thread(scenes._keyframe_sync, src, float(times[i])))
-            k = await ai_pick(images, title, mode)
-            if k is not None:
-                best = cand[k]
-        t = float(times[best])
-        logging.info("Ảnh bìa: khung %.1fs (điểm %.2f, %d ứng viên)", t, float(sc[best]), len(cand))
-        return await render_cover(src, t, out_dir, mode, title, bands)
+            first = await asyncio.to_thread(scenes._keyframe_sync, src, min(0.5, src_dur / 10)) if opening else None
+            got = await ai_judge(images, title, mode, first or None)
+            if got is not None:
+                best = cand[got["best"]]
+        logging.info("Khung đẹp nhất: %.1fs (điểm %.2f, %d ứng viên%s)", float(times[best]), float(sc[best]),
+                     len(cand), ", AI chọn" if got else "")
+        return {"t": float(times[best]), "score": float(sc[best]), "n": len(cand), "ai": got is not None,
+                "finished": bool(got and got["finished"]), "opens_with_dish": bool(got and got["opens_with_dish"])}
+    except Exception as e:
+        logging.warning("Không chọn được khung đẹp nhất: %s", str(e)[:200])
+        return None
+
+
+async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
+                     end: float | None = None, bands=None, thumbs_dir: str | None = None,
+                     thumb_times: list | None = None, at: float | None = None) -> str | None:
+    """Toàn bộ quy trình (thời gian theo video GỐC). at: khung đã chọn sẵn (cùng khoảnh khắc với đoạn mở đầu) thì
+    dựng luôn, khỏi chấm điểm + hỏi AI lần nữa. Không bao giờ ném lỗi: trả None nếu không làm được."""
+    if config.COVER == "0":
+        return None
+    try:
+        if at is None:
+            m = await best_moment(src, mode, title, src_dur, cuts, end, thumbs_dir, thumb_times)
+            if not m:
+                return None
+            at = m["t"]
+        logging.info("Ảnh bìa: khung %.1fs", at)
+        return await render_cover(src, at, out_dir, mode, title, bands)
     except Exception as e:
         logging.warning("Không tạo được ảnh bìa: %s", str(e)[:200])
         return None

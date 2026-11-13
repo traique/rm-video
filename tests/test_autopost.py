@@ -109,7 +109,15 @@ def _fake_graph(calls):
     async def insights(req):
         return web.json_response({"data": [{"name": "total_video_views", "period": "lifetime",
                                             "values": [{"value": 4321}]}]})
+
+    async def thumbnails(req):
+        form = await req.post()
+        calls.append(("thumb", req.match_info["vid"], form.get("is_preferred"), len(form["source"].file.read())))
+        if req.match_info["vid"] == "R1" and os.environ.get("FAKE_THUMB_FAIL"):
+            return web.json_response({"error": {"code": 100, "message": "Unsupported post request"}}, status=400)
+        return web.json_response({"success": True})
     app.router.add_post("/v27.0/111/video_reels", reels)
+    app.router.add_post("/v27.0/{vid}/thumbnails", thumbnails)
     app.router.add_post("/video-upload/R1", upload)
     app.router.add_post("/v27.0/111/videos", videos)
     app.router.add_get("/v27.0/{vid}/video_insights", insights)
@@ -630,3 +638,17 @@ def test_web_platform_checkboxes(monkeypatch, tmp_path):
             assert (await (await c.get("/api/autopost", headers=h)).json())["platforms"] == ["tiktok"]
             assert (await c.post("/api/settings", headers=h, json={"AUTO_PLATFORMS": "abc"})).status == 400
     asyncio.run(go())
+
+
+def test_reel_gets_ai_cover_and_failure_never_breaks_post(monkeypatch, tmp_path):
+    vid, cov = tmp_path / "v.mp4", tmp_path / "cover.jpg"
+    vid.write_bytes(os.urandom(200_000))
+    cov.write_bytes(b"\xff\xd8" + os.urandom(5000))
+
+    async def go():
+        return await autopost.publish(str(vid), "Tiêu đề", "Mô tả", 40, None, str(cov))
+    got, calls = asyncio.run(_with_graph(monkeypatch, go))
+    assert got == ("R1", "reel") and ("thumb", "R1", "true", 5002) in calls           # Reel: gắn ảnh bìa AI chọn
+    monkeypatch.setenv("FAKE_THUMB_FAIL", "1")                                         # Facebook không nhận ảnh bìa Reel
+    got, calls = asyncio.run(_with_graph(monkeypatch, go))
+    assert got == ("R1", "reel") and any(c[0] == "thumb" for c in calls)               # bài vẫn đăng bình thường

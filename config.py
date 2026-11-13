@@ -62,6 +62,7 @@ EDITABLE = {
     "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
     "SCENE_ANALYSIS": "light",         # light | fast | full: phân tích hình (chữ in cứng, ảnh bìa, ảnh cho AI, chuyển cảnh)
     "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
+    "TEASER": "1",                     # 1 = video nấu ăn có lời mở đầu bằng 3 giây cảnh món đã xong + câu hook (AI chọn cảnh)
     "NO_SPEECH": "music",              # video KHÔNG LỜI: music = chèn nhạc nền, không thêm lời; narrate = AI xem hình viết lời
     "BGM_LINKS": "",                   # thư viện nhạc nền: link TikTok / YouTube / mp3, cách nhau dấu phẩy
     "BGM_ORIG": "off",                 # tiếng gốc khi chèn nhạc: off = chỉ nhạc mới | low = giữ nhỏ dưới nhạc | keep = giữ to, nhạc nằm dưới
@@ -164,6 +165,8 @@ def save_settings(updates: dict):
                 raise ValueError("TEXT_DETECT chỉ nhận: heuristic, ocr")
             if k == "SCENE_ANALYSIS" and v not in ("light", "fast", "full"):
                 raise ValueError("SCENE_ANALYSIS chỉ nhận: light, fast, full")
+            if k == "TEASER" and v not in ("0", "1"):
+                raise ValueError("TEASER chỉ nhận: 0, 1")
             if k == "NO_SPEECH" and v not in ("music", "narrate"):
                 raise ValueError("NO_SPEECH chỉ nhận: music, narrate")
             if k == "BGM_ORIG" and v not in ("off", "low", "keep"):

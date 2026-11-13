@@ -586,21 +586,28 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     return out
 
 
+TEASER_SPILL = 0.4      # câu hook của đoạn mở đầu được lấn sang video chính tối đa chừng này giây
+TEASER_HINT = """
+- ĐOẠN MỞ ĐẦU: đoạn 0 chiếu trước cảnh MÓN ĐÃ HOÀN THÀNH trong {dur:.0f} giây đầu (xem ảnh đoạn 0), rồi video mới bắt đầu làm từ đầu. Câu hook nói về đúng món đang thấy (giòn, thơm, mềm, màu, độ hấp dẫn) hoặc gợi tò mò cách làm, đọc vừa {dur:.0f} giây; KHÔNG kể bước làm, không nhắc nguyên liệu hay con số mà lời gốc không có."""
 INTRO_MIN = 2.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu hook riêng ở giây 0 (sớm hơn: đoạn 0 là hook)
 INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (một câu hook, phần còn lại của quãng để im)
 
 
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
-                         images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True) -> dict:
+                         images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True,
+                         teaser: float = 0.0) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
     intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
-    kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu)."""
+    kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu).
+    teaser: video có đoạn mở đầu dài chừng ấy giây (cảnh món đã xong chiếu trước, mốc lời gốc đã lùi theo): đoạn 0 là
+    câu hook đọc vừa trong đoạn đó, nói về đúng món đang thấy."""
     segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)
     if not segments:
         return None
     if intro and segments[0][0] >= INTRO_MIN:
-        segments = [(0.0, min(segments[0][0], INTRO_SPEAK), "")] + segments
+        cap = teaser + TEASER_SPILL if teaser else INTRO_SPEAK
+        segments = [(0.0, min(segments[0][0], cap), "")] + segments
     slots = []
     for k, (st, en, tx) in enumerate(segments):
         nxt = segments[k + 1][0] if k + 1 < len(segments) else out_dur
@@ -618,6 +625,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
     if intro:
         prompt += HOOK_RULE
+        if teaser and not slots[0][4]:
+            prompt += TEASER_HINT.format(dur=teaser)
     ost_auto = config.OST_AUTO == "1"
     if ost_auto:
         prompt += OST_HINT
@@ -832,12 +841,14 @@ BATCH_PARALLEL = 2
 
 
 async def generate_timed_any(title: str, desc: str, mode: str, segments: list, out_dur: float,
-                             images_for=None):
+                             images_for=None, teaser: float = 0.0):
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
-    lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại."""
+    lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại.
+    teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó."""
     segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)   # gộp TRƯỚC khi chia lô
+    tkw = {"teaser": teaser} if teaser else {}           # chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)
     if len(segments) <= BATCH + 6:
-        return await generate_timed(title, desc, mode, segments, out_dur, images_for)
+        return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw)
     starts = list(range(0, len(segments), BATCH))
 
     async def _one(b):
@@ -849,7 +860,8 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
             f"không chào lại. Lời GỐC ngay trước phần này là «{prev_orig}» — chỉ để hiểu mạch, KHÔNG viết lại "
             "câu đó; đoạn 0 của phần này phải nói đúng lời gốc của chính đoạn 0. Đoạn cuối của phần này "
             "chưa phải kết video" + (".\n" if b + BATCH < len(segments) else ", trừ khi đây là phần cuối.\n"))
-        return await generate_timed(title, desc, mode, part, end, images_for, extra, intro=b == 0)
+        return await generate_timed(title, desc, mode, part, end, images_for, extra, intro=b == 0,
+                                    **(tkw if b == 0 else {}))
 
     # các lô chạy song song TỐI ĐA 2 (ngữ cảnh lấy từ lời gốc, không phải chờ lô trước viết xong); nhiều hơn
     # dễ chạm hạn mức Gemini miễn phí. Lô nào lỗi thì gọi lại riêng lô đó một lần, không bỏ cả kịch bản.

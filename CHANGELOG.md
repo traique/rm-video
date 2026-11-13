@@ -120,6 +120,20 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 29: mở đầu bằng món thành phẩm + câu hook có giọng, ảnh bìa AI chọn cho Reels
+
+| Phần | Cách làm | Kiểm tra |
+| --- | --- | --- |
+| Chọn khoảnh khắc | Một lượt AI (Gemini) chọn ảnh bìa trong 6 khung đẹp nhất, gửi kèm khung mở đầu video gốc để AI cho biết thêm: ảnh chọn có phải MÓN ĐÃ XONG không, video gốc đã tự mở đầu bằng món chưa. Ảnh bìa và đoạn mở đầu dùng chung khoảnh khắc đó (ảnh trên bảng tin = cảnh đầu video), không tốn thêm lượt AI | test |
+| Đoạn mở đầu 3 giây (`TEASER=1`) | Chỉ video nấu ăn có lời. Lấy 3 giây trong cùng cảnh với khung AI chọn (không vắt qua chuyển cảnh: dò chuyển cảnh riêng quanh khung đó, vài giây video); cảnh ngắn hơn 3 giây thì đứng hình. Cùng chuỗi màu với video, đẩy cận nhẹ, vào thẳng cảnh món (không mờ từ đen: khung đầu hay được lấy làm ảnh bìa). Dựng trong CÙNG lần mã hoá (đầu vào tua sẵn riêng, không thêm một lượt mã hoá cả video) | dựng thật bằng FFmpeg: khung đầu đúng cảnh chọn, sau 3 giây vào video từ đầu, dài thêm đúng 3 giây (cả khi kéo chậm video) |
+| Tiếng | Dưới câu hook là tiếng xèo/giòn của chính cảnh món (bản đã tách giọng gốc); chưa tách giọng thì đoạn mở đầu chỉ có giọng hook (tiếng gốc cảnh đó có thể còn lời người gốc). Mọi mốc (giọng, phụ đề, cổng tiếng nền, đoạn giữ tiếng gốc) lùi 3 giây | đo: có tiếng xèo -38 dB / không tách giọng -64 dB; ra -14 LUFS |
+| Câu hook | AI viết câu hook cho đúng cảnh món đang thấy (giòn, thơm, màu…), đọc vừa 3 giây ngay giây 0, không kể bước làm; chữ hook to hiện ngay khung đầu tới hết đoạn mở đầu; câu hook không hiện thêm phụ đề karaoke | test |
+| Không làm khi | AI không thấy món đã xong rõ ràng, video gốc đã mở đầu bằng món (hoặc khung đẹp nhất nằm trong 4 giây đầu), không có key Gemini, video không lời, chế độ review / nhạc / ảnh, phần cắt từ video dài, `TEASER=0`. Có ghi chú lý do | test |
+| Độ dài | Video ≤ 90s: thêm mở đầu cũng không vượt 90s (bớt phần cuối) để vẫn đăng Reels; chọn 30/60/90s thì giữ đúng độ dài | test |
+| Duyệt kịch bản | Bản duyệt dùng lại đúng đoạn mở đầu đã chọn (không hỏi AI lại). Sửa luôn lỗi cũ: bản duyệt bị mất chữ hook (lấy tiêu đề bài thay vào) | test |
+| Kaggle | Đoạn mở đầu đi kèm việc dựng trên Kaggle (cùng hàm dựng) | test |
+| Ảnh bìa Reels | Trước đây Reels (≤ 90s, phần lớn video tự đăng) KHÔNG được gửi ảnh bìa — API đăng Reels không có chỗ gửi. Giờ đăng xong thử gắn ảnh bìa AI chọn (`/{video-id}/thumbnails`); Facebook không nhận thì bỏ qua, bài vẫn giữ | test với Graph API giả; Facebook thật có nhận với Reels không phải thử trên Page |
+
 ## Bản 28: video không lời chèn nhạc nền, thêm nguồn TikTok cho Tự động đăng
 
 | Phần | Cách làm | Kiểm tra |

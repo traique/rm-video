@@ -211,6 +211,8 @@ _SETTING_OPTIONS = {
     "COVER": [["1", "Bật (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)"], ["0", "Tắt"]],
     "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
     "TEXT_DETECT": [["heuristic", "Heuristic (mặc định, không cần cài)"], ["ocr", "Model OCR (bắt chữ màu, cần setup_offline)"]],
+    "TEASER": [["1", "Bật: video nấu ăn có lời mở đầu bằng 3 giây cảnh món đã xong + câu hook (cần key Gemini)"],
+               ["0", "Tắt: mở đầu như video gốc"]],
     "NO_SPEECH": [["music", "Chèn nhạc nền (mặc định): không thêm lời, tránh nói sai sự thật của video gốc"],
                   ["narrate", "AI xem hình rồi viết lời đọc (cách cũ)"]],
     "BGM_ORIG": [["off", "Chỉ nhạc mới (mặc định): bỏ tiếng gốc, tránh hai bản nhạc chồng nhau"],

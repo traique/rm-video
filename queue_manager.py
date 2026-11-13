@@ -66,6 +66,7 @@ class Job:
     remote_src: dict = field(default_factory=dict)   # Kaggle: đầu vào dựng sẵn (phần cắt từ video dài: tải nguồn + cắt)
     post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
     hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
+    teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t"} (bản duyệt dùng lại)
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job

@@ -73,7 +73,7 @@ def _fakes(monkeypatch, tmp_path, clips):
     async def fake_choose(*a, **k):
         return clips
 
-    async def fake_process(sub, part_dir, allow_review=True):
+    async def fake_process(sub, part_dir, allow_review=True, **kw):
         calls["process"].append(sub.title_hint)
         out = os.path.join(part_dir, "output.mp4")
         open(out, "wb").write(b"v")

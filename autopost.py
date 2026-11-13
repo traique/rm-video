@@ -513,6 +513,29 @@ async def _upload_video(session, path: str, title: str, description: str, when: 
     return str(d.get("id") or d.get("video_id") or "")
 
 
+async def _set_reel_cover(session, vid: str, thumb: str) -> bool:
+    """Gắn ảnh bìa AI chọn cho Reel vừa đăng (/{video-id}/thumbnails, is_preferred): API đăng Reels không có chỗ gửi
+    ảnh bìa. Facebook có cho đổi ảnh bìa Reel theo đường này hay không còn tuỳ Page / phiên bản API, nên lỗi chỉ ghi
+    log, bài vẫn giữ nguyên — video nấu ăn có đoạn mở đầu thì khung đầu đã là cảnh món đẹp nhất."""
+    if not vid or not thumb or not os.path.exists(thumb):
+        return False
+    form = aiohttp.FormData()
+    form.add_field("access_token", config.FB_PAGE_TOKEN.strip())
+    form.add_field("is_preferred", "true")
+    try:
+        with open(thumb, "rb") as f:
+            form.add_field("source", f, filename="cover.jpg", content_type="image/jpeg")
+            async with session.post(f"{GRAPH}/{API_VER}/{vid}/thumbnails", data=form,
+                                    timeout=aiohttp.ClientTimeout(total=120)) as r:
+                await _json(r)
+        logging.info("Tự động đăng: đã gắn ảnh bìa cho Reel %s", vid)
+        return True
+    except Exception as e:
+        logging.info("Tự động đăng: Facebook không nhận ảnh bìa cho Reel %s (%s), dùng khung đầu video", vid,
+                     str(e)[:150])
+        return False
+
+
 async def publish(path: str, title: str, description: str, duration: float, when: float | None,
                   thumb: str = "", session=None) -> tuple:
     """Đăng (hoặc hẹn giờ) lên Page. Trả (id video Facebook, "reel" | "video")."""
@@ -520,7 +543,9 @@ async def publish(path: str, title: str, description: str, duration: float, when
     session = session or aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600))
     try:
         if duration <= REEL_MAX:
-            return await _upload_reel(session, path, description, when), "reel"
+            vid = await _upload_reel(session, path, description, when)
+            await _set_reel_cover(session, vid, thumb)       # thử gắn ảnh bìa; lỗi cũng không làm hỏng bài đã đăng
+            return vid, "reel"
         return await _upload_video(session, path, title, description, when, thumb), "video"
     finally:
         if own:

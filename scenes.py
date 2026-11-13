@@ -156,6 +156,24 @@ def _cuts_sync(path: str, threshold: float = 0.3, min_gap: float = 0.8) -> list[
     return cuts
 
 
+def _cuts_near_sync(path: str, t0: float, t1: float, threshold: float = 0.3) -> list[float]:
+    """Điểm chuyển cảnh trong [t0, t1] (giây video gốc): chỉ giải mã đúng khúc đó (vài giây), không cả video."""
+    if t1 - t0 < 0.5:
+        return []
+    err = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{t1 - t0:.2f}", "-i", path, "-an", "-vf",
+         f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60).stderr
+    return [round(max(0.0, t0) + float(x), 2) for x in re.findall(r"pts_time:([0-9.]+)", err) if float(x) > 0.05]
+
+
+async def cuts_near(path: str, t0: float, t1: float) -> list[float]:
+    try:
+        return await asyncio.to_thread(_cuts_near_sync, path, t0, t1)
+    except Exception:
+        return []
+
+
 async def detect_cuts(path: str) -> list[float]:
     try:
         return await asyncio.to_thread(_cuts_sync, path)

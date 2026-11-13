@@ -1267,24 +1267,69 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0) -> str
     return "crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look) + sharpen
 
 
+TEASER_DUR = 3.0          # đoạn mở đầu: cảnh món đã xong chiếu trước 3 giây, kèm câu hook (bản 29)
+TEASER_ZOOM = 0.06        # đẩy cận 6% trong đoạn mở đầu (ảnh tĩnh: x1.7)
+TEASER_STILL_ZOOM = 1.7
+
+
+def teaser_window(t: float, cuts: list, end: float, dur: float = TEASER_DUR) -> tuple:
+    """(giây bắt đầu, ảnh tĩnh?) của đoạn mở đầu dài dur giây trong CÙNG cảnh với khung t (thời gian video gốc).
+    Đủ chỗ thì bắt đầu đúng khung t (khung đầu video = ảnh bìa AI chọn, Facebook/TikTok hay lấy khung đầu làm ảnh
+    bìa); cảnh đủ dài nhưng t sát cuối cảnh thì lùi về trước; cảnh ngắn hơn dur thì đứng hình tại t (đẩy cận)."""
+    prev = max([c for c in cuts if c <= t + 0.05], default=0.0)
+    nxt = min([c for c in cuts if c > t + 0.05] + [end])
+    if nxt - t >= dur + 0.15:
+        return round(t, 3), False
+    if nxt - prev >= dur + 0.3:
+        return round(max(prev + 0.15, nxt - dur - 0.15), 3), False
+    return round(t, 3), True
+
+
+def subtitle_texts(segs: list, teaser: dict | None = None) -> list:
+    """Chữ phụ đề của từng đoạn: đoạn giữ tiếng gốc không có chữ; có đoạn mở đầu và chữ hook to trên màn hình
+    (BRAND_INTRO) thì câu hook không hiện phụ đề nữa (hai lớp chữ chồng nhau che mất món)."""
+    hide0 = bool(teaser) and config.BRAND_INTRO != "0"
+    return ["" if s.get("ost") == "orig" or (hide0 and k == 0 and float(s.get("start", 1.0)) < 0.05) else s["text"]
+            for k, s in enumerate(segs)]
+
+
 def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
                  fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
-                 ost=None, orig_audio: bool = True, bed: bool = False) -> str:
+                 ost=None, orig_audio: bool = True, bed: bool = False, teaser: dict | None = None) -> str:
     """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
-    + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại."""
+    + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại.
+    teaser: đoạn mở đầu {"iv": đầu vào hình (đã tua tới cảnh món xong), "ia": đầu vào tiếng nền của cảnh đó hoặc
+    None, "dur": giây, "still": ảnh tĩnh} nối TRƯỚC video chính; mọi mốc (phụ đề, cổng tiếng, cửa sổ tiếng gốc) do
+    caller đưa vào đã tính cả đoạn mở đầu."""
+    tz = teaser if teaser and teaser.get("dur") else None
+    T = float(tz["dur"]) if tz else 0.0
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
     slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
     orig_src = "[0:a]"
     if slow:
         ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
         orig_src += f"atempo={1 / stretch:.4f},"
+    if tz:
+        orig_src += f"adelay={int(round(T * 1000))}:all=1,"   # tiếng gốc của video chính lùi sau đoạn mở đầu
     ost = [w for w in (ost or []) if w[1] > w[0]] if orig_audio else []
     # tiếng gốc NGUYÊN BẢN (cả lời người gốc) chỉ trong các cửa sổ được đánh dấu giữ tiếng gốc
     ost_chain = (f"{orig_src}aformat=sample_rates=44100:channel_layouts=stereo,"
                  f"volume='{_ost_level_expr(ost)}':eval=frame[ost];") if ost else ""
-    v = f"[0:v]{slow}fps={fps:g}," + look_chain(mode, W, H, src_w, src_h)
+    look = look_chain(mode, W, H, src_w, src_h)
+    if tz:
+        # cảnh món đã xong chiếu trước: cùng chuỗi màu với video, đẩy cận nhẹ cho có nhịp (ảnh tĩnh đẩy mạnh hơn),
+        # rồi nối thẳng vào video chính. Đầu vào riêng đã tua sẵn: không bắt FFmpeg giữ hàng nghìn khung chờ nối.
+        z = TEASER_ZOOM * (TEASER_STILL_ZOOM if tz.get("still") else 1.0)
+        v = (f"[{tz['iv']}:v]"
+             + (f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={T + 0.2:.2f}," if tz.get("still") else "")
+             + f"setpts=PTS-STARTPTS,fps={fps:g},{look},"
+             f"scale=w='trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2':h=-2:eval=frame,crop={W}:{H},setsar=1,"
+             f"trim=duration={T:.3f}[tzv];"
+             f"[0:v]{slow}fps={fps:g},{look},setsar=1[mnv];[tzv][mnv]concat=n=2:v=1:a=0")
+    else:
+        v = f"[0:v]{slow}fps={fps:g}," + look
     v += _cover_filter(cover_bands or [], W, H)
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ASSETS_DIR}"
@@ -1297,8 +1342,18 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     if mode == "cook" and ambient:
         # highpass 3kHz giữ tiếng xèo xèo; sidechaincompress tự hạ tiếng nền khi giọng đọc
         # vang lên (ducking như video chuyên nghiệp); loudnorm chuẩn hóa âm lượng -16 LUFS
+        pre = ""
+        if tz:
+            # tiếng nền của đoạn mở đầu: tiếng xèo/giòn của chính cảnh đó (bản đã tách giọng); không có bản tách
+            # giọng thì im (tiếng gốc cảnh đó có thể còn lời người gốc), rồi tới tiếng nền của video chính
+            pre = ((f"[{tz['ia']}:a]aformat=sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS,"
+                    f"apad=whole_dur={T:.3f},atrim=0:{T:.3f}[tza];") if tz.get("ia") is not None else
+                   f"anullsrc=r=44100:cl=stereo,atrim=0:{T:.3f}[tza];")
+            pre += (f"{ambient_src}aformat=sample_rates=44100:channel_layouts=stereo[mna];"
+                    "[tza][mna]concat=n=2:v=0:a=1[ambx];")
+            ambient_src = "[ambx]"
         a = (
-            "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() + "asplit=2[vo][sc];"
+            pre + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() + "asplit=2[vo][sc];"
             + (_gate_chain(speech_gate, ambient_src) if speech_gate else
                f"{ambient_src}aformat=sample_rates=44100:channel_layouts=stereo,")
             + "volume=0.8"
@@ -1543,17 +1598,23 @@ def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: s
 
 
 def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
-                  logo_idx: int | None) -> str:
-    """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh)."""
+                  logo_idx: int | None, title_end: float | None = None) -> str:
+    """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh).
+    title_end: có đoạn mở đầu thì chữ hook hiện NGAY khung đầu (khung đầu thường thành ảnh bìa) tới hết đoạn đó."""
     k = H / 1280
     f = ""
     if title_files:
         fs, pad = int(50 * k), int(16 * k)
         lh = fs + 2 * pad + int(6 * k)
+        if title_end:
+            e = f"{title_end:.2f}"
+            when = f"enable='lte(t,{e})':alpha='if(gt(t,{e}-0.4),({e}-t)/0.4,1)'"
+        else:
+            when = "enable='between(t,0.3,3.3)':alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'"
         f += drawtext_lines(
             title_files, fs, f"h*0.36-{len(title_files) * lh // 2}", lh,
             f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={pad}:"
-            "enable='between(t,0.3,3.3)':alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'")
+            + when)
     if outro_file and out_dur > 6:
         st = out_dur - 2.2
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
@@ -1571,16 +1632,18 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: int = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
-                 music_bed: bool = False):
+                 music_bed: bool = False, teaser: dict | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
     stretch: làm chậm hình + tiếng nền (1.4 = dài thêm 40%) NGAY TRONG lần mã hoá này; mọi mốc thời gian
     (phụ đề, cổng tiếng nền, giọng) là theo trục thời gian ĐÃ làm chậm.
     Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền).
-    notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p)."""
+    notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p).
+    teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29)."""
     t_start = time.time()
-    vid_dur = await probe_duration(input_mp4) * stretch
+    T = float(teaser["dur"]) if teaser and teaser.get("dur") else 0.0
+    vid_dur = await probe_duration(input_mp4) * stretch + T
     out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
     out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
     ambient = await has_audio(input_mp4)
@@ -1599,21 +1662,34 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
         outro_file = os.path.join(tmp, "outro.txt")
         open(outro_file, "w", encoding="utf-8").write(config.BRAND_NAME.strip())
     use_logo = config.BRAND_LOGO != "0" and os.path.exists(LOGO_PATH)
-    logo_idx = (3 if ambient_wav else 2) if use_logo else None
+    # đầu vào: 0 video, 1 giọng, [tiếng nền], [tiếng nền đoạn mở đầu], [logo], [hình đoạn mở đầu]. Các đầu vào TIẾNG
+    # đứng trước để lượt đo âm lượng (two_pass_loudness, chỉ có các đầu vào tiếng) đánh số giống hệt.
+    audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
+    tz, extra_in = None, []
+    if T:
+        a0 = max(0.0, float(teaser.get("a") or 0.0))
+        tz = {"dur": T, "still": bool(teaser.get("still")), "ia": None}
+        if ambient_wav:
+            tz["ia"] = audio_in.count("-i")
+            audio_in += ["-ss", f"{a0:.3f}", "-t", f"{T:.3f}", "-i", ambient_wav]
+        tz["iv"] = audio_in.count("-i") + (1 if use_logo else 0)
+        extra_in = ["-ss", f"{a0:.3f}", "-t", "1" if tz["still"] else f"{T + 0.5:.3f}", "-i", input_mp4]
+    logo_idx = audio_in.count("-i") if use_logo else None
     fc = build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
-                      bed=bool(music_bed and ambient_wav))
-    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx)
-    fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
+                      bed=bool(music_bed and ambient_wav), teaser=tz)
+    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None)
+    # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
+    fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
-    audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
     fc = await two_pass_loudness(fc, audio_in, out_dur)
     await _run_ffmpeg(
         "-y", *thread_args(),
         *audio_in,
         *(["-i", LOGO_PATH] if use_logo else []),
+        *extra_in,
         "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",
         *encode_args(H, fps),

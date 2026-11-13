@@ -198,7 +198,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                 out = piece                            # chỉ cắt, không remake
             else:
                 with kaggle_worker.collect() if batch else contextlib.nullcontext():
-                    out = await process(sub, part_dir, allow_review=False)   # cắt phần không dừng chờ duyệt
+                    out = await process(sub, part_dir, allow_review=False, teaser_ok=False)   # không dừng chờ duyệt
             if isinstance(out, kaggle_worker.Deferred):
                 waiting.append((label, pc, sub, out, part_dir))
                 deferred = True
@@ -231,7 +231,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                     sub.error = f"ℹ️ Kaggle lỗi ({str(e)[:120]}): làm trên Botkeep. "
                     sub.approved, sub.post_keep = d.approved, sub.post      # lời đã chốt: không gọi AI lần nữa
                     job.step = f"{label}: làm trên Botkeep"
-                    out = await process(sub, part_dir, allow_review=False, local_only=True)
+                    out = await process(sub, part_dir, allow_review=False, local_only=True, teaser_ok=False)
                     sub.post = sub.post or sub.post_keep
                 await _deliver(pc, label, sub, out)
                 ok += 1
@@ -439,6 +439,34 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
             "token": res.get("token", "") if fresh else "", "timings": res.get("timings") or {}}
 
 
+TEASER_MIN_AT = 4.0      # khung món đẹp nhất nằm trong 4 giây đầu: video gốc đã mở đầu bằng món, khỏi chiếu trước
+REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
+
+
+async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: list, end: float) -> tuple:
+    """Đoạn mở đầu (bản 29): AI chọn khung đẹp nhất (cũng là ảnh bìa) trong cùng một lượt xác nhận đó là MÓN ĐÃ
+    XONG và video gốc chưa tự mở đầu bằng món -> chiếu trước 3 giây cảnh đó (cùng cảnh, không vắt qua chuyển cảnh;
+    cảnh quá ngắn thì đứng hình). Thời gian theo video gốc; end: hết phần sẽ render (đã bỏ đoạn quảng cáo cuối).
+    Trả (đoạn mở đầu {"a", "dur", "still", "t"} | None, khung đẹp nhất | None, lý do không làm)."""
+    a = scenes._ANALYZED.get(inp)
+    m = await cover_mod.best_moment(inp, mode, title, src_dur, cuts, end, a["dir"] if a else None,
+                                    a.get("times") if a else None, opening=True)
+    if not m:
+        return None, None, "không chọn được khung hình"
+    if not m["ai"]:
+        return None, m, ("cần key Gemini để AI xác nhận cảnh món đã xong" if not config.GEMINI_API_KEY
+                         else "AI chọn ảnh lỗi")
+    if not m["finished"]:
+        return None, m, "AI không thấy cảnh món đã xong rõ ràng"
+    if m["opens_with_dish"] or m["t"] < TEASER_MIN_AT:
+        return None, m, "video gốc đã mở đầu bằng món"
+    T = core_video.TEASER_DUR
+    near = await scenes.cuts_near(inp, m["t"] - T - 0.5, min(end, m["t"] + T + 0.5))
+    known = {c for c in cuts if abs(c - m["t"]) <= T + 1}
+    start, still = core_video.teaser_window(m["t"], sorted(set(near) | known), end, T)
+    return {"a": start, "dur": T, "still": still, "t": round(m["t"], 3)}, m, ""
+
+
 NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") = video KHÔNG LỜI
 
 
@@ -461,11 +489,12 @@ def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
     return None
 
 
-async def process(job: Job, tmp: str, allow_review: bool = True, local_only: bool = False):
-    """Xử lý một job; task nền nào (tách giọng) còn chạy khi job dừng giữa chừng thì bị huỷ cùng."""
+async def process(job: Job, tmp: str, allow_review: bool = True, local_only: bool = False, teaser_ok: bool = True):
+    """Xử lý một job; task nền nào (tách giọng) còn chạy khi job dừng giữa chừng thì bị huỷ cùng.
+    teaser_ok=False: phần cắt từ video dài — không chiếu trước cảnh món (món xong nằm ở phần cuối của cả video)."""
     tasks: list = []
     try:
-        return await _process(job, tmp, allow_review, tasks, local_only)
+        return await _process(job, tmp, allow_review, tasks, local_only, teaser_ok)
     finally:
         for t in tasks:
             if not t.done():
@@ -636,7 +665,8 @@ async def process_photo(job: Job, tmp: str) -> str:
     return out
 
 
-async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_only: bool = False):
+async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_only: bool = False,
+                   teaser_ok: bool = True):
     if job.mode == "photo":
         return await process_photo(job, tmp)
     if job.local:
@@ -800,8 +830,15 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         cuts[:] = [round(c * stretch, 2) for c in await scenes.detect_cuts(inp)]
         return len(cuts) >= 2
 
-    def keyframes_for(sg):                              # ảnh cho AI: đổi mốc về trục thời gian của video gốc
-        return scenes.keyframes(inp, [(a / stretch, b / stretch, t) for a, b, t in sg])
+    tz = None                                           # đoạn mở đầu (cảnh món đã xong chiếu trước), quyết ở dưới
+
+    def src_time(x: float) -> float:                    # mốc trên video ra -> giây trên video gốc
+        if tz and x < tz["dur"]:
+            return tz["a"] + (0.0 if tz.get("still") else min(x, tz["dur"] - 0.1))
+        return (x - (tz["dur"] if tz else 0.0)) / stretch
+
+    def keyframes_for(sg):                              # ảnh cho AI: ảnh GIỮA mỗi đoạn, lấy trên video gốc
+        return scenes.keyframes(inp, [(m, m, t) for m, t in ((src_time((a + b) / 2), t) for a, b, t in sg)])
 
     async def _ambient():
         """Chế độ nấu ăn: tiếng nền KHÔNG còn giọng người gốc. Ưu tiên tách giọng AI (chỉ các đoạn có lời);
@@ -835,9 +872,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
             return None
         a = scenes._ANALYZED.get(inp)
         t = asyncio.create_task(cover_mod.make_cover(
-            inp, tmp, job.mode, post_title, src_dur, cuts=[c / stretch for c in cuts],
-            end=out_dur / stretch, bands=bands, thumbs_dir=a["dir"] if a else None,
-            thumb_times=a.get("times") if a else None))
+            inp, tmp, job.mode, post_title, src_dur, cuts=cover_src["cuts"], end=cover_src["end"], bands=bands,
+            thumbs_dir=a["dir"] if a else None, thumb_times=a.get("times") if a else None, at=cover_src["at"]))
         tasks.append(t)
         return t
 
@@ -862,11 +898,38 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         out_dur = render_dur = cut
         job.out_dur = out_dur
     _plan_separation()
-    # Giọng VieNeu: đọc giọng + tách giọng gốc + dựng chạy trên Kaggle (kaggle_worker); Botkeep chỉ bóc lời + AI viết.
-    if not job.approved and config.NO_SPEECH != "narrate" and \
-            no_speech([s for s in segs if s[0] < out_dur - 0.5], text, bool(raw_segs)):
+    # ảnh bìa: thời gian theo video GỐC (trước khi lùi mốc cho đoạn mở đầu); "at" = khung AI đã chọn sẵn
+    cover_src = {"cuts": [c / stretch for c in cuts], "end": out_dur / stretch, "at": None}
+    silent = no_speech([s for s in segs if s[0] < out_dur - 0.5], text, bool(raw_segs))
+    if not job.approved and config.NO_SPEECH != "narrate" and silent:
         return await _music_only(job, inp, tmp, title, desc, out_dur, render_dur, stretch, is_long, bands,
                                  local_only, _start_cover, _finish_cover)
+    # ----- Đoạn mở đầu: cảnh MÓN ĐÃ XONG chiếu trước 3 giây kèm câu hook (chỉ video nấu ăn có lời) -----
+    if job.approved:
+        tz = dict(job.teaser) if job.teaser else None   # bản đã duyệt: đúng đoạn mở đầu đã quyết lúc viết lời
+    elif teaser_ok and job.mode == "cook" and config.TEASER != "0" and not silent:
+        job.step = "AI chọn cảnh món đã xong (ảnh bìa + đoạn mở đầu)"
+        tz, moment, why_tz = await plan_teaser(inp, job.mode, title, src_dur, cover_src["cuts"], cover_src["end"])
+        if moment:
+            cover_src["at"] = moment["t"]               # ảnh bìa = đúng khung đó, khỏi hỏi AI lần nữa
+        job.teaser = tz or {}
+        if why_tz:
+            job.error = (job.error or "") + f"ℹ️ Không chiếu trước cảnh món ({why_tz}). "
+    if tz:
+        cover_src["at"] = tz["t"]
+        T = float(tz["dur"])
+        full = out_dur + T
+        # chọn 30/60/90 giây thì giữ đúng độ dài đó; "giữ nguyên" mà video ≤ 90s thì không để vượt 90s (hết là Reels)
+        total = round(min(full, job.duration or (REEL_MAX if out_dur <= REEL_MAX + 0.01 else full)), 2)
+        segs = [(round(a + T, 2), round(b + T, 2), t) for a, b, t in segs]
+        cuts = [T] + [round(c + T, 2) for c in cuts]    # đoạn mở đầu -> video chính cũng là một lần chuyển cảnh
+        speech = [(a + T, b + T) for a, b in speech]
+        render_dur = total if (render_dur or total < full - 0.01) else 0
+        out_dur = job.out_dur = total
+        job.error = (job.error or "") + (
+            f"ℹ️ Mở đầu bằng {T:.0f} giây cảnh món đã xong (giây {tz['t']:.0f} video gốc"
+            + (", cảnh ngắn nên đứng hình" if tz.get("still") else "") + ") kèm câu hook"
+            + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". ")
     why_local = "chạy trên Botkeep theo yêu cầu" if local_only else kaggle_worker.usable(job, inp)
     remote = not why_local
     prompt_engine.set_voice_rate(kaggle_worker.words_per_sec(job.voice) if remote else None)
@@ -896,7 +959,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         job.step = f"Viết lại {len(segs)} đoạn theo mốc lời" + (f" + {len(cuts)} điểm chuyển cảnh" if cuts else "") + " (AI)"
         timed = await prompt_engine.generate_timed_any(
             title, desc, job.mode, segs, out_dur,
-            images_for=keyframes_for)                   # AI nhìn ảnh từng đoạn để lời khớp hình
+            images_for=keyframes_for,                   # AI nhìn ảnh từng đoạn để lời khớp hình
+            **({"teaser": float(tz["dur"])} if tz else {}))
     elif len(cuts) >= 2 or (not cuts and scenes.mode() == "light" and await _late_cuts()):
         sc = scenes.scene_segments(cuts, out_dur)       # video không lời: AI nhìn ảnh từng cảnh
         job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
@@ -981,7 +1045,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 spec = kaggle_worker.build_spec(
                     job, segs_t, out_dur, render_dur, stretch, not is_long, post_title, bands, pos_y, sep_r, speech,
                     config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION, local_path=inp,
-                    src=job.remote_src or None, amb_token=an["token"] if an else "")
+                    src=job.remote_src or None, amb_token=an["token"] if an else "", teaser=tz)
             except Exception as e:
                 job.error = (job.error or "") + f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. "
 
@@ -1037,8 +1101,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         await core_video.compose_voice(clips, plan, voice_track, out_dur)
         got_subs = False
         if job.subs:
-            words = await core_video.words_for_track(
-                clips, plan, voice_track, ["" if s.get("ost") == "orig" else s["text"] for s in segs_t])
+            words = await core_video.words_for_track(clips, plan, voice_track, core_video.subtitle_texts(segs_t, tz))
             if words:
                 job.srt = subs_mod.to_srt(words)
                 subs_mod.write_ass(words, ass, pos_y, config.SUB_STYLE)
@@ -1053,7 +1116,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         await core_video.render(inp, voice_track, out, job.mode, render_dur,
                                 ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
                                 title=post_title, tmp=tmp,
-                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur), notes=notes)
+                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur), notes=notes, teaser=tz)
         if notes:
             job.error = (job.error or "") + "".join(notes)
         await _finish_cover(cover_task)
@@ -1106,7 +1169,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     notes = []
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
-                            title=post_title, tmp=tmp, stretch=stretch, notes=notes)
+                            title=post_title, tmp=tmp, stretch=stretch, notes=notes, teaser=tz)
     if notes:
         job.error = (job.error or "") + "".join(notes)
     await _finish_cover(cover_task)

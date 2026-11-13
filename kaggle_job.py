@@ -188,7 +188,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
         srt, ass = "", None
         if spec.get("subs"):
             words = await core_video.words_for_track(clips, plan, voice_track,
-                                                     ["" if s.get("ost") == "orig" else s["text"] for s in segs])
+                                                     core_video.subtitle_texts(segs, spec.get("teaser")))
             if words:
                 srt = subs_mod.to_srt(words)
                 ass = os.path.join(tmp, "subs.ass")
@@ -207,7 +207,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     await core_video.render(inp, voice_track, out, spec["mode"], int(spec.get("render_dur") or 0), ass,
                             spec.get("bands") or None, amb, gate, allow_hd=bool(spec.get("allow_hd", True)),
                             title=spec.get("title") or "", tmp=tmp, stretch=float(spec.get("stretch") or 1.0),
-                            ost=core_video.ost_windows(segs, out_dur), notes=notes)
+                            ost=core_video.ost_windows(segs, out_dur), notes=notes, teaser=spec.get("teaser"))
     t["render"] = round(time.time() - t0, 1)
     return {"ok": True, "video": out, "plan": plan, "too_long": too_long, "srt": srt, "amb": bool(amb),
             "notes": notes, "timings": t, "fast": sum(1 for p in plan if p["factor"] > 1.12)}
