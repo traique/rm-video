@@ -120,6 +120,20 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 34: thử model offline thay Groq/Gemini trên Kaggle
+
+**Bóc lời (thay Groq):** từ bản 27 đã bóc lời offline trên Kaggle bằng faster-whisper large-v3; Groq chỉ còn là dự phòng.
+Thử thêm **PhoWhisper-large** (VinAI, Whisper tinh chỉnh tiếng Việt), cùng một file giọng đã tách của video cá kèo
+(notebook `rmvideo-phowhisper`, chuyển sang CTranslate2 fp16 2.9GB, giữ ở đầu ra notebook):
+
+| Model | Thời gian | Kết quả trên video cá kèo 220s |
+| --- | --- | --- |
+| Whisper large-v3 (hiện tại) | 52s | 64 câu, 842 chữ, phủ 152s, có dấu câu; sai vài chữ ("lắc xê", "gây mơ", "rau găm") |
+| PhoWhisper-large | 27s | 7 đoạn khổng lồ (35-73s, 73-108s...) KHÔNG có dấu câu; **bỏ hẳn quãng 9.7-35.5s** (lắc xê, bỏ đá, cho nước, ngâm 30 phút); bịa câu "đó là lý do vì sao báo chí lại tồn tại" ở cuối; sai chữ khác ("cá kẹo chua giòn", "trái kẹo", "rọi dầu") |
+
+Kết luận: giữ large-v3 mặc định. Tuỳ chọn `KAGGLE_ASR=phowhisper` vẫn có (chỉ video tiếng Việt; thiếu notebook
+model thì tự về large-v3) để thử với kênh khác.
+
 ## Bản 33: dùng lại tiếng nền khi chạy lại video cũ; lượt tách 2 chỉ khi GPU; bớt báo động giả
 
 Log bản 32 (chạy lại link cá kèo): phân tích lấy từ cache nên không có mã tiếng nền -> phiên dựng tự tách lại trên

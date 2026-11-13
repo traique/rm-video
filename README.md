@@ -83,7 +83,9 @@ mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nh�
 cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần). Mỗi video remake
 dùng HAI notebook riêng tư, không chứa key API nào:
 
-1. **`rmvideo-analyze` — bóc lời + phân tích hình** (`KAGGLE_ANALYZE=1`, mặc định): Kaggle tự tải video, tách giọng
+1. **`rmvideo-analyze` — bóc lời + phân tích hình** (`KAGGLE_ANALYZE=1`, mặc định; `KAGGLE_ASR`: large-v3 mặc định,
+   `phowhisper` = PhoWhisper-large của VinAI — đo trên video cá kèo thì kém large-v3, bỏ sót 25s lời; chỉ nên thử với
+   kênh khác, cần notebook `rmvideo-phowhisper` giữ model): Kaggle tự tải video, tách giọng
    gốc khỏi nhạc trên GPU (Kim_Vocal_2), cho **Whisper large-v3 nghe giọng đã tách** (faster-whisper, MIT; lọc quãng
    không người nói, không nối ngữ cảnh câu trước), song song dò điểm chuyển cảnh + chữ in cứng + ảnh thu nhỏ ở mức Kỹ.
    Botkeep chỉ lọc câu bịa/lặp, chia đoạn theo câu của Whisper.
