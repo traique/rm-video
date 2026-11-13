@@ -67,7 +67,7 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
   <div id="msg"></div>
 </div>
 <div class="card">
-  <details><summary><b>⚙️ Cài đặt API</b> <span class="mut">(key, model, cookies, giọng đọc, người dùng Telegram — lưu vào settings.json)</span></summary>
+  <details><summary><b>⚙️ Cài đặt</b> <span class="mut">(key API, giọng đọc, video, Kaggle, Telegram — nhóm Tài khoản & API mở sẵn, nhóm khác bấm để mở)</span></summary>
     <div id="set_fields"></div>
     <label>Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
     <input id="logo_file" type="file" accept="image/png">
@@ -89,13 +89,19 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
   </details>
 </div>
 <div class="card">
-  <details id="auto_box"><summary><b>🤖 Tự động đăng</b> <span class="mut">(kênh nguồn Facebook / TikTok → làm lại → đăng Fanpage giờ vàng; bật trong Cài đặt: AUTO_POST, AUTO_SOURCES, AUTO_TIKTOK_SOURCES, FB_PAGE_ID, FB_PAGE_TOKEN)</span></summary>
+  <details id="auto_box"><summary><b>🤖 Tự động đăng</b> <span class="mut">(kênh nguồn Facebook / TikTok hoặc link bạn dán → làm lại → đăng Fanpage giờ vàng; bật ở Cài đặt → Tự động đăng, token Fanpage ở Cài đặt → Tài khoản & API)</span></summary>
     <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:8px 0">
       <b>Lấy video từ:</b>
       <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_fb" data-plat="facebook" style="width:auto"> Facebook</label>
       <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_tt" data-plat="tiktok" style="width:auto"> TikTok</label>
       <span class="mut" id="auto_plat_msg">tick cả hai: bot chọn xen kẽ hai nguồn, không lấy trùng video</span>
     </div>
+    <label>Kênh nguồn (bot tự chọn video chưa làm từ các kênh này; thêm bao nhiêu kênh cũng được)</label>
+    <div id="auto_sources" class="mut" style="margin:4px 0"></div>
+    <div style="display:flex;gap:8px"><input id="auto_src" placeholder="https://www.facebook.com/tenkenh hoặc https://www.tiktok.com/@tenkenh" style="flex:1"><button id="auto_src_add" style="width:auto;margin:0">Thêm kênh</button></div>
+    <label>Dán link một video để làm lại và đăng ở lượt kế tiếp (đi trước video chọn ngẫu nhiên)</label>
+    <div style="display:flex;gap:8px"><input id="auto_link" placeholder="https://www.tiktok.com/@.../video/... hoặc link Facebook / YouTube" style="flex:1"><button id="auto_link_add" style="width:auto;margin:0">Xếp vào lượt kế tiếp</button></div>
+    <div id="auto_manual" class="mut" style="margin:4px 0"></div>
     <pre id="auto_status" class="mut" style="white-space:pre-wrap;margin:8px 0"></pre>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="auto_now" style="flex:1">▶️ Lấy video ngay</button>
@@ -196,18 +202,29 @@ async function loadSettings(){
   try{
     const r=await fetch('/api/settings',{headers:hdr()});
     if(!r.ok){$('set_fields').innerHTML='<p class="mut">'+(r.status==403?esc(await r.text()):'Phiên đăng nhập đã hết, tải lại trang để đăng nhập.')+'</p>';return;}
-    const d=await r.json();
-    $('set_fields').innerHTML=Object.entries(d).map(([k,v])=>{
+    const d=await r.json();const fields=d.fields||d;const groups=d.groups||[{id:'advanced',title:'Cài đặt',help:''}];
+    const NEED={must:'bắt buộc',should:'nên có',optional:'chỉ khi cần'};
+    const one=(k,v)=>{
       let f;
       if(k=='YTDLP_COOKIES')
         f='<textarea data-k="'+k+'" rows="3" placeholder="'+(v.set?'(đã đặt — dán mới để thay, nhập - để xóa)':'dán nội dung cookies.txt')+'" style="'+FIELD+'"></textarea>';
       else if(v.options){
-        const cur=String(v.value||'');const known=v.options.some(o=>o[0]==cur);
+        const cur=String(v.value||'');
         f='<select data-k="'+k+'" style="'+FIELD+'"><option value="">— giữ nguyên'+(cur?': '+esc((v.options.find(o=>o[0]==cur)||[cur,cur])[1]):'')+' —</option>'+
           v.options.map(o=>'<option value="'+esc(o[0])+'">'+(o[0]==cur?'✓ ':'')+esc(o[1])+'</option>').join('')+
           (v.overridden?'<option value="-">↺ Xóa, quay về mặc định</option>':'')+'</select>';
       }else f='<input data-k="'+k+'" placeholder="'+esc(v.value||'chưa đặt')+'">';
-      return '<label>'+esc(k)+(v.overridden?' <span class="mut">(đang đè từ web)</span>':'')+'</label>'+f;
+      const state=v.group=='api'?(v.set?' <span class="st-done">✅ đã điền</span>':' <span class="'+(v.need=='must'?'st-error':'mut')+'">'+(v.need=='must'?'⚠️ chưa điền':'chưa điền')+'</span>'):'';
+      return '<label><b style="color:var(--text)">'+esc(v.label||k)+'</b>'+(v.need?' <i>('+NEED[v.need]+')</i>':'')+state+
+        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+'<br><span style="font-size:.9em">'+esc(v.help||'')+
+        (v.link?' <a href="'+esc(v.link)+'" target="_blank" rel="noopener">Lấy ở đây ↗</a>':'')+' <code style="opacity:.6">'+esc(k)+'</code></span></label>'+f;
+    };
+    $('set_fields').innerHTML=groups.map((g,i)=>{
+      const ks=Object.keys(fields).filter(k=>(fields[k].group||'advanced')==g.id);if(!ks.length)return '';
+      const body=ks.map(k=>one(k,fields[k])).join('');
+      const miss=g.id=='api'?ks.filter(k=>fields[k].need=='must'&&!fields[k].set).length:0;
+      return '<details'+(g.id=='api'?' open':'')+' style="margin:10px 0;border:1px solid var(--line);border-radius:8px;padding:6px 10px"><summary><b>'+esc(g.title)+'</b>'+
+        (miss?' <span class="st-error">thiếu '+miss+' mục bắt buộc</span>':'')+' <span class="mut">'+esc(g.help||'')+'</span></summary>'+body+'</details>';
     }).join('');
   }catch(e){$('set_fields').innerHTML='<p class="mut">Không tải được cài đặt: '+esc(String(e))+'</p>';}
 }
@@ -234,7 +251,25 @@ async function autoCall(act){
     const d=r.ok?await r.json():{text:'❌ '+await r.text()};
     $('auto_status').textContent=(act?d.text+'\n\n':'')+(d.status||d.text||'');
     if(d.platforms){$('auto_fb').checked=d.platforms.includes('facebook');$('auto_tt').checked=d.platforms.includes('tiktok');}
+    if(d.sources)autoLists(d);
   }catch(e){$('auto_status').textContent='❌ '+e}
+}
+function autoLists(d){
+  const row=(icon,text,attr,val)=>'<div style="display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--line)"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+icon+' '+esc(text)+'</span><button '+attr+'="'+esc(val)+'" style="width:auto;padding:3px 10px;margin:0;background:var(--mut)">Xoá</button></div>';
+  const src=[...(d.sources.facebook||[]).map(s=>row('📘',s.replace(/^https?:\/\/(www\.)?/,''),'data-src',s)),...(d.sources.tiktok||[]).map(s=>row('🎵',s.replace(/^https?:\/\/(www\.)?/,''),'data-src',s))];
+  $('auto_sources').innerHTML=src.length?src.join(''):'Chưa có kênh nguồn nào — dán link kênh vào ô dưới.';
+  const man=(d.manual||[]).map((m,i)=>row((i+1)+'.',(m.title||m.url)+(m.dur?' ('+m.dur+'s)':''),'data-link',m.url));
+  $('auto_manual').innerHTML=man.length?'Đang chờ làm trước ('+man.length+'):'+man.join(''):'';
+  document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>autoPost('source',{url:b.dataset.src,delete:true}));
+  document.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>autoPost('queue',{url:b.dataset.link,delete:true}));
+}
+async function autoPost(act,body){
+  try{
+    const r=await fetch('/api/autopost/'+act,{method:'POST',headers:hdr(),body:JSON.stringify(body)});
+    const d=r.ok?await r.json():{text:'❌ '+await r.text()};
+    $('auto_status').textContent=d.text+'\n\n'+(d.status||'');
+    if(d.sources)autoLists(d);return !String(d.text).startsWith('❌');
+  }catch(e){$('auto_status').textContent='❌ '+e;return false}
 }
 async function savePlatforms(ev){
   const on=['auto_fb','auto_tt'].filter(id=>$(id).checked).map(id=>$(id).dataset.plat);
@@ -269,6 +304,10 @@ $('bgm_up').onclick=()=>{const fs=$('bgm_file').files;if(!fs.length)return;const
 $('auto_fb').onchange=savePlatforms;$('auto_tt').onchange=savePlatforms;
 $('auto_box').addEventListener('toggle',()=>{if($('auto_box').open)autoCall('')});
 $('auto_now').onclick=()=>{$('auto_status').textContent='Đang tìm video...';autoCall('now')};
+$('auto_src_add').onclick=()=>{const u=$('auto_src').value.trim();if(!u)return;$('auto_status').textContent='Đang thêm kênh...';
+  autoPost('source',{url:u}).then(ok=>{if(ok)$('auto_src').value=''})};
+$('auto_link_add').onclick=()=>{const u=$('auto_link').value.trim();if(!u)return;$('auto_status').textContent='Đang xem video (vài giây)...';
+  autoPost('queue',{url:u}).then(ok=>{if(ok)$('auto_link').value=''})};
 $('auto_test').onclick=()=>autoCall('test');
 $('auto_resume').onclick=()=>autoCall('resume');
 function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{

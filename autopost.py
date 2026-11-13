@@ -18,6 +18,7 @@ API chính thức, HẸN ĐÚNG GIỜ VÀNG; mặc định 2 video/ngày.
   thì được chọn nhiều hơn, thỉnh thoảng thử khung khác (25%) để không bỏ sót giờ tốt hơn. Đặt AUTO_TIMES để cố định.
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -84,8 +85,10 @@ def load_state(path: str | None = None) -> dict:
         except OSError:
             pass
     for k, v in (("used", {}), ("posts", []), ("listing", {}), ("days", {}), ("pending", None), ("paused", ""),
-                 ("fails", {}), ("streak", 0)):
+                 ("fails", {}), ("streak", 0), ("manual", [])):
         st.setdefault(k, v)
+    if not isinstance(st["manual"], list):
+        st["manual"] = []
     return st
 
 
@@ -135,6 +138,50 @@ def all_sources() -> list:
     on = platforms()
     return ([("facebook", s) for s in sources()] if "facebook" in on else []) + \
         ([("tiktok", s) for s in tiktok_sources()] if "tiktok" in on else [])
+
+
+def detect_platform(link: str) -> str:
+    """Link thuộc Facebook hay TikTok? ("" nếu không nhận ra)."""
+    s = (link or "").strip()
+    if not s:
+        return ""
+    host = (urllib.parse.urlsplit(s if "://" in s else "https://" + s).hostname or "").lower()
+    if host == "tiktok.com" or host.endswith(".tiktok.com"):
+        return "tiktok"
+    if host in ("facebook.com", "fb.com", "fb.watch") or host.endswith((".facebook.com", ".fb.com")):
+        return "facebook"
+    return ""
+
+
+def _source_slot(link: str) -> tuple:
+    """(nền tảng, kênh đã chuẩn hoá, tên cài đặt, danh sách hiện có) cho một link kênh. Ném ValueError."""
+    plat = detect_platform(link)
+    if plat == "tiktok":
+        return plat, normalize_tiktok(link), "AUTO_TIKTOK_SOURCES", tiktok_sources()
+    if plat == "facebook":
+        return plat, normalize_source(link), "AUTO_SOURCES", sources()
+    raise ValueError("Dán link kênh đầy đủ: https://www.facebook.com/<tên kênh> hoặc https://www.tiktok.com/@<tên>")
+
+
+def add_source(link: str) -> tuple:
+    """Thêm kênh nguồn ngay trong mục Tự động đăng (bao nhiêu kênh cũng được): nhận ra nền tảng theo link, chuẩn hoá,
+    ghi vào AUTO_SOURCES / AUTO_TIKTOK_SOURCES. Trả (nền tảng, kênh)."""
+    plat, norm, key, cur = _source_slot(link)
+    if norm not in cur:
+        config.save_settings({key: ",".join(cur + [norm])})
+    return plat, norm
+
+
+def remove_source(link: str) -> bool:
+    try:
+        plat, norm, key, cur = _source_slot(link)
+    except ValueError:
+        return False
+    if norm not in cur:
+        return False
+    rest = [s for s in cur if s != norm]
+    config.save_settings({key: ",".join(rest) if rest else "-"})      # "-": bỏ giá trị đè, quay về biến môi trường
+    return True
 
 
 def normalize_tiktok(s: str) -> str:
@@ -197,13 +244,13 @@ def fixed_times() -> list:
     return sorted({t for t in re.split(r"[,\s]+", config.AUTO_TIMES or "") if re.fullmatch(r"\d{2}:\d{2}", t)})
 
 
-def enabled() -> str:
-    """"" nếu chạy được; không thì lý do."""
+def enabled(st: dict | None = None) -> str:
+    """"" nếu chạy được; không thì lý do. Có link dán tay đang chờ (st["manual"]) thì không cần kênh nguồn."""
     if config.AUTO_POST != "1":
         return "AUTO_POST đang tắt"
     if not (config.FB_PAGE_ID.strip() and config.FB_PAGE_TOKEN.strip()):
         return "thiếu FB_PAGE_ID / FB_PAGE_TOKEN"
-    if not all_sources():
+    if not all_sources() and not (st or {}).get("manual"):
         return ("chưa có kênh nguồn cho nền tảng đang tick (AUTO_SOURCES: Facebook, AUTO_TIKTOK_SOURCES: TikTok; "
                 f"đang tick: {', '.join(platforms())})")
     return ""
@@ -641,10 +688,98 @@ def _owner_mismatch(plat: str, lst: dict, info: dict) -> bool:
     return bool(lst.get("owner") and up and up != lst["owner"])
 
 
+def _manual_key(url: str) -> str:
+    return "m:" + hashlib.sha1(url.encode()).hexdigest()[:12]
+
+
+async def queue_link(url: str) -> dict:
+    """Người dùng dán link MỘT video: kiểm link (nền tảng được phép), xem thử (tiêu đề, độ dài), xếp vào hàng chờ riêng.
+    Lượt lấy video kế tiếp của bot làm video này trước, rồi mới chọn ngẫu nhiên từ kênh nguồn. Ném ValueError."""
+    import core_video
+    url = await url_guard.check_url_async((url or "").strip())
+    with tempfile.TemporaryDirectory() as td:            # xem thử NGOÀI khoá: yt-dlp mất vài giây
+        info = await core_video.probe_formats(url, td)
+    dur = int(info.get("duration") or 0)
+    if dur > config.LONG_MAX:
+        raise ValueError(f"Video dài {dur}s, quá {config.LONG_MAX}s")
+    if 0 < dur < 5:
+        raise ValueError("Video quá ngắn (dưới 5 giây)")
+    key = _manual_key(url)
+    async with _LOCK:
+        st = load_state()
+        if any(m.get("url") == url for m in st["manual"]):
+            raise ValueError("Link này đã có trong hàng chờ")
+        used = st["used"].get(key)
+        dup = duplicate_of(st, key, info)
+        if (used and not used.get("skip")) or dup:
+            raise ValueError(f"Video này đã làm trước đó (job #{(used or st['used'].get(dup, {})).get('job', '?')})")
+        entry = {"url": url, "title": (info.get("title") or "")[:200], "dur": dur, "at": time.time(), "key": key}
+        st["manual"].append(entry)
+        save_state(st)
+    return entry
+
+
+async def remove_link(url: str) -> bool:
+    async with _LOCK:
+        st = load_state()
+        rest = [m for m in st["manual"] if m.get("url") != (url or "").strip()]
+        if len(rest) == len(st["manual"]):
+            return False
+        st["manual"] = rest
+        save_state(st)
+    return True
+
+
+def _enqueue(st, plat, vid, src, url, info, slot, now, queue, Job, QueueFull) -> str:
+    """Tạo job làm lại (source="auto") và ghi pending. Trả "job #id"; hàng đợi đầy thì ném QueueFull."""
+    dur = info.get("duration") or 0
+    voice = config.default_voice()
+    mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
+    job = Job(url=url, mode=mode, duration=0, voice=voice, source="auto",
+              long_mode="full" if dur > config.MAX_DURATION else "", chat_id=config.admin_chat_id() or 0,
+              title_hint=info.get("title", "")[:200])
+    queue.put(job)
+    st["used"][vid] = {"at": now, "source": src, "job": job.id, "plat": plat, "dur": dur,
+                       "title": _norm_title(info.get("title") or "")}
+    st["pending"] = {"job": job.id, "vid": vid, "source": src, "slot_ts": slot[0], "slot": slot[1],
+                     "dur": dur, "plat": plat}
+    logging.info("Tự động đăng: job #%s lấy video %s của %s (%ds) cho khung %s %s", job.id, vid, src, dur,
+                 slot[1], datetime.fromtimestamp(slot[0], VN).strftime("%d/%m"))
+    return f"job #{job.id}"
+
+
+async def _pick_manual(st, slot, now, core_video, Job, QueueFull, queue) -> str:
+    """Link người dùng dán (theo thứ tự dán) đi trước video chọn ngẫu nhiên. Link hỏng thì báo admin và bỏ qua."""
+    from state import notify_admin
+    while st["manual"]:
+        m = st["manual"][0]
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                info = await core_video.probe_formats(m["url"], td)
+        except Exception as e:
+            st["manual"].pop(0)
+            logging.warning("Tự động đăng: link dán %s không xem được (%s), bỏ qua", m["url"], str(e)[:100])
+            await notify_admin(f"⚠️ Link bạn dán không xem được, đã bỏ: {m['url']} ({str(e)[:100]})")
+            continue
+        try:
+            msg = _enqueue(st, detect_platform(m["url"]) or "link", m.get("key") or _manual_key(m["url"]), "link dán tay",
+                           m["url"], info, slot, now, queue, Job, QueueFull)
+        except QueueFull:
+            return "hàng đợi đầy, thử lại sau"
+        st["manual"].pop(0)
+        return msg
+    return ""
+
+
 async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random) -> str:
     import core_video
     from queue_manager import Job, QueueFull
     from state import queue
+    msg = await _pick_manual(st, slot, now, core_video, Job, QueueFull, queue)
+    if msg:
+        return msg
+    if not all_sources():
+        return "chưa có kênh nguồn: thêm kênh hoặc dán link video ở mục Tự động đăng"
     for plat in _platform_order(st, rnd):
         srcs = [s for p, s in all_sources() if p == plat]
         rnd.shuffle(srcs)
@@ -679,22 +814,10 @@ async def _pick_from(st, plat, srcs, slot, now, rnd, core_video, Job, QueueFull,
             if why:
                 _fail(st, vid, src, now, why, hard=True)
                 continue
-            voice = config.default_voice()
-            mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
-            job = Job(url=url, mode=mode, duration=0, voice=voice, source="auto",
-                      long_mode="full" if dur > config.MAX_DURATION else "", chat_id=config.admin_chat_id() or 0,
-                      title_hint=info.get("title", "")[:200])
             try:
-                queue.put(job)
+                return _enqueue(st, plat, vid, src, url, info, slot, now, queue, Job, QueueFull)
             except QueueFull:
                 return "hàng đợi đầy, thử lại sau"
-            st["used"][vid] = {"at": now, "source": src, "job": job.id, "plat": plat, "dur": dur,
-                               "title": _norm_title(info.get("title") or "")}
-            st["pending"] = {"job": job.id, "vid": vid, "source": src, "slot_ts": slot[0], "slot": slot[1],
-                             "dur": dur, "plat": plat}
-            logging.info("Tự động đăng: job #%s lấy video %s của %s (%ds) cho khung %s %s", job.id, vid, src, dur,
-                         slot[1], datetime.fromtimestamp(slot[0], VN).strftime("%d/%m"))
-            return f"job #{job.id}"
     return ""
 
 
@@ -812,10 +935,10 @@ async def _tick(now, rnd, force) -> str:
     from state import queue
     now = now or time.time()
     rnd = rnd or random.Random()
-    why = enabled()
+    st = load_state()
+    why = enabled(st)
     if why:
         return why
-    st = load_state()
     if st["paused"]:
         return "đang dừng vì lỗi: " + st["paused"]
     try:
@@ -828,11 +951,13 @@ async def _tick(now, rnd, force) -> str:
         except Exception as e:
             logging.info("Tự động đăng: lỗi đọc lượt xem (%s)", str(e)[:100])
         slots = free_slots(st, now, rnd)
-        if not slots:
+        if not slots and not st["manual"]:
             return "đã đủ video cho các khung giờ trong 36 giờ tới"
         if queue.pending and not force:
             return "chờ hàng đợi trống (video bạn gửi được làm trước)"
-        return await _pick_and_queue(st, slots[0], now, rnd)
+        # link dán tay mà hết khung trống: vẫn làm ngay, xong sẽ hẹn vào khung trống kế tiếp (hoặc đăng ngay nếu hết khung)
+        slot = slots[0] if slots else (now, datetime.fromtimestamp(now, VN).strftime("%H:%M"))
+        return await _pick_and_queue(st, slot, now, rnd)
     finally:
         save_state(st)
 
@@ -849,7 +974,7 @@ async def resume() -> str:
 def status_text() -> str:
     st = load_state()
     now = time.time()
-    why = enabled()
+    why = enabled(st)
     lines = [f"🤖 Tự động đăng: {'BẬT' if not why else 'tắt — ' + why}" + (f" | DỪNG: {st['paused']}" if st["paused"] else "")]
     on = platforms()
     lines.append(f"Nguồn đang tick: {' + '.join(p.capitalize() for p in on)}"
@@ -857,6 +982,10 @@ def status_text() -> str:
                  + (", ".join(fixed_times()) or "tự chọn giờ vàng"))
     lines.append(f"Kênh Facebook: {', '.join(sources()) or '(chưa có)'}")
     lines.append(f"Kênh TikTok: {', '.join(tiktok_sources()) or '(chưa có)'}")
+    if st["manual"]:
+        lines.append(f"Link bạn dán đang chờ ({len(st['manual'])}, làm trước video ngẫu nhiên): "
+                     + "; ".join((m.get("title") or m.get("url", ""))[:50] for m in st["manual"][:3])
+                     + (" …" if len(st["manual"]) > 3 else ""))
     rnd = random.Random(0)
     today = datetime.fromtimestamp(now, VN).date().isoformat()
     if not why:

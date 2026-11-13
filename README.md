@@ -133,10 +133,14 @@ trọn trước khi AI viết lại.
 
 ## 🤖 Tự động đăng Fanpage (kênh nguồn → làm lại → giờ vàng)
 
-Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook nguồn, cách nhau dấu phẩy) và/hoặc
-`AUTO_TIKTOK_SOURCES` (@tên hoặc link tiktok.com/@tên), `FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (1-4,
-mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng), `AUTO_MODE` (cook | review). Theo dõi ở ô **🤖 Tự động đăng**
-trên web hoặc lệnh console `auto`.
+Bật trong Cài đặt → 🤖 Tự động đăng: `AUTO_POST=1`; token ở Cài đặt → 🔑 Tài khoản & API: `FB_PAGE_ID`, `FB_PAGE_TOKEN`;
+tuỳ chọn `AUTO_PER_DAY` (1-4, mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng), `AUTO_MODE` (cook | review).
+**Kênh nguồn** thêm/bỏ ngay trong ô **🤖 Tự động đăng** trên web: dán link kênh Facebook (`facebook.com/<tên>`) hoặc
+TikTok (`tiktok.com/@<tên>`), bao nhiêu kênh cũng được, bot tự nhận ra nền tảng (lưu vào `AUTO_SOURCES` /
+`AUTO_TIKTOK_SOURCES`). **Link dán tay**: dán link MỘT video (TikTok / Facebook / YouTube) vào ô «Xếp vào lượt kế
+tiếp» — bot xem thử (tiêu đề, độ dài, không trùng video đã làm) rồi xếp vào hàng chờ riêng; lượt lấy video kế tiếp
+làm video đó trước video chọn ngẫu nhiên, xong thì hẹn đăng vào khung giờ vàng còn trống (hết khung thì đăng ngay);
+bấm «Lấy video ngay» để làm luôn. Có link dán thì không cần kênh nguồn. Theo dõi ở ô đó hoặc lệnh console `auto`.
 
 - **Chọn nguồn**: trong ô 🤖 Tự động đăng tick ☑ Facebook / ☑ TikTok (`AUTO_PLATFORMS`). Tick cả hai thì lấy xen kẽ
   hai nền tảng (bên nào được lấy ít hơn trong 6 video gần nhất đi trước; bên nào hết video mới thì lấy bên kia).

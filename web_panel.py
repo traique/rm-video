@@ -631,12 +631,22 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         voices += [{"id": config.VOICE_FEMALE, "name": "Edge · Hoài My"}, {"id": config.VOICE_MALE, "name": "Edge · Nam Minh"}]
         return web.json_response(voices)
 
+    def _auto_payload() -> dict:
+        import autopost
+        st = autopost.load_state()
+        return {"status": autopost.status_text(), "platforms": autopost.platforms(),
+                "sources": {"facebook": autopost.sources(), "tiktok": autopost.tiktok_sources()},
+                "manual": [{"url": m.get("url", ""), "title": m.get("title", ""), "dur": m.get("dur", 0)}
+                           for m in st["manual"]]}
+
     async def auto_status(request):
         _check(request)
-        import autopost
-        return web.json_response({"text": autopost.status_text(), "platforms": autopost.platforms()})
+        p = _auto_payload()
+        return web.json_response({"text": p["status"], **p})
 
     async def auto_action(request):
+        """now: lấy video ngay | test: thử token | resume: chạy lại sau lỗi | source: thêm/bỏ kênh nguồn ({url, delete?})
+        | queue: xếp/bỏ link video dán tay ({url, delete?})."""
         _check(request)
         import autopost
         act = request.match_info["act"]
@@ -647,17 +657,34 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 msg = "✅ Token dùng được cho Fanpage: " + await autopost.check_token()
             elif act == "resume":
                 msg = await autopost.resume()
+            elif act == "source":
+                d = await _json_dict(request)
+                url = str(d.get("url") or "").strip()
+                if d.get("delete"):
+                    msg = "✅ Đã bỏ kênh" if autopost.remove_source(url) else "Không thấy kênh này trong danh sách"
+                else:
+                    plat, norm = autopost.add_source(url)
+                    msg = f"✅ Đã thêm kênh {'TikTok' if plat == 'tiktok' else 'Facebook'}: {norm}"
+            elif act == "queue":
+                d = await _json_dict(request)
+                url = str(d.get("url") or "").strip()
+                if d.get("delete"):
+                    msg = "✅ Đã bỏ link khỏi hàng chờ" if await autopost.remove_link(url) else "Không thấy link này"
+                else:
+                    m = await autopost.queue_link(url)
+                    msg = (f"✅ Đã xếp «{m['title'] or m['url']}» ({m['dur']}s): lượt lấy video kế tiếp sẽ làm video này "
+                           "trước, xong sẽ đăng vào khung giờ vàng còn trống. Bấm «Lấy video ngay» để làm luôn.")
             else:
                 raise web.HTTPNotFound()
         except web.HTTPException:
             raise
         except Exception as e:
             msg = f"❌ {str(e)[:300]}"
-        return web.json_response({"text": msg, "status": autopost.status_text(), "platforms": autopost.platforms()})
+        return web.json_response({"text": msg, **_auto_payload()})
 
     async def get_settings(request):
         _check(request)
-        return web.json_response(_with_options(config.describe_settings()))
+        return web.json_response({"fields": _with_options(config.describe_settings()), "groups": config.setting_groups()})
 
     async def set_settings(request):
         _check(request)
@@ -665,7 +692,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             config.save_settings(await _json_dict(request))
         except ValueError as e:
             raise web.HTTPBadRequest(text=str(e)) from None
-        return web.json_response(_with_options(config.describe_settings()))
+        return web.json_response({"fields": _with_options(config.describe_settings()), "groups": config.setting_groups()})
 
     def _file_response(path: str, name: str):
         return web.FileResponse(path, headers={"Content-Disposition": f'attachment; filename="{name}"'})

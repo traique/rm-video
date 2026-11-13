@@ -89,6 +89,90 @@ EDITABLE = {
 }
 SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES", "FB_PAGE_TOKEN",
                "KAGGLE_API_TOKEN"}
+
+# Nhóm hiển thị trên web (thứ tự này): mã nhóm -> tiêu đề. Nhóm "api" mở sẵn, các nhóm khác thu gọn.
+GROUPS = [
+    ("api", "🔑 Tài khoản & API", "Điền key một lần. Bắt buộc: Gemini. Nên có: Kaggle (GPU miễn phí). Chỉ khi cần: Groq, "
+            "OpenRouter, Fanpage, cookies."),
+    ("voice", "🗣️ Giọng đọc", "Giọng, tốc độ, cách nói."),
+    ("video", "🎬 Video & lời", "Chất lượng, đoạn mở đầu, phụ đề, thương hiệu, tiếng gốc."),
+    ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
+    ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
+    ("telegram", "💬 Telegram", "Ai được dùng bot qua Telegram."),
+    ("advanced", "🔧 Nâng cao", "Tên model, thứ tự bóc lời, từ điển… thường không cần đổi."),
+]
+# Mỗi khoá: (nhóm, nhãn, giải thích ngắn, link lấy/hướng dẫn, mức cần: must | should | optional)
+META = {
+    "GEMINI_API_KEY": ("api", "Key Gemini (Google AI Studio)", "AI viết lời, chọn ảnh bìa, kiểm nguyên liệu. Không có key thì "
+                       "bot chỉ tải/cắt video, không viết lời được.", "https://aistudio.google.com/apikey", "must"),
+    "KAGGLE_USERNAME": ("api", "Tên tài khoản Kaggle", "Dán link kaggle.com/<tên> hoặc gõ tên. Dùng cùng token bên dưới.",
+                        "https://www.kaggle.com/settings", "should"),
+    "KAGGLE_API_TOKEN": ("api", "Token Kaggle", "Kaggle → Settings → API → Generate New Token. Cho phép tách giọng, bóc lời, "
+                         "đọc giọng VieNeu và dựng trên GPU miễn phí (30 giờ/tuần). Thiếu thì mọi thứ chạy trên Botkeep "
+                         "(chậm hơn nhiều).", "https://www.kaggle.com/settings", "should"),
+    "PUBLIC_URL": ("api", "Link web của bot", "Ví dụ https://ten-may.bot-keep.xyz. Cần để Kaggle tải file bạn upload, "
+                   "Telegram gửi link tải video lớn.", "", "should"),
+    "FB_PAGE_ID": ("api", "ID Fanpage", "Dãy số id của Fanpage (Trang → Giới thiệu → ID trang). Chỉ cần khi tự động đăng.",
+                   "https://www.facebook.com/help/1503421039731588", "optional"),
+    "FB_PAGE_TOKEN": ("api", "Token Fanpage", "Page access token dài hạn, quyền pages_manage_posts + pages_read_engagement + "
+                      "pages_show_list. Bấm «Thử token Fanpage» ở mục Tự động đăng để kiểm.",
+                      "https://developers.facebook.com/tools/explorer/", "optional"),
+    "GROQ_API_KEY": ("api", "Key Groq", "Bóc lời (Whisper) khi KHÔNG dùng Kaggle hoặc Kaggle lỗi. Miễn phí.",
+                     "https://console.groq.com/keys", "optional"),
+    "OPENROUTER_API_KEY": ("api", "Key OpenRouter", "Dự phòng viết lời khi Gemini lỗi/hết hạn mức (model miễn phí).",
+                           "https://openrouter.ai/settings/keys", "optional"),
+    "YTDLP_COOKIES": ("api", "Cookies tải video", "Chỉ khi tải lỗi «cần đăng nhập». Dán nội dung cookies.txt (tiện ích "
+                      "Get cookies.txt LOCALLY) của tài khoản PHỤ.", "", "optional"),
+    "YTDLP_PROXY": ("api", "Proxy tải video", "http://user:pass@ip:port hoặc socks5://… Chỉ khi bị chặn IP.", "", "optional"),
+    "TTS_PROVIDER": ("voice", "Nguồn giọng đọc", "", "", ""),
+    "VIENEU_VOICE_FEMALE": ("voice", "Giọng nữ VieNeu", "", "", ""),
+    "VIENEU_VOICE_MALE": ("voice", "Giọng nam VieNeu", "", "", ""),
+    "CAPCUT_VOICE_FEMALE": ("voice", "Giọng nữ CapCut", "", "", ""),
+    "CAPCUT_VOICE_MALE": ("voice", "Giọng nam CapCut", "", "", ""),
+    "TTS_RATE": ("voice", "Tốc độ đọc (edge)", "Dạng +8% / -5%.", "", ""),
+    "TTS_PITCH": ("voice", "Cao độ (edge)", "Dạng +2Hz / -3Hz.", "", ""),
+    "SPEECH_STYLE": ("voice", "Giọng văn", "Miền Tây, miền Nam hay phổ thông.", "", ""),
+    "VOICE_HUMANIZE": ("voice", "Làm giọng bớt chất AI", "Ấm hơn, bớt chói, có không gian phòng.", "", ""),
+    "TTS_OFFLINE": ("voice", "Giọng offline dự phòng (Piper)", "Khi CapCut và edge-tts đều lỗi (cần lệnh setup_offline).", "", ""),
+    "QUALITY": ("video", "Chất lượng dựng", "", "", ""),
+    "TEASER": ("video", "Đoạn mở đầu 3 giây cảnh món + câu hook", "Chỉ video nấu ăn có lời.", "", ""),
+    "COVER": ("video", "Tự tạo ảnh bìa", "", "", ""),
+    "SUB_STYLE": ("video", "Kiểu phụ đề", "", "", ""),
+    "SUB_TIMING": ("video", "Canh thời gian phụ đề", "", "", ""),
+    "BRAND_NAME": ("video", "Tên kênh (màn kết)", "Để trống = không có màn kết.", "", ""),
+    "BRAND_LOGO": ("video", "Gắn logo", "Logo tải lên ở cuối trang cài đặt.", "", ""),
+    "BRAND_INTRO": ("video", "Hiện tiêu đề 3 giây đầu", "", "", ""),
+    "VOICE_SEPARATION": ("video", "Tách giọng gốc bằng AI", "Tắt = chỉ hạ tiếng nền lúc người gốc nói.", "", ""),
+    "OST_AUTO": ("video", "AI đề xuất đoạn giữ tiếng gốc", "Tiếng xèo, câu cảm thán…", "", ""),
+    "CUT_PROMO": ("video", "Cắt quảng cáo cuối video gốc", "", "", ""),
+    "REVIEW_SCRIPT": ("video", "Luôn dừng cho duyệt kịch bản", "", "", ""),
+    "NO_SPEECH": ("video", "Video không lời", "Chèn nhạc nền (mặc định) hay để AI viết lời.", "", ""),
+    "BGM_ORIG": ("video", "Tiếng gốc khi chèn nhạc", "", "", ""),
+    "BGM_LINKS": ("video", "Thư viện nhạc nền (link)", "Quản lý dễ hơn ở mục 🎵 Nhạc nền.", "", ""),
+    "SCENE_ANALYSIS": ("video", "Mức phân tích hình", "light nhanh nhất; full kỹ nhất (chậm trên Botkeep).", "", ""),
+    "TEXT_DETECT": ("video", "Dò chữ in cứng trên video", "", "", ""),
+    "SOURCE_CREDIT": ("video", "Ghi nguồn vào nội dung đăng", "", "", ""),
+    "KAGGLE_USE": ("kaggle", "Dùng Kaggle cho phần nặng", "", "", ""),
+    "KAGGLE_ANALYZE": ("kaggle", "Bóc lời + phân tích hình trên Kaggle", "", "", ""),
+    "KAGGLE_ASR": ("kaggle", "Model bóc lời trên Kaggle", "", "", ""),
+    "AUTO_POST": ("auto", "Tự động đăng", "", "", ""),
+    "AUTO_MODE": ("auto", "Chế độ làm lại", "", "", ""),
+    "AUTO_PER_DAY": ("auto", "Số video mỗi ngày", "1-4.", "", ""),
+    "AUTO_TIMES": ("auto", "Giờ đăng cố định", "Trống = bot tự chọn giờ vàng theo lượt xem; hoặc 11:30,20:30.", "", ""),
+    "AUTO_PLATFORMS": ("auto", "Nguồn đang tick", "Sửa bằng ô tick ở mục Tự động đăng.", "", ""),
+    "AUTO_SOURCES": ("auto", "Kênh Facebook nguồn", "Thêm/bỏ ở mục Tự động đăng.", "", ""),
+    "AUTO_TIKTOK_SOURCES": ("auto", "Kênh TikTok nguồn", "Thêm/bỏ ở mục Tự động đăng.", "", ""),
+    "ALLOWED_USERS": ("telegram", "Người được dùng bot Telegram", "chat_id cách nhau dấu phẩy (nhắn bot để biết id). "
+                      "Trống = bot từ chối tất cả.", "", "should"),
+    "ADMIN_CHAT_ID": ("telegram", "Chat nhận cảnh báo", "Trống = người đầu tiên trong danh sách trên.", "", ""),
+    "ALLOWED_SOURCES": ("telegram", "Kênh gốc được phép", "Tên kênh/uploader; trống = mọi kênh.", "", ""),
+    "GEMINI_MODEL": ("advanced", "Model Gemini viết lời", "", "", ""),
+    "GEMINI_ASR_MODEL": ("advanced", "Model Gemini bóc lời", "", "", ""),
+    "OPENROUTER_MODEL": ("advanced", "Model OpenRouter", "auto = tự dò model miễn phí đang hoạt động.", "", ""),
+    "GROQ_WHISPER_MODEL": ("advanced", "Model Whisper của Groq", "", "", ""),
+    "ASR_ORDER": ("advanced", "Thứ tự nguồn bóc lời", "groq, gemini, capcut; nguồn thiếu key tự bỏ qua.", "", ""),
+    "ASR_VOCAB": ("advanced", "Từ điển món / tên riêng", "Cách nhau dấu phẩy, để bóc lời viết đúng.", "", ""),
+}
 _ID_LIST = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
@@ -236,14 +320,21 @@ def describe_settings() -> dict:
     except Exception:
         over = set()
     out = {}
-    for k in EDITABLE:
+    for k in [k for k in META if k in EDITABLE] + [k for k in EDITABLE if k not in META]:   # thứ tự hiện trên web = META
         v = globals()[k]
         if k in SECRET_KEYS:
             shown = (v[:4] + "•••" + v[-3:]) if len(v) > 10 else ("(đã đặt)" if v else "")
         else:
             shown = v
-        out[k] = {"value": shown, "set": bool(v), "overridden": k in over}
+        group, label, help_, link, need = META.get(k, ("advanced", k, "", "", ""))
+        out[k] = {"value": shown, "set": bool(v), "overridden": k in over, "group": group, "label": label,
+                  "help": help_, "link": link, "need": need}
     return out
+
+
+def setting_groups() -> list:
+    """[{id, title, help}] theo thứ tự hiển thị."""
+    return [{"id": g, "title": t, "help": h} for g, t, h in GROUPS]
 
 
 _apply()

@@ -120,6 +120,29 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 36: kênh nguồn + link dán tay ngay trong mục Tự động đăng; Cài đặt gom nhóm dễ hiểu
+
+**🤖 Tự động đăng** trên web (`static/index.html`, `autopost.py`, `web_panel.py`):
+- **Kênh nguồn**: danh sách kênh Facebook/TikTok đang dùng (nút Xoá từng kênh) + ô dán link kênh «Thêm kênh» — bao nhiêu
+  kênh cũng được, bot tự nhận ra nền tảng theo link (`autopost.add_source/remove_source`, lưu vào `AUTO_SOURCES` /
+  `AUTO_TIKTOK_SOURCES` như cũ). API: `POST /api/autopost/source {url[, delete]}`.
+- **Link dán tay**: ô «Xếp vào lượt kế tiếp» nhận link MỘT video (TikTok / Facebook / YouTube): bot xem thử ngay (tiêu đề,
+  độ dài ≤ 5 phút, không trùng video đã làm, không trùng trong hàng chờ) rồi xếp vào hàng chờ riêng (`autopost.json`
+  mục `manual`, có nút Xoá). Lượt lấy video kế tiếp (tự động hoặc «Lấy video ngay») làm link này TRƯỚC video chọn ngẫu
+  nhiên; xong thì hẹn đăng vào khung giờ vàng còn trống, hết khung thì đăng ngay. Có link dán thì không bắt buộc có kênh
+  nguồn. Link hỏng lúc tới lượt: báo admin và bỏ qua, không kẹt. API: `POST /api/autopost/queue {url[, delete]}`;
+  `GET /api/autopost` trả thêm `sources` và `manual`.
+- Dòng trạng thái có thêm «Link bạn dán đang chờ (n)».
+
+**⚙️ Cài đặt** (`config.META`, `config.GROUPS`, `describe_settings`, `/api/settings` trả `{fields, groups}`):
+- Gom 7 nhóm: 🔑 Tài khoản & API (mở sẵn), 🗣️ Giọng đọc, 🎬 Video & lời, ☁️ Kaggle, 🤖 Tự động đăng, 💬 Telegram,
+  🔧 Nâng cao (thu gọn, bấm để mở).
+- Mỗi mục có nhãn tiếng Việt, một câu «dùng để làm gì», mức cần (bắt buộc / nên có / chỉ khi cần), trạng thái ✅ đã điền
+  hay chưa, link «Lấy ở đây ↗» tới trang tạo key (AI Studio, Kaggle, Groq, OpenRouter, Graph API Explorer); nhóm API
+  báo «thiếu n mục bắt buộc» khi chưa có key Gemini. Tên khoá kỹ thuật vẫn hiện nhỏ bên cạnh để tra tài liệu.
+
+Kiểm tra: `ruff` sạch; 429 test xanh + 5 bỏ qua; giao diện chụp thật bằng Playwright (khổ điện thoại, nền tối).
+
 ## Bản 35: rà soát production (kiến trúc, bảo mật, độ tin cậy) + vá khẩn
 
 Tài liệu đầy đủ 4 phần: `docs/DANH_GIA_KIEN_TRUC_PRODUCTION.md` (kiến trúc & luồng dữ liệu, bảo mật & độ tin cậy,
