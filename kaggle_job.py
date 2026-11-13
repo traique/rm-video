@@ -213,6 +213,31 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             "notes": notes, "timings": t, "fast": sum(1 for p in plan if p["factor"] > 1.12)}
 
 
+async def produce_bed(spec: dict, inp: str, tmp: str) -> dict:
+    """Video KHÔNG LỜI: nhạc nền (+ tiếng gốc theo BGM_ORIG) thay cho giọng đọc, dựng như remake. Không tải được nhạc
+    thì báo lỗi (Botkeep đã có bài nhạc, tự dựng lại) chứ không ra video thiếu nhạc."""
+    import core_video
+    t = {}
+    music = None
+    if spec.get("music"):
+        t0 = time.time()
+        music = await fetch(spec["music"], tmp, "music")
+        t["music"] = round(time.time() - t0, 1)
+    out_dur = float(spec["out_dur"])
+    stretch = float(spec.get("stretch") or 1.0)
+    bed = os.path.join(tmp, "bed.wav")
+    await core_video.music_bed(inp, music, bed, out_dur, float(spec.get("trim") or 0.0), spec.get("orig") or "off",
+                               stretch)
+    t0 = time.time()
+    out = os.path.join(tmp, "output.mp4")
+    notes: list = []
+    await core_video.render(inp, bed, out, spec["mode"], int(spec.get("render_dur") or 0), None,
+                            spec.get("bands") or None, bed, None, allow_hd=bool(spec.get("allow_hd", True)),
+                            title=spec.get("title") or "", tmp=tmp, stretch=stretch, notes=notes, music_bed=True)
+    t["render"] = round(time.time() - t0, 1)
+    return {"ok": True, "video": out, "music": bool(music), "notes": notes, "timings": t}
+
+
 async def analyze(spec: dict, tmp: str) -> dict:
     """Bóc lời + phân tích hình (thay cho Botkeep, máy 1.5 lõi mất ~400s cho video 220s): tách giọng gốc khỏi nhạc
     (GPU) -> Whisper large-v3 nghe GIỌNG SẠCH (asr_local); song song trên CPU: điểm chuyển cảnh, dải chữ in cứng, ảnh
@@ -305,6 +330,10 @@ async def run_one(spec: dict, tmp: str) -> dict:
                 "timings": {"download": dl, "render": round(time.time() - t1, 1)}}
     inp = await fetch(spec["src"], tmp, "src")
     dl = round(time.time() - t0, 1)
+    if kind == "bed":
+        res = await produce_bed(spec, inp, tmp)
+        res["timings"] = {"download": dl, **res["timings"]}
+        return res
     if kind == "music":
         music = await fetch(spec["music"], tmp, "music")
         out = os.path.join(tmp, "output.mp4")

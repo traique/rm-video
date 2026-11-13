@@ -46,6 +46,12 @@ try:
         caption: str
         hashtags: str
 
+    class PostOut(BaseModel):
+        title: str
+        caption: str
+        hashtags: str
+        hook: str = ""
+
     class SegOstOut(BaseModel):
         i: int
         text: str
@@ -58,7 +64,7 @@ try:
         hashtags: str
         hook: str = ""
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
-    TimedOut = ShortOut = ScriptOut = TimedOstOut = None
+    TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = None
 
 _STYLE = {
     "mien_tay": """
@@ -339,6 +345,48 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
             logging.exception("Provider %s lỗi, thử provider kế tiếp", name)
     metrics.record("llm", "template", fallback=True)
     return _fallback(title, mode)
+
+
+POST_PROMPT = """Viết nội dung đăng cho một {mode} KHÔNG CÓ LỜI THOẠI (chỉ có hình và nhạc nền, không ai nói gì). Chỉ dựa vào tiêu đề và mô tả gốc dưới đây; KHÔNG bịa thêm nguyên liệu, số liệu, địa điểm, giá tiền hay chi tiết nào không có trong đó. Viết lại bằng lời của mình, không chép nguyên câu. Không kêu gọi đăng ký / theo dõi / like / share kênh, không lời bán hàng của người gốc (giỏ hàng, link, mã giảm giá).
+
+Tiêu đề gốc: {title}
+Mô tả gốc: {desc}
+
+Trả về DUY NHẤT JSON hợp lệ, không markdown:
+{{"title": "tiêu đề đăng bài <= 90 ký tự",
+"caption": "caption 1-2 câu, được dùng emoji",
+"hashtags": "5-8 hashtag cách nhau bởi dấu cách",
+"hook": "3-7 chữ in lên màn hình 3 giây đầu: tên món / thành phẩm hấp dẫn nhất"}}"""
+
+
+async def post_only(title: str, desc: str, mode: str) -> dict:
+    """Video KHÔNG LỜI (chỉ chèn nhạc nền): chỉ viết tiêu đề / caption / hashtag / hook bài đăng từ tiêu đề + mô tả
+    gốc, KHÔNG viết lời đọc (dễ nói sai sự thật của video gốc). Trả {title, caption, hashtags, hook[, fallback]}.
+    Không có tiêu đề lẫn mô tả thì dùng mẫu (AI không có gì để dựa vào). Không bao giờ raise."""
+    title, desc = (title or "").strip(), (desc or "").strip()
+    if title or desc:
+        prompt = POST_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
+                                    desc=desc[:1500] or "(không có)")
+        providers = []
+        if genai and config.GEMINI_API_KEY:
+            providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=PostOut)))
+        if config.OPENROUTER_API_KEY:
+            providers.append(("OpenRouter", _call_openrouter))
+        for k, (name, call) in enumerate(providers):
+            try:
+                t = (await call(prompt)).strip()
+                d = json.loads(t[t.index("{"): t.rindex("}") + 1])
+                metrics.record("llm", name.lower(), fallback=k > 0)
+                return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
+                        "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
+                        "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
+                        "hook": clean_hook(str(d.get("hook") or ""))}
+            except Exception as e:
+                metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
+                logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", name, str(e)[:120])
+    metrics.record("llm", "template", fallback=True)
+    fb = _fallback(title, mode)
+    return {"title": fb["title"], "caption": fb["caption"], "hashtags": fb["hashtags"], "hook": "", "fallback": True}
 
 
 OST_HINT = """

@@ -120,6 +120,20 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 28: video không lời chèn nhạc nền, thêm nguồn TikTok cho Tự động đăng
+
+| Phần | Cách làm | Kiểm tra |
+| --- | --- | --- |
+| Video không lời | Bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") hoặc chỉ một câu (trước đây AI viết cả bài đọc một mạch từ đúng câu đó) -> **chèn nhạc nền, KHÔNG để AI xem hình rồi bịa lời** (dễ đoán sai món, sai nguyên liệu, bịa bước). Vẫn dựng như remake: tiêu đề + chữ hook, logo, che chữ gốc, ảnh bìa, màu. Bài đăng (tiêu đề, caption, hashtag, hook) chỉ viết từ tiêu đề + mô tả gốc, dặn AI không thêm chi tiết; không có tiêu đề lẫn mô tả thì dùng mẫu. Có người nói thì vẫn viết lại lời như cũ | test cả luồng: không gọi AI viết lời, không đọc giọng |
+| Thư viện nhạc nền | Web → ô **🎵 Nhạc nền cho video không lời**: dán link (TikTok / YouTube / mp3) hoặc tải file lên (tối đa 40 bài, 15MB/bài, kiểm tra đọc được nhạc). Mỗi video chọn ngẫu nhiên một bài, không lặp 3 bài vừa dùng; lấy đoạn hay nhất (điệp khúc) của bài; nhạc vào 1s, ra 2s, ngắn thì lặp; bài tải lỗi thì lấy bài khác | test: xoay vòng 4 bài không lặp trong 4 lượt; file hỏng bị từ chối |
+| Tiếng gốc (`BGM_ORIG`) | **off** (mặc định): chỉ nhạc mới — video không lời thường đã có nhạc riêng, giữ lại thì hai bài chồng nhau; **low**: giữ tiếng gốc nhỏ hơn ~12 dB (video ASMR: tiếng xèo, tiếng dao); **keep**: tiếng gốc là chính, nhạc nằm dưới và tự nhỏ lại khi tiếng gốc to | đo bằng ffmpeg: off còn tiếng gốc -72 dB, low thấp hơn keep 12 dB, ra đúng -14 LUFS |
+| Thư viện trống | Giữ nguyên tiếng gốc, không thêm lời, ghi chú cách thêm nhạc; Tự động đăng KHÔNG đăng video đó (gần như đăng lại nguyên bản) | test |
+| Kaggle | Việc mới `bed`: dựng video + nhạc nền trên Kaggle **CPU** (không đọc giọng, không tách giọng, không tốn giờ GPU); phần của video dài chạy chung một phiên với các phần khác; Kaggle lỗi thì dựng trên Botkeep. Không có `PUBLIC_URL` thì chỉ chọn nhạc dạng link (Kaggle tự tải được) | test với Kaggle giả + chạy thật việc `bed` cục bộ |
+| Nguồn TikTok | `AUTO_TIKTOK_SOURCES` (@tên hoặc tiktok.com/@tên): yt-dlp đọc ~30 video mới nhất của kênh (đo thật: có id, link, chú thích, độ dài). Bỏ video không phải của chủ kênh, quá dài/ngắn như nguồn Facebook | test |
+| Ô tick nguồn | Ô **🤖 Tự động đăng** trên web: ☑ Facebook ☑ TikTok (`AUTO_PLATFORMS`). Tick cả hai thì **xen kẽ**: nền tảng được lấy ít hơn trong 6 video gần nhất đi trước; nền tảng hết video mới thì lấy bên kia. Không cho bỏ tick cả hai | test |
+| Chống trùng | Ngoài danh sách video đã dùng, video mới được so với MỌI video đã làm: độ dài lệch ≤ 1.5s và chú thích giống ≥ 60% (bỏ hashtag/emoji) = cùng một video người gốc đăng ở cả Facebook lẫn TikTok (hoặc đăng lại) -> bỏ qua. Thiếu chú thích thì không đoán | test |
+| Cài đặt mới | `NO_SPEECH` (music / narrate = cách cũ), `BGM_LINKS`, `BGM_ORIG`, `AUTO_TIKTOK_SOURCES`, `AUTO_PLATFORMS` | |
+
 ## Bản 27: bóc lời + phân tích hình trên Kaggle, câu hook, bỏ lời kêu gọi đăng ký
 
 Chạy thật trên Kaggle T4 với video cá kèo 220s (13/11/2026):

@@ -248,6 +248,20 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
     return _common(spec)
 
 
+def bed_spec(job, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str, bands,
+             max_duration: int, music: str | None, music_url: str, trim: float, orig: str,
+             local_path: str | None = None, src: dict | None = None) -> dict:
+    """Video KHÔNG LỜI (NO_SPEECH=music): dựng như remake (tiêu đề, logo, che chữ, màu) nhưng tiếng là nhạc nền (+ tiếng
+    gốc theo BGM_ORIG) thay cho giọng đọc. Không đọc giọng, không tách giọng: chạy CPU, không tốn giờ GPU.
+    music: file nhạc trên Botkeep (Kaggle lấy qua PUBLIC_URL); music_url: link gốc (Kaggle tự tải). Không có cả hai:
+    chỉ tiếng gốc."""
+    return _common({"kind": "bed", "job": job.id, "mode": job.mode,
+                    "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
+                    "music": ref(music, music_url, "audio") if (music or music_url) else None,
+                    "trim": round(float(trim), 3), "orig": orig, "out_dur": out_dur, "render_dur": render_dur,
+                    "stretch": stretch, "allow_hd": allow_hd, "title": title, "bands": bands or []})
+
+
 def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: bool, max_duration: int) -> dict:
     """Việc bóc lời + phân tích hình (chạy TRƯỚC khi AI viết lời). Khoá ngôn ngữ tiếng Việt khi tiêu đề/mô tả có dấu
     tiếng Việt (Whisper đoán ngôn ngữ trên quãng nhạc dạo hay sai); không thì để Whisper tự đoán (nguồn nước ngoài)."""

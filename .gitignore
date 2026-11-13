@@ -29,3 +29,5 @@ golden/.golden_jobs.db
 recent_looks.json
 render_speed.json
 autopost.json
+assets/bgm/
+assets/bgm_recent.json

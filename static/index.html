@@ -78,7 +78,24 @@ a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;fo
   </details>
 </div>
 <div class="card">
-  <details id="auto_box"><summary><b>🤖 Tự động đăng Facebook</b> <span class="mut">(kênh nguồn → làm lại → đăng Fanpage giờ vàng; bật trong Cài đặt: AUTO_POST, AUTO_SOURCES, FB_PAGE_ID, FB_PAGE_TOKEN)</span></summary>
+  <details id="bgm_box"><summary><b>🎵 Nhạc nền cho video không lời</b> <span class="mut">(video không ai nói: chèn nhạc thay vì để AI bịa lời; mỗi video chọn ngẫu nhiên một bài, tránh 3 bài vừa dùng)</span></summary>
+    <div id="bgm_info" class="mut" style="margin:8px 0"></div>
+    <div id="bgm_list" style="margin:8px 0"></div>
+    <label>Thêm link nhạc (TikTok / YouTube / file mp3 trên mạng — Kaggle tự tải được)</label>
+    <div style="display:flex;gap:8px"><input id="bgm_link" placeholder="https://www.tiktok.com/@.../video/..." style="flex:1"><button id="bgm_add" style="width:auto">Thêm</button></div>
+    <label>Hoặc tải file nhạc lên (mp3, m4a, wav..., tối đa 15MB/bài; dựng trên Kaggle cần PUBLIC_URL)</label>
+    <div style="display:flex;gap:8px"><input id="bgm_file" type="file" accept="audio/*" multiple style="flex:1"><button id="bgm_up" style="width:auto">Tải lên</button></div>
+    <div id="bgm_msg" class="mut" style="margin-top:8px"></div>
+  </details>
+</div>
+<div class="card">
+  <details id="auto_box"><summary><b>🤖 Tự động đăng</b> <span class="mut">(kênh nguồn Facebook / TikTok → làm lại → đăng Fanpage giờ vàng; bật trong Cài đặt: AUTO_POST, AUTO_SOURCES, AUTO_TIKTOK_SOURCES, FB_PAGE_ID, FB_PAGE_TOKEN)</span></summary>
+    <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:8px 0">
+      <b>Lấy video từ:</b>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_fb" data-plat="facebook" style="width:auto"> Facebook</label>
+      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_tt" data-plat="tiktok" style="width:auto"> TikTok</label>
+      <span class="mut" id="auto_plat_msg">tick cả hai: bot chọn xen kẽ hai nguồn, không lấy trùng video</span>
+    </div>
     <pre id="auto_status" class="mut" style="white-space:pre-wrap;margin:8px 0"></pre>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button id="auto_now" style="flex:1">▶️ Lấy video ngay</button>
@@ -216,8 +233,40 @@ async function autoCall(act){
     const r=await fetch('/api/autopost'+(act?'/'+act:''),{method:act?'POST':'GET',headers:hdr()});
     const d=r.ok?await r.json():{text:'❌ '+await r.text()};
     $('auto_status').textContent=(act?d.text+'\n\n':'')+(d.status||d.text||'');
+    if(d.platforms){$('auto_fb').checked=d.platforms.includes('facebook');$('auto_tt').checked=d.platforms.includes('tiktok');}
   }catch(e){$('auto_status').textContent='❌ '+e}
 }
+async function savePlatforms(ev){
+  const on=['auto_fb','auto_tt'].filter(id=>$(id).checked).map(id=>$(id).dataset.plat);
+  if(!on.length){ev.target.checked=true;$('auto_plat_msg').textContent='⚠️ Phải tick ít nhất một nguồn';return;}
+  const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify({AUTO_PLATFORMS:on.join(',')})});
+  $('auto_plat_msg').textContent=r.ok?(on.length==2?'✅ Lấy từ cả hai nguồn (xen kẽ, không trùng)':'✅ Chỉ lấy từ '+(on[0]=='facebook'?'Facebook':'TikTok')):'❌ '+await r.text();
+  autoCall('');
+}
+function bgmShow(d){
+  const it=d.items||[];
+  $('bgm_info').textContent=(d.mode=='narrate'?'⚠️ NO_SPEECH=narrate: video không lời đang để AI viết lời (đổi trong Cài đặt). ':'')+
+    'Tiếng gốc: '+({off:'bỏ, chỉ nhạc mới',low:'giữ nhỏ dưới nhạc',keep:'giữ to, nhạc nằm dưới'}[d.orig]||d.orig)+' (BGM_ORIG). '+
+    (it.length?it.length+' bài trong thư viện.':'Thư viện trống: video không lời sẽ giữ nguyên tiếng gốc và không tự đăng.')+
+    (!d.public_url&&it.some(x=>x.kind=='file')?' Chưa đặt PUBLIC_URL: file tải lên chỉ dùng khi dựng trên Botkeep (Kaggle dùng link).':'');
+  $('bgm_list').innerHTML=it.map(x=>'<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+
+    (x.kind=='link'?'🔗 ':'📁 ')+esc(x.name)+'</span><button data-bgm="'+esc(x.key)+'" style="width:auto;padding:4px 10px">Xoá</button></div>').join('');
+  document.querySelectorAll('[data-bgm]').forEach(b=>b.onclick=()=>bgmCall('/api/bgm/delete',JSON.stringify({key:b.dataset.bgm}),'✅ Đã xoá'));
+}
+async function bgmCall(url,body,ok){
+  try{
+    const r=await fetch(url,body===undefined?{headers:hdr()}:{method:'POST',headers:typeof body=='string'?hdr():undefined,body});
+    if(!r.ok){$('bgm_msg').textContent='❌ '+await r.text();return false;}
+    bgmShow(await r.json());if(ok)$('bgm_msg').textContent=ok;return true;
+  }catch(e){$('bgm_msg').textContent='❌ '+e;return false}
+}
+$('bgm_box').addEventListener('toggle',()=>{if($('bgm_box').open)bgmCall('/api/bgm')});
+$('bgm_add').onclick=()=>{const u=$('bgm_link').value.trim();if(!u)return;$('bgm_msg').textContent='Đang lưu...';
+  bgmCall('/api/bgm/link',JSON.stringify({url:u}),'✅ Đã thêm link').then(ok=>{if(ok)$('bgm_link').value=''})};
+$('bgm_up').onclick=()=>{const fs=$('bgm_file').files;if(!fs.length)return;const f=new FormData();
+  for(const x of fs)f.append('file',x);$('bgm_msg').textContent='Đang tải lên '+fs.length+' bài...';
+  bgmCall('/api/bgm',f,'✅ Đã tải lên').then(ok=>{if(ok)$('bgm_file').value=''})};
+$('auto_fb').onchange=savePlatforms;$('auto_tt').onchange=savePlatforms;
 $('auto_box').addEventListener('toggle',()=>{if($('auto_box').open)autoCall('')});
 $('auto_now').onclick=()=>{$('auto_status').textContent='Đang tìm video...';autoCall('now')};
 $('auto_test').onclick=()=>autoCall('test');

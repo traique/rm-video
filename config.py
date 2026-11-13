@@ -62,6 +62,9 @@ EDITABLE = {
     "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
     "SCENE_ANALYSIS": "light",         # light | fast | full: phân tích hình (chữ in cứng, ảnh bìa, ảnh cho AI, chuyển cảnh)
     "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
+    "NO_SPEECH": "music",              # video KHÔNG LỜI: music = chèn nhạc nền, không thêm lời; narrate = AI xem hình viết lời
+    "BGM_LINKS": "",                   # thư viện nhạc nền: link TikTok / YouTube / mp3, cách nhau dấu phẩy
+    "BGM_ORIG": "off",                 # tiếng gốc khi chèn nhạc: off = chỉ nhạc mới | low = giữ nhỏ dưới nhạc | keep = giữ to, nhạc nằm dưới
     "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
     "SUB_TIMING": "spread",            # spread = rải chữ trên khoảng có tiếng của giọng (lệch ~70ms); stt = nghe lại bằng STT CapCut
     "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
@@ -74,6 +77,8 @@ EDITABLE = {
     # 🤖 Tự động đăng (autopost.py): lấy video ngẫu nhiên không trùng từ kênh nguồn -> làm lại -> đăng Fanpage giờ vàng
     "AUTO_POST": "0",                  # 1 = bật
     "AUTO_SOURCES": "",                # kênh Facebook nguồn (link kênh hoặc tên kênh), cách nhau dấu phẩy
+    "AUTO_TIKTOK_SOURCES": "",         # kênh TikTok nguồn (@tên hoặc link tiktok.com/@tên), cách nhau dấu phẩy
+    "AUTO_PLATFORMS": "facebook,tiktok",   # ô tick nguồn: facebook, tiktok hoặc cả hai (xen kẽ)
     "AUTO_PER_DAY": "2",               # số video đăng mỗi ngày (1-4)
     "AUTO_TIMES": "",                  # trống = bot tự chọn giờ vàng theo lượt xem; hoặc cố định "11:30,20:30"
     "AUTO_MODE": "cook",               # chế độ làm lại: cook | review
@@ -159,6 +164,16 @@ def save_settings(updates: dict):
                 raise ValueError("TEXT_DETECT chỉ nhận: heuristic, ocr")
             if k == "SCENE_ANALYSIS" and v not in ("light", "fast", "full"):
                 raise ValueError("SCENE_ANALYSIS chỉ nhận: light, fast, full")
+            if k == "NO_SPEECH" and v not in ("music", "narrate"):
+                raise ValueError("NO_SPEECH chỉ nhận: music, narrate")
+            if k == "BGM_ORIG" and v not in ("off", "low", "keep"):
+                raise ValueError("BGM_ORIG chỉ nhận: off, low, keep")
+            if k == "BGM_LINKS":
+                links = [x for x in re.split(r"[\s,]+", v) if x]
+                bad = [x for x in links if not re.match(r"https?://[^\s/]+\.[^\s/]+", x)]
+                if bad:
+                    raise ValueError(f"BGM_LINKS: không phải link: {bad[0][:60]}")
+                v = ",".join(dict.fromkeys(links))
             if k == "SUB_TIMING" and v not in ("spread", "stt"):
                 raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
             if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):
@@ -187,6 +202,15 @@ def save_settings(updates: dict):
                 import autopost
                 for s in re.split(r"[,\s]+", v):
                     autopost.normalize_source(s)        # ném ValueError nếu không phải kênh Facebook
+            if k == "AUTO_TIKTOK_SOURCES":
+                import autopost
+                for s in re.split(r"[,\s]+", v):
+                    autopost.normalize_tiktok(s)        # ném ValueError nếu không phải kênh TikTok
+            if k == "AUTO_PLATFORMS":
+                got = [p for p in re.split(r"[,\s]+", v.lower()) if p]
+                if not got or any(p not in ("facebook", "tiktok") for p in got):
+                    raise ValueError("AUTO_PLATFORMS: tick ít nhất một nguồn (facebook, tiktok)")
+                v = ",".join(p for p in ("facebook", "tiktok") if p in got)
             cur[k] = v
     tmp = SETTINGS_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:          # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang

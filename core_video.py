@@ -1271,7 +1271,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
                  fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
-                 ost=None, orig_audio: bool = True) -> str:
+                 ost=None, orig_audio: bool = True, bed: bool = False) -> str:
     """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
     + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại."""
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
@@ -1289,6 +1289,11 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ASSETS_DIR}"
     v += "[v];"
+    if bed:
+        # video KHÔNG LỜI: lớp nền đã trộn sẵn (nhạc nền + tiếng gốc, music_bed) là tiếng chính, không có giọng đọc;
+        # không qua lọc giọng (EQ/nén/vang làm méo nhạc), không làm chậm (nhạc giữ đúng nhịp, music_bed đã tính)
+        return v + (f"[2:a]aformat=sample_rates=44100:channel_layouts=stereo,{LOUDNORM},{AOUT},"
+                    f"apad=whole_dur={out_dur:.2f}[a]")
     if mode == "cook" and ambient:
         # highpass 3kHz giữ tiếng xèo xèo; sidechaincompress tự hạ tiếng nền khi giọng đọc
         # vang lên (ducking như video chuyên nghiệp); loudnorm chuẩn hóa âm lượng -16 LUFS
@@ -1565,7 +1570,8 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: int = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
-                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None):
+                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
+                 music_bed: bool = False):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -1596,7 +1602,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     logo_idx = (3 if ambient_wav else 2) if use_logo else None
     fc = build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
-                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient)
+                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
+                      bed=bool(music_bed and ambient_wav))
     brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx)
     fades = f",fade=t=in:st=0:d=0.3,fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
@@ -1621,6 +1628,40 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
 
 
 MUSIC_BG_LEVEL = 0.32          # nhạc nền ≈ -10 dB so với tiếng gốc, tự hạ thêm khi tiếng gốc to (sidechain)
+
+
+BED_ORIG_LOW = 0.25             # BGM_ORIG=low: tiếng gốc (xèo xèo, tiếng dao...) ≈ -12 dB dưới nhạc nền
+
+
+async def music_bed(input_mp4: str, music_path: str | None, out_wav: str, out_dur: float, trim: float = 0.0,
+                    orig: str = "low", stretch: float = 1.0) -> str:
+    """Video KHÔNG LỜI: lớp tiếng = nhạc nền mới (từ giây `trim`, lặp nếu ngắn, vào 1s / ra 2s) + tiếng gốc theo
+    BGM_ORIG: low = nhạc là chính, tiếng gốc nhỏ (≈ -12 dB, vẫn nghe tiếng xèo xèo); keep = tiếng gốc là chính, nhạc
+    nằm dưới và tự hạ khi tiếng gốc to; off = chỉ nhạc mới. Không có nhạc thì chỉ tiếng gốc. Tiếng gốc chậm theo
+    hình khi kéo dài video; nhạc giữ nguyên nhịp."""
+    has_orig = orig != "off" and await has_audio(input_mp4)
+    slow = f"atempo={1 / stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
+    og = f"[0:a]aformat=sample_rates=44100:channel_layouts=stereo,{slow}apad=whole_dur={out_dur:.2f}"
+    ins = ["-i", input_mp4]
+    if music_path:
+        ins += ["-stream_loop", "-1", "-ss", f"{max(0.0, trim):.3f}", "-i", music_path]
+        mus = (f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:{out_dur:.2f},asetpts=PTS-STARTPTS,"
+               f"afade=t=in:st=0:d=1.0,afade=t=out:st={max(0.0, out_dur - 2.0):.2f}:d=2.0")
+        if not has_orig:
+            fc = f"{mus},apad=whole_dur={out_dur:.2f}[a]"
+        elif orig == "keep":
+            fc = (f"{mus},volume={MUSIC_BG_LEVEL}[mus];{og},asplit=2[og][key];"
+                  "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
+                  "[og][musd]amix=inputs=2:duration=first:normalize=0[a]")
+        else:
+            fc = f"{mus}[mus];{og},volume={BED_ORIG_LOW}[og];[og][mus]amix=inputs=2:duration=first:normalize=0[a]"
+    elif has_orig or await has_audio(input_mp4):
+        fc = f"{og}[a]"
+    else:
+        fc = f"anullsrc=r=44100:cl=stereo,atrim=0:{out_dur:.2f}[a]"
+    await _run_ffmpeg("-y", *ins, "-filter_complex", fc, "-map", "[a]", "-t", f"{out_dur:.2f}",
+                      "-ar", "44100", "-ac", "2", out_wav)
+    return out_wav
 
 
 async def render_music(input_mp4: str, music_path: str, output_mp4: str,

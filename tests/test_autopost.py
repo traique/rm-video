@@ -463,3 +463,170 @@ def test_corrupt_state_kept_and_paused(monkeypatch, tmp_path):
     assert st["paused"] and os.path.exists(autopost.STATE_FILE + ".bad")
     assert asyncio.run(autopost.tick()).startswith("đang dừng")
     assert autopost.load_state()["paused"]                                  # lần sau vẫn dừng (đã ghi lại)
+
+
+# ---------------- bản 28: nguồn TikTok, ô tick nguồn, chống trùng giữa hai nền tảng ----------------
+
+def test_normalize_tiktok():
+    n = autopost.normalize_tiktok
+    want = "https://www.tiktok.com/@quetrai.nauan"
+    assert n("quetrai.nauan") == n("@QueTrai.NauAn") == n("tiktok.com/@quetrai.nauan") == \
+        n("https://www.tiktok.com/@quetrai.nauan?lang=vi") == n("https://m.tiktok.com/@quetrai.nauan/") == want
+    for bad in ("https://www.tiktok.com/@a/video/7300000000000000000", "https://www.facebook.com/quetrai",
+                "https://evil.example/@quetrai", "@a", "https://vt.tiktok.com/ZSabc/"):
+        with pytest.raises(ValueError):
+            n(bad)
+
+
+def test_list_tiktok_uses_ytdlp_flat_listing(monkeypatch):
+    import sys
+    import types
+    seen = {}
+
+    class FakeYDL:
+        entries = [
+            {"id": "7300000000000000001", "url": "https://www.tiktok.com/@quetrai/video/7300000000000000001",
+             "title": "Cá kho tộ #nauan", "duration": 58},
+            {"id": "7300000000000000002", "url": "https://evil.example/@quetrai/video/7300000000000000002",
+             "title": "x", "duration": 10},                                    # link lạ: bỏ
+            {"id": "abc", "url": "https://www.tiktok.com/@quetrai/video/abc"},  # id không phải số: bỏ
+            {"id": "7300000000000000003", "url": "https://www.tiktok.com/@quetrai/photo/7300000000000000003"},
+        ]
+
+        def __init__(self, opts):
+            seen["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download=False):
+            seen["url"] = url
+            return {"entries": list(self.entries)}
+    monkeypatch.setitem(sys.modules, "yt_dlp", types.SimpleNamespace(YoutubeDL=FakeYDL))
+    monkeypatch.setattr(autopost.url_guard, "check_url", lambda u, **k: u)
+    items, owner = autopost.list_tiktok_sync("https://www.tiktok.com/@quetrai")
+    assert owner == "quetrai" and [x["id"] for x in items] == ["7300000000000000001"]
+    assert items[0]["dur"] == 58 and items[0]["title"] == "Cá kho tộ #nauan"
+    assert seen["opts"]["extract_flat"] == "in_playlist" and seen["opts"]["playlistend"] == 30
+    FakeYDL.entries = []                                                       # kênh riêng tư / bị chặn
+    with pytest.raises(RuntimeError, match="TikTok"):
+        autopost.list_tiktok_sync("https://www.tiktok.com/@quetrai")
+
+
+def test_same_video_across_platforms():
+    a = {"dur": 58.0, "title": autopost._norm_title("Cá kho tộ đậm đà chuẩn vị miền Tây 🐟 #nauan #monngon")}
+    b = {"dur": 57.2, "title": autopost._norm_title("Cá kho tộ đậm đà chuẩn vị miền Tây #fyp")}
+    assert autopost.same_video(a, b)
+    assert not autopost.same_video(a, {**b, "dur": 61})                         # lệch hơn 1.5 giây
+    assert not autopost.same_video(a, {"dur": 58, "title": autopost._norm_title("Gà chiên nước mắm giòn rụm")})
+    assert not autopost.same_video({"dur": 58, "title": ""}, {"dur": 58, "title": ""})   # thiếu chú thích: không đoán
+    st = autopost.load_state()
+    st["used"] = {"123456789": {"job": 1, "plat": "facebook", **a}, "tt:9": {"skip": "khác kênh", **a}}
+    assert autopost.duplicate_of(st, "tt:7", {"duration": 58, "title": "Cá kho tộ đậm đà chuẩn vị miền Tây 😋"}) \
+        == "123456789"
+    assert autopost.duplicate_of(st, "123456789", {"duration": 58, "title": "Cá kho tộ đậm đà chuẩn vị miền Tây"}) == ""
+
+
+def test_platform_checkboxes_and_alternation(monkeypatch):
+    monkeypatch.setattr(config, "AUTO_TIKTOK_SOURCES", "@quetrai")
+    for raw, want in (("", ["facebook", "tiktok"]), ("tiktok", ["tiktok"]), ("facebook", ["facebook"]),
+                      ("tiktok,facebook", ["facebook", "tiktok"]), ("xyz", ["facebook", "tiktok"])):
+        monkeypatch.setattr(config, "AUTO_PLATFORMS", raw)
+        assert autopost.platforms() == want                                    # bỏ tick hết = lấy cả hai
+    monkeypatch.setattr(config, "AUTO_PLATFORMS", "tiktok")
+    assert autopost.all_sources() == [("tiktok", "https://www.tiktok.com/@quetrai")]
+    monkeypatch.setattr(config, "AUTO_PLATFORMS", "facebook,tiktok")
+    st = autopost.load_state()
+    rnd = random.Random(0)
+    st["used"] = {"1": {"at": 1, "job": 1, "plat": "facebook"}, "2": {"at": 2, "job": 2, "plat": "facebook"},
+                  "tt:3": {"at": 3, "job": 3, "plat": "tiktok"}, "tt:x": {"at": 4, "skip": "khác kênh", "plat": "tiktok"}}
+    assert autopost._platform_order(st, rnd) == ["tiktok", "facebook"]          # TikTok ít hơn -> lượt này TikTok
+    st["used"]["tt:4"] = {"at": 5, "job": 4, "plat": "tiktok"}
+    st["used"]["tt:5"] = {"at": 6, "job": 5, "plat": "tiktok"}
+    assert autopost._platform_order(st, rnd) == ["facebook", "tiktok"]
+    monkeypatch.setattr(config, "AUTO_TIKTOK_SOURCES", "")                      # tick TikTok mà chưa có kênh: bỏ qua
+    assert autopost._platform_order(st, rnd) == ["facebook"]
+    monkeypatch.setattr(config, "AUTO_SOURCES", "")
+    monkeypatch.setattr(config, "AUTO_PLATFORMS", "tiktok")
+    assert "AUTO_TIKTOK_SOURCES" in autopost.enabled()
+
+
+def _tiktok_only(monkeypatch, items, probe_info):
+    import core_video
+    import state
+    monkeypatch.setattr(autopost, "EXPLORE", 0.0)
+    monkeypatch.setattr(config, "AUTO_TIKTOK_SOURCES", "@quetrai")
+    monkeypatch.setattr(config, "AUTO_PLATFORMS", "tiktok")
+    monkeypatch.setattr(autopost, "list_tiktok_sync", lambda src: (items, "quetrai"))
+
+    def no_fb(src):
+        raise AssertionError("không tick Facebook mà vẫn đọc kênh Facebook")
+    monkeypatch.setattr(autopost, "list_channel_sync", no_fb)
+
+    async def probe(url, td):
+        return probe_info[url.rsplit("/", 1)[1]]
+    monkeypatch.setattr(core_video, "probe_formats", probe)
+    queued = []
+    monkeypatch.setattr(state.queue, "put", lambda job, force=False: queued.append(job) or 1)
+    monkeypatch.setattr(state.queue, "pending", 0)
+    return queued
+
+
+def test_tick_picks_tiktok_video(monkeypatch):
+    items = [{"id": "7302", "url": "https://www.tiktok.com/@quetrai/video/7302", "title": "Gà chiên", "dur": 40}]
+    queued = _tiktok_only(monkeypatch, items, {"7302": {"duration": 40, "uploader": "quetrai",
+                                                        "title": "Gà chiên nước mắm giòn rụm"}})
+    msg = asyncio.run(autopost.tick(now=_ts(12, "09:00"), rnd=random.Random(1)))
+    assert msg.startswith("job #") and [j.url for j in queued] == ["https://www.tiktok.com/@quetrai/video/7302"]
+    assert queued[0].source == "auto" and queued[0].title_hint == "Gà chiên nước mắm giòn rụm"
+    st = autopost.load_state()
+    assert st["used"]["tt:7302"]["plat"] == "tiktok" and st["pending"]["plat"] == "tiktok"
+    assert st["used"]["tt:7302"]["title"] == "gà chiên nước mắm giòn rụm" and st["used"]["tt:7302"]["dur"] == 40
+    assert "TikTok 1" in autopost.status_text() and "Nguồn đang tick: Tiktok" in autopost.status_text()
+
+
+def test_tick_skips_cross_platform_duplicate_and_other_owner(monkeypatch):
+    items = [{"id": "7301", "url": "https://www.tiktok.com/@quetrai/video/7301", "title": "Cá kho", "dur": 58},
+             {"id": "7303", "url": "https://www.tiktok.com/@quetrai/video/7303", "title": "Bò", "dur": 30}]
+    queued = _tiktok_only(monkeypatch, items, {
+        "7301": {"duration": 58, "uploader": "quetrai", "title": "Cá kho tộ đậm đà chuẩn vị miền Tây #nauan"},
+        "7303": {"duration": 30, "uploader": "kenhkhac", "title": "Bò lúc lắc"}})
+    st = autopost.load_state()               # cùng video cá kho đã lấy từ Facebook trước đó (đăng ở cả hai nơi)
+    st["used"]["100000009"] = {"at": 1, "job": 9, "plat": "facebook", "dur": 58.4,
+                               "title": autopost._norm_title("Cá kho tộ đậm đà chuẩn vị miền Tây 🐟")}
+    autopost.save_state(st)
+    msg = asyncio.run(autopost.tick(now=_ts(12, "09:00"), rnd=random.Random(1)))
+    assert msg.startswith("hết video mới") and not queued
+    st = autopost.load_state()
+    assert st["used"]["tt:7301"]["skip"] == "trùng video đã làm (100000009)"
+    assert st["used"]["tt:7303"]["skip"] == "khác kênh"
+
+
+def test_platform_settings_validation(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "SETTINGS_FILE", str(tmp_path / "s.json"))
+    for k, v in (("AUTO_PLATFORMS", "youtube"), ("AUTO_TIKTOK_SOURCES", "https://www.tiktok.com/@a/video/123"),
+                 ("AUTO_TIKTOK_SOURCES", "https://www.facebook.com/abc")):
+        with pytest.raises(ValueError):
+            config.save_settings({k: v})
+    config.save_settings({"AUTO_PLATFORMS": "tiktok, facebook", "AUTO_TIKTOK_SOURCES": "@quetrai, tiktok.com/@bepnha"})
+    assert config.AUTO_PLATFORMS == "facebook,tiktok"
+    assert autopost.tiktok_sources() == ["https://www.tiktok.com/@quetrai", "https://www.tiktok.com/@bepnha"]
+
+
+def test_web_platform_checkboxes(monkeypatch, tmp_path):
+    from test_security import _client
+    monkeypatch.setattr(config, "FB_PAGE_TOKEN", "")
+    monkeypatch.setattr(config, "SETTINGS_FILE", str(tmp_path / "s.json"))     # không đụng settings.json thật
+
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            h = {"X-Auth": "pw-123"}
+            assert (await (await c.get("/api/autopost", headers=h)).json())["platforms"] == ["facebook", "tiktok"]
+            r = await c.post("/api/settings", headers=h, json={"AUTO_PLATFORMS": "tiktok"})
+            assert r.status == 200
+            assert (await (await c.get("/api/autopost", headers=h)).json())["platforms"] == ["tiktok"]
+            assert (await c.post("/api/settings", headers=h, json={"AUTO_PLATFORMS": "abc"})).status == 400
+    asyncio.run(go())

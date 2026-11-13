@@ -1,5 +1,10 @@
-"""🤖 Tự động đăng: lấy NGẪU NHIÊN một video (không bao giờ lặp lại) từ kênh Facebook nguồn -> làm lại như job thường
--> đăng lên Fanpage của bạn qua Graph API chính thức, HẸN ĐÚNG GIỜ VÀNG; mặc định 2 video/ngày.
+"""🤖 Tự động đăng: lấy NGẪU NHIÊN một video (không bao giờ lặp lại) từ kênh nguồn Facebook và/hoặc TikTok (ô tick
+AUTO_PLATFORMS; tick cả hai thì xen kẽ hai nền tảng) -> làm lại như job thường -> đăng lên Fanpage của bạn qua Graph
+API chính thức, HẸN ĐÚNG GIỜ VÀNG; mặc định 2 video/ngày.
+
+- Kênh TikTok: yt-dlp đọc được danh sách ~30 video mới nhất của kênh (khác Facebook). Chống trùng: ngoài danh sách
+  video đã dùng, video mới còn được so độ dài + chú thích với mọi video đã làm (cùng một video người gốc đăng ở cả
+  Facebook lẫn TikTok, hoặc đăng lại, thì không làm lần hai).
 
 - Danh sách video của kênh: trang Reels + Video của kênh (không cần đăng nhập Facebook lấy được ~10 video mới nhất mỗi
   tab; yt-dlp không liệt kê được kênh Facebook). Video đã dùng ghi vào autopost.json nên không bao giờ dùng lại; kênh
@@ -94,16 +99,66 @@ def save_state(st: dict, path: str | None = None):
 
 # ---------------- cài đặt ----------------
 
-def sources() -> list:
+def _norm_list(raw: str, norm) -> list:
     out = []
-    for s in re.split(r"[,\s]+", config.AUTO_SOURCES or ""):
+    for s in re.split(r"[,\s]+", raw or ""):
         try:
-            n = normalize_source(s)
+            n = norm(s)
         except ValueError:
             continue
         if n and n not in out:
             out.append(n)
     return out
+
+
+def sources() -> list:
+    """Kênh FACEBOOK nguồn (AUTO_SOURCES)."""
+    return _norm_list(config.AUTO_SOURCES, normalize_source)
+
+
+def tiktok_sources() -> list:
+    """Kênh TIKTOK nguồn (AUTO_TIKTOK_SOURCES)."""
+    return _norm_list(getattr(config, "AUTO_TIKTOK_SOURCES", ""), normalize_tiktok)
+
+
+PLATFORMS = ("facebook", "tiktok")
+
+
+def platforms() -> list:
+    """Nền tảng nguồn đang tick (AUTO_PLATFORMS). Không tick gì / giá trị lạ -> cả hai."""
+    got = [p for p in PLATFORMS if p in re.split(r"[,\s]+", (getattr(config, "AUTO_PLATFORMS", "") or "").lower())]
+    return got or list(PLATFORMS)
+
+
+def all_sources() -> list:
+    """[(nền tảng, kênh)] của các nền tảng đang tick."""
+    on = platforms()
+    return ([("facebook", s) for s in sources()] if "facebook" in on else []) + \
+        ([("tiktok", s) for s in tiktok_sources()] if "tiktok" in on else [])
+
+
+def normalize_tiktok(s: str) -> str:
+    """'quetrai', '@quetrai', 'https://www.tiktok.com/@quetrai?lang=vi' -> https://www.tiktok.com/@quetrai.
+    Link một video (…/video/123) không phải link kênh."""
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if re.match(r"(?i)^(?:[\w-]+\.)*tiktok\.com/", s):
+        s = "https://" + s
+    if s.startswith(("http://", "https://")):
+        parts = urllib.parse.urlsplit(s)
+        host = (parts.hostname or "").lower()
+        if not (host == "tiktok.com" or host.endswith(".tiktok.com")):
+            raise ValueError(f"«{s}» không phải kênh TikTok")
+        seg = [p for p in parts.path.split("/") if p]
+        if not seg or not seg[0].startswith("@") or len(seg) > 1:
+            raise ValueError(f"«{s}» là link video/trang khác, không phải link kênh TikTok (dạng tiktok.com/@tên)")
+        name = seg[0][1:]
+    else:
+        name = s.lstrip("@")
+    if not re.fullmatch(r"[A-Za-z0-9_.]{2,24}", name):
+        raise ValueError(f"«{s}» không phải tên kênh TikTok")
+    return f"https://www.tiktok.com/@{name.lower()}"
 
 
 def normalize_source(s: str) -> str:
@@ -148,8 +203,9 @@ def enabled() -> str:
         return "AUTO_POST đang tắt"
     if not (config.FB_PAGE_ID.strip() and config.FB_PAGE_TOKEN.strip()):
         return "thiếu FB_PAGE_ID / FB_PAGE_TOKEN"
-    if not sources():
-        return "chưa có kênh nguồn (AUTO_SOURCES)"
+    if not all_sources():
+        return ("chưa có kênh nguồn cho nền tảng đang tick (AUTO_SOURCES: Facebook, AUTO_TIKTOK_SOURCES: TikTok; "
+                f"đang tick: {', '.join(platforms())})")
     return ""
 
 
@@ -213,6 +269,63 @@ def list_channel_sync(src: str, fetch=_fetch) -> tuple:
     if not (reels or videos):
         raise RuntimeError("; ".join(errs) or "không đọc được kênh")
     return parse_listing(reels, videos)
+
+
+def list_tiktok_sync(src: str) -> tuple:
+    """([{"id", "url", "title", "dur"}], tên kênh): ~30 video mới nhất của kênh TikTok qua yt-dlp (đo thật 13/11/2026:
+    trả id, link, chú thích, độ dài)."""
+    import yt_dlp
+    url_guard.check_url(src)
+    opts = {"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
+            "extract_flat": "in_playlist", "playlistend": 30}
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(src, download=False)
+    items = []
+    for e in (info or {}).get("entries") or []:
+        vid, url = str(e.get("id") or ""), str(e.get("url") or "")
+        host = (urllib.parse.urlsplit(url).hostname or "").lower()
+        if vid.isdigit() and "/video/" in url and (host == "tiktok.com" or host.endswith(".tiktok.com")):
+            items.append({"id": vid, "url": url, "title": (e.get("title") or "")[:200], "dur": e.get("duration")})
+    if not items:
+        raise RuntimeError("không đọc được video nào của kênh TikTok (kênh riêng tư / bị chặn?)")
+    return items, src.rsplit("@", 1)[-1]
+
+
+# ---------------- chống trùng giữa các nguồn ----------------
+
+def _norm_title(t: str) -> str:
+    t = re.sub(r"#\S+|@\S+|https?://\S+", " ", (t or "").lower())
+    return " ".join(re.findall(r"\w+", t))[:160]
+
+
+def same_video(a: dict, b: dict) -> bool:
+    """Cùng một video đăng ở hai nơi (Facebook + TikTok, hoặc đăng lại): độ dài lệch <= 1.5s và chú thích giống nhau
+    (>= 60% sau khi bỏ hashtag/emoji). Thiếu chú thích thì KHÔNG coi là trùng (chỉ độ dài thì dễ nhầm)."""
+    import difflib
+    da, db = a.get("dur") or 0, b.get("dur") or 0
+    ta, tb = a.get("title") or "", b.get("title") or ""
+    if not (da and db and abs(float(da) - float(db)) <= 1.5) or len(ta) < 8 or len(tb) < 8:
+        return False
+    return difflib.SequenceMatcher(None, ta, tb).ratio() >= 0.6
+
+
+def duplicate_of(st: dict, key: str, info: dict) -> str:
+    """Khoá video đã làm trùng với video sắp lấy (hoặc "")."""
+    me = {"dur": info.get("duration") or 0, "title": _norm_title(info.get("title") or "")}
+    for k, u in st["used"].items():
+        if k != key and not u.get("skip") and same_video(me, u):
+            return k
+    return ""
+
+
+def _platform_order(st: dict, rnd: random.Random) -> list:
+    """Tick cả hai nền tảng: nền tảng được chọn ÍT hơn trong 6 video gần nhất đi trước (xen kẽ), bằng nhau thì ngẫu
+    nhiên. Nền tảng không có kênh nguồn thì bỏ."""
+    have = [p for p in platforms() if any(q == p for q, _ in all_sources())]
+    recent = sorted((u for u in st["used"].values() if u.get("job")), key=lambda u: u.get("at", 0))[-6:]
+    cnt = {p: sum(1 for u in recent if u.get("plat", "facebook") == p) for p in have}
+    rnd.shuffle(have)
+    return sorted(have, key=lambda p: cnt[p])
 
 
 # ---------------- giờ vàng ----------------
@@ -462,37 +575,74 @@ def _fail(st: dict, vid: str, src: str, now: float, why: str, hard: bool = False
         st["used"].pop(vid, None)
 
 
+async def _listing(st: dict, plat: str, src: str, now: float) -> dict:
+    """Danh sách video của một kênh (đọc lại sau LIST_TTL; lỗi thì nhớ, không đọc lại mỗi 2 phút).
+    Facebook: ids là id video; TikTok: ids là "tt:<id>", kèm items {khoá: link, chú thích, độ dài}."""
+    lst = st["listing"].get(src)
+    if not lst or (now - lst.get("at", 0) > LIST_TTL and now - lst.get("fail_at", 0) > RETRY_AFTER / 6):
+        try:
+            if plat == "tiktok":
+                items, owner = await asyncio.to_thread(list_tiktok_sync, src)
+                lst = st["listing"][src] = {"at": now, "ids": [f"tt:{x['id']}" for x in items], "owner": owner,
+                                            "items": {f"tt:{x['id']}": x for x in items}}
+            else:
+                ids, owner = await asyncio.to_thread(list_channel_sync, src)
+                lst = st["listing"][src] = {"at": now, "ids": ids, "owner": owner}
+        except Exception as e:
+            logging.warning("Tự động đăng: không đọc được kênh %s (%s)", src, str(e)[:120])
+            lst = st["listing"][src] = {**(lst or {"ids": [], "owner": ""}), "fail_at": now, "err": str(e)[:120]}
+    return lst
+
+
+def _video_url(plat: str, key: str, lst: dict) -> str:
+    if plat == "tiktok":
+        return (lst.get("items") or {}).get(key, {}).get("url") or ""
+    return f"https://www.facebook.com/reel/{key}/"
+
+
+def _owner_mismatch(plat: str, lst: dict, info: dict) -> bool:
+    if plat == "tiktok":                          # yt-dlp TikTok: uploader = tên kênh (@...)
+        up = str(info.get("uploader") or "").lower().lstrip("@")
+        return bool(lst.get("owner") and up and up != lst["owner"])
+    up = str(info.get("uploader_id") or "")
+    return bool(lst.get("owner") and up and up != lst["owner"])
+
+
 async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random) -> str:
     import core_video
     from queue_manager import Job, QueueFull
     from state import queue
-    srcs = sources()
-    rnd.shuffle(srcs)
+    for plat in _platform_order(st, rnd):
+        srcs = [s for p, s in all_sources() if p == plat]
+        rnd.shuffle(srcs)
+        msg = await _pick_from(st, plat, srcs, slot, now, rnd, core_video, Job, QueueFull, queue)
+        if msg:
+            return msg
+    return "hết video mới ở các kênh nguồn (chờ kênh đăng thêm)"
+
+
+async def _pick_from(st, plat, srcs, slot, now, rnd, core_video, Job, QueueFull, queue) -> str:
     for src in srcs:
-        lst = st["listing"].get(src)
-        if not lst or (now - lst.get("at", 0) > LIST_TTL and now - lst.get("fail_at", 0) > RETRY_AFTER / 6):
-            try:
-                ids, owner = await asyncio.to_thread(list_channel_sync, src)
-                lst = st["listing"][src] = {"at": now, "ids": ids, "owner": owner}
-            except Exception as e:                      # nhớ lần lỗi: không đọc lại kênh mỗi 2 phút
-                logging.warning("Tự động đăng: không đọc được kênh %s (%s)", src, str(e)[:120])
-                lst = st["listing"][src] = {**(lst or {"ids": [], "owner": ""}), "fail_at": now,
-                                            "err": str(e)[:120]}
+        lst = await _listing(st, plat, src, now)
         cands = [v for v in lst.get("ids", []) if v not in st["used"]
                  and st["fails"].get(v, {}).get("next", 0) <= now]
         rnd.shuffle(cands)
         for vid in cands[:3]:
-            url = f"https://www.facebook.com/reel/{vid}/"
+            url = _video_url(plat, vid, lst)
+            if not url:
+                continue
             try:
                 with tempfile.TemporaryDirectory() as td:
                     info = await core_video.probe_formats(url, td)
             except Exception as e:
                 _fail(st, vid, src, now, f"không xem được: {str(e)[:80]}")
                 continue
-            dur, up = info.get("duration") or 0, str(info.get("uploader_id") or "")
-            why = ("khác kênh" if lst.get("owner") and up and up != lst["owner"] else
+            dur = info.get("duration") or 0
+            dup = duplicate_of(st, vid, info)
+            why = ("khác kênh" if _owner_mismatch(plat, lst, info) else
                    f"dài {dur}s > {config.LONG_MAX}s" if dur > config.LONG_MAX else
-                   "quá ngắn" if 0 < dur < 5 else "")
+                   "quá ngắn" if 0 < dur < 5 else
+                   f"trùng video đã làm ({dup})" if dup else "")
             if why:
                 _fail(st, vid, src, now, why, hard=True)
                 continue
@@ -505,13 +655,14 @@ async def _pick_and_queue(st: dict, slot: tuple, now: float, rnd: random.Random)
                 queue.put(job)
             except QueueFull:
                 return "hàng đợi đầy, thử lại sau"
-            st["used"][vid] = {"at": now, "source": src, "job": job.id}
+            st["used"][vid] = {"at": now, "source": src, "job": job.id, "plat": plat, "dur": dur,
+                               "title": _norm_title(info.get("title") or "")}
             st["pending"] = {"job": job.id, "vid": vid, "source": src, "slot_ts": slot[0], "slot": slot[1],
-                             "dur": dur}
+                             "dur": dur, "plat": plat}
             logging.info("Tự động đăng: job #%s lấy video %s của %s (%ds) cho khung %s %s", job.id, vid, src, dur,
                          slot[1], datetime.fromtimestamp(slot[0], VN).strftime("%d/%m"))
             return f"job #{job.id}"
-    return "hết video mới ở các kênh nguồn (chờ kênh đăng thêm)"
+    return ""
 
 
 async def _job_failed(st: dict, p: dict, now: float, why: str) -> str:
@@ -667,8 +818,12 @@ def status_text() -> str:
     now = time.time()
     why = enabled()
     lines = [f"🤖 Tự động đăng: {'BẬT' if not why else 'tắt — ' + why}" + (f" | DỪNG: {st['paused']}" if st["paused"] else "")]
-    lines.append(f"Kênh nguồn: {', '.join(sources()) or '(chưa có)'} | {per_day()} video/ngày | giờ: "
+    on = platforms()
+    lines.append(f"Nguồn đang tick: {' + '.join(p.capitalize() for p in on)}"
+                 + (" (xen kẽ hai nền tảng)" if len(on) == 2 else "") + f" | {per_day()} video/ngày | giờ: "
                  + (", ".join(fixed_times()) or "tự chọn giờ vàng"))
+    lines.append(f"Kênh Facebook: {', '.join(sources()) or '(chưa có)'}")
+    lines.append(f"Kênh TikTok: {', '.join(tiktok_sources()) or '(chưa có)'}")
     rnd = random.Random(0)
     today = datetime.fromtimestamp(now, VN).date().isoformat()
     if not why:
@@ -684,7 +839,9 @@ def status_text() -> str:
     if stats:
         lines.append("Lượt xem TB sau 24h theo khung: " + ", ".join(
             f"{k} {sum(v) / len(v):.0f} ({len(v)} bài)" for k, v in sorted(stats.items())))
-    lines.append(f"Đã dùng {len(st['used'])} video nguồn, đã đăng {len(st['posts'])} bài.")
+    tt = sum(1 for k in st["used"] if k.startswith("tt:"))
+    lines.append(f"Đã dùng {len(st['used'])} video nguồn (Facebook {len(st['used']) - tt}, TikTok {tt}), "
+                 f"đã đăng {len(st['posts'])} bài.")
     if not why:
         save_state(st)                       # khung giờ hôm nay vừa chọn (nếu chưa có) phải giữ nguyên cho vòng chạy
     return "\n".join(lines)

@@ -131,12 +131,18 @@ trọn trước khi AI viết lại.
 
 ## 🤖 Tự động đăng Fanpage (kênh nguồn → làm lại → giờ vàng)
 
-Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook nguồn, cách nhau dấu phẩy),
-`FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (1-4, mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng),
-`AUTO_MODE` (cook | review). Theo dõi ở ô **🤖 Tự động đăng Facebook** trên web hoặc lệnh console `auto`.
+Bật trong Cài đặt: `AUTO_POST=1`, `AUTO_SOURCES` (link/tên kênh Facebook nguồn, cách nhau dấu phẩy) và/hoặc
+`AUTO_TIKTOK_SOURCES` (@tên hoặc link tiktok.com/@tên), `FB_PAGE_ID`, `FB_PAGE_TOKEN`; tuỳ chọn `AUTO_PER_DAY` (1-4,
+mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng), `AUTO_MODE` (cook | review). Theo dõi ở ô **🤖 Tự động đăng**
+trên web hoặc lệnh console `auto`.
 
-- Mỗi lần lấy NGẪU NHIÊN một video mới của kênh nguồn (đọc tab Reels + Video của kênh, không cần đăng nhập: ~10 video
-  mới nhất mỗi tab). Video đã dùng không bao giờ dùng lại; video quá 5 phút / không phải của chủ kênh bị bỏ qua.
+- **Chọn nguồn**: trong ô 🤖 Tự động đăng tick ☑ Facebook / ☑ TikTok (`AUTO_PLATFORMS`). Tick cả hai thì lấy xen kẽ
+  hai nền tảng (bên nào được lấy ít hơn trong 6 video gần nhất đi trước; bên nào hết video mới thì lấy bên kia).
+- Mỗi lần lấy NGẪU NHIÊN một video mới của kênh nguồn (Facebook: đọc tab Reels + Video của kênh, không cần đăng nhập,
+  ~10 video mới nhất mỗi tab; TikTok: yt-dlp đọc ~30 video mới nhất). Video đã dùng không bao giờ dùng lại; video quá
+  5 phút / không phải của chủ kênh bị bỏ qua.
+- **Không làm trùng giữa hai nền tảng**: cùng một video người gốc đăng ở cả Facebook lẫn TikTok (độ dài lệch ≤ 1.5s,
+  chú thích giống ≥ 60% sau khi bỏ hashtag) chỉ làm một lần.
 - Chỉ thêm job khi hàng đợi trống (video bạn gửi luôn làm trước), làm sẵn cho các khung giờ trong 36 giờ tới rồi
   **hẹn giờ đăng phía Facebook**, nên máy chậm hay bot khởi động lại không làm lỡ giờ.
 - ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag (không ghi nguồn).
@@ -298,8 +304,23 @@ video bằng yt-dlp. Link trang nhạc `tiktok.com/music/...` bị Cloudflare ch
 2. **Tách cảnh** (bộ dò scene của FFmpeg) và dời đầu mỗi đoạn về đúng điểm chuyển cảnh gần nhất: câu mới vang lên ngay khi cảnh mới xuất hiện, khớp hơn cả người nói gốc (thường lệch cảnh 0.4–0.9s).
 3. **AI xem ảnh từng đoạn** (Gemini) khi viết lời, để nói đúng thứ đang thấy; người gốc đọc lệch hình thì AI chuyển bước đó về đúng cảnh nhưng vẫn giữ đủ bước và số liệu. Model không nhận ảnh thì tự viết không kèm ảnh.
 4. **Xếp lịch giọng không bao giờ cắt cụt chữ**: đoạn dài thì lần lượt mượn khoảng lặng phía trước (≤0.5s), nói nhanh (≤1.25x), lấn sang sau (≤0.35s); vẫn dài thì AI viết ngắn lại rồi đọc lại.
-5. Video không có lời gốc: mỗi cảnh là một đoạn, AI nhìn ảnh cảnh để viết lời.
+5. Video không có lời gốc (bóc lời ra dưới 6 chữ hoặc chỉ một câu): **chèn nhạc nền, không thêm lời** (xem mục Nhạc nền cho video
+   không lời). `NO_SPEECH=narrate` để quay về cách cũ: mỗi cảnh là một đoạn, AI nhìn ảnh cảnh để viết lời.
 6. Chọn thời lượng dài hơn video gốc: làm chậm hình + tiếng nền tối đa 1.4x.
+
+## 🎵 Nhạc nền cho video không lời
+
+Video không ai nói thì bot KHÔNG để AI xem hình rồi bịa lời (dễ đoán sai món, nguyên liệu, bước làm) mà chèn nhạc nền.
+Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu, logo, che chữ gốc, ảnh bìa; bài đăng chỉ viết từ tiêu đề
++ mô tả gốc.
+
+- Thêm nhạc ở ô **🎵 Nhạc nền cho video không lời** trên web: dán link TikTok / YouTube / mp3 (lưu vào `BGM_LINKS`) hoặc
+  tải file lên (mp3, m4a, wav…, tối đa 40 bài, 15MB/bài). Dựng trên Kaggle mà chưa đặt `PUBLIC_URL` thì chỉ dùng nhạc
+  dạng link.
+- Mỗi video chọn ngẫu nhiên một bài (không lặp 3 bài vừa dùng), lấy đoạn hay nhất của bài; bài tải lỗi thì lấy bài khác.
+- `BGM_ORIG`: **off** (mặc định) chỉ nhạc mới; **low** giữ tiếng gốc nhỏ dưới nhạc (video ASMR tiếng xèo, tiếng dao);
+  **keep** giữ tiếng gốc to, nhạc nằm dưới.
+- Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
 
 ## Giọng văn miền Tây + giọng bớt chất AI
 
@@ -376,6 +397,8 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `jobs.py` | Worker, hạn giờ, huỷ, dọn file đầu vào |
 | `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần / đoạn hay của video dài |
 | `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
+| `bgm.py` | Thư viện nhạc nền cho video không lời (link + file tải lên, chọn không lặp) |
+| `autopost.py` | 🤖 Tự động đăng: kênh nguồn Facebook / TikTok, chống trùng, giờ vàng, đăng qua Graph API |
 | `slideshow.py` | 📸 Ảnh + nhạc: phân tích nhạc, chọn hiệu ứng/chuyển cảnh theo nhịp, dựng FFmpeg |
 | `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
 | `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |
