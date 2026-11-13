@@ -341,6 +341,7 @@ def _harden(h):
     h.setdefault("X-Frame-Options", "SAMEORIGIN")
     h.setdefault("X-Content-Type-Options", "nosniff")
     h.setdefault("Referrer-Policy", "same-origin")
+    h.setdefault("X-Robots-Tag", "noindex, nofollow")       # bảng điều khiển riêng: không bao giờ lên máy tìm kiếm
 
 
 def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:

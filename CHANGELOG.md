@@ -120,6 +120,26 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 37: viết lại giao diện web theo chuẩn semantic / SEO / tiếp cận (skill ui-craft)
+
+Hai trang `static/index.html`, `static/login.html` viết lại toàn bộ phần khung, giữ nguyên mọi id, API và luồng JS
+(bộ test web 95 ca + toàn bộ 429 ca vẫn xanh):
+- **SEO kỹ thuật**: `<title>` theo mẫu «Trang · Video Bot», `meta description`, `theme-color` sáng/tối, favicon SVG
+  (hết lỗi 404 /favicon.ico mỗi lần mở), `lang="vi"`, một `<h1>` + `<h2>` cho từng mục, landmark `header/main/section/
+  footer`. Bảng điều khiển là trang riêng nên đặt `meta robots noindex,nofollow` và header `X-Robots-Tag` cho mọi
+  phản hồi: máy tìm kiếm không bao giờ lập chỉ mục trang đăng nhập hay bảng điều khiển.
+- **Tiếp cận (WCAG AA)**: mọi ô nhập có `<label for>` (kể cả ô cài đặt sinh động), nút «Hủy / Duyệt / Copy / Đăng xuất»
+  là `<button>` thật thay cho `<a href="#">`, nút Xoá có `aria-label` kèm tên mục, vùng thông báo `role=status
+  aria-live`, skip link, `:focus-visible` rõ, bảng có `caption` + `th scope`, ảnh có `alt` + kích thước (không nhảy
+  bố cục). Bảng màu đo lại: mọi cặp chữ/nền ≥ 4.5:1 ở cả sáng và tối (nút cam trước đây 3.6:1, nút xám 2.5:1).
+- **Form**: `type/inputmode=url`, `autocomplete=off`, `spellcheck=false` cho link và key; `enterkeyhint` ở đăng nhập;
+  cỡ chữ ô nhập 16px (iOS không tự phóng to); ô nhập và nút cao ≥ 44px; nhắc trước khi rời trang nếu còn cài đặt
+  chưa lưu; hỏi xác nhận trước khi xoá kênh/link/nhạc hoặc hủy job; dấu «…» thay «...».
+- **Điện thoại**: dưới 640px bảng hàng đợi đổi thành từng khối (trước đây 4 cột ép vào 390px làm vỡ chữ «Cop y con
+  tent»); tôn trọng `prefers-reduced-motion` khi cuộn tới màn duyệt; `safe-area-inset`; không cuộn ngang.
+- Kiểm chứng: bộ dò Impeccable 0 cảnh báo (bản cũ 8), kịch bản Playwright tự kiểm nhãn/heading/landmark/kích thước
+  nút/tràn ngang ở 390·768·1440px, sáng và tối, kèm thao tác thật (đăng nhập, đổi chế độ, dán link, mở duyệt kịch bản).
+
 ## Bản 36: kênh nguồn + link dán tay ngay trong mục Tự động đăng; Cài đặt gom nhóm dễ hiểu
 
 **🤖 Tự động đăng** trên web (`static/index.html`, `autopost.py`, `web_panel.py`):

@@ -1,141 +1,249 @@
 <!doctype html>
-<html lang="vi"><head><meta charset="utf-8">
+<html lang="vi">
+<head>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Video Bot</title>
+<title>Video Bot · Bảng điều khiển</title>
+<meta name="description" content="Bảng điều khiển Video Bot: tạo video remake từ link hoặc file, theo dõi hàng đợi, cài đặt API, nhạc nền và tự động đăng Fanpage.">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f5f5f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1917" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23c2410c'/%3E%3Ctext x='32' y='44' font-size='36' text-anchor='middle'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E">
 <style>
-:root{color-scheme:light dark;--bg:#f5f5f4;--card:#fff;--text:#1c1917;--mut:#78716c;--line:#e7e5e4;--acc:#ea580c;
-box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--card:#292524;--text:#fafaf9;--mut:#a8a29e;--line:#44403c}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,sans-serif}
-main{max-width:720px;margin:0 auto;padding:16px}
-h1{font-size:1.3em;margin:8px 0 16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-label{display:block;font-size:.85em;color:var(--mut);margin:10px 0 4px}
-input,select,button{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
-button{background:var(--acc);color:#fff;border:0;font-weight:600;margin-top:14px;cursor:pointer}
-button:disabled{opacity:.5}
-.row{display:flex;gap:10px}.row>div{flex:1}
-table{width:100%;border-collapse:collapse;font-size:.9em}
-td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top}
-.st-done{color:#16a34a}.st-error{color:#dc2626}.st-processing{color:var(--acc)}.st-review{color:#2563eb;font-weight:600}.st-cancelled{color:var(--mut)}
-a{color:var(--acc)}.mut{color:var(--mut);font-size:.85em}#msg{margin-top:10px;font-size:.9em}
-.ph{margin-top:6px}.ph-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line);margin-bottom:3px}
-.ph-bar span{display:block;height:100%;min-width:2px}.ph i{font-style:normal}
-.thumbs{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}.thumbs img{width:64px;height:114px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
-</style></head><body><main>
-<h1>🎬 Video Bot — bảng điều khiển</h1>
-<div class="card">
-  <div id="authed_box" class="mut">✅ Đã đăng nhập · <a href="#" id="logout_link">Đăng xuất</a></div>
+:root{
+  color-scheme:light dark;
+  --bg:#f5f5f4;--card:#fff;--text:#1c1917;--mut:#6b6560;--line:#e7e5e4;--edge:#8a847e;
+  --acc:#c2410c;--acc-text:#b4380a;--ok:#15803d;--err:#b91c1c;--info:#1d4ed8;--focus:#2563eb;
+  --radius:10px;--gap:12px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme=light]){
+    --bg:#1c1917;--card:#292524;--text:#fafaf9;--mut:#b3aca6;--line:#44403c;--edge:#78716c;
+    --acc-text:#fb923c;--ok:#4ade80;--err:#fca5a5;--info:#93c5fd;--focus:#60a5fa;
+  }
+}
+*{box-sizing:border-box}
+html{scrollbar-color:var(--edge) var(--bg)}
+@media (pointer:fine){html{overscroll-behavior:none}}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);
+  -webkit-tap-highlight-color:transparent;caret-color:var(--acc)}
+::selection{background:var(--acc);color:#fff}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+main,header{max-width:720px;margin:0 auto;padding:0 16px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 12px;padding-top:12px}
+h1{font-size:1.375rem;margin:8px 0;text-wrap:balance}
+h1 small{font-size:.875rem;font-weight:400;color:var(--mut)}
+h2{font-size:1.0625rem;margin:0 0 8px;text-wrap:balance}
+summary{cursor:pointer;line-height:1.4}
+summary h2{display:inline;margin:0}
+summary .mut{display:inline}
+.skip{position:absolute;left:-999px;top:8px;background:var(--card);color:var(--text);padding:8px 12px;border-radius:8px;z-index:2}
+.skip:focus{left:16px}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin:0 0 16px}
+label{display:block;font-size:.875rem;color:var(--mut);margin:12px 0 4px}
+label b{color:var(--text)}
+input,select,textarea{display:block;width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--edge);border-radius:8px;
+  background:var(--bg);color:var(--text);font:inherit}
+textarea{resize:vertical}
+input::placeholder,textarea::placeholder{color:var(--mut)}
+input[type=file]{padding:8px 10px}
+input[type=checkbox]{width:20px;height:20px;min-height:0;padding:0;margin:0;accent-color:var(--acc);flex:none}
+select:disabled,input:disabled{opacity:.6}
+.check{display:flex;align-items:center;gap:10px;margin:10px 0 0;min-height:32px;color:var(--text);font-size:.9375rem}
+.row{display:flex;gap:var(--gap)}
+.row>div{flex:1;min-width:0}
+@media (max-width:560px){.row{flex-direction:column;gap:0}}
+.inline{display:flex;gap:8px;align-items:stretch}
+.inline>*{min-width:0}
+.inline>input{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:10px 16px;border:1px solid transparent;border-radius:8px;
+  background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer;touch-action:manipulation;transition:background-color .15s;text-wrap:balance}
+.btn:hover{background:#9a3412}
+.btn:disabled{opacity:.55;cursor:default}
+.btn-2{background:var(--card);color:var(--text);border-color:var(--edge)}
+.btn-2:hover{background:var(--bg)}
+.btn-s{min-height:36px;padding:6px 12px;font-size:.875rem;font-weight:500}
+.btn-full{width:100%;margin-top:16px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.actions .btn{flex:1 1 140px}
+.link{display:inline-block;background:none;border:0;padding:2px 0;margin:0;min-height:24px;color:var(--acc-text);font:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px;touch-action:manipulation}
+.link.danger{color:var(--err)}
+a{color:var(--acc-text);text-underline-offset:3px}
+.mut{color:var(--mut);font-size:.875rem}
+.status{margin:10px 0 0;font-size:.9375rem;min-height:1.5em}
+.pre{white-space:pre-wrap;font:.875rem/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;margin:8px 0;color:var(--mut)}
+.list-row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)}
+.list-row>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:.9375rem;font-variant-numeric:tabular-nums}
+caption{text-align:left;color:var(--mut);font-size:.875rem;padding:0 0 6px}
+td,th{padding:8px 6px;border-top:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:break-word}
+th{color:var(--mut);font-weight:500;font-size:.875rem}
+td .link{margin:2px 0}
+.res{display:block}
+@media (max-width:640px){
+  /* điện thoại: mỗi job là một khối, không ép 4 cột vào 390px */
+  thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  tr,td{display:block;border:0;padding:0}
+  tr{border-top:1px solid var(--line);padding:10px 0}
+  td:first-child{display:inline;font-weight:600}
+  td:first-child::before{content:"#"}
+  td:nth-child(2){display:inline;margin-left:8px}
+  td:nth-child(2) .mut,td:nth-child(2) .link{display:inline;margin-left:8px}
+  td:nth-child(3){margin-top:4px}
+  .res{display:inline-block;margin:4px 12px 0 0}
+}
+.st-done{color:var(--ok)}.st-error{color:var(--err)}.st-processing{color:var(--acc-text)}.st-review{color:var(--info);font-weight:600}.st-cancelled{color:var(--mut)}
+.ph{margin-top:6px}
+.ph-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--line);margin-bottom:3px}
+.ph-bar span{display:block;height:100%;min-width:2px}
+.ph i{font-style:normal}
+.thumbs{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.thumbs img{width:64px;height:114px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.dl-head{display:flex;gap:12px;align-items:flex-start}
+.dl-head img{width:110px;height:196px;object-fit:cover;border-radius:8px;flex:none}
+.dl-head b{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.dl-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.dl-opts .mp3{grid-column:1/-1}
+.group{margin:10px 0;border:1px solid var(--line);border-radius:8px;padding:6px 12px 12px}
+.group>summary{padding:6px 0}
+.review-seg{margin:8px 0;border-top:1px solid var(--line);padding-top:6px}
+.review-seg textarea{margin-top:4px}
+.review-seg select{margin-top:6px}
+code{font:.8125rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut)}
+footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-size:.875rem}
+[hidden]{display:none}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Bỏ qua, tới nội dung chính</a>
+<header>
+  <h1>🎬 Video Bot <small>bảng điều khiển</small></h1>
+  <p id="authed_box" class="mut">✅ Đã đăng nhập · <button type="button" id="logout_link" class="link">Đăng xuất</button></p>
+</header>
+<main id="main">
+<section class="card" aria-labelledby="h-new">
+  <h2 id="h-new">Tạo video</h2>
+  <form id="job_form" novalidate>
   <div id="video_src">
-  <label>Link video (TikTok / Facebook / YouTube...) — nhiều link thì mỗi link một dòng — hoặc chọn file bên dưới</label>
-  <textarea id="url" rows="2" placeholder="https://..." style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit"></textarea>
-  <label>Hoặc tải video lên để remake (≤ 300MB)</label>
-  <input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v">
+    <label for="url">Link video (TikTok / Facebook / YouTube…), nhiều link thì mỗi link một dòng, hoặc chọn file bên dưới</label>
+    <textarea id="url" name="url" rows="2" placeholder="https://www.tiktok.com/@kenh/video/…" autocomplete="off" spellcheck="false" inputmode="url"></textarea>
+    <label for="file">Hoặc tải video lên để remake (tối đa 300&nbsp;MB)</label>
+    <input id="file" name="file" type="file" accept="video/mp4,video/quicktime,video/webm,.mkv,.m4v">
   </div>
-  <div id="photo_box" style="display:none">
-    <label>📸 Chọn 1–4 ảnh (jpg/png/webp, mỗi ảnh ≤ 15MB) — thứ tự chọn là thứ tự xuất hiện</label>
-    <input id="images" type="file" accept="image/jpeg,image/png,image/webp" multiple>
-    <div id="img_prev" class="thumbs"></div>
-    <label>Chú thích / chủ đề (tuỳ chọn, để AI viết caption đăng bài)</label>
-    <input id="ptitle" maxlength="200" placeholder="vd: Đà Lạt mùa hoa, quán cà phê mới mở...">
+  <div id="photo_box" hidden>
+    <label for="images">📸 Chọn 1–4 ảnh (jpg/png/webp, mỗi ảnh tối đa 15&nbsp;MB), thứ tự chọn là thứ tự xuất hiện</label>
+    <input id="images" name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+    <div id="img_prev" class="thumbs" aria-live="polite"></div>
+    <label for="ptitle">Chú thích / chủ đề (tuỳ chọn, để AI viết caption đăng bài)</label>
+    <input id="ptitle" name="title" maxlength="200" placeholder="vd: Đà Lạt mùa hoa, quán cà phê mới mở…" autocomplete="off">
   </div>
   <div class="row">
-    <div><label>Chế độ</label>
-      <select id="mode"><option value="cook">🍲 Nấu ăn (giữ ASMR)</option><option value="review">📦 Review (đổi giọng)</option><option value="music">🎵 Nhảy/Nhạc (thay nhạc + khớp beat)</option><option value="photo">📸 Ảnh + nhạc (1–4 ảnh, hiệu ứng theo nhịp)</option><option value="download">⬇️ Chỉ tải về (TikTok không logo / Facebook / YouTube)</option></select></div>
-    <div><label>Thời lượng</label>
-      <select id="pdur" style="display:none"><option value="0">⚡ Tự động theo nhạc (~12–16s)</option><option value="10">10 giây</option><option value="15">15 giây</option><option value="30">30 giây</option><option value="60">60 giây</option></select>
-      <select id="dur"><option value="0">Giữ nguyên</option><option value="30">30 giây</option><option value="60">60 giây</option><option value="90">90 giây</option><option value="full">🎞 Video dài: remake nguyên (≤5 phút)</option><option value="split60">✂️ Cắt thành phần 60s (nguồn ≤10 phút)</option><option value="split90">✂️ Cắt thành phần 90s (nguồn ≤10 phút)</option><option value="highlight">✨ Đoạn hay nhất: AI chọn ≤3 đoạn 30-90s (nguồn ≤10 phút)</option></select></div>
-    <div><label>Giọng đọc</label>
-      <select id="voice"><option value="female">Nữ mặc định</option><option value="male">Nam mặc định</option></select></div>
+    <div><label for="mode">Chế độ</label>
+      <select id="mode" name="mode"><option value="cook">🍲 Nấu ăn (giữ ASMR)</option><option value="review">📦 Review (đổi giọng)</option><option value="music">🎵 Nhảy/Nhạc (thay nhạc + khớp beat)</option><option value="photo">📸 Ảnh + nhạc (1–4 ảnh, hiệu ứng theo nhịp)</option><option value="download">⬇️ Chỉ tải về (TikTok không logo / Facebook / YouTube)</option></select></div>
+    <div><label for="dur" id="dur_label">Thời lượng</label>
+      <select id="pdur" name="pduration" aria-labelledby="dur_label" hidden><option value="0">⚡ Tự động theo nhạc (~12–16s)</option><option value="10">10 giây</option><option value="15">15 giây</option><option value="30">30 giây</option><option value="60">60 giây</option></select>
+      <select id="dur" name="duration"><option value="0">Giữ nguyên</option><option value="30">30 giây</option><option value="60">60 giây</option><option value="90">90 giây</option><option value="full">🎞 Video dài: remake nguyên (tối đa 5 phút)</option><option value="split60">✂️ Cắt thành phần 60s (nguồn tối đa 10 phút)</option><option value="split90">✂️ Cắt thành phần 90s (nguồn tối đa 10 phút)</option><option value="highlight">✨ Đoạn hay nhất: AI chọn tối đa 3 đoạn 30–90s (nguồn tối đa 10 phút)</option></select></div>
+    <div><label for="voice">Giọng đọc</label>
+      <select id="voice" name="voice"><option value="female">Nữ mặc định</option><option value="male">Nam mặc định</option></select></div>
   </div>
-  <div id="music_box" style="display:none">
-    <label>🎵 Link nhạc (TikTok/YouTube...) — link video TikTok: bot lấy bản nhạc gốc của video</label>
-    <input id="music_url" placeholder="https://...">
-    <label>Hoặc tải file nhạc lên (mp3/m4a/wav... ≤ 30MB)</label>
-    <input id="music_file" type="file" accept="audio/*,.m4a,.opus">
-    <div id="mix_box"><label>Cách dùng nhạc</label>
-      <select id="music_mix"><option value="">🎯 Thay hẳn nhạc + khớp beat điệu nhảy</option><option value="bg">🎶 Làm nhạc nền (giữ tiếng gốc, nhạc tự nhỏ khi tiếng gốc to)</option></select></div>
-    <div class="mut" id="music_note">Bot dò BPM của điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat cho khớp.</div>
+  <div id="music_box" hidden>
+    <label for="music_url">🎵 Link nhạc (TikTok/YouTube…), link video TikTok: bot lấy bản nhạc gốc của video</label>
+    <input id="music_url" name="music_url" placeholder="https://www.tiktok.com/@kenh/video/…" autocomplete="off" spellcheck="false" inputmode="url">
+    <label for="music_file">Hoặc tải file nhạc lên (mp3/m4a/wav…, tối đa 30&nbsp;MB)</label>
+    <input id="music_file" name="music" type="file" accept="audio/*,.m4a,.opus">
+    <div id="mix_box"><label for="music_mix">Cách dùng nhạc</label>
+      <select id="music_mix" name="music_mix"><option value="">🎯 Thay hẳn nhạc + khớp beat điệu nhảy</option><option value="bg">🎶 Làm nhạc nền (giữ tiếng gốc, nhạc tự nhỏ khi tiếng gốc to)</option></select></div>
+    <p class="mut" id="music_note">Bot dò BPM của điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat cho khớp.</p>
   </div>
-  <label style="display:flex;align-items:center;gap:8px;margin-top:12px" id="subs_box">
-    <input type="checkbox" id="subs" checked style="width:auto"> Phụ đề tự động (khớp giọng đọc)</label>
-  <label style="display:flex;align-items:center;gap:8px;margin-top:6px" id="cover_box">
-    <input type="checkbox" id="cover" checked style="width:auto"> Che phụ đề in cứng của video gốc, đặt phụ đề mới lên đó (tự dò vị trí)</label>
-  <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
-    <input type="checkbox" id="review" style="width:auto"> 📝 Duyệt/sửa kịch bản trước khi render</label>
-  <button id="go">Tạo video</button>
-  <div id="msg"></div>
-</div>
-<div class="card">
-  <details><summary><b>⚙️ Cài đặt</b> <span class="mut">(key API, giọng đọc, video, Kaggle, Telegram — nhóm Tài khoản & API mở sẵn, nhóm khác bấm để mở)</span></summary>
-    <div id="set_fields"></div>
-    <label>Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
-    <input id="logo_file" type="file" accept="image/png">
-    <label>Giọng mẫu cho giọng nhân bản VieNeu (3-15 giây, ít tạp âm, giọng bạn được phép dùng) — chọn "clone" ở VIENEU_VOICE_*</label>
-    <input id="vref_file" type="file" accept="audio/*,video/*">
-    <button id="save_set">Lưu cài đặt</button>
-    <div class="mut" style="margin-top:8px">Bỏ trống = không đổi · nhập <b>-</b> = xóa, quay về biến môi trường · key hiển thị dạng che bớt.</div>
+  <label class="check" id="subs_box"><input type="checkbox" id="subs" name="subs" checked> Phụ đề tự động (khớp giọng đọc)</label>
+  <label class="check" id="cover_box"><input type="checkbox" id="cover" name="cover" checked> Che phụ đề in cứng của video gốc, đặt phụ đề mới lên đó (tự dò vị trí)</label>
+  <label class="check" id="review_box"><input type="checkbox" id="review" name="review"> 📝 Duyệt/sửa kịch bản trước khi render</label>
+  <button type="submit" id="go" class="btn btn-full">Tạo video</button>
+  <p id="msg" class="status" role="status" aria-live="polite"></p>
+  </form>
+</section>
+<section class="card">
+  <details>
+    <summary><h2>⚙️ Cài đặt</h2> <span class="mut">(key API, giọng đọc, video, Kaggle, Telegram; nhóm Tài khoản &amp; API mở sẵn, nhóm khác bấm để mở)</span></summary>
+    <form id="settings_form" novalidate>
+    <div id="set_fields" aria-live="polite"></div>
+    <label for="logo_file">Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
+    <input id="logo_file" name="logo" type="file" accept="image/png">
+    <label for="vref_file">Giọng mẫu cho giọng nhân bản VieNeu (3–15 giây, ít tạp âm, giọng bạn được phép dùng); chọn «clone» ở mục Giọng đọc</label>
+    <input id="vref_file" name="ref" type="file" accept="audio/*,video/*">
+    <button type="submit" id="save_set" class="btn btn-full">Lưu cài đặt</button>
+    <p class="mut">Bỏ trống = không đổi · nhập <b>-</b> = xóa, quay về biến môi trường · key hiển thị dạng che bớt.</p>
+    </form>
   </details>
-</div>
-<div class="card">
-  <details id="bgm_box"><summary><b>🎵 Nhạc nền cho video không lời</b> <span class="mut">(video không ai nói: chèn nhạc thay vì để AI bịa lời; mỗi video chọn ngẫu nhiên một bài, tránh 3 bài vừa dùng)</span></summary>
-    <div id="bgm_info" class="mut" style="margin:8px 0"></div>
-    <div id="bgm_list" style="margin:8px 0"></div>
-    <label>Thêm link nhạc (TikTok / YouTube / file mp3 trên mạng — Kaggle tự tải được)</label>
-    <div style="display:flex;gap:8px"><input id="bgm_link" placeholder="https://www.tiktok.com/@.../video/..." style="flex:1"><button id="bgm_add" style="width:auto">Thêm</button></div>
-    <label>Hoặc tải file nhạc lên (mp3, m4a, wav..., tối đa 15MB/bài; dựng trên Kaggle cần PUBLIC_URL)</label>
-    <div style="display:flex;gap:8px"><input id="bgm_file" type="file" accept="audio/*" multiple style="flex:1"><button id="bgm_up" style="width:auto">Tải lên</button></div>
-    <div id="bgm_msg" class="mut" style="margin-top:8px"></div>
+</section>
+<section class="card">
+  <details id="bgm_box">
+    <summary><h2>🎵 Nhạc nền cho video không lời</h2> <span class="mut">(video không ai nói: chèn nhạc thay vì để AI bịa lời; mỗi video chọn ngẫu nhiên một bài, tránh 3 bài vừa dùng)</span></summary>
+    <p id="bgm_info" class="mut"></p>
+    <div id="bgm_list"></div>
+    <label for="bgm_link">Thêm link nhạc (TikTok / YouTube / file mp3 trên mạng; Kaggle tự tải được)</label>
+    <div class="inline"><input id="bgm_link" name="bgm_link" placeholder="https://www.tiktok.com/@kenh/video/…" autocomplete="off" spellcheck="false" inputmode="url"><button type="button" id="bgm_add" class="btn">Thêm</button></div>
+    <label for="bgm_file">Hoặc tải file nhạc lên (mp3, m4a, wav…, tối đa 15&nbsp;MB/bài; dựng trên Kaggle cần PUBLIC_URL)</label>
+    <div class="inline"><input id="bgm_file" name="bgm_file" type="file" accept="audio/*" multiple><button type="button" id="bgm_up" class="btn">Tải lên</button></div>
+    <p id="bgm_msg" class="status mut" role="status" aria-live="polite"></p>
   </details>
-</div>
-<div class="card">
-  <details id="auto_box"><summary><b>🤖 Tự động đăng</b> <span class="mut">(kênh nguồn Facebook / TikTok hoặc link bạn dán → làm lại → đăng Fanpage giờ vàng; bật ở Cài đặt → Tự động đăng, token Fanpage ở Cài đặt → Tài khoản & API)</span></summary>
-    <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:8px 0">
-      <b>Lấy video từ:</b>
-      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_fb" data-plat="facebook" style="width:auto"> Facebook</label>
-      <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" id="auto_tt" data-plat="tiktok" style="width:auto"> TikTok</label>
-      <span class="mut" id="auto_plat_msg">tick cả hai: bot chọn xen kẽ hai nguồn, không lấy trùng video</span>
-    </div>
-    <label>Kênh nguồn (bot tự chọn video chưa làm từ các kênh này; thêm bao nhiêu kênh cũng được)</label>
-    <div id="auto_sources" class="mut" style="margin:4px 0"></div>
-    <div style="display:flex;gap:8px"><input id="auto_src" placeholder="https://www.facebook.com/tenkenh hoặc https://www.tiktok.com/@tenkenh" style="flex:1"><button id="auto_src_add" style="width:auto;margin:0">Thêm kênh</button></div>
-    <label>Dán link một video để làm lại và đăng ở lượt kế tiếp (đi trước video chọn ngẫu nhiên)</label>
-    <div style="display:flex;gap:8px"><input id="auto_link" placeholder="https://www.tiktok.com/@.../video/... hoặc link Facebook / YouTube" style="flex:1"><button id="auto_link_add" style="width:auto;margin:0">Xếp vào lượt kế tiếp</button></div>
-    <div id="auto_manual" class="mut" style="margin:4px 0"></div>
-    <pre id="auto_status" class="mut" style="white-space:pre-wrap;margin:8px 0"></pre>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button id="auto_now" style="flex:1">▶️ Lấy video ngay</button>
-      <button id="auto_test" style="flex:1;background:var(--mut)">🔑 Thử token Fanpage</button>
-      <button id="auto_resume" style="flex:1;background:var(--mut)">↺ Chạy lại sau lỗi</button>
+</section>
+<section class="card">
+  <details id="auto_box">
+    <summary><h2>🤖 Tự động đăng</h2> <span class="mut">(kênh nguồn Facebook / TikTok hoặc link bạn dán → làm lại → đăng Fanpage giờ vàng; bật ở Cài đặt → Tự động đăng, token Fanpage ở Cài đặt → Tài khoản &amp; API)</span></summary>
+    <fieldset style="border:0;padding:0;margin:8px 0;display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+      <legend style="float:left;padding:0;font-weight:600">Lấy video từ:</legend>
+      <label class="check" style="margin:0"><input type="checkbox" id="auto_fb" name="auto_fb" data-plat="facebook"> Facebook</label>
+      <label class="check" style="margin:0"><input type="checkbox" id="auto_tt" name="auto_tt" data-plat="tiktok"> TikTok</label>
+      <span class="mut" id="auto_plat_msg" role="status" aria-live="polite">tick cả hai: bot chọn xen kẽ hai nguồn, không lấy trùng video</span>
+    </fieldset>
+    <label for="auto_src">Kênh nguồn (bot tự chọn video chưa làm từ các kênh này; thêm bao nhiêu kênh cũng được)</label>
+    <div id="auto_sources" class="mut"></div>
+    <div class="inline"><input id="auto_src" name="auto_src" placeholder="https://www.facebook.com/tenkenh hoặc https://www.tiktok.com/@tenkenh" autocomplete="off" spellcheck="false" inputmode="url"><button type="button" id="auto_src_add" class="btn">Thêm kênh</button></div>
+    <label for="auto_link">Dán link một video để làm lại và đăng ở lượt kế tiếp (đi trước video chọn ngẫu nhiên)</label>
+    <div class="inline"><input id="auto_link" name="auto_link" placeholder="https://www.tiktok.com/@kenh/video/… hoặc link Facebook / YouTube" autocomplete="off" spellcheck="false" inputmode="url"><button type="button" id="auto_link_add" class="btn">Xếp vào lượt kế tiếp</button></div>
+    <div id="auto_manual" class="mut"></div>
+    <pre id="auto_status" class="pre" role="status" aria-live="polite"></pre>
+    <div class="actions">
+      <button type="button" id="auto_now" class="btn">▶️ Lấy video ngay</button>
+      <button type="button" id="auto_test" class="btn btn-2">🔑 Thử token Fanpage</button>
+      <button type="button" id="auto_resume" class="btn btn-2">↺ Chạy lại sau lỗi</button>
     </div>
   </details>
-</div>
-<div class="card">
-  <b>⬇️ Trình tải video (YouTube / TikTok / Facebook)</b>
-  <label>Dán link rồi bấm Xem định dạng — hoặc tải thẳng chất lượng tốt nhất</label>
-  <input id="dl_url" placeholder="https://www.youtube.com/watch?v=...">
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-    <button id="dl_probe" style="flex:1">🔎 Xem định dạng</button>
-    <button id="dl_best" style="flex:1;background:var(--mut)">⭐ Tải tốt nhất</button>
+</section>
+<section class="card" aria-labelledby="h-dl">
+  <h2 id="h-dl">⬇️ Trình tải video (YouTube / TikTok / Facebook)</h2>
+  <label for="dl_url">Dán link rồi bấm Xem định dạng, hoặc tải thẳng chất lượng tốt nhất</label>
+  <input id="dl_url" name="dl_url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" inputmode="url">
+  <div class="actions">
+    <button type="button" id="dl_probe" class="btn">🔎 Xem định dạng</button>
+    <button type="button" id="dl_best" class="btn btn-2">⭐ Tải tốt nhất</button>
   </div>
-  <div id="dl_info" style="display:none;margin-top:12px">
-    <div style="display:flex;gap:12px;align-items:flex-start">
-      <img id="dl_thumb" style="width:110px;border-radius:8px" alt="">
-      <div style="min-width:0"><b id="dl_title" style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden"></b><div class="mut" id="dl_meta"></div></div>
+  <div id="dl_info" hidden style="margin-top:12px" aria-live="polite">
+    <div class="dl-head" id="dl_head">
+      <div style="min-width:0"><b id="dl_title"></b><div class="mut" id="dl_meta"></div></div>
     </div>
-    <div id="dl_opts" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px"></div>
+    <div id="dl_opts" class="dl-opts"></div>
   </div>
-</div>
-<div class="card" id="review_card" style="display:none">
-  <b>📝 Duyệt kịch bản</b> <span class="mut" id="review_info"></span>
+</section>
+<section class="card" id="review_card" hidden aria-labelledby="h-review">
+  <h2 id="h-review">📝 Duyệt kịch bản <span class="mut" id="review_info"></span></h2>
   <div id="review_rows"></div>
-  <button id="approve_btn">Render với kịch bản này</button>
-</div>
-<div class="card">
-  <b>Hàng đợi & kết quả</b> <span class="mut" id="qinfo"></span>
-  <table><thead><tr><th>#</th><th>Trạng thái</th><th>Chi tiết</th><th></th></tr></thead><tbody id="rows"></tbody></table>
-  <div class="mut">Chỉ giữ vài video gần nhất trên server — tải về ngay khi xong. Video gửi từ Telegram trả kết quả trong chat Telegram.</div>
-</div>
+  <button type="button" id="approve_btn" class="btn btn-full">Render với kịch bản này</button>
+</section>
+<section class="card" aria-labelledby="h-queue">
+  <h2 id="h-queue">Hàng đợi &amp; kết quả <span class="mut" id="qinfo" role="status" aria-live="polite"></span></h2>
+  <table>
+    <caption class="sr-only">Danh sách job: số thứ tự, trạng thái, chi tiết và file kết quả</caption>
+    <thead><tr><th scope="col">#</th><th scope="col">Trạng thái</th><th scope="col">Chi tiết</th><th scope="col">Kết quả</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="mut">Chỉ giữ vài video gần nhất trên server, tải về ngay khi xong. Video gửi từ Telegram trả kết quả trong chat Telegram.</p>
+</section>
+</main>
+<footer>Video Bot · trang riêng của chủ bot, không lập chỉ mục.</footer>
 <script>
 const $=id=>document.getElementById(id);
 const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -147,23 +255,23 @@ async function checkAuth(){   // phiên hết hạn (30 ngày) hoặc đã đăn
     return true;
   }catch(e){return false}
 }
-$('logout_link').onclick=async e=>{e.preventDefault();await fetch('/api/logout',{method:'POST'});location.replace('/login');};
+$('logout_link').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.replace('/login');};
 const MNOTE={music:'Thay hẳn: bot dò BPM điệu nhảy và nhạc mới, chỉnh tốc độ video + căn beat. Nhạc nền: lấy đoạn hay nhất của bài, trộn dưới tiếng gốc.',
   photo:'Bot dò nhịp + đoạn cao trào của nhạc, chọn hiệu ứng và chuyển cảnh theo kiểu nhạc (êm / nhún / sôi), cắt cảnh đúng beat.'};
 $('mode').onchange=()=>{const v=$('mode').value,m=v=='music',d=v=='download',ph=v=='photo';
-  $('music_box').style.display=(m||ph)?'block':'none';$('mix_box').style.display=m?'block':'none';
+  $('music_box').hidden=!(m||ph);$('mix_box').hidden=!m;
   $('music_note').textContent=MNOTE[v]||'';
-  $('photo_box').style.display=ph?'block':'none';$('video_src').style.display=ph?'none':'block';
-  $('pdur').style.display=ph?'':'none';$('dur').style.display=ph?'none':'';
-  $('subs_box').style.display=(m||d||ph)?'none':'flex';$('cover_box').style.display=(m||d||ph)?'none':'flex';
-  $('review').parentElement.style.display=(m||d||ph)?'none':'flex';
+  $('photo_box').hidden=!ph;$('video_src').hidden=ph;
+  $('pdur').hidden=!ph;$('dur').hidden=ph;
+  $('subs_box').hidden=m||d||ph;$('cover_box').hidden=m||d||ph;$('review_box').hidden=m||d||ph;
   $('voice').disabled=m||d||ph;$('dur').disabled=d;};
 $('images').onchange=()=>{const fs=[...$('images').files];
   $('img_prev').innerHTML='';
   if(fs.length>4){$('msg').textContent='⚠️ Tối đa 4 ảnh: chỉ dùng 4 ảnh đầu.';}
-  fs.slice(0,4).forEach((f,i)=>{const im=document.createElement('img');im.alt='Ảnh '+(i+1);im.src=URL.createObjectURL(f);
+  fs.slice(0,4).forEach((f,i)=>{const im=document.createElement('img');im.alt='Ảnh '+(i+1);im.width=64;im.height=114;im.src=URL.createObjectURL(f);
     im.onload=()=>URL.revokeObjectURL(im.src);$('img_prev').appendChild(im);});};
-$('go').onclick=async()=>{
+$('job_form').onsubmit=async e=>{
+  e.preventDefault();
   $('go').disabled=true;
   try{
     let r;
@@ -171,7 +279,7 @@ $('go').onclick=async()=>{
       const fs=[...$('images').files].slice(0,4);
       if(!fs.length)throw new Error('Chọn 1–4 ảnh');
       if(!$('music_file').files.length&&!$('music_url').value.trim())throw new Error('Cần nhạc: link TikTok/YouTube hoặc file nhạc');
-      $('msg').textContent='Đang tải ảnh + nhạc lên...';
+      $('msg').textContent='Đang tải ảnh + nhạc lên…';
       const fd=new FormData();
       fd.append('mode','photo');fd.append('duration',$('pdur').value);fd.append('title',$('ptitle').value);
       fd.append('music_url',$('music_url').value);
@@ -179,7 +287,7 @@ $('go').onclick=async()=>{
       if($('music_file').files.length)fd.append('music',$('music_file').files[0]);
       r=await fetch('/api/upload',{method:'POST',body:fd});
     }else if($('file').files.length||$('music_file').files.length){
-      $('msg').textContent='Đang tải file lên...';
+      $('msg').textContent='Đang tải file lên…';
       const fd=new FormData();
       fd.append('mode',$('mode').value);fd.append('duration',$('dur').value);
       fd.append('voice',$('voice').value);fd.append('subs',$('subs').checked);fd.append('cover',$('cover').checked);fd.append('review',$('review').checked);
@@ -188,7 +296,7 @@ $('go').onclick=async()=>{
       if($('music_file').files.length)fd.append('music',$('music_file').files[0]);
       r=await fetch('/api/upload',{method:'POST',body:fd});
     }else{
-      $('msg').textContent='Đang gửi...';
+      $('msg').textContent='Đang gửi…';
       r=await fetch('/api/jobs',{method:'POST',headers:hdr(),body:JSON.stringify({
         url:$('url').value,mode:$('mode').value,duration:$('dur').value,voice:$('voice').value,subs:$('subs').checked,cover:$('cover').checked,review:$('review').checked,music_url:$('music_url').value,music_mix:$('music_mix').value})});
     }
@@ -197,7 +305,6 @@ $('go').onclick=async()=>{
   }catch(e){$('msg').textContent='❌ '+e.message}
   $('go').disabled=false;refresh();
 };
-const FIELD='width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit';
 async function loadSettings(){
   try{
     const r=await fetch('/api/settings',{headers:hdr()});
@@ -205,33 +312,36 @@ async function loadSettings(){
     const d=await r.json();const fields=d.fields||d;const groups=d.groups||[{id:'advanced',title:'Cài đặt',help:''}];
     const NEED={must:'bắt buộc',should:'nên có',optional:'chỉ khi cần'};
     const one=(k,v)=>{
-      let f;
+      let f;const id='set_'+k;
       if(k=='YTDLP_COOKIES')
-        f='<textarea data-k="'+k+'" rows="3" placeholder="'+(v.set?'(đã đặt — dán mới để thay, nhập - để xóa)':'dán nội dung cookies.txt')+'" style="'+FIELD+'"></textarea>';
+        f='<textarea id="'+id+'" data-k="'+k+'" rows="3" autocomplete="off" spellcheck="false" placeholder="'+(v.set?'(đã đặt: dán mới để thay, nhập - để xóa)':'dán nội dung cookies.txt…')+'"></textarea>';
       else if(v.options){
         const cur=String(v.value||'');
-        f='<select data-k="'+k+'" style="'+FIELD+'"><option value="">— giữ nguyên'+(cur?': '+esc((v.options.find(o=>o[0]==cur)||[cur,cur])[1]):'')+' —</option>'+
+        f='<select id="'+id+'" data-k="'+k+'"><option value="">— giữ nguyên'+(cur?': '+esc((v.options.find(o=>o[0]==cur)||[cur,cur])[1]):'')+' —</option>'+
           v.options.map(o=>'<option value="'+esc(o[0])+'">'+(o[0]==cur?'✓ ':'')+esc(o[1])+'</option>').join('')+
           (v.overridden?'<option value="-">↺ Xóa, quay về mặc định</option>':'')+'</select>';
-      }else f='<input data-k="'+k+'" placeholder="'+esc(v.value||'chưa đặt')+'">';
+      }else f='<input id="'+id+'" data-k="'+k+'" autocomplete="off" spellcheck="false" placeholder="'+esc(v.value||'chưa đặt')+'">';
       const state=v.group=='api'?(v.set?' <span class="st-done">✅ đã điền</span>':' <span class="'+(v.need=='must'?'st-error':'mut')+'">'+(v.need=='must'?'⚠️ chưa điền':'chưa điền')+'</span>'):'';
-      return '<label><b style="color:var(--text)">'+esc(v.label||k)+'</b>'+(v.need?' <i>('+NEED[v.need]+')</i>':'')+state+
-        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+'<br><span style="font-size:.9em">'+esc(v.help||'')+
-        (v.link?' <a href="'+esc(v.link)+'" target="_blank" rel="noopener">Lấy ở đây ↗</a>':'')+' <code style="opacity:.6">'+esc(k)+'</code></span></label>'+f;
+      return '<label for="'+id+'"><b>'+esc(v.label||k)+'</b>'+(v.need?' <i>('+NEED[v.need]+')</i>':'')+state+
+        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+'<br><span>'+esc(v.help||'')+
+        (v.link?' <a href="'+esc(v.link)+'" target="_blank" rel="noopener">Lấy ở đây ↗</a>':'')+' <code translate="no">'+esc(k)+'</code></span></label>'+f;
     };
-    $('set_fields').innerHTML=groups.map((g,i)=>{
+    $('set_fields').innerHTML=groups.map(g=>{
       const ks=Object.keys(fields).filter(k=>(fields[k].group||'advanced')==g.id);if(!ks.length)return '';
       const body=ks.map(k=>one(k,fields[k])).join('');
       const miss=g.id=='api'?ks.filter(k=>fields[k].need=='must'&&!fields[k].set).length:0;
-      return '<details'+(g.id=='api'?' open':'')+' style="margin:10px 0;border:1px solid var(--line);border-radius:8px;padding:6px 10px"><summary><b>'+esc(g.title)+'</b>'+
+      return '<details class="group"'+(g.id=='api'?' open':'')+'><summary><h3 style="display:inline;font-size:1rem;margin:0">'+esc(g.title)+'</h3>'+
         (miss?' <span class="st-error">thiếu '+miss+' mục bắt buộc</span>':'')+' <span class="mut">'+esc(g.help||'')+'</span></summary>'+body+'</details>';
     }).join('');
   }catch(e){$('set_fields').innerHTML='<p class="mut">Không tải được cài đặt: '+esc(String(e))+'</p>';}
 }
-document.querySelector('#save_set').onclick=async()=>{
+$('settings_form').onsubmit=async e=>{
+  e.preventDefault();
   const btn=$('save_set');if(btn.disabled)return;btn.disabled=true;
   try{await saveSettings()}catch(e){$('msg').textContent='❌ '+e}finally{btn.disabled=false}
 };
+const hasUnsavedSettings=()=>[...document.querySelectorAll('[data-k]')].some(el=>el.value.trim());
+window.addEventListener('beforeunload',e=>{if(hasUnsavedSettings())e.preventDefault();});
 async function saveSettings(){
   if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
     const lr=await fetch('/api/logo',{method:'POST',body:lf});
@@ -255,13 +365,13 @@ async function autoCall(act){
   }catch(e){$('auto_status').textContent='❌ '+e}
 }
 function autoLists(d){
-  const row=(icon,text,attr,val)=>'<div style="display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid var(--line)"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+icon+' '+esc(text)+'</span><button '+attr+'="'+esc(val)+'" style="width:auto;padding:3px 10px;margin:0;background:var(--mut)">Xoá</button></div>';
+  const row=(icon,text,attr,val)=>'<div class="list-row"><span>'+icon+' '+esc(text)+'</span><button type="button" class="btn btn-2 btn-s" '+attr+'="'+esc(val)+'" aria-label="Xoá '+esc(text)+'">Xoá</button></div>';
   const src=[...(d.sources.facebook||[]).map(s=>row('📘',s.replace(/^https?:\/\/(www\.)?/,''),'data-src',s)),...(d.sources.tiktok||[]).map(s=>row('🎵',s.replace(/^https?:\/\/(www\.)?/,''),'data-src',s))];
-  $('auto_sources').innerHTML=src.length?src.join(''):'Chưa có kênh nguồn nào — dán link kênh vào ô dưới.';
+  $('auto_sources').innerHTML=src.length?src.join(''):'Chưa có kênh nguồn nào: dán link kênh vào ô dưới.';
   const man=(d.manual||[]).map((m,i)=>row((i+1)+'.',(m.title||m.url)+(m.dur?' ('+m.dur+'s)':''),'data-link',m.url));
   $('auto_manual').innerHTML=man.length?'Đang chờ làm trước ('+man.length+'):'+man.join(''):'';
-  document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>autoPost('source',{url:b.dataset.src,delete:true}));
-  document.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>autoPost('queue',{url:b.dataset.link,delete:true}));
+  document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>{if(confirm('Bỏ kênh nguồn này?'))autoPost('source',{url:b.dataset.src,delete:true})});
+  document.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>{if(confirm('Bỏ link này khỏi hàng chờ?'))autoPost('queue',{url:b.dataset.link,delete:true})});
 }
 async function autoPost(act,body){
   try{
@@ -284,9 +394,8 @@ function bgmShow(d){
     'Tiếng gốc: '+({off:'bỏ, chỉ nhạc mới',low:'giữ nhỏ dưới nhạc',keep:'giữ to, nhạc nằm dưới'}[d.orig]||d.orig)+' (BGM_ORIG). '+
     (it.length?it.length+' bài trong thư viện.':'Thư viện trống: video không lời sẽ giữ nguyên tiếng gốc và không tự đăng.')+
     (!d.public_url&&it.some(x=>x.kind=='file')?' Chưa đặt PUBLIC_URL: file tải lên chỉ dùng khi dựng trên Botkeep (Kaggle dùng link).':'');
-  $('bgm_list').innerHTML=it.map(x=>'<div style="display:flex;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid var(--line)"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+
-    (x.kind=='link'?'🔗 ':'📁 ')+esc(x.name)+'</span><button data-bgm="'+esc(x.key)+'" style="width:auto;padding:4px 10px">Xoá</button></div>').join('');
-  document.querySelectorAll('[data-bgm]').forEach(b=>b.onclick=()=>bgmCall('/api/bgm/delete',JSON.stringify({key:b.dataset.bgm}),'✅ Đã xoá'));
+  $('bgm_list').innerHTML=it.map(x=>'<div class="list-row"><span>'+(x.kind=='link'?'🔗 ':'📁 ')+esc(x.name)+'</span><button type="button" class="btn btn-2 btn-s" data-bgm="'+esc(x.key)+'" aria-label="Xoá '+esc(x.name)+'">Xoá</button></div>').join('');
+  document.querySelectorAll('[data-bgm]').forEach(b=>b.onclick=()=>{if(confirm('Xoá bài nhạc này khỏi thư viện?'))bgmCall('/api/bgm/delete',JSON.stringify({key:b.dataset.bgm}),'✅ Đã xoá')});
 }
 async function bgmCall(url,body,ok){
   try{
@@ -296,17 +405,17 @@ async function bgmCall(url,body,ok){
   }catch(e){$('bgm_msg').textContent='❌ '+e;return false}
 }
 $('bgm_box').addEventListener('toggle',()=>{if($('bgm_box').open)bgmCall('/api/bgm')});
-$('bgm_add').onclick=()=>{const u=$('bgm_link').value.trim();if(!u)return;$('bgm_msg').textContent='Đang lưu...';
+$('bgm_add').onclick=()=>{const u=$('bgm_link').value.trim();if(!u)return;$('bgm_msg').textContent='Đang lưu…';
   bgmCall('/api/bgm/link',JSON.stringify({url:u}),'✅ Đã thêm link').then(ok=>{if(ok)$('bgm_link').value=''})};
 $('bgm_up').onclick=()=>{const fs=$('bgm_file').files;if(!fs.length)return;const f=new FormData();
-  for(const x of fs)f.append('file',x);$('bgm_msg').textContent='Đang tải lên '+fs.length+' bài...';
+  for(const x of fs)f.append('file',x);$('bgm_msg').textContent='Đang tải lên '+fs.length+' bài…';
   bgmCall('/api/bgm',f,'✅ Đã tải lên').then(ok=>{if(ok)$('bgm_file').value=''})};
 $('auto_fb').onchange=savePlatforms;$('auto_tt').onchange=savePlatforms;
 $('auto_box').addEventListener('toggle',()=>{if($('auto_box').open)autoCall('')});
-$('auto_now').onclick=()=>{$('auto_status').textContent='Đang tìm video...';autoCall('now')};
-$('auto_src_add').onclick=()=>{const u=$('auto_src').value.trim();if(!u)return;$('auto_status').textContent='Đang thêm kênh...';
+$('auto_now').onclick=()=>{$('auto_status').textContent='Đang tìm video…';autoCall('now')};
+$('auto_src_add').onclick=()=>{const u=$('auto_src').value.trim();if(!u)return;$('auto_status').textContent='Đang thêm kênh…';
   autoPost('source',{url:u}).then(ok=>{if(ok)$('auto_src').value=''})};
-$('auto_link_add').onclick=()=>{const u=$('auto_link').value.trim();if(!u)return;$('auto_status').textContent='Đang xem video (vài giây)...';
+$('auto_link_add').onclick=()=>{const u=$('auto_link').value.trim();if(!u)return;$('auto_status').textContent='Đang xem video (vài giây)…';
   autoPost('queue',{url:u}).then(ok=>{if(ok)$('auto_link').value=''})};
 $('auto_test').onclick=()=>autoCall('test');
 $('auto_resume').onclick=()=>autoCall('resume');
@@ -328,24 +437,26 @@ function fmtS(s){return s>=90?Math.floor(s/60)+'p'+String(Math.round(s%60)).padS
 function phasesHtml(j){
   const ph=j.phases||[];if(!ph.length||!['done','processing','error','cancelled'].includes(j.status))return '';
   const tot=ph.reduce((a,p)=>a+p.secs,0)||1;const top=Math.max(...ph.map(p=>p.secs));
-  return '<div class="ph"><div class="ph-bar">'+ph.map((p,i)=>'<span style="width:'+(p.secs/tot*100).toFixed(2)+'%;background:'+PH_COLORS[i%PH_COLORS.length]+'" title="'+esc(p.name)+': '+fmtS(p.secs)+'"></span>').join('')+'</div>'+
-    '<div class="mut">⏱ '+ph.map((p,i)=>'<i style="color:'+PH_COLORS[i%PH_COLORS.length]+'">●</i> '+(p.secs==top&&ph.length>1?'<b>':'')+esc(p.name)+' '+fmtS(p.secs)+(p.secs==top&&ph.length>1?'</b>':'')).join(' · ')+'</div></div>';
+  return '<div class="ph"><div class="ph-bar" aria-hidden="true">'+ph.map((p,i)=>'<span style="width:'+(p.secs/tot*100).toFixed(2)+'%;background:'+PH_COLORS[i%PH_COLORS.length]+'" title="'+esc(p.name)+': '+fmtS(p.secs)+'"></span>').join('')+'</div>'+
+    '<div class="mut">⏱ '+ph.map((p,i)=>'<i style="color:'+PH_COLORS[i%PH_COLORS.length]+'" aria-hidden="true">●</i> '+(p.secs==top&&ph.length>1?'<b>':'')+esc(p.name)+' '+fmtS(p.secs)+(p.secs==top&&ph.length>1?'</b>':'')).join(' · ')+'</div></div>';
 }
+const MODE_ICON={cook:'🍲',music:'🎵',download:'⬇️',photo:'📸'};
 function render(d){
-    $('qinfo').textContent=' — đang chờ: '+d.pending+'';
-    $('rows').innerHTML=d.jobs.map(j=>'<tr><td>'+j.id+'</td>'+
+    $('qinfo').textContent=' — đang chờ: '+d.pending;
+    $('rows').innerHTML=d.jobs.length?d.jobs.map(j=>'<tr><td>'+j.id+'</td>'+
       '<td class="st-'+esc(j.status)+'">'+esc(j.status_label)+(j.step&&['processing','review'].includes(j.status)?'<div class="mut">'+esc(j.step)+'</div>':'')+
       (j.status=='processing'?'<div class="mut">đã chạy '+Math.floor(j.elapsed/60)+'p'+(j.eta!=null?', còn ~'+Math.ceil(j.eta/60)+'p':'')+'</div>':'')+
-      (['queued','processing'].includes(j.status)?'<a href="#" onclick="cancelJob('+j.id+');return false" class="st-error">Hủy</a>':'')+
-      (j.status=='review'?'<a href="#" onclick="openReview('+j.id+');return false">Duyệt kịch bản</a>':'')+'</td>'+
-      '<td>'+(j.mode=='cook'?'🍲':j.mode=='music'?'🎵':j.mode=='download'?'⬇️':j.mode=='photo'?'📸':'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+j.source+
+      (['queued','processing'].includes(j.status)?'<button type="button" class="link danger" onclick="cancelJob('+j.id+')">Hủy</button>':'')+
+      (j.status=='review'?'<button type="button" class="link" onclick="openReview('+j.id+')">Duyệt kịch bản</button>':'')+'</td>'+
+      '<td>'+(MODE_ICON[j.mode]||'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+esc(j.source)+
       (j.error?'<div class="'+(j.status=='done'?'st-processing':'st-error')+' mut">'+esc(j.error)+'</div>':'')+
       (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+phasesHtml(j)+'</td>'+
-      '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<a href="'+esc(p.dl)+'">'+esc(p.label)+'</a>').join('<br>')+'<br>'
-             :(j.downloadable?'<a href="'+esc(j.dl)+'">Tải về</a><br>':''))+
-      (j.post?'<a href="#" onclick="copyPost('+j.id+');return false">Copy content</a><br>':'')+
-      (j.srt?'<a href="'+esc(j.srt)+'">Phụ đề .srt</a><br>':'')+
-      (j.timeline?'<a href="'+esc(j.timeline)+'">Timeline</a>':'')+'</td></tr>').join('');
+      '<td>'+(j.parts&&j.parts.length>1?j.parts.map(p=>'<span class="res"><a href="'+esc(p.dl)+'">'+esc(p.label)+'</a></span>').join('')
+             :(j.downloadable?'<span class="res"><a href="'+esc(j.dl)+'">Tải về</a></span>':''))+
+      (j.post?'<span class="res"><button type="button" class="link" onclick="copyPost('+j.id+')">Copy content</button></span>':'')+
+      (j.srt?'<span class="res"><a href="'+esc(j.srt)+'">Phụ đề .srt</a></span>':'')+
+      (j.timeline?'<span class="res"><a href="'+esc(j.timeline)+'">Timeline</a></span>':'')+'</td></tr>').join('')
+      :'<tr><td colspan="4" class="mut">Chưa có job nào. Dán link hoặc chọn file ở mục Tạo video.</td></tr>';
   window._posts={};d.jobs.forEach(j=>{if(j.post)window._posts[j.id]=j.post;window._jobs[j.id]=j;});
 }
 // Cập nhật trực tiếp qua Server-Sent Events; lỗi thì tạm quay về hỏi lại mỗi 4 giây rồi thử nối lại
@@ -358,24 +469,26 @@ function startEvents(){
 }
 const OST=[['new','Lời mới'],['orig','Giữ tiếng gốc (không đọc)'],['both','Đọc lời mới + lót tiếng gốc']];
 window._jobs={};
-async function cancelJob(id){const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
-function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').style.display='block';$('review_card').dataset.id=id;
+async function cancelJob(id){if(!confirm('Hủy job #'+id+'?'))return;const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
+function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').hidden=false;$('review_card').dataset.id=id;
   $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
-  $('review_rows').innerHTML=j.approved.map(s=>'<div style="margin:8px 0;border-top:1px solid var(--line);padding-top:6px"><div class="mut">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</div><textarea data-i="'+s.i+'" rows="2" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit">'+esc(s.text)+'</textarea>'+
-    '<select data-ost="'+s.i+'" style="margin-top:4px;padding:6px">'+OST.map(o=>'<option value="'+o[0]+'"'+((s.ost||'new')==o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>').join('');
-  $('review_card').scrollIntoView({behavior:'smooth'});}
+  $('review_rows').innerHTML=j.approved.map(s=>'<div class="review-seg"><label for="seg_'+s.i+'">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</label><textarea id="seg_'+s.i+'" data-i="'+s.i+'" rows="2">'+esc(s.text)+'</textarea>'+
+    '<select data-ost="'+s.i+'" aria-label="Tiếng gốc của đoạn '+s.i+'">'+OST.map(o=>'<option value="'+o[0]+'"'+((s.ost||'new')==o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>').join('');
+  $('review_card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}
 $('approve_btn').onclick=async()=>{const id=$('review_card').dataset.id;
   const segs=[...document.querySelectorAll('#review_rows textarea')].map(t=>({i:+t.dataset.i,text:t.value,
     ost:(document.querySelector('[data-ost="'+t.dataset.i+'"]')||{}).value||'new'}));
   const r=await fetch('/api/jobs/'+id+'/approve',{method:'POST',headers:hdr(),body:JSON.stringify({segments:segs})});
-  $('msg').textContent=r.ok?'✅ Đã duyệt, đang render ở job #'+(await r.json()).id:'❌ '+await r.text();$('review_card').style.display='none';refresh();};
+  $('msg').textContent=r.ok?'✅ Đã duyệt, đang render ở job #'+(await r.json()).id:'❌ '+await r.text();$('review_card').hidden=true;refresh();};
 $('dl_probe').onclick=async()=>{const u=$('dl_url').value.trim();if(!u)return;
-  $('dl_probe').disabled=true;$('dl_probe').textContent='Đang xem...';
+  $('dl_probe').disabled=true;$('dl_probe').textContent='Đang xem…';
   try{const r=await fetch('/api/yt/info?url='+encodeURIComponent(u),{headers:hdr()});const d=await r.json();
-    if(!r.ok||d.error){$('msg').textContent='❌ '+(d.error||await r.text());$('dl_info').style.display='none';return;}
-    $('dl_info').style.display='block';$('dl_thumb').src=d.thumbnail;$('dl_title').textContent=d.title;
+    if(!r.ok||d.error){$('msg').textContent='❌ '+(d.error||await r.text());$('dl_info').hidden=true;return;}
+    $('dl_info').hidden=false;$('dl_head').querySelector('img')?.remove();
+    if(d.thumbnail){const im=new Image(110,196);im.alt='';im.src=d.thumbnail;im.onerror=()=>im.remove();$('dl_head').prepend(im);}
+    $('dl_title').textContent=d.title;
     $('dl_meta').textContent=(d.uploader?d.uploader+' · ':'')+Math.floor(d.duration/60)+':'+String(d.duration%60).padStart(2,'0')+(d.max_short?' · tối đa '+d.max_short+'p':'');
-    $('dl_opts').innerHTML=d.options.map(o=>'<button data-q="'+esc(o.key)+'" style="margin:0;padding:10px 6px'+(o.key=='mp3'?';background:var(--mut);grid-column:1/-1':'')+'">'+esc(o.label)+(o.size_mb?' · ~'+o.size_mb+'MB':'')+'</button>').join('');
+    $('dl_opts').innerHTML=d.options.map(o=>'<button type="button" class="btn'+(o.key=='mp3'?' btn-2 mp3':'')+'" data-q="'+esc(o.key)+'">'+esc(o.label)+(o.size_mb?' · ~'+o.size_mb+'MB':'')+'</button>').join('');
     $('dl_opts').querySelectorAll('button').forEach(b=>b.onclick=()=>dlGo(b.dataset.q));
   }finally{$('dl_probe').disabled=false;$('dl_probe').textContent='🔎 Xem định dạng';}};
 $('dl_best').onclick=()=>dlGo('');
@@ -386,4 +499,6 @@ async function dlGo(q){const u=$('dl_url').value.trim();if(!u)return;
 function copyPost(id){navigator.clipboard.writeText(window._posts[id]||'').then(()=>{$('msg').textContent='📋 Đã copy content đăng bài #'+id});}
 checkAuth().then(ok=>{if(ok){loadSettings();loadVoices();startEvents();}refresh();});
 setInterval(()=>{if(!es&&!document.hidden)refresh()},4000);
-</script></main></body></html>
+</script>
+</body>
+</html>
