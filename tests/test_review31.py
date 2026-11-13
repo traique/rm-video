@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 
+import numpy as np
 import pytest
 
 import autopost
@@ -277,3 +278,28 @@ def test_opening_repeat_ignores_overlap_with_itself(tmp_path):
     assert sim < cover_mod.REPEAT_SIM
     assert cover_mod.opening_repeat_sync(src, 1.0, 3.0, 12.0)[0] >= cover_mod.REPEAT_SIM   # cảnh nằm ngay phần mở đầu
     assert cover_mod.opening_repeat_sync(src, 0.0, 3.0, 12.0) == (0.0, 0.0)
+
+
+# ---------------- bản 32: giọng gốc còn sót trong tiếng nền đã tách ----------------
+
+def test_residual_voice_mask_cleans_ambient_but_keeps_noise():
+    """Nền = nhiễu hồng + 5% "giọng" (chùm tông 300-2500Hz ngắt quãng); mặt nạ phổ dựa trên giọng tách được phải
+    hạ phần giọng ≥ 15 dB mà nhiễu (tiếng xèo) giữ gần nguyên; chỗ không có giọng giữ nguyên hoàn toàn."""
+    import vocal_sep
+    rng = np.random.default_rng(0)
+    sr, n = vocal_sep.SR, vocal_sep.SR * 8
+    t = np.arange(n) / sr
+    noise = np.cumsum(rng.standard_normal(n)) ; noise = noise - np.convolve(noise, np.ones(400) / 400, "same")
+    noise = (noise / np.abs(noise).max() * 0.2).astype(np.float32)
+    env = ((np.sin(2 * np.pi * 3 * t) > 0) & (t < 5)).astype(np.float32)        # giọng chỉ trong 5s đầu, ngắt quãng
+    voice = (sum(np.sin(2 * np.pi * f * t) for f in (300, 700, 1400, 2500)) / 4 * env).astype(np.float32)
+    amb = np.stack([noise + 0.05 * voice] * 2)
+    voc = np.stack([voice] * 2)
+    out = vocal_sep.suppress_residual(amb, voc)
+    sp = slice(sr, 4 * sr)
+    gain = lambda a: abs(float(np.dot(a[0, sp], voice[sp]) / np.dot(voice[sp], voice[sp])))
+    assert gain(amb) == pytest.approx(0.05, abs=0.01) and gain(out) < 0.05 / 5.6      # giảm > 15 dB
+    db = lambda x: 20 * np.log10(np.sqrt(np.mean(x * x)) + 1e-9)
+    assert db(out[0, sp]) > db(noise[sp]) - 3                                          # nhiễu giữ gần nguyên
+    q = slice(6 * sr, 8 * sr)
+    assert np.allclose(out[:, q], amb[:, q], atol=1e-3)                                # không có giọng: giữ nguyên

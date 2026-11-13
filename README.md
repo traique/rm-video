@@ -332,6 +332,7 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
 ## Bỏ hẳn giọng người nói gốc (chế độ nấu ăn)
 
 Tiếng xèo xèo được giữ, giọng người gốc bị **tách bỏ bằng AI**: model MDX-Net Kim_Vocal_2 (của dự án UVR) chạy ONNX trên CPU, không cần PyTorch. Model ~66MB tự tải lần đầu vào `models/` và được kiểm SHA-256. Chỉ các khúc ~5.7 giây có lời gốc mới chạy qua model. Chạy trong tiến trình riêng (~1.3GB RAM đỉnh, trả lại ngay khi xong), mất ~30–60s mỗi video. Kiểm thử: giọng gốc giảm ~21 dB, máy nhận dạng không còn nghe ra chữ nào.
+Sau khi tách, tiếng nền được **lọc giọng sót bằng mặt nạ phổ** dựa trên chính giọng đã tách (ô tần số nào giọng trội hơn nền thì hạ nền ở ô đó; ô không có giọng giữ nguyên): giọng gốc còn trong nền từ ~-25 dB xuống ~-52 dB, tiếng xèo lúc người gốc nói chỉ giảm ~2.5 dB (đo trên video cá kèo). Trên Kaggle tách thêm lượt 2 (`SEP_PASSES=2`). Tắt mặt nạ: biến môi trường `SEP_MASK=0`.
 Dự phòng khi RAM trống < 1.45GB hoặc lỗi: tắt hẳn tiếng nền đúng những lúc người gốc nói (theo mốc từng từ), giữ tiếng xèo ở khoảng nghỉ. Tắt tách AI bằng `VOICE_SEPARATION=0` trong Cài đặt.
 
 ## Hình đẹp hơn bản gốc

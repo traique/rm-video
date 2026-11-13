@@ -120,6 +120,25 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 32: giọng gốc còn sót nhỏ trong tiếng nền đã tách
+
+Video cá kèo bản 31 (13/11/2026): nghe còn lẫn giọng gốc nhỏ ở vài đoạn. Đo (tách giọng của video ra, so từng cửa sổ
+250ms với giọng gốc): giọng gốc còn trong tiếng nền ở mức ~-25 dB so với giọng gốc (71% số cửa sổ có lời); nghe rõ
+nhất ở 206-212s vì ở đó giọng mới đang im (khe giữa hai câu) và tiếng nền rất nhỏ (-40 dB) nên tiếng thì thầm lộ ra.
+
+| Thử | Giọng gốc còn trong nền (trung vị / p90) | Phần giọng lượt 1 bỏ sót hẳn còn lại | Tiếng xèo >3.5kHz lúc có lời |
+| --- | --- | --- | --- |
+| Hiện tại (Kim_Vocal_2 một lượt) | -25 / -24 dB | 100% | — |
+| Tách thêm lượt 2 | -41 / -26 dB | 3% (p90 38%) | -0.4 dB |
+| **Mặt nạ phổ** (mới) | **-52 / -46 dB** | **6% (p90 12%)** | -2.5 dB |
+| Lượt 2 + mặt nạ | -64 / -45 dB | 1% (p90 6%) | -2.9 dB |
+
+Sửa (`vocal_sep.suppress_residual`): sau khi tách, lọc tiếng nền bằng mặt nạ phổ Wiener dựa trên chính giọng đã tách
+(ô tần số-thời gian nào giọng trội hơn nền thì hạ nền ở ô đó, tối đa 26 dB; ô không có giọng giữ nguyên), xử lý từng
+khối 20s (Botkeep 2GB RAM). Áp cho mọi lần tách (Kaggle lẫn Botkeep). Trên Kaggle (GPU rẻ) tách thêm lượt 2
+(`SEP_PASSES=2`). Tắt mặt nạ: `SEP_MASK=0`. Kiểm: test mặt nạ với nhiễu + giọng giả; chạy mã mới trên nguồn cá kèo
+(số đo ở dòng "Mặt nạ phổ").
+
 ## Bản 31: rà toàn bộ repo (13/11/2026) — sửa 30 lỗi ảnh hưởng video ra
 
 Rà 4 mảng song song (dựng hình/tiếng, luồng xử lý, lời thoại, Kaggle/ảnh bìa/tự đăng), mỗi lỗi đều tái hiện bằng

@@ -27,7 +27,7 @@ def prepare_env(spec: dict, app: str = APP):
     with open(os.path.join(app, "settings.json"), "w", encoding="utf-8") as f:
         json.dump(spec.get("settings") or {}, f, ensure_ascii=False)
     for k, v in (("JOBS_DB", "/tmp/rm_jobs.db"), ("RENDER_SPEED_FILE", "/tmp/rm_speed.json"),
-                 ("RECENT_LOOKS", "/tmp/rm_looks.json"), ("SEP_BUDGET", "1500"),
+                 ("RECENT_LOOKS", "/tmp/rm_looks.json"), ("SEP_BUDGET", "1500"), ("SEP_PASSES", "2"),
                  ("SEP_THREADS", str(os.cpu_count() or 4))):      # mặc định 2 luồng là cho Botkeep 1.5 vCPU
         os.environ.setdefault(k, v)
     if spec.get("logo_b64"):

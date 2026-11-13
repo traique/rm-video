@@ -199,12 +199,44 @@ def _write_wav(path: str, x: np.ndarray):
                    input=pcm, check=True)
 
 
+MASK_K = 1.0            # độ mạnh mặt nạ lọc giọng sót (đo: 0.5-4 đều giảm sót ~-52 dB; 1.0 mất tiếng xèo ít)
+MASK_FLOOR = 0.05       # một ô tần số-thời gian bị hạ tối đa 26 dB
+MASK_BLOCK = 20 * SR    # lọc từng khối 20 giây (Botkeep 2GB RAM: STFT cả bài 220s tốn ~700MB)
+MASK_PAD = 2 * N_FFT
+
+
+def suppress_residual(amb: np.ndarray, voc: np.ndarray, k: float = MASK_K, floor: float = MASK_FLOOR) -> np.ndarray:
+    """Lọc GIỌNG SÓT trong tiếng nền đã tách bằng mặt nạ phổ (Wiener): ở mỗi ô tần số-thời gian, giọng tách được càng
+    trội hơn nền thì nền càng bị hạ (A' = A·A²/(A² + k·V²)); ô không có giọng giữ nguyên. Đo trên video cá kèo
+    (13/11/2026): giọng gốc còn trong nền -25 dB -> -52 dB (phần giọng lượt 1 bỏ sót hẳn còn 6%), tiếng xèo >3.5kHz
+    lúc người gốc nói chỉ giảm 2.5 dB; tách lượt 2 kém hơn (-41 dB, p90 -26 dB) mà tốn gấp đôi thời gian."""
+    n = amb.shape[1]
+    out = np.empty_like(amb)
+    for s0 in range(0, n, MASK_BLOCK):
+        s1 = min(n, s0 + MASK_BLOCK)
+        a0, a1 = max(0, s0 - MASK_PAD), min(n, s1 + MASK_PAD)
+        if not np.any(voc[:, a0:a1]):                   # khúc không tách giọng (ngoài cửa sổ lời): giữ nguyên
+            out[:, s0:s1] = amb[:, s0:s1]
+            continue
+        A, V = _stft(amb[:, a0:a1]), _stft(voc[:, a0:a1])
+        a2, v2 = np.abs(A) ** 2, np.abs(V) ** 2
+        y = _istft(A * np.maximum(floor, a2 / (a2 + k * v2 + 1e-12)), a1 - a0)
+        out[:, s0:s1] = y[:, s0 - a0:s0 - a0 + (s1 - s0)]
+    return out
+
+
 def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None, vocals_wav: str = ""):
     mix = _decode(src, max_sec)
     if mix.shape[1] < SR:
         raise RuntimeError("audio quá ngắn")
     vocals = _separate(mix, windows) * 1.035           # hệ số bù chuẩn của Kim_Vocal_2
-    _write_wav(ambient_wav, mix - vocals)
+    amb = mix - vocals
+    if os.environ.get("SEP_PASSES", "1") == "2":        # Kaggle (GPU rẻ): tách thêm lượt 2 trên nền, vớt giọng sót
+        v2 = _separate(amb, windows) * 1.035
+        amb, vocals = amb - v2, vocals + v2
+    if os.environ.get("SEP_MASK", "1") != "0":
+        amb = suppress_residual(amb, vocals)
+    _write_wav(ambient_wav, amb)
     if vocals_wav:                                      # giọng đã tách (mono 16kHz) cho Whisper bóc lời trên Kaggle
         pcm = (np.clip(vocals.mean(0), -1, 1) * 32767).astype("<i2").tobytes()
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", str(SR), "-ac", "1", "-i", "-",
