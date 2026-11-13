@@ -365,3 +365,20 @@ def test_analysis_push_falls_back_without_phowhisper_notebook(monkeypatch, tmp_p
         kaggle_worker._run_analysis_sync({"kind": "analyze", "src": {"url": "u"}, "token": "t", "asr": "phowhisper"},
                                          str(tmp_path), lambda s: None)
     assert pushes == [["rmvideo-phowhisper"], None]                     # thử gắn, lỗi thì chạy large-v3
+
+
+def test_kaggle_wait_survives_transient_network_errors(monkeypatch):
+    seq = iter([kaggle_api.KaggleError("Không gọi được Kaggle (GetKernelSessionStatus): Connection reset by peer"),
+                ("RUNNING", ""), kaggle_api.KaggleError("Không gọi được Kaggle (x): timeout"), ("COMPLETE", "")])
+
+    def status(slug):
+        x = next(seq)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    monkeypatch.setattr(kaggle_api, "status", status)
+    assert kaggle_api.wait("s", 600, every=0, sleep=lambda s: None) == "COMPLETE"
+    always = lambda slug: (_ for _ in ()).throw(kaggle_api.KaggleError("Không gọi được Kaggle (x): reset"))
+    monkeypatch.setattr(kaggle_api, "status", always)
+    with pytest.raises(kaggle_api.KaggleError, match="Không gọi được"):         # mạng hỏng hẳn: vẫn báo lỗi
+        kaggle_api.wait("s", 600, every=0, sleep=lambda s: None)

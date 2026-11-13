@@ -160,6 +160,7 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31):
     return n
 
 
+WAIT_NET_RETRIES = 6       # ~2 phút mạng hỏng liên tục (every=20s) mới coi là lỗi
 DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
@@ -168,10 +169,21 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
     """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ)."""
     t0 = time.time()
     last = ""
+    net_fails = 0
     while True:
         if stop is not None and stop():
             raise KaggleError("đã huỷ")
-        st, why = status(slug)
+        try:
+            st, why = status(slug)
+            net_fails = 0
+        except KaggleError as e:
+            # mạng chập chờn lúc hỏi trạng thái (đo thật 13/11/2026: "Connection reset by peer" sau 4.7 phút) không
+            # phải notebook lỗi: hỏi lại tối đa WAIT_NET_RETRIES lần rồi mới bỏ cuộc
+            net_fails += 1
+            if "Không gọi được Kaggle" not in str(e) or net_fails > WAIT_NET_RETRIES:
+                raise
+            sleep(every)
+            continue
         up = st.upper()
         if on_status and st != last:
             on_status(st, time.time() - t0)
