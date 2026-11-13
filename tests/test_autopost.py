@@ -5,6 +5,7 @@ import os
 import random
 from datetime import datetime
 
+import aiohttp
 import pytest
 from aiohttp import web
 
@@ -100,8 +101,25 @@ def _fake_graph(calls):
         return web.json_response({"status": {"video_status": "upload_complete",
                                              "uploading_phase": {"status": "complete"}}})
 
+    sess = {}
+
     async def videos(req):
         form = await req.post()
+        phase = form.get("upload_phase")
+        if phase == "start":                                   # giao thức gửi từng khúc: Facebook chọn cỡ khúc 120KB
+            sess["size"] = int(form["file_size"])
+            calls.append(("v-start", sess["size"]))
+            return web.json_response({"upload_session_id": "S1", "video_id": "V7", "start_offset": "0",
+                                      "end_offset": str(min(120_000, sess["size"]))})
+        if phase == "transfer":
+            chunk = form["video_file_chunk"].file.read()
+            start = int(form["start_offset"])
+            calls.append(("v-chunk", start, len(chunk)))
+            nxt = start + len(chunk)
+            return web.json_response({"start_offset": str(nxt), "end_offset": str(min(nxt + 120_000, sess["size"]))})
+        if phase == "finish":
+            calls.append(("v-finish", form.get("published"), form.get("scheduled_publish_time"), form.get("title")))
+            return web.json_response({"success": True})
         calls.append(("videos", form.get("published"), form.get("scheduled_publish_time"),
                       len(form["source"].file.read())))
         return web.json_response({"id": "V9"})
@@ -268,6 +286,61 @@ def test_web_status_and_actions(monkeypatch, tmp_path):
             d = await r.json()
             assert "FB_PAGE_TOKEN" in d["text"] and "Tự động đăng" in d["status"]
             assert (await c.post("/api/autopost/xoa", headers={"X-Auth": "pw-123"})).status == 404
+    asyncio.run(go())
+
+
+def test_long_video_uploads_in_chunks_and_413_pauses(monkeypatch, tmp_path):
+    """Log thật 13/11/2026: video 4 phút gửi một lần bị Facebook trả HTTP 413 rồi thử lại 5 lần trong 2 giờ. Giờ file
+    lớn đi giao thức từng khúc (start/transfer/finish), ảnh bìa gắn sau qua /thumbnails; 413 là lỗi cố định -> dừng ngay."""
+    import state
+    vid = tmp_path / "big.mp4"
+    vid.write_bytes(os.urandom(300_000))
+    thumb = tmp_path / "c.jpg"
+    thumb.write_bytes(b"\xff\xd8" + b"x" * 100)
+    monkeypatch.setattr(autopost, "RESUMABLE_MIN", 100_000)
+    when = 1_800_000_000
+
+    async def go():
+        return await autopost.publish(str(vid), "Tiêu đề dài", "Mô tả", 246, when, str(thumb))
+    res, calls = asyncio.run(_with_graph(monkeypatch, go))
+    assert res == ("V7", "video")
+    chunks = [c for c in calls if c[0] == "v-chunk"]
+    assert [c[1] for c in chunks] == [0, 120_000, 240_000] and sum(c[2] for c in chunks) == 300_000
+    assert ("v-start", 300_000) in calls and ("v-finish", "false", str(when), "Tiêu đề dài") in calls
+    assert ("thumb", "V7", "true", 102) in calls and not any(c[0] == "videos" for c in calls)
+
+    job = _done_job(tmp_path)
+    monkeypatch.setattr(state.queue, "jobs", {job.id: job})
+    monkeypatch.setattr(state.queue, "pending", 1)
+    _pending_for(job)
+
+    async def too_large(*a, **k):
+        raise autopost.FBError("Facebook lỗi HTTP 413: file quá lớn cho một lần gửi", 413)
+    monkeypatch.setattr(autopost, "publish", too_large)
+    with pytest.raises(autopost.FBError):
+        asyncio.run(autopost.tick(now=_ts(12, "10:00")))
+    st = autopost.load_state()
+    assert "413" in st["paused"] and st["pending"]["job"] == job.id       # dừng ngay, giữ video để đăng lại sau khi sửa
+
+
+def test_json_reports_413_clearly():
+    async def go():
+        app = web.Application()
+        async def too_large(req):
+            return web.Response(status=413, text="<html>Request Entity Too Large</html>")
+        app.router.add_post("/v", too_large)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        port = site._server.sockets[0].getsockname()[1]
+        try:
+            async with aiohttp.ClientSession() as s, s.post(f"http://127.0.0.1:{port}/v") as r:
+                with pytest.raises(autopost.FBError, match="quá lớn") as e:
+                    await autopost._json(r)
+                assert e.value.code == 413
+        finally:
+            await runner.cleanup()
     asyncio.run(go())
 
 

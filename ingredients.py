@@ -131,20 +131,47 @@ def check(orig: str, new: str) -> tuple:
 _FORMS = ("dầu", "nước cốt", "nước")   # máy nghe hay làm mất chữ đầu: "dầu mè" -> "dòng mè" (chỉ còn "mè")
 
 
+def _lev(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+# phụ âm đầu máy nghe hay đổi cho nhau (sau khi _loose đã gộp s/x, d/gi/r, ch/tr): "hột ngọt" = "bột ngọt", "điêu" = "tiêu"
+_SWAP = {frozenset("bh"), frozenset("dt"), frozenset("ln"), frozenset("dv"), frozenset("gk"), frozenset("ct")}
+
+
+def _syl_near(heard: str, want: str, first_must_match: bool) -> bool:
+    """Hai âm tiết dạng lỏng gần nhau: lệch tối đa 1 chữ (âm tiết ≥ 3 chữ) hoặc 2 chữ (≥ 5 chữ)."""
+    if heard == want:
+        return True
+    if len(want) < 3 or _lev(heard, want) > (2 if len(want) >= 5 else 1):
+        return False
+    return not first_must_match or heard[:1] == want[:1] or frozenset(heard[:1] + want[:1]) in _SWAP
+
+
 def _near(alias: str, orig: str) -> bool:
     """Tên nguyên liệu trong lời mới GẦN GIỐNG một cụm trong lời gốc (máy nghe sai một chữ cái: "rau găm" = "rau răm",
-    "nước mắn" = "nước mắm"): AI đang SỬA lỗi bóc lời, không phải bịa. Chỉ cụm ≥ 2 âm tiết hoặc âm tiết ≥ 4 chữ."""
-    import difflib
-    a = alias.split()
-    syl = _syllables(orig)
-    if len(alias) < 4:
+    "hột ngọt" = "bột ngọt", "muối điêu" = "muối tiêu"): AI đang SỬA lỗi bóc lời, không phải bịa. So ở dạng lỏng (bỏ
+    dấu, gộp phụ âm hay nhầm); cụm ≥ 2 âm tiết phải có ít nhất một âm tiết đúng hẳn, và được chen một âm tiết ở giữa
+    ("hành tím phi" có "hành phi"); tên một âm tiết phải ≥ 4 chữ (không coi "cua" là "cá", "tỏi" là "tôm")."""
+    cand = alias.split()
+    if len(cand) == 1 and len(alias) < 4:
         return False
-    for i in range(len(syl) - len(a) + 1):
-        cand = " ".join(syl[i:i + len(a)])
-        if cand != alias and difflib.SequenceMatcher(None, cand, alias).ratio() >= (0.85 if len(a) > 1 else 0.75) \
-                and cand[:1] == alias[:1] or (len(a) > 1 and cand.split()[0] == a[0]
-                                              and difflib.SequenceMatcher(None, cand, alias).ratio() >= 0.8):
+    want = _loose(alias).split()
+    orig_l = _loose(orig).split()
+    n = len(want)
+    for i in range(len(orig_l) - n + 1):
+        win = orig_l[i:i + n]
+        if win != want and all(_syl_near(h, w, n == 1) for h, w in zip(win, want)) \
+                and (n == 1 or any(h == w for h, w in zip(win, want))):
             return True
+    if n == 2:
+        return any(orig_l[i] == want[0] and orig_l[i + 2] == want[1] for i in range(len(orig_l) - 2))
     return False
 
 

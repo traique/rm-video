@@ -84,6 +84,39 @@ def prompt_hint() -> str:
 
 # ---------- sửa lỗi chính tả máy nghe theo từ điển ----------
 
+# Cụm máy nghe (Whisper, giọng miền Tây) viết sai hầu như lần nào cũng gặp trong log thật (13/11/2026: cháo hàu, gà đốt
+# Ô Thum). Chỉ ghi cụm KHÔNG có nghĩa khác trong lời nói đời thường để không sửa nhầm; thay nguyên cụm, không dấu.
+_ASR_FIXES = {
+    "hột ngọt": "bột ngọt", "hột niêm": "hạt nêm", "hạt niêm": "hạt nêm", "hột nêm": "hạt nêm",
+    "sắc nhiễn": "xắt nhuyễn", "sắt nhiễn": "xắt nhuyễn", "xắt nhiễn": "xắt nhuyễn", "bầm nhiễm": "bằm nhuyễn",
+    "giải nhiễn": "giã nhuyễn", "giả nhiễn": "giã nhuyễn", "giã nhiễn": "giã nhuyễn",
+    "ngò ghía": "ngò gai", "ngò ghai": "ngò gai", "ngồi gí": "ngò rí", "ngò gí": "ngò rí",
+    "hành trém": "hành tím", "hành tiếm": "hành tím",
+    "ghiêu ghiêu": "riu riu", "riêu riêu": "riu riu", "ghiu ghiu": "riu riu",
+    "sữa cay": "sả cây", "xả cây": "sả cây",
+    "đậu hành": "đầu hành", "đập nhập": "đập dập", "nê long": "ni lông", "tha liều": "thoa đều",
+    "satê": "sa tế", "sa tê": "sa tế",
+    "cháo hào": "cháo hàu", "con hào": "con hàu", "hào sữa": "hàu sữa", "nước hào": "nước hàu", "cái hào": "cái hàu",
+    "gà đốt câu thơm": "gà đốt Ô Thum", "gà đốt u thông": "gà đốt Ô Thum", "gà đốt bột thơm": "gà đốt Ô Thum",
+    "gà đốt ô thum": "gà đốt Ô Thum", "gà đốt ô thung": "gà đốt Ô Thum",
+}
+_ASR_FIX_RE = re.compile(r"(?<![\w])(" + "|".join(re.escape(k) for k in sorted(_ASR_FIXES, key=len, reverse=True))
+                         + r")(?![\w])", re.IGNORECASE)
+
+
+def fix_common(text: str) -> str:
+    """Thay cụm nghe nhầm hay gặp bằng chính tả đúng, giữ chữ hoa đầu cụm. "niêm" (nêm gia vị) chỉ đổi khi không
+    phải "niêm yết/phong/mạc"."""
+    if not text:
+        return text
+
+    def _one(m):
+        fixed = _ASR_FIXES[m.group(1).lower()]
+        return fixed[:1].upper() + fixed[1:] if m.group(1)[:1].isupper() else fixed
+    text = _ASR_FIX_RE.sub(_one, text)
+    return re.sub(r"(?<![\w])(niêm)(?![\w])(?!\s+(?:yết|phong|mạc|luật))", lambda m: "Nêm" if m.group(1)[0] == "N" else "nêm",
+                  text, flags=re.IGNORECASE)
+
 def _loose_syl(s: str) -> str:
     """Một âm tiết -> dạng lỏng: bỏ dấu, gộp phụ âm đầu hay bị nhầm (cùng luật với ingredients._loose)."""
     t = unicodedata.normalize("NFD", s.lower().replace("đ", "d"))
@@ -122,6 +155,7 @@ def fix_text(text: str, terms: list | None = None) -> str:
     """Thay cụm nghe gần đúng bằng chính tả trong từ điển. Giữ dấu câu dính hai đầu và chữ hoa đầu câu."""
     if not text:
         return text
+    text = fix_common(text)
     terms = _terms_for_fix() if terms is None else terms
     if not terms:
         return text

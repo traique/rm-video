@@ -120,6 +120,17 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 38: từ log chạy thật 13/11 (cháo hàu, gà đốt Ô Thum): Facebook 413 với video dài, báo bịa nguyên liệu giả, lỗi nghe nhầm
+
+| Thấy trong log | Nguyên nhân | Sửa |
+| --- | --- | --- |
+| `Tự động đăng lỗi: Facebook lỗi HTTP 413` lặp 5 lần trong 2 giờ rồi dừng (video #2 dài 246s) | video thường (> 90s, không phải Reels) gửi cả file trong MỘT request multipart; file lớn bị Facebook từ chối 413 | file nặng hơn `RESUMABLE_MIN` (40MB) đi giao thức gửi từng khúc của Graph API (`upload_phase` start → transfer… → finish, Facebook tự chọn cỡ khúc, mỗi khúc lỗi mạng gửi lại 3 lần); ảnh bìa gắn sau qua `/{video}/thumbnails` như Reels. 413 vào `PAUSE_CODES`: lỗi cố định thì dừng ngay và báo rõ, không thử lại 2 giờ. Test với máy chủ Graph giả (3 khúc 120KB) |
+| `bịa/đổi ['sả', 'bột ngọt']`, `['hành phi']`, `['ớt', 'tiêu']` → bắt AI viết lại 2 lần (4 lượt Gemini thừa), cuối cùng "vẫn lệch" | lời gốc máy nghe sai ("hột ngọt", "sữa cay", "muối điêu", "hành trém phi"); AI sửa đúng nhưng bộ kiểm coi là bịa vì so khớp đòi đúng chữ cái đầu | `ingredients._near` so ở dạng lỏng theo từng âm tiết (Levenshtein ≤ 1, cặp phụ âm đầu hay đổi b/h, đ/t…), cụm 2 âm tiết được chen một âm tiết ở giữa ("hành tím phi" có "hành phi"); tên một âm tiết vẫn phải ≥ 4 chữ nên "cua" ≠ "cá", "tỏi" ≠ "tôm" (test) |
+| Lời mới chép nguyên lỗi nghe nhầm: "Hành lá sắc nhiễn, ngò ghía sắc nhiễn Và hành trém phi", "đốt ghiêu ghiêu", "cháo hào" | từ điển sửa lỗi chỉ có cụm người dùng khai báo + tên nguyên liệu ≥ 3 âm tiết | `vocab.fix_common`: bảng cụm nghe nhầm hay gặp của giọng miền Tây (hột ngọt → bột ngọt, hạt niêm → hạt nêm, sắc nhiễn → xắt nhuyễn, giải nhiễn → giã nhuyễn, ngò ghía → ngò gai, hành trém → hành tím, ghiêu ghiêu → riu riu, sữa cay → sả cây, đậu hành → đầu hành, cháo/con/nước hào → hàu (giữ "dầu hào"), gà đốt câu thơm/u thông → gà đốt Ô Thum, "niêm" → "nêm" trừ "niêm yết/phong"); áp cho cả đường Kaggle (`from_whisper`) và Groq/Gemini trước khi AI viết, nên lời gốc đưa cho AI đã đúng chính tả |
+
+Không đổi: Gemini 503 lúc chọn ảnh bìa đã tự lấy ảnh điểm cao nhất (đúng thiết kế). Nhắc: bạn chưa đặt
+`ALLOWED_USERS`/`ADMIN_CHAT_ID` nên cảnh báo "đã dừng" chỉ nằm trong log, không tới Telegram.
+
 ## Bản 37: viết lại giao diện web theo chuẩn semantic / SEO / tiếp cận (skill ui-craft)
 
 Hai trang `static/index.html`, `static/login.html` viết lại toàn bộ phần khung, giữ nguyên mọi id, API và luồng JS

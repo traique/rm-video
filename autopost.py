@@ -43,6 +43,7 @@ GRAPH = "https://graph.facebook.com"
 GRAPH_VIDEO = "https://graph-video.facebook.com"
 RUPLOAD = "https://rupload.facebook.com"
 REEL_MAX = 90                  # Reels API nhận 3-90 giây
+RESUMABLE_MIN = 40 << 20       # video thường nặng hơn mức này: gửi từng khúc (start/transfer/finish); gửi một lần bị HTTP 413
 LEAD = 15 * 60                 # hẹn giờ phải > 10 phút sau hiện tại (Graph API); chừa 15 phút
 HORIZON = 36 * 3600            # làm sẵn video cho các khung giờ trong 36 giờ tới
 LIST_TTL = 6 * 3600            # danh sách video của kênh: đọc lại sau 6 giờ
@@ -488,6 +489,8 @@ async def _json(resp) -> dict:
         d = {"error": {"code": resp.status, "message": (await resp.text())[:200]}}
     err = _err(d)
     if err or resp.status >= 400:
+        if resp.status == 413:
+            raise FBError("Facebook lỗi HTTP 413: file quá lớn cho một lần gửi (đo thật 13/11/2026 với video 4 phút)", 413)
         raise err or FBError(f"Facebook lỗi HTTP {resp.status}", resp.status)
     return d
 
@@ -537,17 +540,66 @@ async def _upload_reel(session, path: str, description: str, when: float | None)
     return vid
 
 
+def _schedule_fields(when: float | None) -> dict:
+    if not when:
+        return {}
+    return {"published": "false", "unpublished_content_type": "SCHEDULED", "scheduled_publish_time": str(int(when))}
+
+
+async def _upload_video_chunked(session, path: str, title: str, description: str, when: float | None) -> str:
+    """Video thường, file lớn: giao thức gửi từng khúc của Graph API (upload_phase start -> transfer... -> finish).
+    Facebook tự chọn cỡ khúc qua start_offset/end_offset; mỗi khúc gửi lỗi mạng thì gửi lại tối đa 3 lần."""
+    page, tok = config.FB_PAGE_ID.strip(), config.FB_PAGE_TOKEN.strip()
+    url = f"{GRAPH_VIDEO}/{API_VER}/{page}/videos"
+    size = os.path.getsize(path)
+    async with session.post(url, data={"access_token": tok, "upload_phase": "start", "file_size": str(size)},
+                            timeout=aiohttp.ClientTimeout(total=120)) as r:
+        d = await _json(r)
+    sid, vid = str(d["upload_session_id"]), str(d.get("video_id") or "")
+    start, end = int(d["start_offset"]), int(d["end_offset"])
+    with open(path, "rb") as f:
+        while start < end:
+            f.seek(start)
+            chunk = f.read(end - start)
+            for attempt in range(3):
+                form = aiohttp.FormData()
+                form.add_field("access_token", tok)
+                form.add_field("upload_phase", "transfer")
+                form.add_field("upload_session_id", sid)
+                form.add_field("start_offset", str(start))
+                form.add_field("video_file_chunk", chunk, filename="chunk.mp4", content_type="application/octet-stream")
+                try:
+                    async with session.post(url, data=form, timeout=aiohttp.ClientTimeout(total=900)) as r:
+                        d = await _json(r)
+                    break
+                except FBError:
+                    raise
+                except Exception as e:                   # mạng chập chờn giữa chừng: gửi lại đúng khúc này
+                    if attempt == 2:
+                        raise
+                    logging.info("Tự động đăng: gửi khúc %d lỗi (%s), gửi lại", start, str(e)[:80])
+                    await asyncio.sleep(5)
+            start, end = int(d["start_offset"]), int(d["end_offset"])
+    fields = {"access_token": tok, "upload_phase": "finish", "upload_session_id": sid, "title": title[:250],
+              "description": description[:5000], **_schedule_fields(when)}
+    async with session.post(url, data=fields, timeout=aiohttp.ClientTimeout(total=300)) as r:
+        d = await _json(r)
+    return vid or str(d.get("video_id") or d.get("id") or "")
+
+
 async def _upload_video(session, path: str, title: str, description: str, when: float | None,
                         thumb: str = "") -> str:
     page, tok = config.FB_PAGE_ID.strip(), config.FB_PAGE_TOKEN.strip()
+    if os.path.getsize(path) > RESUMABLE_MIN:
+        vid = await _upload_video_chunked(session, path, title, description, when)
+        await _set_cover(session, vid, thumb)            # giao thức từng khúc không có chỗ gửi ảnh bìa: gắn sau
+        return vid
     form = aiohttp.FormData()
     form.add_field("access_token", tok)
     form.add_field("title", title[:250])
     form.add_field("description", description[:5000])
-    if when:
-        form.add_field("published", "false")
-        form.add_field("unpublished_content_type", "SCHEDULED")
-        form.add_field("scheduled_publish_time", str(int(when)))
+    for k, v in _schedule_fields(when).items():
+        form.add_field(k, v)
     files = [open(path, "rb")]
     form.add_field("source", files[0], filename=os.path.basename(path), content_type="video/mp4")
     if thumb and os.path.exists(thumb):
@@ -563,10 +615,10 @@ async def _upload_video(session, path: str, title: str, description: str, when: 
     return str(d.get("id") or d.get("video_id") or "")
 
 
-async def _set_reel_cover(session, vid: str, thumb: str) -> bool:
-    """Gắn ảnh bìa AI chọn cho Reel vừa đăng (/{video-id}/thumbnails, is_preferred): API đăng Reels không có chỗ gửi
-    ảnh bìa. Facebook có cho đổi ảnh bìa Reel theo đường này hay không còn tuỳ Page / phiên bản API, nên lỗi chỉ ghi
-    log, bài vẫn giữ nguyên — video nấu ăn có đoạn mở đầu thì khung đầu đã là cảnh món đẹp nhất."""
+async def _set_cover(session, vid: str, thumb: str) -> bool:
+    """Gắn ảnh bìa AI chọn cho video/Reel vừa đăng (/{video-id}/thumbnails, is_preferred): API đăng Reels và giao thức
+    gửi từng khúc không có chỗ gửi ảnh bìa. Facebook có cho đổi ảnh bìa theo đường này hay không còn tuỳ Page / phiên
+    bản API, nên lỗi chỉ ghi log, bài vẫn giữ nguyên — video nấu ăn có đoạn mở đầu thì khung đầu đã là cảnh món đẹp nhất."""
     if not vid or not thumb or not os.path.exists(thumb):
         return False
     form = aiohttp.FormData()
@@ -578,10 +630,10 @@ async def _set_reel_cover(session, vid: str, thumb: str) -> bool:
             async with session.post(f"{GRAPH}/{API_VER}/{vid}/thumbnails", data=form,
                                     timeout=aiohttp.ClientTimeout(total=120)) as r:
                 await _json(r)
-        logging.info("Tự động đăng: đã gắn ảnh bìa cho Reel %s", vid)
+        logging.info("Tự động đăng: đã gắn ảnh bìa cho video %s", vid)
         return True
     except Exception as e:
-        logging.info("Tự động đăng: Facebook không nhận ảnh bìa cho Reel %s (%s), dùng khung đầu video", vid,
+        logging.info("Tự động đăng: Facebook không nhận ảnh bìa cho video %s (%s), dùng khung đầu video", vid,
                      str(e)[:150])
         return False
 
@@ -594,7 +646,7 @@ async def publish(path: str, title: str, description: str, duration: float, when
     try:
         if duration <= REEL_MAX:
             vid = await _upload_reel(session, path, description, when)
-            await _set_reel_cover(session, vid, thumb)       # thử gắn ảnh bìa; lỗi cũng không làm hỏng bài đã đăng
+            await _set_cover(session, vid, thumb)            # thử gắn ảnh bìa; lỗi cũng không làm hỏng bài đã đăng
             return vid, "reel"
         return await _upload_video(session, path, title, description, when, thumb), "video"
     finally:
@@ -639,7 +691,7 @@ def _output_files(job) -> tuple:
 RETRY_AFTER = 6 * 3600         # video / kênh / lượt xem đọc lỗi: thử lại sau 6 giờ, không gọi Facebook mỗi 2 phút
 MAX_VIDEO_FAILS = 2            # một video nguồn lỗi (tải / làm / AI) chừng này lần thì bỏ hẳn
 STREAK_PAUSE = 3               # chừng này video liên tiếp không đăng được thì dừng hẳn, báo admin
-PAUSE_CODES = {190, 10, 200, 100, 368}   # token hết hạn / thiếu quyền / sai id Page / bị Facebook chặn: cần người sửa
+PAUSE_CODES = {190, 10, 200, 100, 368, 413}   # token hết hạn / thiếu quyền / sai id Page / bị chặn / file quá lớn: thử lại vô ích
 _LOCK = asyncio.Lock()
 _POSTED: dict = {}             # job id -> bài đã đăng (trong bộ nhớ): ghi file lỗi cũng không đăng lại
 
