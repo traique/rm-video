@@ -224,6 +224,7 @@ def _common(spec: dict) -> dict:
     if config.BRAND_LOGO != "0" and os.path.exists(logo):
         spec["logo_b64"] = base64.b64encode(open(logo, "rb").read()).decode()
     spec["settings"] = settings_snapshot()
+    spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
 
 
@@ -328,6 +329,8 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             res = json.load(open(rj, encoding="utf-8"))
             if not res.get("ok"):
                 raise KaggleError("Việc trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
+            if "token" in res and jobs[k].get("token") and res["token"] != jobs[k]["token"]:
+                raise KaggleError("kết quả trên Kaggle không phải của việc này (notebook bị việc khác ghi đè)")
             if f"output{tag}.mp4" not in files:
                 raise KaggleError("Kaggle không trả video")
             on_step(f"Kaggle: tải video về{f' ({k + 1}/{n})' if n > 1 else ''}")

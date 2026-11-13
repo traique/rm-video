@@ -204,7 +204,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     t0 = time.time()
     out = os.path.join(tmp, "output.mp4")
     notes: list = []
-    await core_video.render(inp, voice_track, out, spec["mode"], int(spec.get("render_dur") or 0), ass,
+    await core_video.render(inp, voice_track, out, spec["mode"], float(spec.get("render_dur") or 0), ass,
                             spec.get("bands") or None, amb, gate, allow_hd=bool(spec.get("allow_hd", True)),
                             title=spec.get("title") or "", tmp=tmp, stretch=float(spec.get("stretch") or 1.0),
                             ost=core_video.ost_windows(segs, out_dur), notes=notes, teaser=spec.get("teaser"))
@@ -231,7 +231,7 @@ async def produce_bed(spec: dict, inp: str, tmp: str) -> dict:
     t0 = time.time()
     out = os.path.join(tmp, "output.mp4")
     notes: list = []
-    await core_video.render(inp, bed, out, spec["mode"], int(spec.get("render_dur") or 0), None,
+    await core_video.render(inp, bed, out, spec["mode"], float(spec.get("render_dur") or 0), None,
                             spec.get("bands") or None, bed, None, allow_hd=bool(spec.get("allow_hd", True)),
                             title=spec.get("title") or "", tmp=tmp, stretch=stretch, notes=notes, music_bed=True)
     t["render"] = round(time.time() - t0, 1)
@@ -375,6 +375,7 @@ def main(spec: dict, out_dir: str = "/kaggle/working"):
         tag = "" if spec.get("kind") != "batch" else f"_{k}"
         try:
             res = asyncio.run(run_one(sp, f"/tmp/rm_job{tag or '_0'}"))
+            res.setdefault("token", sp.get("token", ""))     # Botkeep đối chiếu: kết quả đúng của việc này
             if res.get("video"):
                 shutil.move(res.pop("video"), os.path.join(out_dir, f"output{tag}.mp4"))   # /tmp và /kaggle/working khác ổ
             for name, path in (res.pop("files", None) or {}).items():

@@ -157,11 +157,15 @@ def _small_frames(src: str, t0: float, dur: float, fps: float = 2.0, w: int = 24
 
 
 def opening_repeat_sync(src: str, a: float, dur: float, window: float) -> tuple:
-    """(độ giống lớn nhất, giây) giữa các khung trong `window` giây đầu video gốc và cảnh [a - 1, a + dur + 1]
+    """(độ giống lớn nhất, giây) giữa các khung trong `window` giây đầu video gốc và cảnh [a, a + dur]
     (tương quan chuẩn hoá trên ảnh màu nhỏ: cùng một cảnh quay ~0.95+, cảnh khác nhau thường < 0.5). Cao = video
     gốc đã tự chiếu trước đúng cảnh đó ở phần mở đầu, chiếu thêm đoạn mở đầu sẽ lặp."""
-    head = _small_frames(src, 0.0, window)
-    shot = _small_frames(src, a - 1.0, dur + 2.0)
+    # đúng khúc sẽ chiếu [a, a+dur], không nới biên: nới 1s lấn sang cảnh kế (cũng có trong phần mở đầu) thì báo trùng
+    # nhầm; phần mở đầu chỉ so tới trước a (cảnh sát phần mở đầu không so với chính nó)
+    if min(window, a) < 0.5:
+        return 0.0, 0.0
+    head = _small_frames(src, 0.0, min(window, a))
+    shot = _small_frames(src, a, dur)
     if not len(head) or not len(shot):
         return 0.0, 0.0
 

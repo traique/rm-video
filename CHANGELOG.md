@@ -120,6 +120,45 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 31: rà toàn bộ repo (13/11/2026) — sửa 30 lỗi ảnh hưởng video ra
+
+Rà 4 mảng song song (dựng hình/tiếng, luồng xử lý, lời thoại, Kaggle/ảnh bìa/tự đăng), mỗi lỗi đều tái hiện bằng
+dữ liệu cụ thể trước khi sửa; đo thêm video thật bản 29 (cá kèo): không lọt giọng gốc (0/180 giây có lời), -14.1 LUFS,
+H.264 High 4.1 / bt709 / moov đầu file / khung khoá 2s. Test mới: `tests/test_review31.py`.
+
+| Phần | Lỗi (kịch bản tái hiện) | Sửa |
+| --- | --- | --- |
+| Tự động đăng | Mô tả bài Fanpage là NGUYÊN cả gói nội dung 3 nền tảng: có «📌», «▶ TikTok:», «▶ YouTube Shorts:», «#Shorts», caption lặp 3 lần | Chỉ lấy phần «▶ Facebook» |
+| Dựng | Dải chữ gốc sát mép trên/dưới (vd phụ đề in ở y=0) -> dải che < 80px, boxblur từ chối bán kính -> **cả lần dựng lỗi** (QUALITY fast/balanced) | Trượt cửa sổ 96px vào trong khung; bán kính mờ ≤ h/4 |
+| Cắt phần | ✂️ Cắt 90s không có Kaggle: phần dài 90-112s bị cắt còn 90s, 20s cuối mất không báo | Phần cắt là remake trọn phần (long_mode full) |
+| Lời thoại | "cá này mình mua ở chợ về đó" + "chiên vàng là xong rồi" bị coi là quảng cáo cuối -> cắt mất bước cuối | Chỉ cắt khi có dấu hiệu MẠNH (giỏ hàng, link, mã giảm, shop...); "mua ở", "giá rất" là dấu hiệu yếu |
+| Lời thoại | Câu gốc không dấu "các bạn nhớ đăng ký kênh ủng hộ mình nha rồi cho 2 muỗng đường vào" bị bỏ cả câu -> mất bước 2 muỗng đường | Tách theo từ nối (nha / rồi / và / sau đó), chỉ bỏ mẩu kêu gọi; lời gốc đưa AI đã bỏ sẵn vế kêu gọi |
+| Lời thoại | Whisper: câu thật chỉ KẾT bằng "nhớ đăng ký kênh" bị coi là bịa -> bỏ cả câu (cả bước làm trong đó) | Chỉ coi là bịa khi lời kêu gọi chiếm gần hết câu |
+| Lời thoại | "Theo dõi để thịt không bị cháy" bị coi là kêu gọi theo dõi | "theo dõi để" chỉ tính khi để xem/nhận/không bỏ lỡ... |
+| Lời thoại | AI viết "Các bạn mua cá kèo về rửa sạch..." / "Bí quyết độc quyền giúp cá giòn" bị coi là bán hàng -> 2 lượt viết lại vô ích | "mua" phải đi với ngay/ủng hộ/sản phẩm/shop...; "độc quyền của em/shop" |
+| Lời thoại | Khoảng số chữ tính theo chữ VIẾT: câu "100g đường, 50ml nước mắm, 2 muỗng... 15 phút" được giao 14-17 chữ nhưng đọc ra đã 21 chữ phải giữ nguyên | Tính theo chữ ĐỌC RA (spoken_words) |
+| Lời thoại | Có đoạn mở đầu: câu hook được giao số chữ của 5.5s (12-15 chữ) dù chỉ có 3.4s -> tràn | Theo đúng khe 3.4s (7-9 chữ) |
+| Lời thoại | "Tiến hành ướp" báo bịa hành lá; "hột gà" thay "trứng" báo bịa trứng gà; "cá nhân", "ăn với cơm nóng", "đợi một lát", "cắn một miếng", "1 phần 3" ↔ "1/3" đều báo thiếu/bịa -> viết lại 2 lượt với chỉ dẫn sai | Thêm ngữ cảnh loại trừ; "trứng" thuộc nhóm trứng gà; bỏ "một lát/miếng/xíu" sau đợi/chờ/cắn/ăn/thử; "1 phần 3" = "1/3" |
+| Lời thoại | "Cho một muỗng đường" -> "Cho một muỗng đường nữa" (bước tiếp) bị bỏ như lặp vòng | Câu NỐI DÀI câu trước không phải lặp |
+| Lời thoại | "chợ Bà Chiểu" (Groq, từng chữ): chữ hoa tên riêng bị coi là câu mới -> cắt giữa cụm | Chữ hoa mà chữ kế cũng hoa thì không phải câu mới |
+| Nội dung đăng | TikTok: caption < 110 ký tự vẫn bị cắt mất chữ cuối khi hashtag dài; video 4-7s khoảng số chữ ngược (15-9) | Chỉ cắt caption khi > 110; kẹp khoảng |
+| Kaggle | Mốc cắt lẻ (quảng cáo cuối 40.32s, đoạn mở đầu 74.35s) bị int() trên Kaggle -> video ngắn hơn tới 0.99s, chữ cuối cụt | Giữ số lẻ |
+| Kaggle | Kết quả không có mã việc: có thể nhận nhầm video của phiên trước (phân tích đã có, dựng chưa) | Mỗi việc có mã riêng, Botkeep đối chiếu |
+| Kaggle | Các phần video dài chạy chung một phiên: video về thư mục gốc, ảnh bìa nằm ở thư mục phần -> không giao ảnh bìa | Đưa video về thư mục phần trước khi giao |
+| Đoạn mở đầu | Đẩy cận neo góc trái trên (crop x=y=0 tính một lần): hình TRÔI xuống góc phải thay vì zoom vào món | crop tâm theo từng khung |
+| Đoạn mở đầu | So khung nới 1s lấn sang cảnh kế (cũng có trong phần mở đầu) -> báo "gốc đã chiếu trước" nhầm | So đúng khúc [a, a+3s]; phần mở đầu chỉ tới trước a |
+| Đoạn mở đầu | Video full 299s + 3s = 302s > HARD_MAX 300: lời/phụ đề lên lịch tới 302 nhưng hình cắt ở 300 | Tổng ≤ giới hạn |
+| Nguồn | Video KHÔNG có luồng tiếng (quay màn hình, xuất -an): ffmpeg lỗi ở bước bóc lời -> hỏng job | Không bóc lời, đi đường nhạc nền; extract_audio xuất im lặng; ✨ đoạn hay cũng vậy |
+| Nguồn | Video 31-45 fps (quay màn hình VFR) bị chia đôi còn 15-22 fps giật | Giữ nguyên |
+| Nguồn | Điện thoại quay dọc mã hoá 1920x1080 + thẻ xoay 90°: coi là 1080px cao -> ra 720p | Đọc thẻ xoay, đổi chiều |
+| Video không lời | AI viết bài đăng lỗi (mẫu "Video hot hôm nay") vẫn tự đăng; ghi "🔊 Giọng đọc AI" dù không có giọng | Không tự đăng; không ghi |
+| Dự phòng | Đường đọc một mạch (AI lỗi) dùng độ dài/lời TRƯỚC khi cắt quảng cáo / thêm mở đầu | Theo độ dài sẽ dựng |
+| Worker | Lỗi mạng TimeoutError (tải file Telegram) bị báo nhầm là "Quá thời gian cho phép" | Lớp lỗi riêng cho ngân sách thời gian |
+
+Đã kiểm tra đúng (không sửa): mọi mốc thời gian qua kéo chậm × đoạn mở đầu × cắt quảng cáo; bản duyệt dựng lại y hệt;
+gom lô Kaggle; tách giọng (ranh giới khúc, độ dài); cache (khoá gồm mọi đầu vào); loudness 2 lượt; phụ đề karaoke;
+tương thích ffmpeg 5.1.
+
 ## Bản 30: không chiếu trước cảnh món khi video gốc đã tự mở đầu bằng món
 
 Video cá kèo bạn gửi (13/11/2026): đoạn mở đầu lặp y hệt đầu video. Video gốc tự mở đầu bằng ~10 giây "xem trước"

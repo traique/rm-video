@@ -180,7 +180,8 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
         copy = core_video.is_keyframe(a, kfs)
         how = await core_video.cut(src, piece, a, b, copy=copy)
         logging.info("%s: cắt %.1f-%.1fs (%s)", label, a, b, "chép luồng" if how == "copy" else "mã hoá lại")
-        sub = Job(url="", mode=job.mode, duration=0, voice=job.voice, subs=job.subs, cover=job.cover,
+        # long_mode="full": làm TRỌN phần đã cắt (split90 có phần tới 112s; trước đây không có Kaggle thì bị cắt còn 90s)
+        sub = Job(url="", mode=job.mode, duration=0, voice=job.voice, subs=job.subs, cover=job.cover, long_mode="full",
                   local=piece, title_hint=f"{pc.get('title') or title} ({label})", source=job.source,
                   chat_id=job.chat_id, source_meta=job.source_meta,
                   remote_src={"cut": [a, b, copy], "of": parent_ref} if parent_ref else {})
@@ -225,6 +226,10 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                     if isinstance(res, Exception):
                         raise res
                     out = await d.finish(res)
+                    if os.path.dirname(out) != part_dir:       # lô Kaggle ghi video ở thư mục gốc: đưa về thư mục phần
+                        dst = os.path.join(part_dir, os.path.basename(out))     # để ảnh bìa nằm cạnh (deliver tìm ở đó)
+                        await asyncio.to_thread(shutil.move, out, dst)
+                        out = dst
                 except Exception as e:                 # Kaggle lỗi phần này: làm lại phần này trên Botkeep
                     logging.warning("%s: Kaggle lỗi (%s), làm trên Botkeep", label, e)
                     metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
@@ -299,9 +304,17 @@ async def process_highlights(job: Job, tmp: str):
     if not pieces:
         job.step = "Bóc lời toàn bộ video + dò cảnh"
         audio = os.path.join(tmp, "audio_full.mp3")
-        await core_video.extract_audio(src, audio, max_dur=dur)
-        (_, segs), (cuts, images, img_t), sil = await asyncio.gather(
-            transcribe_segments(audio, title, desc), _highlight_images(src, tmp, dur), core_video.silences(src))
+        has_aud = await core_video.has_audio(src)
+
+        async def _words():
+            if not has_aud:
+                return "", []
+            await core_video.extract_audio(src, audio, max_dur=dur)
+            return await transcribe_segments(audio, title, desc)
+
+        async def _sil():
+            return await core_video.silences(src) if has_aud else []
+        (_, segs), (cuts, images, img_t), sil = await asyncio.gather(_words(), _highlight_images(src, tmp, dur), _sil())
         job.step = f"Chấm điểm đoạn hay (AI){' + xem ' + str(len(images)) + ' ảnh' if images else ''}"
         clips = await highlights.choose(title, desc, dur, segs, cuts, sil, images, img_t)
         if clips:
@@ -337,15 +350,16 @@ def final_timeline(segs: list, plan: list, out_dur: float) -> list:
     return out
 
 
-def credit_line(job: Job) -> str:
-    """'🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI' cho nội dung đăng (tắt bằng SOURCE_CREDIT=0)."""
+def credit_line(job: Job, narrated: bool = True) -> str:
+    """'🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI' cho nội dung đăng (tắt bằng SOURCE_CREDIT=0). narrated=False: video
+    không có giọng đọc (chỉ nhạc nền)."""
     if config.SOURCE_CREDIT == "0":
         return ""
     parts = []
     uploader = (job.source_meta or {}).get("uploader")
     if uploader:
         parts.append(f"🎬 Nguồn: {uploader}")
-    if job.mode != "music":
+    if job.mode != "music" and narrated:
         parts.append("🔊 Giọng đọc AI")
     return " · ".join(parts)
 
@@ -573,7 +587,10 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
         job.no_autopost = f"video không lời, {why}"
     job.step = "Viết tiêu đề + nội dung đăng (AI)"
     pack = await prompt_engine.post_only(title, desc, job.mode)
-    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
+    if pack.get("fallback"):
+        job.no_autopost = job.no_autopost or "AI viết nội dung đăng lỗi, dùng mẫu"
+    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"],
+                                           credit_line(job, narrated=False))
     job.hook = pack.get("hook") or prompt_engine.clean_hook(pack["title"] if not pack.get("fallback") else "")
     post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
     max_dur = config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION
@@ -791,7 +808,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
 
     src_hash = await asyncio.to_thread(cache.file_hash, inp)
     want_gray = bool(job.subs and job.cover)
-    why_an = analyze_remote(job, inp, local_only)
+    has_aud = await core_video.has_audio(inp)
+    why_an = analyze_remote(job, inp, local_only) if has_aud else "nguồn không có tiếng"
     an = None
     if not why_an or job.approved:                      # bản đã duyệt: lấy kết quả lần đầu trong cache (nếu có)
         job.step = "Bóc lời + phân tích hình trên Kaggle"
@@ -807,11 +825,15 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
                     else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
         audio_mp3 = os.path.join(tmp, "audio.mp3")
-        await core_video.extract_audio(inp, audio_mp3)
+
+        async def _words():
+            if not has_aud:                             # clip câm tiếng (quay màn hình, xuất -an): không có lời để bóc
+                return "", []
+            await core_video.extract_audio(inp, audio_mp3)
+            return await transcribe_segments(audio_mp3, title, desc)   # ("", []) nếu không có nguồn STT
         (text, raw_segs), (cuts, bands) = await asyncio.gather(
-            transcribe_segments(audio_mp3, title, desc),                 # ("", []) nếu không có nguồn STT
-            scenes.analyze_cached(inp, tmp, src_dur, want_gray, src_hash,
-                                  need_thumbs=not job.approved))         # 1 lượt giải mã: cảnh + ảnh + dải chữ
+            _words(), scenes.analyze_cached(inp, tmp, src_dur, want_gray, src_hash,
+                                            need_thumbs=not job.approved))   # 1 lượt giải mã: cảnh + ảnh + dải chữ
     if config.TEXT_DETECT == "ocr" and job.subs and job.cover and ocr_text.available():
         bands = await _ocr_bands(inp, src_dur, src_hash, bands)
     segs = [(round(a * stretch, 2), round(b * stretch, 2), t) for a, b, t in raw_segs]   # trục thời gian đã làm chậm
@@ -930,7 +952,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         T = float(tz["dur"])
         full = out_dur + T
         # chọn 30/60/90 giây thì giữ đúng độ dài đó; "giữ nguyên" mà video ≤ 90s thì không để vượt 90s (hết là Reels)
-        total = round(min(full, job.duration or (REEL_MAX if out_dur <= REEL_MAX + 0.01 else full)), 2)
+        total = round(min(full, limit, job.duration or (REEL_MAX if out_dur <= REEL_MAX + 0.01 else full)), 2)
         segs = [(round(a + T, 2), round(b + T, 2), t) for a, b, t in segs]
         cuts = [T] + [round(c + T, 2) for c in cuts]    # đoạn mở đầu -> video chính cũng là một lần chuyển cảnh
         speech = [(a + T, b + T) for a, b in speech]
@@ -958,6 +980,9 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
             tasks.append(amb_task)
         return amb_task
 
+    target = int(out_dur)                               # đường dự phòng (đọc một mạch): theo độ dài SẼ dựng
+    if raw_segs:                                        # (sau khi cắt quảng cáo / thêm đoạn mở đầu)
+        text = " ".join(t for a, _, t in segs if a < out_dur - 0.5 and t)
     # ----- Đường chính: giọng KHỚP HÌNH -----
     segs = [s for s in segs if s[0] < out_dur - 0.5]
     timed = None
@@ -999,7 +1024,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         sem = asyncio.Semaphore(3)
 
         async def _one(seg):
-            if seg.get("ost") == "orig":                 # đoạn giữ nguyên tiếng gốc: không đọc lời mới
+            if seg.get("ost") == "orig" or not (seg.get("text") or "").strip():   # giữ tiếng gốc / không lời: không đọc
                 return {"path": None, "words": []}
             p = os.path.join(tmp, f"clip_{seg['i']}_{cache.key('clip', seg['text'])[:10]}.mp3")
             async with sem:

@@ -142,8 +142,8 @@ def _word_target(duration: int) -> tuple[str, str]:
     if duration <= 0:
         n = int(18 * rate)
         return f"{n - 10}-{n}", "đọc xong trong khoảng 15-20 giây"
-    n = int((duration - 1.5) * rate)   # trừ 1.5s cuối để không bị cụt
-    return f"{max(15, n - 10)}-{n}", f"đọc vừa khít video {duration} giây"
+    n = max(15, int((duration - 1.5) * rate))   # trừ 1.5s cuối để không bị cụt; video 4-7s: khoảng không bị ngược
+    return f"{max(5, n - 10)}-{n}", f"đọc vừa khít video {duration} giây"
 
 
 def _build_prompt(title, desc, mode, transcript, duration):
@@ -440,7 +440,7 @@ CÂU HOOK — ĐOẠN 0 (3 giây đầu quyết định người xem có lướt
 # Kêu gọi đăng ký / theo dõi kênh (người dùng không muốn có, kể cả cuối video — 13/11/2026). "theo dõi" chỉ tính khi đi
 # với kênh/trang/mình/để...: "theo dõi nhiệt độ", "theo dõi lửa" là thao tác nấu.
 _SUB_RE = re.compile(r"đăng\s*k[ýí]|subscri|\bsub\s+kênh|theo\s*dõi\s*(kênh|trang|page|fanpage|mình|tui|tôi|em|"
-                     r"để|nha|nhé|nghen|ngay|thêm)|\bfollow|bấm\s*(chuông|like|thích|tim)|nhấn\s*(chuông|like|theo dõi)|"
+                     r"để\s*(xem|nhận|không|cập|biết|ủng|đón)|nha|nhé|nghen|ngay|thêm)|\bfollow|bấm\s*(chuông|like|thích|tim)|nhấn\s*(chuông|like|theo dõi)|"
                      r"\blike\s*(và|,|&)?\s*share|ủng\s*hộ\s*(kênh|mình|tui|em|page|video)|"
                      r"hẹn\s*gặp\s*(lại\s*)?(các bạn|bà con|mọi người|cả nhà)?\s*(ở|trong)\s*(video|clip)|"
                      r"xem\s*thêm\s*(nhiều\s*)?(video|clip)", re.IGNORECASE)
@@ -457,9 +457,24 @@ def strip_sub_cta(text: str) -> str:
     câu và dấu phẩy): "Xong rồi, cá giòn rụm, nhớ đăng ký kênh nha" -> "Xong rồi, cá giòn rụm."."""
     if not has_sub_cta(text):
         return text
-    parts = re.split(r"(?<=[.!?…,;])\s+", text.strip())
-    out = " ".join(p for p in parts if not has_sub_cta(p)).strip()
+    out = []
+    for p in re.split(r"(?<=[.!?…,;])\s+", text.strip()):
+        if not has_sub_cta(p):
+            out.append(p)
+            continue
+        # vế không có dấu câu (Whisper hay bỏ dấu): tách tiếp ở từ nối, chỉ bỏ mẩu có lời kêu gọi, giữ bước làm —
+        # "các bạn nhớ đăng ký kênh ủng hộ mình nha rồi cho 2 muỗng đường vào" -> "cho 2 muỗng đường vào"
+        bits = [b for b in _CTA_JOIN.split(p) if b.strip()]
+        kept = " ".join(b for b in bits if not has_sub_cta(b)).strip()
+        kept = re.sub(r"^(rồi|và|sau đó|với lại|còn|tiếp theo|bây giờ)\s+", "", kept, flags=re.IGNORECASE)
+        if len(kept.split()) >= 3:
+            out.append(kept)
+    out = " ".join(out).strip()
     return (out[:-1] + ".") if out.endswith((",", ";")) else out
+
+
+_CTA_JOIN = re.compile(r"(?<=\bnha)\s+|(?<=\bnhé)\s+|(?<=\bnghen)\s+|(?<=\bnhen)\s+|"
+                       r"\s+(?=(?:rồi|và|sau đó|với lại|còn|tiếp theo|bây giờ)\b)", re.IGNORECASE)
 
 
 def is_sub_cta_line(text: str) -> bool:
@@ -479,8 +494,10 @@ def clean_hook(text: str) -> str:
 
 
 _CTA_RE = re.compile(r"giỏ hàng|góc (trái|phải) màn hình|link (ở|dưới|trong)|mã giảm|bấm vào (mua|link|giỏ)|"
-                     r"chính tay (em|mình|tui|tôi) làm|độc quyền|nhà tự làm|(nhà|em|mình|tui|tôi) tự (tay )?làm (ra )?(bột|gói)|"
-                     r"(bà con|mọi người|anh chị|các bạn|cả nhà)( nhớ| hãy| cứ)? (mua|đặt|chốt)\b", re.IGNORECASE)
+                     r"chính tay (em|mình|tui|tôi) làm|độc quyền (của )?(em|mình|tui|tôi|shop|nhà)|nhà tự làm|"
+                     r"(nhà|em|mình|tui|tôi) tự (tay )?làm (ra )?(bột|gói)|"
+                     r"(bà con|mọi người|anh chị|các bạn|cả nhà)( nhớ| hãy| cứ)? (mua|đặt|chốt) "
+                     r"(ngay|liền|ủng hộ|giúp|ở shop|tại shop|sản phẩm|gói|hũ|hàng|về (dùng|xài))", re.IGNORECASE)
 
 
 _VOICE_RATE = contextvars.ContextVar("voice_rate", default=None)
@@ -602,7 +619,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu).
     teaser: video có đoạn mở đầu dài chừng ấy giây (cảnh món đã xong chiếu trước, mốc lời gốc đã lùi theo): đoạn 0 là
     câu hook đọc vừa trong đoạn đó, nói về đúng món đang thấy."""
-    segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)
+    segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)], out_dur)
     if not segments:
         return None
     if intro and segments[0][0] >= INTRO_MIN:
@@ -613,9 +630,11 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         nxt = segments[k + 1][0] if k + 1 < len(segments) else out_dur
         slot = max(1.0, min(nxt, out_dur) - st)
         span = max(0.8, min(en, st + slot) - st)          # người gốc nói trong khoảng này
-        mx = max(3, min(int(slot * _rate() * 0.92), int(len(tx.split()) * 1.15) + 1))
+        # số chữ ĐỌC RA ("100g" = 3 chữ) như prompt yêu cầu; đếm theo chữ viết thì câu nhiều số bị giao ít chữ hơn số
+        # chữ phải giữ nguyên văn (rà soát 13/11/2026)
+        mx = max(3, min(int(slot * _rate() * 0.92), int(spoken_words(tx) * 1.15) + 1))
         if not tx:                                         # câu mở đầu: một câu hook, không theo số chữ lời gốc
-            mx = max(5, min(int(min(slot, INTRO_SPEAK) * _rate() * 0.92), 16))
+            mx = max(5, min(int(min(slot, en - st, INTRO_SPEAK) * _rate() * 0.92), 16))   # có đoạn mở đầu: vừa 3s
         slots.append((k, st, slot, mx, tx, span))
     # khoảng "lo-mx": bản 25 ghi "tối đa mx" thì AI chỉ viết ~67% (giọng phủ ~53% khe, video lặng nhiều — Botkeep
     # 12/11/2026); bản 24 ghi "khoảng mx" thì viết đủ nhưng 19/46 đoạn vượt. Khoảng giữ AI sát số từ cả hai phía.
@@ -845,7 +864,8 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
     lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại.
     teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó."""
-    segments = merge_sentences([s for s in segments if not is_sub_cta_line(s[2])], out_dur)   # gộp TRƯỚC khi chia lô
+    segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)],
+                               out_dur)                                        # gộp TRƯỚC khi chia lô
     tkw = {"teaser": teaser} if teaser else {}           # chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)
     if len(segments) <= BATCH + 6:
         return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw)
@@ -903,11 +923,16 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
 
 # Dấu hiệu lời BÁN HÀNG của người gốc trên lời gốc do máy nghe chép (có cả lỗi chính tả máy nghe:
 # "chào hàng" = giỏ hàng, "răng muối" = rang muối). "mua" trần KHÔNG tính (vì "gà mua về").
-_PROMO_RE = re.compile(
-    r"giỏ hàng|giỏ hàn|chào hàng|góc (trái|phải)|màn hình|độc quyền|chính tay (em|mình|tui|tôi)|"
-    r"bấm vào|nhấn vào|ủng hộ (em|mình|shop|kênh)|giá (đang|rất|chỉ|cực|siêu|ưu)|link|mã giảm|khuyến mãi|"
-    r"(có|đặt|chốt|nhớ) mua|mua (bột|gói|hũ|sản phẩm|hàng|ngay|ở|tại|giúp|ủng)|sản phẩm (của|bên) (em|mình|shop)|"
+# Dấu hiệu MẠNH (gần như chỉ có trong lời bán hàng) và YẾU ("mua ở chợ", "giá rất rẻ", "ủng hộ mình" cũng gặp trong
+# lời nấu ăn thường): chỉ cắt khi đoạn cuối có ít nhất một dấu hiệu mạnh. Rà soát 13/11/2026: "cá này mình mua ở chợ về
+# đó" + "chiên vàng là xong rồi" bị cắt mất bước cuối.
+_PROMO_STRONG = re.compile(
+    r"giỏ hàng|giỏ hàn|chào hàng|góc (trái|phải)|độc quyền|chính tay (em|mình|tui|tôi)|bấm vào|nhấn vào|link|mã giảm|"
+    r"khuyến mãi|(đặt|chốt) mua|mua (bột|gói|hũ|sản phẩm|hàng|ngay|giúp|ủng)|sản phẩm (của|bên) (em|mình|shop)|"
     r"inbox|nhắn tin|freeship|đặt hàng|shop (em|mình)", re.IGNORECASE)
+_PROMO_WEAK = re.compile(r"màn hình|ủng hộ (em|mình|shop|kênh)|giá (đang|rất|chỉ|cực|siêu|ưu)|(có|nhớ) mua|mua (ở|tại)",
+                         re.IGNORECASE)
+_PROMO_RE = re.compile(_PROMO_STRONG.pattern + "|" + _PROMO_WEAK.pattern, re.IGNORECASE)
 
 
 def find_promo_tail(segs: list, dur: float) -> float | None:
@@ -918,11 +943,12 @@ def find_promo_tail(segs: list, dur: float) -> float | None:
     if not segs or dur <= 0:
         return None
     hits = [bool(_PROMO_RE.search(t or "")) for _, _, t in segs]
+    strong = [bool(_PROMO_STRONG.search(t or "")) for _, _, t in segs]
     for i, (st, _, _) in enumerate(segs):
         if not hits[i] or st < 0.5 * dur or dur - st < 3:
             continue
         tail = hits[i:]
-        if sum(tail) / len(tail) >= 0.4:
+        if sum(tail) / len(tail) >= 0.4 and any(strong[i:]):    # dấu hiệu yếu không đủ để cắt công thức
             return round(max(0.0, st - 0.05), 2)
     return None
 
@@ -966,7 +992,10 @@ def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> 
     tags = ["#" + t.lstrip("#") for t in hashtags.replace(",", " ").split() if t.strip("#")]   # AI đôi khi quên dấu #
     tiktok = (caption.strip() + " " + " ".join(tags[:6])).strip()
     if len(tiktok) > 150:                      # TikTok hiển thị tốt dưới ~150 ký tự
-        tiktok = (caption.strip()[:110].rsplit(" ", 1)[0] + "… " + " ".join(tags[:4])).strip()
+        cap = caption.strip()
+        if len(cap) > 110:                     # caption ngắn thì giữ nguyên, chỉ bớt hashtag (trước đây mất chữ cuối)
+            cap = cap[:110].rsplit(" ", 1)[0] + "…"
+        tiktok = (cap + " " + " ".join(tags[:4])).strip()
     facebook = f"{caption.strip()}\n\n{' '.join(tags[:3])}"
     youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:8])}"
     if credit:

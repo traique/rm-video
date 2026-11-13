@@ -43,6 +43,10 @@ def _drop_inputs(job: Job):
                 logging.warning("Không xoá được %s", leftover)
 
 
+
+class _OverBudget(Exception):
+    """Job chạy quá ngân sách thời gian (jobs.job_budget): huỷ và báo người dùng."""
+
 async def _run_one(job: Job):
     tg = job.source == "tg"
     if job.cancel:
@@ -98,7 +102,7 @@ async def _run_one(job: Job):
                     if time.time() - job.started_at > job_budget(job):
                         task.cancel()
                         await asyncio.gather(task, return_exceptions=True)
-                        raise asyncio.TimeoutError
+                        raise _OverBudget()
             finally:
                 tl.cancel()
                 if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
@@ -111,7 +115,7 @@ async def _run_one(job: Job):
                                            + REVIEW_HELP))
         else:
             job.status, job.step = "done", ""
-    except asyncio.TimeoutError:
+    except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
         core_video.kill_running()
         job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
                                           f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")

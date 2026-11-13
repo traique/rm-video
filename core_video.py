@@ -1105,7 +1105,12 @@ async def has_audio(path: str) -> bool:
 
 
 async def extract_audio(input_mp4: str, out_mp3: str, max_dur: float | None = None):
-    """Bóc audio 16kHz mono 32kbps cho Whisper: 90s ≈ 0.4MB, 10 phút ≈ 2.4MB (hạn của Groq 25MB)."""
+    """Bóc audio 16kHz mono 32kbps cho Whisper: 90s ≈ 0.4MB, 10 phút ≈ 2.4MB (hạn của Groq 25MB).
+    Nguồn không có luồng tiếng: xuất file im lặng (trước đây ffmpeg lỗi "does not contain any stream" làm hỏng job)."""
+    if not await has_audio(input_mp4):
+        dur = min(await probe_duration(input_mp4), max_dur or config.HARD_MAX)
+        await _run_ffmpeg("-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", f"{dur:.2f}", "-b:a", "32k", out_mp3)
+        return
     await _run_ffmpeg(
         "-y", "-i", input_mp4, "-t", f"{max_dur or config.HARD_MAX:.2f}", "-vn", "-ac", "1", "-ar", "16000", "-b:a", "32k",
         out_mp3
@@ -1120,7 +1125,10 @@ def band_to_output(top: float, bottom: float) -> tuple[int, int]:
     if y1 - y0 < 96:
         mid = (y0 + y1) // 2
         y0, y1 = mid - 48, mid + 48
-    y0, y1 = max(0, y0), min(1280, y1)
+    if y0 < 0:                       # dải sát mép trên/dưới: trượt cửa sổ vào trong (cắt bớt thì dải < 80px, boxblur
+        y0, y1 = 0, y1 - y0          # chroma 4:2:0 từ chối bán kính 20 -> cả lần dựng lỗi, rà soát 13/11/2026)
+    if y1 > 1280:
+        y0, y1 = max(0, y0 - (y1 - 1280)), 1280
     return y0, max(2, y1 - y0)
 
 
@@ -1130,7 +1138,8 @@ def _cover_filter(bands, W: int = 720, H: int = 1280) -> str:
     for i, (top, bottom) in enumerate(bands):
         y, h = band_to_output(top, bottom)
         y, h = int(y * k), int(h * k)
-        out += (f",split=2[cv{i}a][cv{i}b];[cv{i}b]crop={W}:{h}:0:{y},boxblur={int(20 * k)}:4[cv{i}bl];"
+        r = max(1, min(int(20 * k), h // 4 - 1))        # boxblur: bán kính sắc độ (h/2 chiều cao) phải ≤ h/4 - 1
+        out += (f",split=2[cv{i}a][cv{i}b];[cv{i}b]crop={W}:{h}:0:{y},boxblur={r}:4[cv{i}bl];"
                 f"[cv{i}a][cv{i}bl]overlay=0:{y},drawbox=x=0:y={y}:w={W}:h={h}:color=black@0.45:t=fill")
     return out
 
@@ -1222,6 +1231,8 @@ def out_fps(src_fps: float) -> float:
     if src_fps <= 30.5:
         return round(src_fps, 3)
     n = math.ceil(src_fps / 30.0 - 0.02)
+    if n > 1 and src_fps / n < 24:             # 31-45 fps: chia đôi còn 15-22 fps giật hơn là giữ nguyên
+        n -= 1
     return round(src_fps / n, 3)
 
 
@@ -1325,7 +1336,9 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
         v = (f"[{tz['iv']}:v]"
              + (f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={T + 0.2:.2f}," if tz.get("still") else "")
              + f"setpts=PTS-STARTPTS,fps={fps:g},{look},"
-             f"scale=w='trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2':h=-2:eval=frame,crop={W}:{H},setsar=1,"
+             f"scale=w='trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2':h=-2:eval=frame,"
+             f"crop={W}:{H}:x='(trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2-{W})/2'"
+             f":y='(trunc({H}*(1+{z:.3f}*t/{T:.2f})/2)*2-{H})/2',setsar=1,"
              f"trim=duration={T:.3f}[tzv];"
              f"[0:v]{slow}fps={fps:g},{look},setsar=1[mnv];[tzv][mnv]concat=n=2:v=1:a=0")
     else:
@@ -1559,8 +1572,13 @@ def _wrap(text: str, width: int) -> str:
 async def source_info(path: str) -> tuple:
     """(rộng, cao, fps) của luồng hình; fps lấy avg_frame_rate (đúng cả với video tốc độ khung thay đổi)."""
     out = await _run_ffmpeg("-v", "error", "-select_streams", "v:0", "-show_entries",
-                            "stream=width,height,avg_frame_rate,r_frame_rate", "-of", "default=nw=1", path, tool="ffprobe")
+                            "stream=width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation",
+                            "-of", "default=nw=1", path, tool="ffprobe")
     d = dict(line.split("=", 1) for line in out.strip().splitlines() if "=" in line)
+    try:
+        rot = int(round(float(d.get("rotation", 0) or 0)))   # ffmpeg tự xoay khi giải mã: kích thước thật đổi chiều
+    except ValueError:
+        rot = 0
 
     def _rate(s):
         try:
@@ -1570,9 +1588,10 @@ async def source_info(path: str) -> tuple:
             return 0.0
     fps = _rate(d.get("avg_frame_rate", "")) or _rate(d.get("r_frame_rate", ""))
     try:
-        return int(d.get("width", 0)), int(d.get("height", 0)), fps
+        w, h = int(d.get("width", 0)), int(d.get("height", 0))
     except ValueError:
         return 0, 0, fps
+    return (h, w, fps) if abs(rot) % 180 == 90 else (w, h, fps)
 
 
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")

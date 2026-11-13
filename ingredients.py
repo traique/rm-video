@@ -5,7 +5,7 @@ import re
 import unicodedata
 
 GROUPS = [
-    ["trứng gà", "hột gà"], ["trứng vịt", "hột vịt"], ["trứng cút", "hột cút"], ["trứng muối", "hột vịt muối"],
+    ["trứng gà", "hột gà", "trứng"], ["trứng vịt", "hột vịt"], ["trứng cút", "hột cút"], ["trứng muối", "hột vịt muối"],
     ["thịt heo", "thịt lợn", "heo", "lợn"], ["thịt bò", "bò"], ["thịt gà", "gà"], ["thịt vịt", "vịt"], ["ba chỉ", "ba rọi"], ["nạc vai"], ["sườn"],
     ["cánh gà"], ["đùi gà"], ["giò lụa", "chả lụa"], ["xúc xích"], ["lạp xưởng"],
     ["tôm"], ["mực"], ["cua"], ["nghêu", "ngao"], ["sò"], ["ốc"], ["cá"],
@@ -65,6 +65,10 @@ _CTX = {
             {"nãy", "xưa", "đó", "trước", "nhỏ", "sáng", "chiều", "tối", "hôm", "còn", "ấy", "này", "đầu", "sau", "giờ",
              "lâu", "tưởng", "trưa", "nào", "tết", "mới", "đấy", "phục"}),
     "cam": ({"màu", "vàng", "đỏ", "cam"}, {"kết", "chịu", "đoan", "go", "lòng", "tâm", "phận"}),
+    "hành": ({"tiến", "thực", "thi", "ban", "vận", "lưu", "phát"},
+             {"động", "trình", "khách", "lang", "lý", "chính", "quân", "xử", "nghề", "tinh", "tây"}),
+    "cá": (set(), {"nhân", "biệt", "tính", "thể", "cược", "độ", "mập"}),
+    "cơm": ({"với", "kèm", "cùng", "ăn", "bữa"}, set()),
     "mùi": ({"có", "bay", "át", "khử", "hết", "bớt", "đủ", "cái", "nặng", "đậm", "dậy", "toàn", "ra", "thơm"},
             {"thơm", "hôi", "vị", "tanh", "khét", "gì", "rất", "của", "đặc", "hấp", "lạ", "nồng", "hăng", "khó", "quá",
              "lắm", "ghê", "này", "đó", "bay", "dầu", "khói", "nhẹ"}),
@@ -169,8 +173,8 @@ _UNITS = ("g", "gam", "gram", "gr", "kg", "ký", "cân", "lạng", "ml", "lít",
           "muỗng cà phê", "thìa canh", "thìa cà phê", "chén", "bát", "ly", "cốc", "tô", "quả", "trái", "củ", "tép",
           "nhánh", "cây", "lá", "miếng", "lát", "con", "cái", "gói", "hộp", "lon", "chai", "phút", "giây", "tiếng",
           "giờ", "ngày", "độ", "%", "phần", "k", "nghìn", "ngàn", "triệu", "đồng", "đ", "tuổi", "người", "cm", "mm", "m")
-_NUM_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])",
-                     re.IGNORECASE)
+_NUM_RE = re.compile(r"(\d+/\d+|\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
+                     + r")(?![\w])", re.IGNORECASE)
 
 
 _WORDNUM = {"một": "1", "hai": "2", "ba": "3", "bốn": "4", "tư": "4", "năm": "5", "sáu": "6", "bảy": "7",
@@ -183,6 +187,9 @@ def numbers(text: str) -> list:
     """Danh sách số có đơn vị: ['2 quả', '1 muỗng', '200 g', '15 phút'] (chuẩn hóa số).
     Số viết bằng chữ ("hai muỗng") cũng tính. Bỏ "1 cái/1 chiếc" vì đó là mạo từ ("cho vào 1 cái tô")."""
     t = _WORDNUM_RE.sub(lambda m: _WORDNUM[m.group(1)] + " ", (text or "").lower())
+    t = re.sub(r"\b(\d+)\s+phần\s+(\d+)\b", r"\1/\2", t)                 # "1 phần 3 muỗng" = "1/3 muỗng"
+    # "đợi một lát", "cắn một miếng", "thử một xíu": không phải định lượng (trước đây báo bịa "1 lát")
+    t = re.sub(r"\b(đợi|chờ|cắn|ăn|thử|nếm|nghỉ)\s+(thêm\s+)?1\s+(lát|miếng|chút|xíu|tí)\b", r"\1 ", t)
     out = []
     for n, u in _NUM_RE.findall(t):
         if n == "1" and u in ("cái", "chiếc", "con"):

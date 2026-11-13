@@ -568,9 +568,14 @@ async def views_of(video_id: str, session) -> int | None:
 # ---------------- vòng chạy ----------------
 
 def _post_text(job) -> tuple:
+    """(tiêu đề, mô tả) đăng Fanpage: chỉ phần «▶ Facebook» của gói nội dung (prompt_engine.platform_post). Trước đây
+    gửi nguyên cả gói: mô tả bài có «📌», «▶ TikTok:», «▶ YouTube Shorts:», «#Shorts», caption lặp 3 lần."""
     post = (job.post or "").strip()
     title = post.split("\n", 1)[0].replace("📌", "").strip() if post else ""
-    return title or "Video mới", post or title
+    desc = post
+    if "▶ Facebook:\n" in post:
+        desc = post.split("▶ Facebook:\n", 1)[1].split("\n\n▶ ", 1)[0].strip()
+    return title or "Video mới", desc or title
 
 
 def _output_files(job) -> tuple:

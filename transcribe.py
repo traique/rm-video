@@ -133,7 +133,9 @@ def _loops(segs: list) -> set:
         st = float(x.get("start") or 0)
         prev = [p for j, p in kept[-2:] if st - float(segs[j].get("start") or 0) <= 30]
         cands = [c for c in prev + ([prev[0] + " " + prev[1]] if len(prev) == 2 else []) if len(c.split()) >= 4]
-        if len(t.split()) >= 4 and any(sim(t, c) >= 0.85 or sim(t, c + " " + c) >= 0.9 for c in cands):
+        # câu sau NỐI DÀI câu trước ("Cho một muỗng đường" -> "Cho một muỗng đường nữa") là bước tiếp theo, không phải lặp
+        if len(t.split()) >= 4 and any((sim(t, c) >= 0.85 and not t.startswith(c + " ")) or sim(t, c + " " + c) >= 0.9
+                                       for c in cands):
             out.add(k)
             continue
         kept.append((k, t))
@@ -305,8 +307,17 @@ def _hallucinated(seg: dict) -> bool:
         silent = float(seg.get("no_speech_prob") or 0) > 0.6 and float(seg.get("avg_logprob") or 0) < -1.0
     except (TypeError, ValueError):
         silent = False
-    return silent or bool(_FAKE.search(text) or _FAKE_WHOLE.match(text) or _OUTRO.search(text)
+    return silent or bool(_FAKE.search(text) or _FAKE_WHOLE.match(text) or _outro_only(text)
                           or _repeats(text) or _shouting(text))
+
+
+def _outro_only(text: str) -> bool:
+    """Câu chào kết BỊA: lời kêu gọi đăng ký chiếm gần hết câu. Câu thật chỉ KẾT bằng lời kêu gọi ("...cho thêm 2 muỗng
+    đường nữa, các bạn nhớ đăng ký kênh nha") thì giữ: prompt_engine bỏ riêng vế kêu gọi, bước làm vẫn còn."""
+    if not _OUTRO.search(text):
+        return False
+    rest = [p for p in re.split(r"(?<=[.!?…,;])\s+|\s+(?=(?:rồi|và|sau đó|còn)\b)", text) if not _OUTRO.search(p)]
+    return len(" ".join(rest).split()) < 4
 
 
 def _weak(seg: dict) -> bool:
@@ -407,7 +418,10 @@ def chunk_units(units, max_dur: float = 3.2, gap: float = 0.3, min_dur: float = 
             first = ""      # "cho đến khi" là từ nối, không phải "cho [nguyên liệu]"
         long_enough = cur is not None and cur[1] - cur[0] >= min_dur
         # chữ viết HOA giữa chừng = Whisper mở câu mới (nhiều khung không có dấu chấm: "...cả nhà rồi Kèo chiên giòn")
-        sentence = bool(cur) and tx[:1].isupper() and not cur[2].split()[-1][:1].isupper()
+        # tên riêng nhiều chữ ("chợ Bà Chiểu", đơn vị từng chữ của Groq): chữ hoa mà chữ kế cũng hoa thì không phải câu mới
+        nxt_u = units[idx + 1][2] if idx + 1 < len(units) else ""
+        proper = len(tx.split()) == 1 and len(nxt_u.split()) == 1 and nxt_u[:1].isupper()
+        sentence = bool(cur) and tx[:1].isupper() and not cur[2].split()[-1][:1].isupper() and not proper
         natural = (st - cur[1] >= gap or cur[2].rstrip().endswith((".", "!", "?", ","))
                    or (long_enough and (first in _ACTION_START or sentence))) if cur else False
         # quá max_dur mà chưa gặp chỗ ngắt tự nhiên thì đi tiếp (tránh cắt giữa cụm "vàng đều tám | mặt"),

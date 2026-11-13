@@ -145,7 +145,8 @@ trên web hoặc lệnh console `auto`.
   chú thích giống ≥ 60% sau khi bỏ hashtag) chỉ làm một lần.
 - Chỉ thêm job khi hàng đợi trống (video bạn gửi luôn làm trước), làm sẵn cho các khung giờ trong 36 giờ tới rồi
   **hẹn giờ đăng phía Facebook**, nên máy chậm hay bot khởi động lại không làm lỡ giờ.
-- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = tiêu đề + caption + hashtag (không ghi nguồn).
+- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = phần «▶ Facebook» của gói nội dung (caption +
+  3 hashtag; có dòng ghi nguồn nếu bật `SOURCE_CREDIT`).
 - Giờ vàng: ban đầu 11:30 và 20:30 (giờ Việt Nam). Mỗi bài sau 24 giờ được đọc lượt xem; khung nào trung bình cao hơn
   được chọn nhiều hơn, thỉnh thoảng thử khung khác. Hai khung trong ngày cách nhau ≥ 3 giờ.
 - Không bao giờ đăng trùng: mỗi lượt chạy giữ khoá, ghi dấu "đang đăng" trước khi tải lên; bot dừng đúng lúc đang tải
