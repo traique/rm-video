@@ -134,6 +134,22 @@ Thử thêm **PhoWhisper-large** (VinAI, Whisper tinh chỉnh tiếng Việt), c
 Kết luận: giữ large-v3 mặc định. Tuỳ chọn `KAGGLE_ASR=phowhisper` vẫn có (chỉ video tiếng Việt; thiếu notebook
 model thì tự về large-v3) để thử với kênh khác.
 
+**Viết lời (thay Gemini):** notebook `rmvideo-lab-llm` chạy model VLM mở trên Kaggle (2×T4, nén 4-bit nf4) với ĐÚNG
+prompt + ảnh từng đoạn của bot cho video cá kèo (44 đoạn, lô 15 đoạn vì lô 28 đoạn kèm ảnh hết VRAM), chấm bằng bộ
+kiểm của bot và so với lời Gemini trong log bản 32:
+
+| Model | Chép lời gốc TB / đoạn chép ≥45% | Đúng khoảng chữ | Bịa/thiếu nguyên liệu, số | Thời gian | Nhận xét khi đọc |
+| --- | --- | --- | --- | --- | --- |
+| Gemini 3.5 flash-lite | 9% / 1 | 19/44 (20 đoạn viết dư, bước rút gọn xử lý) | bịa "1 phút" | ~15s cả bài | tự nhiên, đúng việc đang làm |
+| Qwen3-VL 8B | 25% / 9 | 12/44 | sạch | nạp 141s + 93s/lô ≈ 7 phút GPU | câu ngắn, hay nói việc của đoạn SAU ("Thả cá vào chảo" ở đoạn bắt chảo dầu), chép lỗi bóc lời ("giàn rồi", "dắt ra", "gãy da"), 1 đoạn trống |
+| Qwen3-VL 4B | 43% / 22 | 15/44 | bịa "nước mắm", thiếu "10 giây" | nạp 58s + 88s/lô | gần như chép lời gốc kể cả lỗi ("gây mơ", "rất là miền", "quét cục cục") |
+| Gemma 3 12B | — | — | — | — | kho model bị khoá (cần chấp nhận giấy phép + token HF) |
+
+Kết luận: model mở ≤ 8B chạy được trên Kaggle nhưng kém Gemini rõ (chép lời, lệch đoạn, giữ lỗi bóc lời); lớp 30B
+cần nhiều VRAM hơn 2×T4 với cách nén hiện tại. **Giữ Gemini (OpenRouter dự phòng)**, không nối model offline vào bot.
+Sửa thêm: `kaggle_api.wait` chịu được mạng chập chờn lúc hỏi trạng thái (một lần "Connection reset" trước đây làm
+cả job Kaggle bị coi là lỗi).
+
 ## Bản 33: dùng lại tiếng nền khi chạy lại video cũ; lượt tách 2 chỉ khi GPU; bớt báo động giả
 
 Log bản 32 (chạy lại link cá kèo): phân tích lấy từ cache nên không có mã tiếng nền -> phiên dựng tự tách lại trên
