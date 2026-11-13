@@ -172,6 +172,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             # CẢ BÀI, không chỉ các quãng bóc lời thấy người gốc nói: bóc lời sót một quãng (Whisper bịa câu "Đừng
             # quên đăng ký kênh" rồi bỏ qua ~27s lời thật, lỗi thật 12/11/2026) thì quãng đó vẫn còn nguyên giọng gốc.
             # Botkeep chậm mới phải tiết kiệm; Kaggle dư CPU (cả bài 173s ~2 phút, chạy song song với đọc giọng).
+            os.environ.setdefault("SEP_DEVICE", "cuda")   # có GPU thì tách bằng GPU; không có CUDA thì tự về CPU
             ok = await vocal_sep.remove_voice(inp, p, windows=None)
             t["sep"] = round(time.time() - t0, 1)
             return p if ok else None

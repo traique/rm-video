@@ -428,7 +428,8 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
         metrics.record("kaggle", "analyze")
         fresh = True
         try:
-            cache.put_json("kaggle_an", k, {x: res.get(x) for x in ("whisper", "cuts", "bands", "dur", "sep", "timings")})
+            cache.put_json("kaggle_an", k, {x: res.get(x) for x in ("whisper", "cuts", "bands", "dur", "sep", "timings",
+                                                                     "token")})      # mã tiếng nền: phiên dựng dùng lại
             zp = res.get("thumbs_zip")
             if zp:
                 cache.put("kaggle_thumbs", k, zp, ".zip")
@@ -450,7 +451,9 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
                  res.get("timings"))
     return {"text": text, "segs": segs, "cuts": list(res.get("cuts") or []),
             "bands": [tuple(b) for b in res.get("bands") or []], "ambient": res.get("ambient") if fresh else None,
-            "token": res.get("token", "") if fresh else "", "timings": res.get("timings") or {}}
+            # mã tiếng nền giữ cả khi lấy từ cache: phiên dựng gắn đầu ra notebook phân tích, khớp mã thì dùng lại (bản 32
+            # chạy lại video cũ: không có mã -> tách lại trên CPU Kaggle 418s); đã bị video khác ghi đè thì mã lệch, tự tách
+            "token": res.get("token", ""), "timings": res.get("timings") or {}}
 
 
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels

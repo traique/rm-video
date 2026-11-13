@@ -322,6 +322,9 @@ def test_pipeline_uses_kaggle_analysis_then_render(analyze_on, monkeypatch, tmp_
     (tmp_path / "w2").mkdir()
     asyncio.run(pipeline.process(job2, str(tmp_path / "w2")))
     assert got["an"] == 1
+    # phân tích lấy từ cache vẫn mang mã tiếng nền: phiên dựng gắn đầu ra notebook phân tích, khớp mã thì khỏi tách lại
+    # (bản 32 chạy lại video cũ: không có mã -> tách lại trên CPU Kaggle 418s)
+    assert got["spec"]["amb_token"] == got["an_spec"]["token"]
 
 
 def test_pipeline_falls_back_when_kaggle_analysis_fails(analyze_on, monkeypatch, tmp_path):

@@ -131,6 +131,23 @@ def check(orig: str, new: str) -> tuple:
 _FORMS = ("dầu", "nước cốt", "nước")   # máy nghe hay làm mất chữ đầu: "dầu mè" -> "dòng mè" (chỉ còn "mè")
 
 
+def _near(alias: str, orig: str) -> bool:
+    """Tên nguyên liệu trong lời mới GẦN GIỐNG một cụm trong lời gốc (máy nghe sai một chữ cái: "rau găm" = "rau răm",
+    "nước mắn" = "nước mắm"): AI đang SỬA lỗi bóc lời, không phải bịa. Chỉ cụm ≥ 2 âm tiết hoặc âm tiết ≥ 4 chữ."""
+    import difflib
+    a = alias.split()
+    syl = _syllables(orig)
+    if len(alias) < 4:
+        return False
+    for i in range(len(syl) - len(a) + 1):
+        cand = " ".join(syl[i:i + len(a)])
+        if cand != alias and difflib.SequenceMatcher(None, cand, alias).ratio() >= (0.85 if len(a) > 1 else 0.75) \
+                and cand[:1] == alias[:1] or (len(a) > 1 and cand.split()[0] == a[0]
+                                              and difflib.SequenceMatcher(None, cand, alias).ratio() >= 0.8):
+            return True
+    return False
+
+
 def check_rewrite(orig: str, new: str) -> tuple:
     """Như check(), dùng để QUYẾT ĐỊNH bắt AI viết lại, bỏ hai kiểu báo động giả lần nào cũng gặp trong log thật
     (mỗi lần tốn 2 lượt AI và có nguy cơ AI nhét nguyên liệu lạ vào món):
@@ -140,7 +157,7 @@ def check_rewrite(orig: str, new: str) -> tuple:
     a, b = counts(orig), find(new)
     lo = _loose(orig)
     missing = [i for i in sorted(a) if i not in b]
-    added = [i for i in sorted(b - set(a)) if not any(_loose(al) in lo for al in GROUPS[i])]
+    added = [i for i in sorted(b - set(a)) if not any(_loose(al) in lo or _near(al, orig) for al in GROUPS[i])]
 
     def form_of(x, y):          # y là x ở dạng khác: "mè" -> "dầu mè" (KHÔNG dùng "nằm trong": gà ⊂ trứng gà,
         return any(y == f"{f} {x}" for f in _FORMS)      # hồi ⊂ cá hồi, bắp ⊂ bắp cải là các thứ khác hẳn)
@@ -190,6 +207,7 @@ def numbers(text: str) -> list:
     t = re.sub(r"\b(\d+)\s+phần\s+(\d+)\b", r"\1/\2", t)                 # "1 phần 3 muỗng" = "1/3 muỗng"
     # "đợi một lát", "cắn một miếng", "thử một xíu": không phải định lượng (trước đây báo bịa "1 lát")
     t = re.sub(r"\b(đợi|chờ|cắn|ăn|thử|nếm|nghỉ)\s+(thêm\s+)?1\s+(lát|miếng|chút|xíu|tí)\b", r"\1 ", t)
+    t = re.sub(r"\b1\s+(lát|chút|xíu|tí|hồi)\s+(là|sau|nữa|thôi|rồi|cho)\b", r"\2 ", t)     # "một lát là cá tự bung"
     out = []
     for n, u in _NUM_RE.findall(t):
         if n == "1" and u in ("cái", "chiếc", "con"):
@@ -206,7 +224,10 @@ _UNIT_EQ = {"thìa": "muỗng", "thìa canh": "muỗng canh", "thìa cà phê": 
 
 def _norm_num(s: str) -> str:
     n, u = s.split(" ", 1)
-    return f"{n} {_UNIT_EQ.get(u, u)}"
+    u = _UNIT_EQ.get(u, u)
+    if u == "giờ" and "." in n:                 # "nửa tiếng" = "30 phút" (trước đây báo thiếu "0.5 giờ")
+        return f"{int(round(float(n) * 60))} phút"
+    return f"{n} {u}"
 
 
 def check_numbers(orig: str, new: str) -> tuple:

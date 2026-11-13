@@ -303,3 +303,30 @@ def test_residual_voice_mask_cleans_ambient_but_keeps_noise():
     assert db(out[0, sp]) > db(noise[sp]) - 3                                          # nhiễu giữ gần nguyên
     q = slice(6 * sr, 8 * sr)
     assert np.allclose(out[:, q], amb[:, q], atol=1e-3)                                # không có giọng: giữ nguyên
+
+
+# ---------------- bản 33: lượt tách thứ 2 chỉ khi GPU; AI sửa lỗi bóc lời không phải bịa ----------------
+
+def test_second_separation_pass_only_on_gpu(tmp_path, monkeypatch):
+    import vocal_sep
+    src = str(tmp_path / "s.mp4")
+    _video(src, 3)
+    calls = []
+    monkeypatch.setattr(vocal_sep, "_separate", lambda mix, windows=None: calls.append(1) or np.zeros_like(mix))
+    monkeypatch.setenv("SEP_PASSES", "2")
+    monkeypatch.setattr(vocal_sep, "gpu_active", lambda: False)          # Kaggle CPU / Botkeep: một lượt + mặt nạ
+    vocal_sep._split_sync(src, str(tmp_path / "a.wav"))
+    assert len(calls) == 1
+    monkeypatch.setattr(vocal_sep, "gpu_active", lambda: True)           # GPU: thêm lượt 2
+    vocal_sep._split_sync(src, str(tmp_path / "b.wav"))
+    assert len(calls) == 3 and os.path.getsize(str(tmp_path / "b.wav")) > 1000
+
+
+def test_ai_fixing_transcription_typo_is_not_invention():
+    cr, cn = ingredients.check_rewrite, ingredients.check_numbers
+    assert cr("Cá kèo chiên giòn này mình sẽ ăn kèm là Một ít rau găm", "Ăn kèm một ít rau răm cho đậm đà") == ([], [])
+    assert cr("cho nước mắn vào", "cho nước mắm vào") == ([], [])
+    assert cr("cho thịt gà vào", "cho thịt bò vào")[1] == ["thịt bò"]           # đổi thật: vẫn bắt
+    assert cn("ngâm khoảng nửa tiếng", "ngâm 30 phút") == ([], [])             # nửa tiếng = 30 phút
+    assert cn("tầm 1 tí con cá", "Một lát là cá tự bung") == ([], [])          # "một lát" chỉ thời gian ngắn
+    assert cn("để yên", "chờ tầm 1 phút") == ([], ["1 phút"])                   # bịa số thật: vẫn bắt

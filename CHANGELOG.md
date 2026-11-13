@@ -120,6 +120,20 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 33: dùng lại tiếng nền khi chạy lại video cũ; lượt tách 2 chỉ khi GPU; bớt báo động giả
+
+Log bản 32 (chạy lại link cá kèo): phân tích lấy từ cache nên không có mã tiếng nền -> phiên dựng tự tách lại trên
+CPU Kaggle, 2 lượt, 418s (job 15.6 phút thay vì 12). AI bị bắt viết lại 2 lượt vì "rau răm" bị coi là bịa (lời gốc
+máy nghe ra "rau găm") rồi bỏ cuộc, chép luôn lỗi "rau găm" vào lời đọc.
+
+| Sửa | Cách làm |
+| --- | --- |
+| Phân tích từ cache vẫn mang mã tiếng nền | Phiên dựng gắn đầu ra notebook phân tích, khớp mã thì dùng lại (đã bị video khác ghi đè thì mã lệch, tự tách) |
+| Phiên dựng Kaggle thử GPU cho tách giọng | Không có CUDA thì tự về CPU như cũ |
+| Lượt tách thứ 2 chỉ khi GPU thật sự chạy | Trên CPU tốn gấp đôi mà mặt nạ phổ đã lọc được phần lớn giọng sót |
+| AI sửa lỗi bóc lời không phải bịa | Tên nguyên liệu trong lời mới gần giống cụm trong lời gốc (sai một chữ cái: "rau găm" = "rau răm", "nước mắn" = "nước mắm") -> không báo bịa; đổi thật ("thịt gà" -> "thịt bò") vẫn bắt |
+| Số liệu | "nửa tiếng" = "30 phút"; "một lát là / sau / nữa" là thời gian ngắn, không phải "1 lát" nguyên liệu |
+
 ## Bản 32: giọng gốc còn sót nhỏ trong tiếng nền đã tách
 
 Video cá kèo bản 31 (13/11/2026): nghe còn lẫn giọng gốc nhỏ ở vài đoạn. Đo (tách giọng của video ra, so từng cửa sổ

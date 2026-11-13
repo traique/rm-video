@@ -75,6 +75,14 @@ def _cuda_providers(ort) -> list:
     return []
 
 
+def gpu_active() -> bool:
+    """Phiên tách giọng đang chạy bằng CUDA (sau khi _get_session đã mở)."""
+    try:
+        return _session is not None and "CUDAExecutionProvider" in _session.get_providers()
+    except Exception:
+        return False
+
+
 def _get_session():
     global _session
     if _session is None:
@@ -231,7 +239,9 @@ def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None
         raise RuntimeError("audio quá ngắn")
     vocals = _separate(mix, windows) * 1.035           # hệ số bù chuẩn của Kim_Vocal_2
     amb = mix - vocals
-    if os.environ.get("SEP_PASSES", "1") == "2":        # Kaggle (GPU rẻ): tách thêm lượt 2 trên nền, vớt giọng sót
+    # lượt 2 chỉ khi GPU thật sự chạy (Kaggle T4: +34s); trên CPU tốn gấp đôi (Kaggle CPU 418s, đo 13/11/2026) mà mặt nạ
+    # phổ bên dưới đã lọc được phần lớn giọng sót
+    if os.environ.get("SEP_PASSES", "1") == "2" and gpu_active():
         v2 = _separate(amb, windows) * 1.035
         amb, vocals = amb - v2, vocals + v2
     if os.environ.get("SEP_MASK", "1") != "0":
