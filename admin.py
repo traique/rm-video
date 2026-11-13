@@ -93,7 +93,7 @@ async def console():
             elif low in ("remove_youtube", "remove-youtube"):
                 potoken_setup.remove_deno(lambda s: logging.info("[youtube] %s", s))
             elif low == "clean":
-                await asyncio.to_thread(storage.clean, lambda s: logging.info("[clean] %s", s))
+                await asyncio.to_thread(storage.clean, lambda s: logging.info("[clean] %s", s), bool(current["job"]))
             elif "remove_potoken" in low:
                 potoken_setup.remove(lambda s: logging.info("[potoken] %s", s))
             elif low.startswith("yt_test"):

@@ -892,8 +892,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 run = vocal_sep.remove_voice if engine == "kim" else offline.remove_voice_fast
                 if await run(inp, p, windows=sep["windows"]):
                     metrics.record("sep", "onnx" if engine == "kim" else "spleeter", fallback=k_eng > 0)
-                    try:
-                        cache.put("ambient", k, p, ".wav")
+                    try:                        # chuyển (không chép): tiếng nền 10MB/phút không nằm hai chỗ tới hết job
+                        p = cache.put("ambient", k, p, ".wav", move=True)
                     except OSError:
                         pass
                     return p, None

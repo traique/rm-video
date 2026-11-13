@@ -44,18 +44,38 @@ TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
 VOICE_REF = os.path.join(BASE, "assets", "voice_ref.mp3")
 LINK_TTL = 4 * 3600
 _LOCK = asyncio.Lock()
-_ABORT = {"flag": False, "running": False, "slug": SLUG}
+_ABORT = {"run": None}     # phiên đang chờ: {"flag", "slug"} riêng từng lượt (lượt trước kết thúc không xoá cờ lượt sau)
 
 
 def abort():
-    """Người dùng huỷ job đang chạy trên Kaggle: dừng chờ và yêu cầu Kaggle huỷ phiên (hết việc thì thôi)."""
-    if not _ABORT["running"]:
+    """Huỷ job / quá hạn / bot tắt khi đang chờ Kaggle: dừng vòng chờ ngay và nhờ Kaggle huỷ phiên để khỏi tốn giờ GPU.
+    Gọi API huỷ trong luồng riêng: trước đây chạy thẳng trong handler web/Telegram, chặn cả vòng lặp tới 120 giây."""
+    run = _ABORT["run"]
+    if not run:
         return
-    _ABORT["flag"] = True
+    run["flag"] = True
     try:
-        kaggle_api.cancel(_ABORT.get("slug") or SLUG)
+        asyncio.get_running_loop().run_in_executor(None, _cancel_session, run["slug"])
+    except RuntimeError:                  # không có vòng lặp (gọi từ test/console đồng bộ): huỷ ngay
+        _cancel_session(run["slug"])
+
+
+def _cancel_session(slug: str):
+    try:
+        kaggle_api.cancel(slug)
     except Exception as e:
         logging.info("Không huỷ được phiên Kaggle: %s", e)
+
+
+def _watch(slug: str) -> dict:
+    run = {"flag": False, "slug": slug}
+    _ABORT["run"] = run
+    return run
+
+
+def _unwatch(run: dict):
+    if _ABORT["run"] is run:
+        _ABORT["run"] = None
 
 # Giọng VieNeu v3 Turbo miền Nam (nhãn của model) và tốc độ đọc đo thật (chữ/giây, chỉ phần tiếng nói, 12/11/2026)
 SOUTH_FEMALE = ["Mỹ Duyên", "Thục Đoan", "Thùy Dung", "Kim Thanh"]
@@ -223,7 +243,11 @@ def settings_snapshot() -> dict:
 def _common(spec: dict) -> dict:
     logo = os.path.join(BASE, "assets", "logo.png")
     if config.BRAND_LOGO != "0" and os.path.exists(logo):
-        spec["logo_b64"] = base64.b64encode(open(logo, "rb").read()).decode()
+        if os.path.getsize(logo) <= config.LOGO_MAX_BYTES:
+            spec["logo_b64"] = base64.b64encode(open(logo, "rb").read()).decode()
+        else:                                   # trước đây: notebook quá 1MB -> MỌI việc Kaggle lỗi, âm thầm đổ về Botkeep
+            logging.warning("Logo %dKB quá cỡ cho notebook Kaggle (tối đa %dKB): việc này dựng không logo, hãy tải logo nhỏ hơn",
+                            os.path.getsize(logo) >> 10, config.LOGO_MAX_BYTES >> 10)
     spec["settings"] = settings_snapshot()
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
@@ -313,11 +337,11 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _ABORT.update(flag=False, running=True, slug=SLUG)
+    run = _watch(SLUG)
     try:
-        kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st, stop=lambda: _ABORT["flag"])
+        kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st, stop=lambda: run["flag"])
     finally:
-        _ABORT["running"] = False
+        _unwatch(run)
     d = kaggle_api.outputs(SLUG)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     out = []
@@ -382,11 +406,11 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
                 f"({secs / 60:.0f} phút)")
-    _ABORT.update(flag=False, running=True, slug=SLUG_ANALYZE)
+    run = _watch(SLUG_ANALYZE)
     try:
-        kaggle_api.wait(SLUG_ANALYZE, TIMEOUT_ANALYZE, every=15, on_status=st, stop=lambda: _ABORT["flag"])
+        kaggle_api.wait(SLUG_ANALYZE, TIMEOUT_ANALYZE, every=15, on_status=st, stop=lambda: run["flag"])
     finally:
-        _ABORT["running"] = False
+        _unwatch(run)
     d = kaggle_api.outputs(SLUG_ANALYZE)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     if "result.json" not in files:

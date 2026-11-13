@@ -606,9 +606,16 @@ def test_piece_retry_keeps_script_and_cancel_aborts(kaggle_fakes, kaggle_on, mon
     # huỷ job đang chờ Kaggle: dừng chờ ngay + gọi huỷ phiên
     calls = []
     monkeypatch.setattr(kaggle_api, "cancel", lambda slug: calls.append(slug))
-    kaggle_worker._ABORT.update(flag=False, running=True)
+    run = kaggle_worker._watch(kaggle_worker.SLUG)
     kaggle_worker.abort()
-    assert calls == [kaggle_worker.SLUG] and kaggle_worker._ABORT["flag"]
+    assert calls == [kaggle_worker.SLUG] and run["flag"]
+    other = kaggle_worker._watch(kaggle_worker.SLUG_ANALYZE)     # lượt trước kết thúc KHÔNG xoá cờ của lượt sau
+    kaggle_worker._unwatch(run)
+    assert kaggle_worker._ABORT["run"] is other
+    kaggle_worker._unwatch(other)
+    assert kaggle_worker._ABORT["run"] is None
+    kaggle_worker.abort()                                        # không có phiên: không gọi huỷ
+    assert calls == [kaggle_worker.SLUG]
     monkeypatch.setattr(kaggle_api, "status", lambda slug: ("RUNNING", ""))
     with pytest.raises(kaggle_api.KaggleError, match="huỷ"):
         kaggle_api.wait("x", 60, every=0, sleep=lambda s: None, stop=lambda: True)

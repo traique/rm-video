@@ -15,6 +15,8 @@ potoken/
 tools/
 work/
 .session_key
+.session_key.epoch
+*.json.*.tmp
 settings.json.tmp
 cache/
 .pytest_cache/

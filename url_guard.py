@@ -6,8 +6,12 @@ Mọi lối vào nhận link (Telegram, web tạo job, web upload, trình tải,
 import asyncio
 import ipaddress
 import os
+import re
 import socket
 from urllib.parse import urlsplit
+
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")      # IPv6 bọc IPv4 (NAT64): Python coi là công cộng, máy NAT64 dẫn về IPv4 bên trong
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")              # tab/xuống dòng trong link: urlsplit bỏ qua, nhưng chuỗi gốc vẫn được trả về
 
 # Tên miền gốc được phép (gồm mọi tên miền con: vt.tiktok.com, m.youtube.com, web.facebook.com...)
 DEFAULT_DOMAINS = (
@@ -41,13 +45,18 @@ def _ip_public(addr: str) -> bool:
         ip = ipaddress.ip_address(addr.split("%", 1)[0])
     except ValueError:
         return False
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        elif ip in _NAT64:
+            ip = ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)
     return ip.is_global and not ip.is_multicast
 
 
 def _parse(url: str, any_domain: bool = False):
     url = (url or "").strip()
+    if _CTRL.search(url):
+        raise BlockedURL("Link chứa ký tự lạ.")
     try:
         parts = urlsplit(url)
         port = parts.port

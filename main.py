@@ -12,7 +12,7 @@ from admin import CONSOLE_HELP, console, maintenance
 from jobs import cancel_job, speed_ratio, worker
 from review import approve_job
 from state import notify, queue, spawn
-from storage import disk_report, warn_low_disk
+from storage import disk_report, sweep_tmp, warn_low_disk
 from web_panel import build_app
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%d/%m %H:%M:%S")
@@ -29,6 +29,8 @@ async def main():
         dp = tg_bot.setup(state.bot)
     bot = state.bot
     shutil.rmtree(state.WORK_DIR, ignore_errors=True)        # file tạm sót lại từ lần chạy bị ngắt (TRƯỚC khi worker chạy)
+    if sweep_tmp():
+        logging.info("Đã dọn thư mục tạm còn sót từ lần chạy bị giết")
     spawn(worker())
     spawn(console())
     spawn(maintenance())
@@ -46,6 +48,9 @@ async def main():
                  "OK" if config.BOT_TOKEN else "THIẾU", "OK" if config.WEB_PASSWORD else "THIẾU")
     if not config.WEB_PASSWORD:
         logging.warning("Chưa đặt WEB_PASSWORD: web panel đang KHOÁ. Đặt biến môi trường WEB_PASSWORD để dùng.")
+    elif len(config.WEB_PASSWORD) < 12:
+        logging.warning("WEB_PASSWORD ngắn (%d ký tự): web mở ra Internet, nên dùng từ 12 ký tự trở lên.",
+                        len(config.WEB_PASSWORD))
     logging.info(CONSOLE_HELP)
     logging.info("Dung lượng: %s", disk_report())
     warn_low_disk()

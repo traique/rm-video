@@ -5,7 +5,6 @@ gemini-3.5-transcribe (mốc từng từ, có dấu câu, tự viết số "300g
 Trả về (text, segments) với segments = [(start_s, end_s, text)]. Lỗi gì cũng trả ("", [])."""
 import asyncio
 import hashlib
-import json
 import logging
 import os
 import re
@@ -13,6 +12,7 @@ import unicodedata
 
 import aiohttp
 
+import cache as cache_file
 import config
 import metrics
 import vocab
@@ -457,18 +457,24 @@ async def transcribe_segments(audio_path: str, title: str = "", desc: str = ""):
     prompt = vocab.groq_prompt(title, desc)
     try:
         key = _cache_key(audio_path)
-        cache = json.load(open(_CACHE, encoding="utf-8")) if os.path.exists(_CACHE) else {}
-        if key in cache and cache[key].get("v") == CACHE_V:
-            return vocab.fix_segments(cache[key]["text"], drop_fake_segments([tuple(x) for x in cache[key]["segs"]]))
-    except Exception:
-        key, cache = "", {}
+    except OSError:
+        key = ""
+    # tệp cache hỏng (chết giữa lúc ghi) -> coi như trống rồi ghi đè; trước đây key bị xoá luôn nên cache tắt hẳn
+    store = cache_file.read_json_file(_CACHE, {}) if key else {}
+    hit = store.get(key) if isinstance(store, dict) else None
+    if isinstance(hit, dict) and hit.get("v") == CACHE_V:
+        try:
+            return vocab.fix_segments(hit["text"], drop_fake_segments([tuple(x) for x in hit["segs"]]))
+        except Exception:
+            pass
     text, segs = await _transcribe_uncached(audio_path, prompt)
     if key and text:
         try:
-            cache[key] = {"v": CACHE_V, "text": text, "segs": segs}
-            for old in list(cache)[:-40]:
-                cache.pop(old)
-            json.dump(cache, open(_CACHE, "w", encoding="utf-8"), ensure_ascii=False)
+            store = store if isinstance(store, dict) else {}
+            store[key] = {"v": CACHE_V, "text": text, "segs": segs}
+            for old in list(store)[:-40]:
+                store.pop(old)
+            cache_file.write_json_file(_CACHE, store)
         except Exception:
             pass
     return vocab.fix_segments(text, segs)

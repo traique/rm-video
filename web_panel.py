@@ -61,6 +61,10 @@ SESSION_TTL = 30 * 86400
 _KEY_FILE = os.path.join(_DIR, ".session_key")
 FAIL_WINDOW, FAIL_PER_IP, FAIL_GLOBAL = 60.0, 5, 30   # 5 lần sai/phút mỗi IP, 30 lần/phút toàn bộ
 _fails: dict[str, list[float]] = {}
+JSON_MAX = 1 << 20              # body JSON (cài đặt, duyệt kịch bản) tối đa 1MB; upload đi đường multipart từng khúc, không qua trần này
+LOGIN_BODY_MAX = 4096           # /api/login là đường công khai: không đọc body lớn trước khi biết mật khẩu đúng
+VOICE_REF_MAX = 5 * 1024 * 1024
+FIELD_MAX = 4000
 
 
 def _server_salt() -> bytes:
@@ -79,8 +83,25 @@ def _server_salt() -> bytes:
     return salt
 
 
+def _epoch() -> bytes:
+    """Mốc thu hồi phiên: đăng xuất đổi mốc -> mọi cookie đã cấp hết hiệu lực. Trước đây đăng xuất chỉ xoá cookie phía
+    trình duyệt, cookie bị sao chép (máy dùng chung, log proxy) vẫn dùng được tới 30 ngày."""
+    try:
+        with open(_KEY_FILE + ".epoch", "rb") as f:
+            return f.read(64)
+    except OSError:
+        return b"0"
+
+
+def revoke_sessions():
+    fd = os.open(_KEY_FILE + ".epoch", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(secrets.token_hex(16).encode())
+
+
 def _session_key() -> bytes:
-    return hashlib.sha256(b"vb-session|" + _server_salt() + b"|" + config.WEB_PASSWORD.encode()).digest()
+    return hashlib.sha256(b"vb-session|" + _server_salt() + b"|" + _epoch() + b"|"
+                          + config.WEB_PASSWORD.encode()).digest()
 
 
 def make_session(now: float | None = None) -> str:
@@ -129,6 +150,9 @@ def record_fail(key: str, now: float | None = None):
     now = now or time.time()
     for k in (key, "*"):
         _recent(k, now).append(now)
+    if len(_fails) > 2000:                        # X-Forwarded-For giả ngẫu nhiên: không để bảng đếm phình mãi
+        for k in [k for k, v in _fails.items() if not v or now - v[-1] >= FAIL_WINDOW]:
+            _fails.pop(k, None)
 
 
 def _allowed_hosts(request: web.Request) -> set:
@@ -266,6 +290,59 @@ def _cleanup(*paths):
             os.remove(p)
 
 
+def _int_id(request: web.Request) -> int:
+    try:
+        return int(request.match_info["id"])
+    except (KeyError, ValueError):
+        raise web.HTTPNotFound(text="Job không tồn tại") from None
+
+
+async def _json_dict(request: web.Request) -> dict:
+    """Body JSON phải là object; body hỏng trả 400 thay vì lỗi 500 kèm dấu vết trong log."""
+    try:
+        d = await request.json()
+    except web.HTTPException:
+        raise
+    except Exception:
+        raise web.HTTPBadRequest(text="Body phải là JSON") from None
+    if not isinstance(d, dict):
+        raise web.HTTPBadRequest(text="Body phải là JSON object")
+    return d
+
+
+async def _multipart(request: web.Request):
+    if not request.content_type.startswith("multipart/"):
+        raise web.HTTPBadRequest(text="Cần gửi dạng multipart/form-data")
+    return await request.multipart()
+
+
+async def _read_capped(part, limit: int, too_big: str) -> bytes:
+    """Đọc một phần multipart theo khúc 1MB, vượt trần là dừng ngay (part.read() gom cả phần vào RAM trước khi kiểm cỡ)."""
+    data = bytearray()
+    while chunk := await part.read_chunk(1 << 20):
+        data += chunk
+        if len(data) > limit:
+            raise web.HTTPBadRequest(text=too_big)
+    return bytes(data)
+
+
+@web.middleware
+async def _secure_headers(request: web.Request, handler):
+    try:
+        resp = await handler(request)
+    except web.HTTPException as e:
+        _harden(e.headers)
+        raise
+    _harden(resp.headers)
+    return resp
+
+
+def _harden(h):
+    h.setdefault("X-Frame-Options", "SAMEORIGIN")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "same-origin")
+
+
 def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     hooks = hooks or {}
 
@@ -295,6 +372,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         wait = login_locked(key)
         if wait:
             raise web.HTTPTooManyRequests(text=f"Sai mật khẩu quá nhiều lần, thử lại sau {wait} giây.")
+        if (request.content_length or 0) > LOGIN_BODY_MAX:
+            raise web.HTTPRequestEntityTooLarge(max_size=LOGIN_BODY_MAX, actual_size=request.content_length)
         try:
             pw = str((await request.json()).get("password", ""))
         except Exception:
@@ -310,6 +389,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def logout(request):
         _check_origin(request)
+        if _authed(request):                      # thu hồi mọi phiên đã cấp (chỉ khi chính phiên hợp lệ yêu cầu)
+            revoke_sessions()
         resp = web.json_response({"ok": True})
         resp.del_cookie(SESSION_COOKIE, path="/")
         return resp
@@ -381,7 +462,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     def _job_or_404(request):
         try:
-            job = queue.jobs.get(int(request.match_info["id"]))
+            job = queue.jobs.get(_int_id(request))
         except ValueError:
             raise web.HTTPNotFound() from None
         if not job:
@@ -414,7 +495,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def add_job(request):
         _check(request)
-        d = await request.json()
+        d = await _json_dict(request)
         urls = [u.strip() for u in re.split(r"[\s,]+", (d.get("url") or "").strip()) if u.strip()]
         if not urls:
             raise web.HTTPBadRequest(text="Link không hợp lệ")
@@ -448,7 +529,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     async def upload(request):
         _check(request)
         os.makedirs(config.UPLOAD_DIR, exist_ok=True)
-        reader = await request.multipart()
+        reader = await _multipart(request)
         fields, saved, music_saved, images = {}, "", "", []
 
         async def _save_part(part, exts, kind, limit=None):
@@ -472,9 +553,13 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         try:
             async for part in reader:
                 if part.name == "file" and part.filename:
+                    if saved:
+                        raise web.HTTPBadRequest(text="Mỗi lần chỉ gửi một file video")
                     saved, fields["filename"] = await _save_part(
                         part, (".mp4", ".mov", ".webm", ".mkv", ".m4v"), "video")
                 elif part.name == "music" and part.filename:
+                    if music_saved:
+                        raise web.HTTPBadRequest(text="Mỗi lần chỉ gửi một file nhạc")
                     music_saved, _ = await _save_part(
                         part, (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".opus", ".flac"), "nhạc", 30 * 1024 * 1024)
                 elif part.name == "images" and part.filename:
@@ -483,7 +568,8 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                     images.append((await _save_part(part, (".jpg", ".jpeg", ".png", ".webp", ".bmp"), "ảnh",
                                                     IMAGE_MAX))[0])
                 elif part.name:
-                    fields[part.name] = (await part.text())[:4000].strip()
+                    raw = await _read_capped(part, FIELD_MAX, f"Trường «{part.name}» quá dài")
+                    fields[part.name] = raw.decode("utf-8", errors="replace").strip()
             if fields.get("mode") == "photo":
                 if not images:
                     raise web.HTTPBadRequest(text="Chế độ 📸 cần 1-4 ảnh")
@@ -576,7 +662,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     async def set_settings(request):
         _check(request)
         try:
-            config.save_settings(await request.json())
+            config.save_settings(await _json_dict(request))
         except ValueError as e:
             raise web.HTTPBadRequest(text=str(e)) from None
         return web.json_response(_with_options(config.describe_settings()))
@@ -588,7 +674,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         # Mã ngẫu nhiên riêng từng video thay cho mật khẩu: link tải nằm trong lịch sử
         # trình duyệt và access log, nên không được chứa mật khẩu.
         try:
-            job = queue.jobs.get(int(request.match_info["id"]))
+            job = queue.jobs.get(_int_id(request))
         except ValueError:
             raise web.HTTPNotFound() from None
         if not job or not hmac.compare_digest(request.query.get("t", "").encode(), job.dl_token.encode()):
@@ -599,7 +685,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def download_part(request):
         try:
-            job = queue.jobs.get(int(request.match_info["id"]))
+            job = queue.jobs.get(_int_id(request))
             k = int(request.match_info["k"])
         except ValueError:
             raise web.HTTPNotFound() from None
@@ -628,17 +714,20 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     async def cancel(request):
         _check(request)
         fn = hooks.get("cancel")
-        return web.json_response({"msg": fn(int(request.match_info["id"])) if fn else "không hỗ trợ"})
+        return web.json_response({"msg": fn(_int_id(request)) if fn else "không hỗ trợ"})
 
     async def approve(request):
         _check(request)
-        d = await request.json()                 # đọc xong body rồi mới kiểm trạng thái (không có await xen giữa)
-        job = queue.jobs.get(int(request.match_info["id"]))
+        d = await _json_dict(request)            # đọc xong body rồi mới kiểm trạng thái (không có await xen giữa)
+        job = queue.jobs.get(_int_id(request))
         if not job or job.status != "review":
             raise web.HTTPBadRequest(text="Job không ở trạng thái chờ duyệt")
         # chỉ đổi cờ tiếng gốc khi client gửi lên (script/trang cũ không gửi thì giữ nguyên cờ AI đã đặt)
-        edits = {int(x["i"]): {"text": str(x.get("text", "")), **({"ost": str(x["ost"])} if "ost" in x else {})}
-                 for x in d.get("segments", []) if "i" in x}
+        try:
+            edits = {int(x["i"]): {"text": str(x.get("text", "")), **({"ost": str(x["ost"])} if "ost" in x else {})}
+                     for x in d.get("segments", []) if "i" in x}
+        except (TypeError, ValueError, AttributeError):
+            raise web.HTTPBadRequest(text="segments không hợp lệ") from None
         try:
             new = hooks["approve"](job, edits)
         except QueueFull as e:
@@ -649,13 +738,13 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def upload_logo(request):
         _check(request)
-        reader = await request.multipart()
+        reader = await _multipart(request)
         part = await reader.next()
         if not part or not (part.filename or "").lower().endswith(".png"):
             raise web.HTTPBadRequest(text="Logo phải là file .png (nền trong suốt)")
-        data = await part.read()
-        if len(data) > 2 * 1024 * 1024:
-            raise web.HTTPBadRequest(text="Logo tối đa 2MB")
+        data = await _read_capped(part, config.LOGO_MAX_BYTES,
+                                  f"Logo tối đa {config.LOGO_MAX_BYTES // 1024}KB (logo đi kèm mỗi việc gửi Kaggle, "
+                                  "notebook chỉ chứa được 1MB): thu nhỏ về ≤512px rồi tải lại")
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
             raise web.HTTPBadRequest(text="File không phải PNG thật")
         import core_video
@@ -679,7 +768,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         _check(request)
         import bgm
         import core_video
-        reader = await request.multipart()
+        reader = await _multipart(request)
         saved = []
         while True:
             part = await reader.next()
@@ -714,7 +803,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     async def bgm_add_link(request):
         _check(request)
         import bgm
-        url = str((await request.json()).get("url") or "").strip()
+        url = str((await _json_dict(request)).get("url") or "").strip()
         if not url:
             raise web.HTTPBadRequest(text="Dán link nhạc (TikTok / YouTube / file mp3)")
         if len(bgm.links()) >= 100:
@@ -728,7 +817,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     async def bgm_delete(request):
         _check(request)
         import bgm
-        key = str((await request.json()).get("key") or "")
+        key = str((await _json_dict(request)).get("key") or "")
         if key.startswith("file:"):
             if not bgm.delete(key[5:]):
                 raise web.HTTPNotFound(text="Không thấy file nhạc")
@@ -753,13 +842,11 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         24kHz, cắt còn 10 giây; file gốc không giữ."""
         _check(request)
         import kaggle_worker
-        reader = await request.multipart()
+        reader = await _multipart(request)
         part = await reader.next()
         if not part:
             raise web.HTTPBadRequest(text="Chưa chọn file giọng mẫu")
-        data = await part.read()
-        if len(data) > 5 * 1024 * 1024:
-            raise web.HTTPBadRequest(text="Giọng mẫu tối đa 5MB")
+        data = await _read_capped(part, VOICE_REF_MAX, "Giọng mẫu tối đa 5MB")
         # tên tạm riêng cho mỗi lần tải: bấm Lưu 2 lần thì 2 request chạy song song, dùng chung tên là request này
         # xoá mất file của request kia (lỗi thật: "ffprobe lỗi: voice_ref.mp3.tmp.mp3: No such file")
         tag = secrets.token_hex(6)
@@ -788,7 +875,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                     os.remove(f)
         return web.json_response({"ok": True, "seconds": round(dur, 1)})
 
-    app = web.Application(client_max_size=config.MAX_UPLOAD + 5 * 1024 * 1024)
+    # Trần body chỉ áp cho request.json(); upload đi qua request.multipart() đọc từng khúc với trần riêng từng loại.
+    # Trước đây trần = 305MB áp cho cả /api/login (đường công khai): vài request body lớn song song là đủ OOM máy 2GB.
+    app = web.Application(client_max_size=JSON_MAX, middlewares=[_secure_headers])
     app.router.add_get("/", index)
     app.router.add_get("/login", login_page)
     app.router.add_get("/health", health)

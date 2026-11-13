@@ -1,4 +1,5 @@
 """Quản lý ổ đĩa (ổ Botkeep chỉ 2GB): báo dung lượng, chọn thư mục tạm cho job, dọn video kết quả cũ."""
+import glob
 import logging
 import os
 import shutil
@@ -44,15 +45,18 @@ def disk_report() -> str:
 PIP_CACHE = os.path.join(os.path.expanduser("~"), ".cache", "pip")
 
 
-def clean(log=logging.info) -> int:
+def clean(log=logging.info, keep_work: bool = False) -> int:
     """Lệnh console clean: xoá thứ tạo lại được — bộ nhớ đệm pip (~/.cache/pip), cache theo bước, thư mục tạm
     work/. KHÔNG xoá video kết quả, cài đặt, jobs.db, model/gói đã cài. Trả MB trống sau khi dọn."""
     before = _free_mb(BASE_DIR)
-    for p in (PIP_CACHE, WORK_DIR):
+    for p in ((PIP_CACHE,) if keep_work else (PIP_CACHE, WORK_DIR)):
         if os.path.exists(p):
             log(f"Xoá {p} ({_size_mb(p)}MB)")
             shutil.rmtree(p, ignore_errors=True)
-    cache.prune(max_mb=0)
+    if keep_work:                       # job đang chạy có thể đang dùng work/ và file trong cache (tiếng nền đã tách)
+        log("Đang có job chạy: giữ work/ và cache, chỉ dọn pip")
+    else:
+        cache.prune(max_mb=0)
     after = _free_mb(BASE_DIR)
     log(f"Dọn xong: trống {before}MB -> {after}MB. {disk_report()}")
     return after
@@ -87,6 +91,16 @@ def make_room(need_mb: int, keep: set = frozenset()) -> int:
             logging.info("Dọn chỗ: xóa %s (%dMB)", os.path.basename(f), _size_mb(f))
             os.remove(f)
     return _free_mb(BASE_DIR)
+
+
+def sweep_tmp() -> int:
+    """Lúc khởi động: xoá thư mục tạm rmv_* còn sót trong /tmp (bot bị giết OOM/SIGKILL thì TemporaryDirectory không kịp
+    dọn; tích lại là /tmp đầy và mọi job âm thầm chuyển sang ổ bot 2GB)."""
+    n = 0
+    for d in glob.glob(os.path.join(tempfile.gettempdir(), "rmv_*")):
+        shutil.rmtree(d, ignore_errors=True)
+        n += 1
+    return n
 
 
 def pick_workdir(need_mb: int) -> str | None:

@@ -119,6 +119,7 @@ TG_LIMIT = 48 * 1024 * 1024        # Telegram không cho bot gửi file > 50MB
 OUT_MAX_MB = int(os.environ.get("OUT_MAX_MB", "400"))  # tổng video giữ cho web tải về (ổ Botkeep 2GB); thiếu chỗ thì tự dọn thêm
 MAX_FILESIZE = 50 * 1024 * 1024    # chặn file nguồn yt-dlp > 50MB
 MAX_UPLOAD = 300 * 1024 * 1024     # upload trực tiếp qua web tối đa 300MB (video dài)
+LOGO_MAX_BYTES = 400 * 1024        # logo gắn vào MỌI việc gửi Kaggle (notebook tối đa 1MB, mã + lời đã ~260KB)
 MAX_QUEUE = 5
 OUTPUT_HD = os.environ.get("OUTPUT_HD", "1") != "0"   # 1080p khi nguồn đủ nét; đặt 0 nếu Botkeep thiếu RAM
 
@@ -219,12 +220,12 @@ def save_settings(updates: dict):
                 v = ",".join(p for p in ("facebook", "tiktok") if p in got)
             cur[k] = v
     tmp = SETTINGS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:          # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # chứa key API: tạo ra đã là 0600, không có lúc 0644
+    with os.fdopen(fd, "w", encoding="utf-8") as f:      # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang
         json.dump(cur, f, ensure_ascii=False, indent=1)
-    try:
-        os.chmod(tmp, 0o600)                              # chứa key API: chỉ chủ tiến trình đọc được
-    except OSError:
-        pass
+        f.flush()
+        os.fsync(f.fileno())
+    os.chmod(tmp, 0o600)                                  # tệp tạm còn sót từ trước mang quyền cũ: ép lại
     os.replace(tmp, SETTINGS_FILE)
     _apply()
 

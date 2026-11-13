@@ -277,7 +277,10 @@ def list_tiktok_sync(src: str) -> tuple:
     import yt_dlp
     url_guard.check_url(src)
     opts = {"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
-            "extract_flat": "in_playlist", "playlistend": 30}
+            "extract_flat": "in_playlist", "playlistend": 30,
+            "allowed_extractors": url_guard.YTDLP_EXTRACTORS}      # không bao giờ dùng extractor generic (như core_video)
+    if config.YTDLP_PROXY.strip():
+        opts["proxy"] = config.YTDLP_PROXY.strip()
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(src, download=False)
     items = []

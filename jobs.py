@@ -1,11 +1,11 @@
 """Worker duy nhất chạy hàng đợi: hạn giờ co giãn, huỷ, dọn file, học tốc độ máy để ước tính thời gian."""
 import asyncio
-import json
 import logging
 import os
 import tempfile
 import time
 
+import cache
 import config
 import core_video
 import kaggle_worker
@@ -77,7 +77,7 @@ async def _run_one(job: Job):
         if tg:
             await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
         logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
-        with tempfile.TemporaryDirectory(dir=workdir) as tmp:
+        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp:   # rmv_: bị giết giữa chừng thì lần sau dọn
             task = asyncio.create_task(run_job(job, tmp))
             current["task"] = task
 
@@ -100,12 +100,14 @@ async def _run_one(job: Job):
                         keep_source = task.result() == "REVIEW"
                         break
                     if time.time() - job.started_at > job_budget(job):
+                        kaggle_worker.abort()          # phiên Kaggle đang chờ (nếu có) dừng theo, khỏi tốn giờ GPU
                         task.cancel()
                         await asyncio.gather(task, return_exceptions=True)
                         raise _OverBudget()
             finally:
                 tl.cancel()
                 if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
+                    kaggle_worker.abort()
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
         if keep_source:
@@ -199,18 +201,17 @@ def _learn_speed(job: Job):
     if job.status != "done" or not job.out_dur or not job.started_at:
         return
     try:
-        d = json.load(open(SPEED_FILE)) if os.path.exists(SPEED_FILE) else {}
+        d = cache.read_json_file(SPEED_FILE, {})       # tệp hỏng (chết giữa lúc ghi) -> {} rồi ghi đè, không kẹt mãi ở 6.0
         key = "long" if job.long_mode else "normal"
         ratio = (job.finished_at - job.started_at) / job.out_dur
         d[key] = round(0.6 * d.get(key, ratio) + 0.4 * ratio, 1)
-        json.dump(d, open(SPEED_FILE, "w"))
+        cache.write_json_file(SPEED_FILE, d)
     except Exception:
         pass
 
 
 def speed_ratio(long_mode: str) -> float:
     try:
-        d = json.load(open(SPEED_FILE))
-        return d.get("long" if long_mode else "normal", 6.0)
+        return cache.read_json_file(SPEED_FILE, {}).get("long" if long_mode else "normal", 6.0)
     except Exception:
         return 6.0

@@ -84,6 +84,23 @@ def put_json(step: str, k: str, data) -> None:
     os.replace(tmp, p)
 
 
+def read_json_file(path: str, default):
+    """Đọc tệp JSON trạng thái; không có hoặc hỏng (chết giữa lúc ghi) -> default, để lần ghi sau tự chữa."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def write_json_file(path: str, data) -> None:
+    """Ghi tệp JSON trạng thái qua tệp tạm + đổi tên: không bao giờ để tệp dở dang."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    os.replace(tmp, path)
+
+
 def size_mb() -> int:
     total = 0
     for r, _, fs in os.walk(DIR):

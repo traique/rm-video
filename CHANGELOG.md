@@ -120,6 +120,34 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 35: rà soát production (kiến trúc, bảo mật, độ tin cậy) + vá khẩn
+
+Tài liệu đầy đủ 4 phần: `docs/DANH_GIA_KIEN_TRUC_PRODUCTION.md` (kiến trúc & luồng dữ liệu, bảo mật & độ tin cậy,
+đề xuất tái cấu trúc Clean Architecture, kế hoạch + code mẫu). Code mẫu chuẩn production ở `samples/rmvideo/`
+(tiến trình con có timeout + giết cả nhóm; cài đặt có kiểu; bộ định tuyến AI) có test riêng, chưa nối vào bot.
+
+Vá ngay trong bản này (mỗi mục có test hồi quy trong `tests/test_review35.py`):
+
+| Rủi ro | Sửa |
+| --- | --- |
+| Trần body web 305MB áp cho cả `/api/login` (đường công khai): vài request lớn song song là OOM máy 2GB | trần JSON 1MB; login từ chối body > 4KB trước khi đọc; upload vẫn đi multipart đọc từng khúc |
+| `/api/logo`, `/api/voice_ref` gom cả phần vào RAM rồi mới kiểm cỡ | đọc từng khúc, vượt trần dừng ngay |
+| Gửi 2 file video trong một request: file đầu bị bỏ rơi trong `uploads_in/` tới khi đầy ổ | phần thứ hai → 400, file đầu được xoá |
+| Đăng xuất không thu hồi được phiên (cookie sao chép dùng được 30 ngày) | mốc thu hồi `.session_key.epoch`: đăng xuất là mọi cookie cũ hết hiệu lực |
+| Huỷ vì quá hạn / bot tắt không dừng phiên Kaggle; cờ dừng dùng chung giữa các lượt; API huỷ chạy đồng bộ trong handler (treo web/Telegram tới 120s) | `abort()` ở cả 3 đường huỷ, cờ riêng từng lượt, gọi huỷ trong luồng riêng |
+| Logo > ~530KB làm notebook Kaggle quá 1MB → mọi job Kaggle âm thầm đổ về Botkeep | trần 400KB khi tải lên (báo lý do); logo quá cỡ bị bỏ kèm cảnh báo thay vì hỏng cả việc |
+| `stt_cache.json` / `speed.json` ghi không atomic, hỏng là tắt cache mãi / ETA kẹt 6.0 | `cache.read_json_file/write_json_file` tự chữa |
+| `/tmp/tmpXXXX` sót sau OOM/SIGKILL không ai dọn; `clean` xoá thư mục job đang chạy; tiếng nền đã tách nằm 2 bản | tiền tố `rmv_` + dọn lúc khởi động; `clean` giữ `work/` và cache khi có job; move vào cache |
+| `settings.json.tmp` 0644 trong khoảnh khắc trước chmod | tạo đã là 0600 + fsync |
+| SSRF: NAT64 `64:ff9b::/96` coi là công cộng; link có tab/xuống dòng | bóc IPv4 bên trong; chặn ký tự điều khiển |
+| Liệt kê kênh TikTok là lời gọi yt-dlp duy nhất không tắt extractor generic, không dùng proxy | đặt `allowed_extractors` + proxy |
+| Lỗi 500 với id không phải số, body không phải JSON, POST không multipart; thiếu header bảo mật; bảng đếm sai mật khẩu phình | 404/400 rõ ràng; `X-Frame-Options`, `nosniff`, `Referrer-Policy`; dọn bảng; cảnh báo mật khẩu < 12 ký tự |
+
+Chưa vá, cần bạn quyết (xem Phần 2/4 tài liệu): `YTDLP_PROXY`/`PUBLIC_URL`/token Kaggle sửa được từ web (đề xuất
+chuyển sang biến môi trường); ghim phiên bản + hash cho gói cài qua console và trên Kaggle; dừng yt-dlp khi huỷ job.
+
+Kiểm tra: `ruff` sạch; 423 test xanh + 5 bỏ qua (cần key/model).
+
 ## Bản 34: thử model offline thay Groq/Gemini trên Kaggle
 
 **Bóc lời (thay Groq):** từ bản 27 đã bóc lời offline trên Kaggle bằng faster-whisper large-v3; Groq chỉ còn là dự phòng.
