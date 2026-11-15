@@ -120,6 +120,22 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 40: từ log chạy thật 15/11 (cánh gà chiên nước mắm, muối ớt xanh, lẩu đầu cá hồi)
+
+Đã chạy đúng trên máy thật: video dài gửi Facebook từng khúc (bản 38) qua cả 3 lần, có gắn ảnh bìa, hết lỗi 413.
+
+| Thấy trong log | Nguyên nhân | Sửa |
+| --- | --- | --- |
+| Job 1, 2 đứng ở «Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)» 17-20 phút không báo gì, rồi nhảy thẳng sang «đang làm (17 phút)»; việc thật chỉ mất ~3 phút | phiên Kaggle xếp hàng chờ máy. QUEUED là giá trị mặc định (0) của enum `KernelWorkerStatus` nên API bỏ hẳn trường `status` (đã kiểm trong kagglesdk 0.1.38); bot đọc ra chuỗi rỗng, coi như "không đổi" | `kaggle_api.status`: thiếu trạng thái = QUEUED, web hiện «đang chờ máy». `wait` báo lại số phút mỗi 5 phút dù trạng thái không đổi |
+| (đọc mã) phiên Kaggle chờ quá giờ hoặc mất mạng chỉ bị bỏ ở phía bot | không gọi huỷ: phiên vẫn nằm trong hàng chờ Kaggle, lát sau tự chạy, tốn giờ GPU và có thể chặn lượt kế của cùng notebook | `kaggle_worker._wait_session`: chờ hỏng là nhờ Kaggle huỷ phiên (dùng cho cả phiên phân tích và phiên dựng) |
+| Kaggle tải video nguồn 33-85s (trước khi cài lại: 4-14s) | có thể do chưa đặt `PUBLIC_URL` sau khi cài lại: Kaggle phải tự tải từ Facebook thay vì lấy bản trên Botkeep | cảnh báo một lần trong log khi Kaggle phải tự tải vì thiếu `PUBLIC_URL` |
+| `thiếu ['dứa']` ở món cánh gà, ép AI viết lại 2 lần | "cho nó thơm lên", "rất là thơm luôn", "sau khi nó thơm" bị tính là trái thơm | thêm ngữ cảnh tính từ cho "thơm" (trước: nó, là, thơm, phi, rang; sau: luôn, nha, nè, dữ, thiệt, vậy). Vẫn tính dứa ở "cá kho thơm", "bò xào thơm", "200g thơm" (test) |
+| `thiếu ['sữa']; bịa ['sả']`, `bịa ['hành phi', 'ớt sừng']` | máy nghe: "sữa mầm", "sữa cây" (sả), "đất sừng" (ớt sừng), "cỏ phi" | bảng sửa lỗi nghe nhầm thêm các cụm này |
+| Lời đọc sai nội dung: "3 muỗng đường cùng 2 muỗng đường cà", "5 giá nước lẩu", "màu dừa điều" | AI chép nguyên lỗi nghe nhầm "đường ớt/đường cà" (tương ớt, tương cà), "nồi lỗ/nước lỗ" (lẩu), "dừa điều" | thêm vào bảng: đường ớt/cà → tương ớt/cà, nồi/nước/nấu lỗ → lẩu, đậu cá → đầu cá, gau → rau, nấm mặn → mắm mặn, muối điêu → muối tiêu, (mờ) dừa điều → (màu) dầu điều, sắc lát/khúc/hút → xắt lát/khúc. Không đụng "sữa đặc", "sữa tươi", "đường cát", "cá hồi" (test) |
+| Job 2 «Khung đẹp nhất … 6 ứng viên» không có «AI chọn» và không có lỗi nào | AI trả số ảnh ngoài danh sách thì bị bỏ âm thầm | ghi cảnh báo kèm số AI trả, vẫn lấy ảnh điểm cao nhất |
+
+Nhắc lại: chưa đặt `ALLOWED_USERS`/`ADMIN_CHAT_ID` nên các tin «Đã hẹn đăng» chỉ nằm trong log.
+
 ## Bản 39: mẫu .env đầy đủ; file .env chịu ghi chú cuối dòng
 
 - `.env.example` viết lại: đủ mọi biến bot đọc (57 cài đặt + 17 biến chỉ đặt qua môi trường), chia 5 mục: bắt buộc,

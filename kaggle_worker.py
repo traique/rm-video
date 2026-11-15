@@ -77,6 +77,19 @@ def _unwatch(run: dict):
     if _ABORT["run"] is run:
         _ABORT["run"] = None
 
+
+def _wait_session(slug: str, timeout: float, on_status, every: float = 20):
+    """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, mất mạng, bị huỷ, notebook lỗi) thì nhờ Kaggle huỷ phiên: trước đây
+    phiên quá giờ vẫn nằm trong hàng chờ của Kaggle, lát sau tự chạy, tốn giờ GPU và chặn lượt kế của cùng notebook."""
+    run = _watch(slug)
+    try:
+        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"])
+    except KaggleError:
+        _cancel_session(slug)
+        raise
+    finally:
+        _unwatch(run)
+
 # Giọng VieNeu v3 Turbo miền Nam (nhãn của model) và tốc độ đọc đo thật (chữ/giây, chỉ phần tiếng nói, 12/11/2026)
 SOUTH_FEMALE = ["Mỹ Duyên", "Thục Đoan", "Thùy Dung", "Kim Thanh"]
 SOUTH_MALE = ["Adam", "Thái Sơn", "Minh Triết", "Đức Trí"]
@@ -113,6 +126,7 @@ def words_per_sec(voice: str) -> float:
 # ---------------- link tạm cho file trên Botkeep ----------------
 
 _LINKS: dict = {}                # mã -> (đường dẫn, hết hạn)
+_NOTED = {"public_url": False}   # cảnh báo một lần mỗi lần chạy bot
 
 
 def serve(path: str) -> str | None:
@@ -152,6 +166,10 @@ def ref(path: str | None = None, url: str = "", kind: str = "video", max_duratio
     link = serve(path) if path else None
     if link:
         r.update(http=link, name=os.path.basename(path))
+    elif url and path and os.path.isfile(path) and not _NOTED["public_url"]:
+        _NOTED["public_url"] = True
+        logging.warning("Chưa đặt PUBLIC_URL: Kaggle phải tự tải video từ link gốc (chậm hơn, nền tảng có thể chặn máy "
+                        "Kaggle). Điền link web của bot ở Cài đặt > Tài khoản & API.")
     if not r:
         raise KaggleError("file tải lên từ máy cần PUBLIC_URL (link web panel) để Kaggle tải về")
     return r
@@ -337,11 +355,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    run = _watch(SLUG)
-    try:
-        kaggle_api.wait(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), on_status=st, stop=lambda: run["flag"])
-    finally:
-        _unwatch(run)
+    _wait_session(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), st)
     d = kaggle_api.outputs(SLUG)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     out = []
@@ -406,11 +420,7 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
                 f"({secs / 60:.0f} phút)")
-    run = _watch(SLUG_ANALYZE)
-    try:
-        kaggle_api.wait(SLUG_ANALYZE, TIMEOUT_ANALYZE, every=15, on_status=st, stop=lambda: run["flag"])
-    finally:
-        _unwatch(run)
+    _wait_session(SLUG_ANALYZE, TIMEOUT_ANALYZE, st, every=15)
     d = kaggle_api.outputs(SLUG_ANALYZE)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     if "result.json" not in files:

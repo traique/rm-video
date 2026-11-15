@@ -55,9 +55,13 @@ def _syllables(text: str) -> list:
 
 # Từ đa nghĩa: KHÔNG tính là nguyên liệu khi từ đứng TRƯỚC / SAU thuộc các tập này
 _CTX = {
-    "thơm": ({"mùi", "rất", "thật", "nghe", "dậy", "bay", "cho", "càng", "hơi", "đã", "vừa", "sẽ", "để", "lên", "ra"},
+    # log 15/11: "cho nó thơm lên", "rất là thơm luôn", "sau khi nó thơm" bị tính là dứa -> 2 lượt AI viết lại thừa.
+    # Không thêm "kho"/"xào" vì "cá kho thơm", "bò xào thơm" là món có dứa thật.
+    "thơm": ({"mùi", "rất", "thật", "nghe", "dậy", "bay", "cho", "càng", "hơi", "đã", "vừa", "sẽ", "để", "lên", "ra",
+              "nó", "là", "thơm", "phi", "rang"},
              {"ngon", "phức", "lừng", "nức", "quá", "lắm", "ghê", "nồng", "dịu", "béo", "giòn", "ngát", "thơm", "hơn",
-              "rồi", "mùi", "nhẹ", "đậm", "mát", "và", "nữa", "hết", "cả", "dễ", "ngất", "điếc"}),
+              "rồi", "mùi", "nhẹ", "đậm", "mát", "và", "nữa", "hết", "cả", "dễ", "ngất", "điếc", "luôn", "nha", "nè",
+              "dữ", "thiệt", "vậy"}),
     "giá": ({"mức", "cái", "đơn", "có", "tăng", "giảm", "rẻ", "hỏi", "về", "bảng", "trả", "ra"},
             {"đang", "rất", "tốt", "rẻ", "chỉ", "cả", "tiền", "bán", "là", "khoảng", "hời", "hợp", "siêu", "cực", "ưu",
              "sốc", "trị", "thành", "cao", "thấp", "mềm", "bình", "như", "nào", "bao", "mà", "có", "trên", "từ"}),
@@ -66,7 +70,7 @@ _CTX = {
              "lâu", "tưởng", "trưa", "nào", "tết", "mới", "đấy", "phục"}),
     "cam": ({"màu", "vàng", "đỏ", "cam"}, {"kết", "chịu", "đoan", "go", "lòng", "tâm", "phận"}),
     "hành": ({"tiến", "thực", "thi", "ban", "vận", "lưu", "phát"},
-             {"động", "trình", "khách", "lang", "lý", "chính", "quân", "xử", "nghề", "tinh", "tây"}),
+             {"động", "trình", "khách", "lang", "lý", "chính", "quân", "xử", "nghề", "tinh", "tây", "công"}),
     "cá": (set(), {"nhân", "biệt", "tính", "thể", "cược", "độ", "mập"}),
     "cơm": ({"với", "kèm", "cùng", "ăn", "bữa"}, set()),
     "mùi": ({"có", "bay", "át", "khử", "hết", "bớt", "đủ", "cái", "nặng", "đậm", "dậy", "toàn", "ra", "thơm"},

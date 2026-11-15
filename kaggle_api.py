@@ -128,8 +128,10 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
 
 
 def status(slug: str) -> tuple:
+    """(trạng thái, lý do lỗi). QUEUED là giá trị mặc định (0) của enum KernelWorkerStatus nên API bỏ hẳn trường
+    status khi phiên đang xếp hàng chờ máy: trước đây đọc ra "" và bot đứng ở «gửi việc» 17-20 phút không báo gì."""
     d = call("GetKernelSessionStatus", {"userName": user(), "kernelSlug": slug})
-    return str(d.get("status") or ""), d.get("failureMessage") or ""
+    return str(d.get("status") or "QUEUED"), d.get("failureMessage") or ""
 
 
 def cancel(slug: str):
@@ -161,6 +163,7 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31):
 
 
 WAIT_NET_RETRIES = 6       # ~2 phút mạng hỏng liên tục (every=20s) mới coi là lỗi
+REFRESH = 300              # giây: báo lại "đang chờ máy / đang làm (N phút)" dù trạng thái không đổi
 DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
@@ -169,6 +172,7 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
     """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ)."""
     t0 = time.time()
     last = ""
+    reported = 0.0
     net_fails = 0
     while True:
         if stop is not None and stop():
@@ -185,8 +189,10 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
             sleep(every)
             continue
         up = st.upper()
-        if on_status and st != last:
-            on_status(st, time.time() - t0)
+        now = time.time()
+        if on_status and (st != last or now - reported >= REFRESH):
+            on_status(st, now - t0)
+            reported = now
         last = st
         if any(x in up for x in DONE):
             return "COMPLETE"

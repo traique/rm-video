@@ -213,6 +213,7 @@ async def ai_judge(images: list, title: str, mode: str, opening=None, opening_se
                          if opening else "", str(d.get("reason", ""))[:120])
             return {"best": best, "finished": d.get("finished") is True,
                     "opens_with_dish": d.get("opens_with_dish") is True}
+        logging.warning("AI chọn ảnh bìa số %s ngoài danh sách 0-%d, lấy ảnh điểm cao nhất", best, len(images) - 1)
     except Exception as e:
         logging.warning("AI chọn ảnh bìa lỗi (%s), lấy ảnh điểm cao nhất", str(e)[:100])
     return None

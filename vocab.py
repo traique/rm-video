@@ -99,6 +99,13 @@ _ASR_FIXES = {
     "cháo hào": "cháo hàu", "con hào": "con hàu", "hào sữa": "hàu sữa", "nước hào": "nước hàu", "cái hào": "cái hàu",
     "gà đốt câu thơm": "gà đốt Ô Thum", "gà đốt u thông": "gà đốt Ô Thum", "gà đốt bột thơm": "gà đốt Ô Thum",
     "gà đốt ô thum": "gà đốt Ô Thum", "gà đốt ô thung": "gà đốt Ô Thum",
+    # log 15/11 (cánh gà chiên nước mắm, muối ớt xanh, lẩu đầu cá hồi)
+    "sữa cây": "sả cây", "sữa mầm": "sả bằm", "sữa bằm": "sả bằm", "sữa băm": "sả băm", "sữa đập dập": "sả đập dập",
+    "sắc lát": "xắt lát", "sắc khúc": "xắt khúc", "sắc hút": "xắt khúc",
+    "đường ớt": "tương ớt", "đường cà": "tương cà", "nấm mặn": "mắm mặn", "muối điêu": "muối tiêu",
+    "nồi lỗ": "nồi lẩu", "nước lỗ": "nước lẩu", "nấu lỗ": "nấu lẩu", "đậu cá": "đầu cá",
+    "gau": "rau", "đất sừng": "ớt sừng", "cỏ phi": "tỏi phi",
+    "dừa điều": "dầu điều", "mờ dừa điều": "màu dầu điều", "mờ dầu điều": "màu dầu điều",
 }
 _ASR_FIX_RE = re.compile(r"(?<![\w])(" + "|".join(re.escape(k) for k in sorted(_ASR_FIXES, key=len, reverse=True))
                          + r")(?![\w])", re.IGNORECASE)
