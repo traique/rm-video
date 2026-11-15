@@ -7,7 +7,9 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _load_dotenv():
-    """Đọc file .env cạnh main.py (không cần thư viện). Biến môi trường thật được ưu tiên hơn."""
+    """Đọc file .env cạnh main.py (không cần thư viện). Biến môi trường thật được ưu tiên hơn.
+    Ghi chú cuối dòng (`CACHE_MAX_MB=500   # trần`) bị bỏ: trước đây giá trị thành "500   # trần" và int() làm bot
+    không khởi động được. Giá trị có dấu # hay khoảng trắng thì bọc trong "..." hoặc '...'."""
     path = os.path.join(_DIR, ".env")
     if not os.path.exists(path):
         return
@@ -16,8 +18,14 @@ def _load_dotenv():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
-            k, v = line.split("=", 1)
-            k, v = k.strip(), v.strip().strip('"').strip("'")
+            k, raw = line.split("=", 1)
+            k, v = k.strip(), raw.strip()
+            if v[:1] in ("'", '"') and v.find(v[0], 1) > 0:
+                v = v[1:v.index(v[0], 1)]
+            elif re.match(r"\s+#", raw):
+                v = ""                                   # KEY=      # ghi chú
+            else:
+                v = re.split(r"\s+#", v, maxsplit=1)[0].strip().strip('"').strip("'")
             if k and not os.environ.get(k):
                 os.environ[k] = v
 

@@ -9,7 +9,8 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
    gõ `setup_youtube` vào console (cài deno ~100MB vào `tools/`, gỡ bằng `remove_youtube`); TikTok/Facebook không cần.
    File `.config/pip/pip.conf` tắt bộ nhớ đệm của pip (Botkeep chạy với HOME = thư mục bot, nên bộ nhớ đệm ~150–250MB
    tính vào ổ 2GB).
-2. Biến môi trường **bắt buộc cho bảo mật**:
+2. Biến môi trường: đặt trong panel Botkeep (Startup) **hoặc** chép `.env.example` thành `.env` cạnh `main.py` rồi điền
+   (mẫu có đủ mọi biến, chia mục bắt buộc / tài khoản / tự động đăng / tuỳ chỉnh). **Bắt buộc cho bảo mật**:
    - `WEB_PASSWORD` — **bắt buộc**. Thiếu thì web panel KHOÁ mọi chức năng (link web Botkeep là công khai).
    - `BOT_TOKEN` — token @BotFather (bỏ trống = chạy chỉ-web).
    - `ALLOWED_USERS` — chat_id Telegram được dùng bot, cách nhau dấu phẩy (đặt được cả trong Cài đặt web).

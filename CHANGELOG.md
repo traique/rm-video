@@ -120,6 +120,17 @@ Review xác nhận việc tách `main.py` giữ nguyên hành vi; tìm và đã 
 Gói offline cài bằng lệnh console `setup_offline` (~185MB, kiểm SHA-256 từng file, sherpa-onnx ghim < 2 vì bản 2.0
 bỏ espeak-ng), gỡ bằng `remove_offline`. Không cài thì bot chạy như trước.
 
+## Bản 39: mẫu .env đầy đủ; file .env chịu ghi chú cuối dòng
+
+- `.env.example` viết lại: đủ mọi biến bot đọc (57 cài đặt + 17 biến chỉ đặt qua môi trường), chia 5 mục: bắt buộc,
+  tài khoản & key (kèm link lấy key), tự động đăng, tuỳ chỉnh (để nguyên = mặc định), chỉ đặt ở đây. Ghi rõ thứ tự ưu
+  tiên (Cài đặt web > panel Botkeep > .env > mặc định) và việc cookies nhiều dòng phải dán ở web. Test giữ mẫu luôn
+  khớp mã: thiếu biến hoặc giá trị mặc định lệch là test đỏ.
+- `config._load_dotenv`: ghi chú cuối dòng (`CACHE_MAX_MB=500   # trần`) trước đây thành một phần giá trị, `int()`
+  lỗi và bot không khởi động được (mẫu cũ có đúng kiểu dòng này, chỉ cần bỏ dấu # đầu dòng là dính). Giờ bỏ ghi chú
+  sau khoảng trắng + `#`, nhận giá trị trong `"..."`/`'...'` (mật khẩu có `#` hay dấu cách), `KEY=   # ghi chú` = trống.
+- README: chỉ cách dùng `.env` thay cho panel Botkeep.
+
 ## Bản 38: từ log chạy thật 13/11 (cháo hàu, gà đốt Ô Thum): Facebook 413 với video dài, báo bịa nguyên liệu giả, lỗi nghe nhầm
 
 | Thấy trong log | Nguyên nhân | Sửa |
