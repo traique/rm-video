@@ -37,5 +37,6 @@ ignore_errors = true
 
 # các bước của Remake / dispatch đã có kiểu cho trạng thái; hàm trợ giúp nội bộ chưa chú thích đủ
 [[tool.mypy.overrides]]
-module = ["rmvideo.app.flow.remake", "rmvideo.app.flow.dispatch", "rmvideo.app.flow.backends", "rmvideo.app.flow.common"]
+module = ["rmvideo.app.flow.remake", "rmvideo.app.flow.dispatch", "rmvideo.app.flow.backends", "rmvideo.app.flow.common",
+          "rmvideo.interfaces.web.*"]
 disallow_untyped_defs = false

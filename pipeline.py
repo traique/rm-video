@@ -14,11 +14,9 @@
 Tên cũ (`pipeline.process`, `pipeline.no_speech`, ...) vẫn dùng được. GHI một tên (kể cả monkeypatch trong test) được
 chuyển tới đúng module đang dùng tên đó, nên bản vá có tác dụng thật thay vì âm thầm chỉ sửa bản sao ở đây.
 """
-import sys
-import types
-
 import prompt_engine  # noqa: F401  (test vá pipeline.prompt_engine.<hàm>)
 import transcribe
+from rmvideo import compat
 from rmvideo.app.flow import analysis, backends, common, delivery, dispatch, long_video, music, photo, remake, teaser
 
 # tên cũ -> (module thật, tên trong module đó)
@@ -46,30 +44,4 @@ _ROUTES = {
 }
 
 
-_ORIGINAL: dict = {}      # giá trị gốc trước lần ghi đầu tiên (monkeypatch hoàn tác bằng delattr)
-
-
-class _Facade(types.ModuleType):
-    def __getattr__(self, name):
-        route = _ROUTES.get(name)
-        if route is None:
-            raise AttributeError(f"module 'pipeline' has no attribute {name!r}")
-        return getattr(*route)
-
-    def __setattr__(self, name, value):
-        route = _ROUTES.get(name)
-        if route is None:
-            super().__setattr__(name, value)
-            return
-        _ORIGINAL.setdefault(name, getattr(*route))
-        setattr(route[0], route[1], value)            # vá đúng nơi tên được dùng
-
-    def __delattr__(self, name):
-        route = _ROUTES.get(name)
-        if route is None:
-            super().__delattr__(name)
-        elif name in _ORIGINAL:                       # hoàn tác bản vá: trả giá trị gốc cho module thật
-            setattr(route[0], route[1], _ORIGINAL.pop(name))
-
-
-sys.modules[__name__].__class__ = _Facade
+compat.install(__name__, _ROUTES)
