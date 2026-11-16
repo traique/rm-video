@@ -45,8 +45,8 @@ async def two_pass_loudness(fc: str, input_args: list, out_dur: float) -> str:
 # Đo trên video thật 30s 1080p, 1 lõi: dựng 1080p 75s, 720p 38s (x2.0); trong đó vibrance (đổi sang RGB) ~23s,
 # unsharp ~9s, hqdn3d ~9s, x264 ~28s. Botkeep (1.5 lõi chậm) dựng 1080p video 88s mất cỡ 20 phút -> QUALITY=balanced
 # (mặc định) ước tính trước thời gian dựng 1080p theo tốc độ đo được của CHÍNH máy này; quá RENDER_BUDGET thì ra 720p.
-SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                                                  "render_speed.json")
+DEFAULT_SPEED_FILE = os.path.join(ff.ROOT, "render_speed.json")
+SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or DEFAULT_SPEED_FILE
 
 
 RENDER_BUDGET = float(os.environ.get("RENDER_BUDGET", "600") or 0)     # giây; 0 = tắt (luôn 1080p khi nguồn đủ nét)

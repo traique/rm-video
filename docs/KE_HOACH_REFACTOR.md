@@ -1,7 +1,43 @@
 # Kế hoạch refactor rm-video (từ bản 40) — phân tích ngược kiến trúc & lộ trình
 
-> Trạng thái: **PLAN, chưa sửa dòng code nào**. Chờ chốt các quyết định ở mục 8 rồi mới làm Phase 0.
-> Mọi nhận định có dẫn `tệp:dòng` tại commit `4f1b2f9` (Bản 40). Số liệu đo bằng phân tích AST/grep trên mã thật.
+> Trạng thái: **ĐÃ THỰC HIỆN (bản 41)** theo 5 quyết định của chủ dự án ở mục 8: gói `rmvideo/` + mặt tiền tương
+> thích; sửa lỗi ghi chú bị đè ngay trong đợt; nhập lại mật khẩu khi đổi khoá nhạy cảm (A5); Python tối thiểu 3.11;
+> làm đủ các phase. Mục "Trạng thái thực hiện" ngay dưới ghi kết quả; phần còn lại của tài liệu là bản phân tích và
+> kế hoạch gốc (dẫn `tệp:dòng` tại commit `4f1b2f9`, Bản 40).
+
+## Trạng thái thực hiện (bản 41)
+
+Kiểm tra cuối: `ruff check .` sạch; `mypy` sạch cho 50 tệp của gói `rmvideo/` (mã chuyển nguyên văn còn nới lỏng, ghi
+trong `pyproject.toml`); `pytest` 441 → 503 test xanh (+ 5 bỏ qua cần key / model offline); 25 snapshot pipeline và
+snapshot prompt giữ nguyên qua mọi bước (chỉ đổi 2 chỗ có chủ đích, ghi trong commit: lỗi ghi chú bị đè; bước hiển thị
+của job cha video dài giờ là bước thật mới nhất). Mỗi bước một commit, đã đẩy lên nhánh làm việc.
+
+| Phase | Đã làm | Khác kế hoạch / ghi chú |
+| --- | --- | --- |
+| 0 Lưới an toàn | `tests/test_snapshot_pipeline.py` (25 kịch bản: Botkeep/Kaggle, phân tích Kaggle, duyệt, không lời, mở đầu, đường đọc một mạch, 🎵, 📸, tải về, cắt phần lô Kaggle có phần lỗi, đoạn hay), `test_snapshot_prompts.py`, `test_kaggle_bundle.py`; py311 + mypy + CI 3.11-3.13; sửa lỗi ghi chú bị đè | — |
+| 1 Nền móng | schema cài đặt + A5 + C9 (cài đặt dựng chờ job xong), `rmvideo/media/proc.py` (theo job, giết cả nhóm), dừng yt-dlp (C8), SQLite WAL (C10), bundle Kaggle tự tính, cắt vòng import config↔autopost, core_video→kaggle_worker | mẫu `samples/` đã thành mã thật rồi xoá |
+| 2 Kiểu & ngữ cảnh | enum `Mode/LongMode/Status/Source` (StrEnum, jobs.db cũ đọc y nguyên), `Job.note()`, bus sự kiện thay 3 vòng hỏi lại, dữ liệu theo phạm vi job, `kaggle_worker.is_enabled()`, `job_factory` | `JobContext` làm bằng contextvar (tiến trình theo job + kho dữ liệu theo job) thay vì một đối tượng truyền tay, để không phải đổi chữ ký hàng trăm hàm cũ |
+| 3 Tích hợp ngoài | `services/llm.py` (6 vòng Gemini→OpenRouter), `prompt_engine.call_gemini` công khai, `backends.try_produce`, `fetch.ytdlp_base_options` | ASR/TTS vốn đã ở một chỗ mỗi loại (`transcribe.asr_order`, `tts_engine.synth_clip_ex`) nên giữ |
+| 4 Điều phối | `pipeline.py` → `rmvideo/app/flow/` (10 module), `assemble()` chung Botkeep/Kaggle, lớp `Remake`, `dispatch` | `delivery` vẫn gửi Telegram qua `state.bot` (đã tách khỏi pipeline nhưng chưa là port riêng) |
+| 5 Giao diện | `interfaces/web/` (auth, http, 5 nhóm route, app), `interfaces/telegram/` (access, keyboards, handlers, bot) + chặn nút trên tin nhắn cũ | handler Telegram vẫn là một hàm đăng ký (giữ đúng thứ tự khớp tin nhắn của aiogram) |
+| 6 Chia core_video | `rmvideo/media/` ff, fetch, tts_engine, voiceplan, filtergraph, renderer (tách bằng AST, tham chiếu chéo `module.tên`) | — |
+| 7 Hiệu năng | ảnh bìa + đoạn hay khỏi vòng lặp sự kiện; bớt ffprobe mỗi đoạn giọng (95→56ms, kết quả giống hệt); đo song song ≤ 4 | xem "Còn lại" |
+| 8 Dọn dẹp | README (kiến trúc, bảo mật, WAL), CHANGELOG bản 41, tài liệu này | mặt tiền ở gốc **giữ lại** (xem dưới) |
+
+**Mặt tiền tương thích** (`rmvideo/compat.py`): `pipeline.py`, `core_video.py`, `web_panel.py`, `tg_bot.py` còn ở gốc vì
+(1) ~650 chỗ test và notebook Kaggle dùng tên cũ, (2) ghi một tên qua mặt tiền (kể cả `monkeypatch`) được chuyển tới
+đúng module đang dùng tên đó, nên giữ lại không có rủi ro bản vá "âm thầm vô hiệu". Mã mới trong gói gọi thẳng module
+thật. Bỏ hẳn mặt tiền = đổi import trong test, làm dần khi sửa từng test.
+
+**Còn lại (có lý do, chưa làm):**
+1. `vocal_sep` float32 / overlap-add vector hoá: đổi số học của âm thanh ra — cần đo SNR so bản cũ trên video mẫu thật
+   trước khi nhận, không làm "mù".
+2. Giải mã âm thanh nguồn một lần dùng chung cho bóc lời / tách giọng / đo độ to: ba bước chạy ở ba nơi (một trong
+   tiến trình con riêng để trả RAM), gộp cần đổi cách tách giọng; lợi ích nhỏ khi phần nặng đã lên Kaggle.
+3. Kaggle Dataset chứa wheel + model để bỏ ~2 phút cài đặt mỗi phiên: cần tạo dataset trên tài khoản Kaggle của bạn.
+4. Chú thích kiểu cho mã chuyển nguyên văn (`rmvideo/app/flow/{analysis,teaser,music,photo,long_video,delivery}`,
+   `rmvideo/media/{ff,fetch,...}`) — mypy đang nới lỏng cho các module này.
+5. Chuỗi cung ứng (mục 2.13): ghim phiên bản pip trong notebook Kaggle và gói PO token.
 
 ## 0. Bối cảnh và cách đọc
 
@@ -390,7 +426,7 @@ Mẫu đã có sẵn và đã có test (`tests/test_samples.py`) làm điểm xu
 
 ---
 
-## 7. Baseline đã đo trong phiên này
+## 7. Baseline đã đo trong phiên này (trước refactor)
 
 - `ruff check .`: sạch.
 - `pytest -q` (Python 3.13, ffmpeg hệ thống, không mạng/token): **441 passed, 5 skipped** trong 7 phút 02 giây

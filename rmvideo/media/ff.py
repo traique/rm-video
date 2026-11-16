@@ -28,7 +28,8 @@ def _ensure_ffmpeg():
 _ensure_ffmpeg()
 
 
-ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # gốc bot (cả trong notebook Kaggle)
+ASSETS_DIR = os.path.join(ROOT, "assets")
 
 
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")

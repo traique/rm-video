@@ -30,3 +30,17 @@ def test_web_app_registers_every_route(tmp_path):
 def test_capcut_voice_options_found_after_move():
     d = http._with_options({"CAPCUT_VOICE_FEMALE": {}, "QUALITY": {}})
     assert len(d["CAPCUT_VOICE_FEMALE"]["options"]) > 5 and "options" not in d["QUALITY"]   # Voice.json ở gốc bot
+
+
+def test_paths_still_point_at_bot_root_after_moving_code():
+    """Mã dời vào rmvideo/ không được tìm tài nguyên cạnh chính nó: font tiêu đề / logo (thiếu font -> chữ tiêu đề mất
+    dấu, logo không gắn — lỗi thật bắt được khi chạy thử trên Kaggle), tốc độ dựng đã đo, Voice.json, trang web."""
+    import os
+    from rmvideo.interfaces.web import routes_auth
+    from rmvideo.media import ff, renderer
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert ff.ASSETS_DIR == os.path.join(root, "assets") and os.path.isfile(ff.FONT_PATH)
+    assert os.path.dirname(ff.LOGO_PATH) == ff.ASSETS_DIR
+    assert os.path.dirname(renderer.DEFAULT_SPEED_FILE) == root
+    assert os.path.isfile(routes_auth.INDEX_HTML) and os.path.isfile(routes_auth.LOGIN_HTML)
+    assert auth._KEY_FILE == os.path.join(root, ".session_key")

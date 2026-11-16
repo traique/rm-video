@@ -38,7 +38,7 @@ Manager** của Botkeep, theo thứ tự (an toàn trước):
 3. `outputs/` — video kết quả cũ (tải về trước nếu cần).
 4. Gói tuỳ chọn không dùng tới: `models/` (gói offline ~185MB, cài lại bằng `setup_offline`), `tools/` (Node + PO token
    ~300MB và deno ~100MB, cài lại bằng `setup_potoken` / `setup_youtube`), `potoken/`.
-Đừng xoá `jobs.db`, `settings.json`, `.session_key`, `assets/logo.png`. Bot chạy lại được thì gõ `status` xem thư mục
+Đừng xoá `jobs.db` (kèm `jobs.db-wal`, `jobs.db-shm` từ bản 41), `settings.json`, `.session_key`, `assets/logo.png`. Bot chạy lại được thì gõ `status` xem thư mục
 nào chiếm chỗ, `clean` để xoá bộ nhớ đệm pip + cache; lúc khởi động bot tự cảnh báo khi ổ còn < 400MB.
 
 ## Gói offline (tuỳ chọn)
@@ -60,6 +60,10 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
   yt-dlp tắt extractor "generic" (tải được mọi URL bất kỳ).
 - **Model và mã tải về**: model tách giọng kiểm SHA-256; server PO token build đúng tag phiên bản plugin, `npm ci`.
 - `settings.json` (chứa key) ghi quyền 600; `/health` công khai chỉ trả `ok` và số job chờ.
+- **Đổi cài đặt nhạy cảm phải nhập lại mật khẩu web** (từ bản 41): `YTDLP_PROXY`, `PUBLIC_URL`, tên/token Kaggle,
+  ID/token Fanpage, `ALLOWED_USERS`, `ADMIN_CHAT_ID` — những khoá đổi được nơi dữ liệu và quyền đi tới. Lộ cookie phiên
+  đăng nhập không đủ để chuyển cookies YouTube qua proxy lạ hay đẩy video lên tài khoản Kaggle của người khác. Trang
+  cài đặt tự hiện hộp thoại nhập mật khẩu (mục có 🔒); script dùng header `X-Auth` (đã là mật khẩu) thì không hỏi.
 
 ## Web panel (link web của Botkeep)
 
@@ -69,6 +73,8 @@ mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nh�
 - Đăng nhập, rồi dán link video **hoặc tải file video lên trực tiếp** để remake, chọn chế độ / thời lượng / giọng.
 - **⚙️ Cài đặt ngay trên web**: key, model, cookies YouTube, giọng đọc, `ALLOWED_USERS`, `ALLOWED_SOURCES`... lưu vào
   `settings.json`, áp dụng ngay. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.
+  Cài đặt ảnh hưởng tới cách dựng (chất lượng, giọng, phụ đề, đoạn mở đầu...) lưu trong lúc một job đang chạy thì áp
+  dụng từ job kế tiếp (ô cài đặt ghi «áp dụng khi job đang chạy xong»): một video không bị đổi cấu hình giữa chừng.
 - Theo dõi hàng đợi theo thời gian thực (Server-Sent Events `/api/events`, mất kết nối thì tự quay về hỏi lại);
   tải video kết quả, phụ đề `.srt` và `timeline.json` (từng đoạn: thời điểm, cờ tiếng gốc, lời gốc, lời mới, chỗ
   giọng thật sự nằm) để dựng tay trong CapCut/Premiere.
@@ -444,3 +450,22 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 - YouTube trên IP datacenter có thể đòi cookies; TikTok thường ổn. Cần thì thêm `cookiefile` vào ydl_opts trong core_video.py.
 - Video nguồn không có tiếng: chế độ Nấu ăn tự bỏ lớp tiếng nền, vẫn chạy bình thường.
 - Hàng đợi tối đa 5 video (chống tràn RAM/disk), 1 worker duy nhất.
+
+## Kiến trúc mã (bản 41)
+
+Một tiến trình asyncio (`main.py`): web panel, bot Telegram, console, một worker chạy hàng đợi, tự động đăng. Mã tách
+theo tầng trong gói `rmvideo/` (phụ thuộc một chiều: giao diện → điều phối → media / dịch vụ ngoài → kiểu dữ liệu):
+
+| Thư mục | Nội dung |
+| --- | --- |
+| `rmvideo/domain/` | từ vựng job (chế độ, trạng thái), giọng VieNeu, chuẩn hoá link kênh — thuần, không I/O |
+| `rmvideo/app/` | schema cài đặt (`settings.py`), một chỗ dựng Job (`job_factory.py`), bus sự kiện, dữ liệu theo job, SQLite WAL, hàm dựng chung Botkeep/Kaggle (`assemble.py`) |
+| `rmvideo/app/flow/` | bộ điều phối: `dispatch` → `remake` (video có lời, các bước có tên) / `music` / `photo` / `long_video`, giao ở `delivery` |
+| `rmvideo/media/` | `proc` (tiến trình con theo job, giết cả nhóm), `ff`, `fetch`, `tts_engine`, `voiceplan`, `filtergraph`, `renderer` |
+| `rmvideo/services/` | định tuyến AI (`llm.py`), bộ mã gửi Kaggle tự tính (`kaggle_bundle.py`) |
+| `rmvideo/interfaces/` | web (`auth`, `http`, `routes_*`, `app`), Telegram (`access`, `keyboards`, `handlers`, `bot`) |
+
+`pipeline.py`, `core_video.py`, `web_panel.py`, `tg_bot.py` ở gốc còn là mặt tiền tương thích (tên cũ vẫn dùng được, kể
+cả trong notebook Kaggle). Lưới an toàn khi sửa: `tests/test_snapshot_pipeline.py` (25 kịch bản pipeline),
+`tests/test_snapshot_prompts.py` (prompt AI giống từng byte), `tests/test_kaggle_bundle.py` (mã gửi Kaggle tự đủ, chạy
+được trên Python 3.10). Kế hoạch và trạng thái: `docs/KE_HOACH_REFACTOR.md`.

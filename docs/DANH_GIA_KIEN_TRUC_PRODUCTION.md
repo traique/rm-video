@@ -1,5 +1,8 @@
 # Đánh giá kiến trúc & kế hoạch đưa lên production (13/11/2026)
 
+> Bản 41 đã thực hiện lộ trình tái cấu trúc (Phần 3-4) và các mục còn mở C8, C9, C10, A5 — xem
+> `docs/KE_HOACH_REFACTOR.md`, mục "Trạng thái thực hiện". `samples/` đã thành mã thật trong gói `rmvideo/`.
+
 Vai trò: kỹ sư hệ thống tiếp nhận codebase để vận hành lâu dài. Mọi nhận định dưới đây đều có dẫn chiếu `tệp:dòng`
 trên mã thật tại commit hiện hành; chỗ nào chưa kiểm chứng được sẽ ghi rõ.
 
