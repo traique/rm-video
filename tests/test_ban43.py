@@ -174,7 +174,11 @@ def _header(text: str) -> str:
 
 
 def test_expired_kernel_exits_before_installing_anything():
-    old = kaggle_worker.with_expiry({"kind": "analyze"}, -2 * kaggle_worker.EXPIRY_SLACK)
+    import time
+    queue_max = 8 * 60
+    exp = kaggle_worker.with_expiry({}, queue_max)["expires_at"]
+    assert exp <= time.time() + queue_max - kaggle_worker.EXPIRY_MARGIN + 1    # hết hạn TRƯỚC lúc bot thôi chờ
+    old = kaggle_worker.with_expiry({"kind": "analyze"}, 0)
     r = subprocess.run([sys.executable, "-c", _header(kaggle_worker.kernel_text(old)) + "print('CHẠY TIẾP')"],
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and "thoát ngay" in r.stdout and "CHẠY TIẾP" not in r.stdout

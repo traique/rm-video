@@ -62,12 +62,14 @@ def _cancel_session(slug: str):
 
 
 def with_expiry(spec: dict, start_within: float) -> dict:
-    """Gắn hạn bắt đầu cho việc gửi Kaggle: phiên được cấp máy sau hạn này (bot đã bỏ chờ, đã làm trên Botkeep) thì
-    thoát ngay (xem kernel_text)."""
-    return {**spec, "expires_at": round(time.time() + start_within + EXPIRY_SLACK)}
+    """Gắn hạn bắt đầu cho việc gửi Kaggle: phiên được cấp máy sau hạn này thì thoát ngay (xem kernel_text). Hạn đặt
+    SỚM hơn lúc bot thôi chờ (start_within giây tính từ sau khi gửi) EXPIRY_MARGIN giây: phiên được cấp máy sát giờ bot
+    bỏ chờ cũng thoát, không chạy song song với bản làm trên Botkeep. Phiên thoát lúc bot còn chờ thì bot thấy xong mà
+    không có kết quả -> cũng làm trên Botkeep."""
+    return {**spec, "expires_at": round(time.time() + start_within - EXPIRY_MARGIN)}
 
 
-EXPIRY_SLACK = 60          # giây: lệch đồng hồ + độ trễ hỏi trạng thái
+EXPIRY_MARGIN = 30         # giây: lệch đồng hồ Botkeep / Kaggle (NTP, thường < 1 giây)
 
 
 def _watch(slug: str) -> dict:
