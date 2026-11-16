@@ -31,6 +31,7 @@ tông, tagline, câu chốt, âm hiệu, mẫu ảnh bìa) trên web. Đã đặ
 | S3 | `rmvideo/media/edl.py` (kế hoạch dựng, dùng chung Kaggle) + `flow/style.py` lớp A: cỡ khung luân phiên, bỏ khoảng chết, tua nhanh + thẻ, đẩy cận; khúc lặp / đảo dựng bằng clip phụ |
 | S4 | `flow/style_b.py` lớp B: điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế độc lập, bỏ lời tán gẫu; luật R1-R7, lùi về lớp A |
 | S5-S6 | Dấu vân hình chống trùng (`flow/dedupe.py`), thẻ «MẸO» trên video, tài liệu, chạy thử trên video thật của nguồn |
+| Tăng tốc Kaggle | Bản ngắn dựng chung một phiên Kaggle với bản đầy đủ (`Remake.prepare_short` + `produce_batch`), bản đầy đủ 720p / bản ngắn 1080p, tách giọng một lần mỗi video trong phiên, mã hoá GPU h264_nvenc khi có (`renderer.nvenc`) |
 | Bản ngắn | `flow/short.py` + `Remake.render_short`: thêm «Bản ngắn» ≤ 90 giây (`SHORT_VERSION`) sau bản đầy đủ, giữ mọi bước chính đúng thứ tự + điểm danh nguyên liệu; tự đăng chọn bản (`AUTO_POST_VERSION`) |
 
 Hoãn có chủ đích: đọc số tiếng Trung / Anh + đổi cup / oz / °F, đọc chéo chữ định lượng trên hình (S7 — khi dùng nguồn

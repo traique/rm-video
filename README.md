@@ -431,8 +431,11 @@ Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. M
   ra thêm «Bản ngắn» từ cùng video: mỗi bước sơ chế / nấu / bày giữ ít nhất một câu (ưu tiên câu có nguyên liệu,
   con số), đúng thứ tự gốc, điểm danh nguyên liệu kèm thẻ số đã đối chiếu nếu đủ chỗ, kết bằng cảnh món đẩy cận;
   không lấy câu tán gẫu; quá dài thì bỏ bớt câu của bước sơ chế trước. AI viết lời riêng cho bản ngắn; công thức đầy
-  đủ vẫn nằm trong bài đăng. Dựng trên Kaggle nếu được. Tự động đăng: `AUTO_POST_VERSION=short` (mặc định khi có bản
-  ngắn) đăng bản ngắn dạng Reels, `full` đăng bản đầy đủ.
+  đủ vẫn nằm trong bài đăng. Tự động đăng: `AUTO_POST_VERSION=short` (mặc định khi có bản ngắn) đăng bản ngắn dạng
+  Reels, `full` đăng bản đầy đủ.
+  - Tốc độ: dựng trên Kaggle thì AI viết lời bản ngắn TRƯỚC, hai bản dựng chung MỘT phiên (một lần chờ máy GPU, một
+    lần nạp giọng, tách giọng một lần); bản đầy đủ ra 720p (đăng video thường), bản ngắn 1080p (Reels). Phiên GPU có
+    h264_nvenc thì mã hoá bằng GPU (ghi chú «Mã hoá video bằng GPU»), không thì x264 như cũ (`RM_NVENC=0` để tắt).
 - **Nhận diện kênh** (nhóm 🎨): `BRAND_COLOR` (chữ đang đọc của phụ đề, khung chữ hook, thẻ, ảnh bìa), `BRAND_LOOK`
   (ấm mộc / tươi sáng / điện ảnh; `goc` = công thức màu cũ), `BRAND_GRAIN`, `BRAND_TAGLINE` (dưới tên kênh ở màn kết),
   `BRAND_CLOSE` (câu chốt đọc cuối video; bỏ nếu là kêu gọi đăng ký), âm hiệu màn kết (tải ở cuối trang cài đặt,
