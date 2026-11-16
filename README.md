@@ -427,6 +427,12 @@ Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. M
     vi phạm thì tự lùi về `light` và ghi lý do. Chế độ review: `strong` = `light`.
   - Thử trên video thật của nguồn (cánh gà chiên nước mắm, 277 giây, đầu bếp nói liên tục): 42 khúc, đổi cỡ khung 38
     lần, tua 2 đoạn chờ, 277s → 266s; đo chuyển động ~8 giây (4 lõi).
+- **Bản ngắn ≤ 90 giây cho Reels** (`SHORT_VERSION=on`, video nấu ăn dài hơn 100 giây): sau khi giao bản đầy đủ, bot
+  ra thêm «Bản ngắn» từ cùng video: mỗi bước sơ chế / nấu / bày giữ ít nhất một câu (ưu tiên câu có nguyên liệu,
+  con số), đúng thứ tự gốc, điểm danh nguyên liệu kèm thẻ số đã đối chiếu nếu đủ chỗ, kết bằng cảnh món đẩy cận;
+  không lấy câu tán gẫu; quá dài thì bỏ bớt câu của bước sơ chế trước. AI viết lời riêng cho bản ngắn; công thức đầy
+  đủ vẫn nằm trong bài đăng. Dựng trên Kaggle nếu được. Tự động đăng: `AUTO_POST_VERSION=short` (mặc định khi có bản
+  ngắn) đăng bản ngắn dạng Reels, `full` đăng bản đầy đủ.
 - **Nhận diện kênh** (nhóm 🎨): `BRAND_COLOR` (chữ đang đọc của phụ đề, khung chữ hook, thẻ, ảnh bìa), `BRAND_LOOK`
   (ấm mộc / tươi sáng / điện ảnh; `goc` = công thức màu cũ), `BRAND_GRAIN`, `BRAND_TAGLINE` (dưới tên kênh ở màn kết),
   `BRAND_CLOSE` (câu chốt đọc cuối video; bỏ nếu là kêu gọi đăng ký), âm hiệu màn kết (tải ở cuối trang cài đặt,

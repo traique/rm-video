@@ -24,6 +24,7 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import cache
@@ -42,7 +43,7 @@ from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import brand, job_factory
 from rmvideo.app.assemble import _edit_kw, assemble
-from rmvideo.app.flow import analysis, backends, common, dedupe, dish, style, style_b, teaser
+from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, style, style_b, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
@@ -54,6 +55,9 @@ SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
 NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") = video KHÔNG LỜI
 FULL_GATE = [(0.0, 99999.0)]   # không có mốc lời: tắt tiếng nền cả bài
+SHORT_LABEL = "Bản ngắn"
+# job.id -> hàm làm bản ngắn (SHORT_VERSION): dispatch.run_job gọi SAU khi đã giao bản đầy đủ
+SHORT_AFTER: dict[int, Callable[[], Awaitable[str | None]]] = {}
 
 
 def no_speech(segs: list, text: str, timed: bool = True) -> bool:
@@ -122,6 +126,8 @@ class Remake:
         self.facts: recipe.Facts | None = None   # món + định lượng đã đối chiếu (bản 42)
         self.edit: edl.EditPlan | None = None    # kế hoạch dựng (REMAKE_STYLE, bản 42)
         self.cards: list = []                    # thẻ chữ ngoài kế hoạch dựng (mẹo trên video), mốc chưa cộng mở đầu
+        self.end_src = 0.0                       # hết phần dựng trên video GỐC (đã cắt quảng cáo cuối)
+        self.short_pass = False                  # đang làm bản ngắn: không làm lại ảnh bìa
 
     # ---------------- các bước ----------------
 
@@ -132,6 +138,7 @@ class Remake:
         self.place()
         self.cut_promo()
         self.plan_separation()
+        self.end_src = self.out_dur / self.stretch
         self.cover_cuts = [c / self.stretch for c in self.cuts]
         self.cover_end = self.out_dur / self.stretch
         silent = no_speech([s for s in self.segs if s[0] < self.out_dur - 0.5], self.text, bool(self.raw_segs))
@@ -161,8 +168,80 @@ class Remake:
         if self.remote:
             out = await self.render_remote(segs_t)
             if out is not None:
+                self.queue_short(out)
                 return out
-        return await self.render_local(segs_t, timed)
+        out = await self.render_local(segs_t, timed)
+        self.queue_short(out)
+        return out
+
+    # ---------------- bản ngắn ≤ 90 giây (SHORT_VERSION) ----------------
+
+    def queue_short(self, out: Any):
+        """Hẹn làm bản ngắn sau khi giao bản đầy đủ: video nấu ăn dài hơn Reels, không phải phần của video dài."""
+        job = self.job
+        if (config.SHORT_VERSION == "on" and job.mode == Mode.COOK and isinstance(out, str) and not job.remote_src
+                and not kaggle_worker.collecting() and self.end_src * self.stretch > short.MIN_SOURCE
+                and self.out_dur > short.REEL_MAX):
+            SHORT_AFTER[job.id] = self.render_short
+
+    async def render_short(self) -> str | None:
+        """Bản ngắn: kế hoạch riêng (rmvideo/app/flow/short.py), AI viết lời mới cho các câu được giữ, dựng (Kaggle nếu
+        được, không thì Botkeep) vào thư mục con. Lỗi: ghi chú, chỉ còn bản đầy đủ (không làm hỏng job)."""
+        job = self.job
+        T = float(self.tz["dur"]) if self.tz else 0.0
+        end = self.end_src
+        segs_src = [(a, min(b, end), t) for a, b, t in self.raw_segs if a < end]
+        plan, why = short.plan_short(end, segs_src, self.facts, short.budget(T), self.stretch)
+        if plan is None:
+            job.note(f"ℹ️ Không làm bản ngắn ({why}). ")
+            return None
+        mapped = [(round(oa + T, 2), round(ob + T, 2), t) for a, b, t in segs_src
+                  for oa, ob in [(plan.to_out(a), plan.to_out(b))] if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
+        side = [(round(x["t"] + T, 2), round(x["t"] + x["dur"] + T, 2), x["text"]) for x in plan.texts if x.get("text")]
+        segs = sorted(mapped + side)
+        cuts = ([T] if T else []) + [round(c + T, 2) for c in plan.cut_points()]
+        speech = [(a + T, b + T) for a, b in plan.map_windows([(a, b) for a, b, _ in segs_src])]
+        sub = os.path.join(self.tmp, "short")
+        os.makedirs(sub, exist_ok=True)
+        keep = {k: getattr(self, k) for k in ("segs", "cuts", "speech", "out_dur", "render_dur", "edit", "tmp", "cards",
+                                              "ass", "tasks", "pre_cover")}
+        keep_job = (job.srt, job.final_segments, job.script, job.out_dur)
+        self.short_pass = True
+        self.segs, self.cuts, self.speech, self.edit, self.tmp, self.cards = segs, cuts, speech, plan, sub, []
+        self.out_dur = round(plan.out_dur() + T, 2)
+        self.render_dur, self.ass, self.tasks, self.pre_cover = 0, os.path.join(sub, "subs.ass"), [], None
+        try:
+            job.note(f"ℹ️ {plan.summary} ")
+            job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
+            timed = await prompt_engine.generate_timed_any(
+                self.title, self.desc, job.mode, scenes.snap_to_cuts(segs, cuts) if len(segs) >= 2 else segs,
+                self.out_dur, images_for=self.keyframes_for, **({"teaser": T} if T else {}))
+            if not timed:
+                job.note("ℹ️ Bản ngắn: AI viết lời lỗi, bỏ bản ngắn. ")
+                return None
+            segs_t = timed["segments"]
+            brand.add_close(segs_t)
+            if not job.approved:
+                await self.pre_shorten(segs_t)
+            out = await self.render_remote(segs_t) if self.remote else None
+            if not isinstance(out, str):
+                out = await self.render_local(segs_t, timed)
+            return out
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logging.warning("Bản ngắn lỗi: %s", e)
+            job.note(f"⚠️ Bản ngắn lỗi ({str(e)[:120]}): chỉ có bản đầy đủ. ")
+            return None
+        finally:
+            for t in self.tasks:                          # việc nền của riêng lượt bản ngắn
+                if not t.done():
+                    t.cancel()
+            await asyncio.gather(*self.tasks, return_exceptions=True)
+            for k, v in keep.items():
+                setattr(self, k, v)
+            job.srt, job.final_segments, job.script, job.out_dur = keep_job
+            self.short_pass = False
 
     async def measure(self):
         job = self.job
@@ -640,7 +719,7 @@ class Remake:
 
     def start_cover(self, post_title: str) -> asyncio.Task | None:
         """Ảnh bìa chạy song song với render (chấm điểm khung + AI chọn ảnh: nhẹ CPU, chủ yếu chờ mạng)."""
-        if config.COVER == "0":
+        if config.COVER == "0" or self.short_pass:      # bản ngắn dùng chung ảnh bìa của bản đầy đủ
             return None
         a = scenes.analyzed(self.inp)
         t = asyncio.create_task(cover_mod.make_cover(

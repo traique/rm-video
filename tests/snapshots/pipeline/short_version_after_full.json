@@ -1,0 +1,855 @@
+{
+ "calls": {
+  "ai.recipe": [
+   [
+    "Thịt kho tộ",
+    [
+     "cho 500 gam thịt vào thau",
+     "ướp với 2 muỗng nước mắm",
+     "ôi thơm quá trời",
+     "bắc chảo phi tỏi",
+     "cho thịt vào đảo đều",
+     "thêm nước dừa kho lửa nhỏ",
+     "nói chuyện chút xíu nha",
+     "nêm lại cho vừa",
+     "rắc tiêu lên",
+     "múc ra dĩa",
+     "ăn với cơm nóng",
+     "vậy là xong rồi"
+    ],
+    12
+   ]
+  ],
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      1.0,
+      7.0,
+      "cho 500 gam thịt vào thau"
+     ],
+     [
+      11.0,
+      17.0,
+      "ướp với 2 muỗng nước mắm"
+     ],
+     [
+      21.0,
+      27.0,
+      "ôi thơm quá trời"
+     ],
+     [
+      31.0,
+      37.0,
+      "bắc chảo phi tỏi"
+     ],
+     [
+      41.0,
+      47.0,
+      "cho thịt vào đảo đều"
+     ],
+     [
+      51.0,
+      57.0,
+      "thêm nước dừa kho lửa nhỏ"
+     ],
+     [
+      61.0,
+      67.0,
+      "nói chuyện chút xíu nha"
+     ],
+     [
+      71.0,
+      77.0,
+      "nêm lại cho vừa"
+     ],
+     [
+      81.0,
+      87.0,
+      "rắc tiêu lên"
+     ],
+     [
+      91.0,
+      97.0,
+      "múc ra dĩa"
+     ],
+     [
+      101.0,
+      107.0,
+      "ăn với cơm nóng"
+     ],
+     [
+      111.0,
+      117.0,
+      "vậy là xong rồi"
+     ]
+    ],
+    130.0,
+    0.0,
+    12
+   ],
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.15,
+      6.15,
+      "cho 500 gam thịt vào thau"
+     ],
+     [
+      6.4,
+      12.45,
+      "ướp với 2 muỗng nước mắm"
+     ],
+     [
+      12.7,
+      18.75,
+      "bắc chảo phi tỏi"
+     ],
+     [
+      19.0,
+      25.05,
+      "cho thịt vào đảo đều"
+     ],
+     [
+      25.3,
+      31.35,
+      "thêm nước dừa kho lửa nhỏ"
+     ],
+     [
+      31.6,
+      37.65,
+      "nêm lại cho vừa"
+     ],
+     [
+      37.9,
+      43.95,
+      "rắc tiêu lên"
+     ],
+     [
+      44.2,
+      50.25,
+      "múc ra dĩa"
+     ],
+     [
+      50.5,
+      56.55,
+      "ăn với cơm nóng"
+     ],
+     [
+      56.8,
+      62.85,
+      "vậy là xong rồi"
+     ]
+    ],
+    65.5,
+    0.0,
+    10
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": false,
+     "ambient": null,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": [
+      [
+       1.0,
+       7.0
+      ],
+      [
+       11.0,
+       17.0
+      ],
+      [
+       21.0,
+       27.0
+      ],
+      [
+       31.0,
+       37.0
+      ],
+      [
+       41.0,
+       47.0
+      ],
+      [
+       51.0,
+       57.0
+      ],
+      [
+       61.0,
+       67.0
+      ],
+      [
+       71.0,
+       77.0
+      ],
+      [
+       81.0,
+       87.0
+      ],
+      [
+       91.0,
+       97.0
+      ],
+      [
+       101.0,
+       107.0
+      ],
+      [
+       111.0,
+       117.0
+      ]
+     ],
+     "input": "<TMP>/w/136/input.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/136/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:11.00,0:00:12.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:21.00,0:00:22.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:31.00,0:00:32.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3",
+      "Dialogue: 0,0:00:41.00,0:00:42.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới4 {\\kf30}mới4 {\\kf25}mới4",
+      "Dialogue: 0,0:00:51.00,0:00:52.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới5 {\\kf30}mới5 {\\kf25}mới5",
+      "Dialogue: 0,0:01:01.00,0:01:02.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới6 {\\kf30}mới6 {\\kf25}mới6",
+      "Dialogue: 0,0:01:11.00,0:01:12.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới7 {\\kf30}mới7 {\\kf25}mới7",
+      "Dialogue: 0,0:01:21.00,0:01:22.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới8 {\\kf30}mới8 {\\kf25}mới8",
+      "Dialogue: 0,0:01:31.00,0:01:32.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới9 {\\kf30}mới9 {\\kf25}mới9",
+      "Dialogue: 0,0:01:41.00,0:01:42.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới10 {\\kf30}mới10 {\\kf25}mới10",
+      "Dialogue: 0,0:01:51.00,0:01:52.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới11 {\\kf30}mới11 {\\kf25}mới11"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/136/voice.wav"
+    }
+   ],
+   [
+    {
+     "allow_hd": false,
+     "ambient": null,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "edit": {
+      "level": "short",
+      "overlays": [],
+      "pieces": [
+       {
+        "a": 0.85,
+        "b": 7.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 10.85,
+        "b": 17.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 30.85,
+        "b": 37.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 40.85,
+        "b": 47.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.18
+       },
+       {
+        "a": 50.85,
+        "b": 57.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 70.85,
+        "b": 77.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 80.85,
+        "b": 87.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 90.85,
+        "b": 97.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.18
+       },
+       {
+        "a": 100.85,
+        "b": 107.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 110.85,
+        "b": 117.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 127.5,
+        "b": 130.0,
+        "fx": "",
+        "push": 0.06,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       }
+      ],
+      "stretch": 1.0,
+      "summary": "Bản ngắn: giữ 4/4 bước chính; 130s -> 66s.",
+      "texts": [],
+      "v": 1
+     },
+     "gate": [
+      [
+       1.0,
+       7.0
+      ],
+      [
+       11.0,
+       17.0
+      ],
+      [
+       21.0,
+       27.0
+      ],
+      [
+       31.0,
+       37.0
+      ],
+      [
+       41.0,
+       47.0
+      ],
+      [
+       51.0,
+       57.0
+      ],
+      [
+       61.0,
+       67.0
+      ],
+      [
+       71.0,
+       77.0
+      ],
+      [
+       81.0,
+       87.0
+      ],
+      [
+       91.0,
+       97.0
+      ],
+      [
+       101.0,
+       107.0
+      ],
+      [
+       111.0,
+       117.0
+      ]
+     ],
+     "input": "<TMP>/w/136/input.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/136/short/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.15,0:00:01.65,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:06.40,0:00:07.90,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:12.70,0:00:14.20,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:19.00,0:00:20.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3",
+      "Dialogue: 0,0:00:25.30,0:00:26.80,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới4 {\\kf30}mới4 {\\kf25}mới4",
+      "Dialogue: 0,0:00:31.60,0:00:33.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới5 {\\kf30}mới5 {\\kf25}mới5",
+      "Dialogue: 0,0:00:37.90,0:00:39.40,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới6 {\\kf30}mới6 {\\kf25}mới6",
+      "Dialogue: 0,0:00:44.20,0:00:45.70,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới7 {\\kf30}mới7 {\\kf25}mới7",
+      "Dialogue: 0,0:00:50.50,0:00:52.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới8 {\\kf30}mới8 {\\kf25}mới8",
+      "Dialogue: 0,0:00:56.80,0:00:58.30,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới9 {\\kf30}mới9 {\\kf25}mới9"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/136/short/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    130.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     5.417,
+     16.25,
+     27.083,
+     37.917,
+     48.75,
+     59.583,
+     70.417,
+     81.25,
+     92.083,
+     102.917,
+     113.75,
+     124.583
+    ]
+   ],
+   [
+    [
+     4.0,
+     14.0,
+     24.0,
+     34.0,
+     44.0,
+     54.0,
+     64.0,
+     74.0,
+     84.0,
+     94.0,
+     104.0,
+     114.0
+    ]
+   ],
+   [
+    [
+     4.0,
+     13.975,
+     33.975,
+     43.975,
+     53.975,
+     73.975,
+     83.975,
+     93.975,
+     103.975,
+     113.975
+    ]
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới10 mới10 mới10",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới11 mới11 mới11",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới3 mới3 mới3",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới4 mới4 mới4",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới5 mới5 mới5",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới6 mới6 mới6",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới7 mới7 mới7",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới8 mới8 mới8",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới9 mới9 mới9",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Định lượng: 2/2 khớp lời gốc. ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 12 đoạn giọng; lệch tối đa 0.0s; đã che 1 dải chữ gốc.ℹ️ Bản ngắn: giữ 4/4 bước chính; 130s -> 66s. ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 10 đoạn giọng, 10 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "final_segments": [
+     {
+      "end": 11.0,
+      "i": 0,
+      "orig": "cho 500 gam thịt vào thau",
+      "ost": "new",
+      "start": 1.0,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 2.3,
+       "speed": 1.0,
+       "start": 1.0
+      }
+     },
+     {
+      "end": 21.0,
+      "i": 1,
+      "orig": "ướp với 2 muỗng nước mắm",
+      "ost": "new",
+      "start": 11.0,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 12.3,
+       "speed": 1.0,
+       "start": 11.0
+      }
+     },
+     {
+      "end": 31.0,
+      "i": 2,
+      "orig": "ôi thơm quá trời",
+      "ost": "new",
+      "start": 21.0,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 22.3,
+       "speed": 1.0,
+       "start": 21.0
+      }
+     },
+     {
+      "end": 41.0,
+      "i": 3,
+      "orig": "bắc chảo phi tỏi",
+      "ost": "new",
+      "start": 31.0,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 32.3,
+       "speed": 1.0,
+       "start": 31.0
+      }
+     },
+     {
+      "end": 51.0,
+      "i": 4,
+      "orig": "cho thịt vào đảo đều",
+      "ost": "new",
+      "start": 41.0,
+      "text": "Lời mới4 mới4 mới4",
+      "voice": {
+       "end": 42.3,
+       "speed": 1.0,
+       "start": 41.0
+      }
+     },
+     {
+      "end": 61.0,
+      "i": 5,
+      "orig": "thêm nước dừa kho lửa nhỏ",
+      "ost": "new",
+      "start": 51.0,
+      "text": "Lời mới5 mới5 mới5",
+      "voice": {
+       "end": 52.3,
+       "speed": 1.0,
+       "start": 51.0
+      }
+     },
+     {
+      "end": 71.0,
+      "i": 6,
+      "orig": "nói chuyện chút xíu nha",
+      "ost": "new",
+      "start": 61.0,
+      "text": "Lời mới6 mới6 mới6",
+      "voice": {
+       "end": 62.3,
+       "speed": 1.0,
+       "start": 61.0
+      }
+     },
+     {
+      "end": 81.0,
+      "i": 7,
+      "orig": "nêm lại cho vừa",
+      "ost": "new",
+      "start": 71.0,
+      "text": "Lời mới7 mới7 mới7",
+      "voice": {
+       "end": 72.3,
+       "speed": 1.0,
+       "start": 71.0
+      }
+     },
+     {
+      "end": 91.0,
+      "i": 8,
+      "orig": "rắc tiêu lên",
+      "ost": "new",
+      "start": 81.0,
+      "text": "Lời mới8 mới8 mới8",
+      "voice": {
+       "end": 82.3,
+       "speed": 1.0,
+       "start": 81.0
+      }
+     },
+     {
+      "end": 101.0,
+      "i": 9,
+      "orig": "múc ra dĩa",
+      "ost": "new",
+      "start": 91.0,
+      "text": "Lời mới9 mới9 mới9",
+      "voice": {
+       "end": 92.3,
+       "speed": 1.0,
+       "start": 91.0
+      }
+     },
+     {
+      "end": 111.0,
+      "i": 10,
+      "orig": "ăn với cơm nóng",
+      "ost": "new",
+      "start": 101.0,
+      "text": "Lời mới10 mới10 mới10",
+      "voice": {
+       "end": 102.3,
+       "speed": 1.0,
+       "start": 101.0
+      }
+     },
+     {
+      "end": 130.0,
+      "i": 11,
+      "orig": "vậy là xong rồi",
+      "ost": "new",
+      "start": 111.0,
+      "text": "Lời mới11 mới11 mới11",
+      "voice": {
+       "end": 112.3,
+       "speed": 1.0,
+       "start": 111.0
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "full",
+    "no_autopost": "",
+    "out_dur": 130.0,
+    "parts": [
+     {
+      "file": "out_136_0.mp4",
+      "label": "Video"
+     },
+     {
+      "file": "out_136_1.mp4",
+      "label": "Bản ngắn"
+     }
+    ],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "recipe": {
+     "dish": "Thịt kho",
+     "fixes": [],
+     "is_recipe": true,
+     "items": [
+      {
+       "first_img": -1,
+       "name": "thịt",
+       "qty": 500.0,
+       "raw": "500 gam",
+       "said_at": 1.0,
+       "seen_at": -1.0,
+       "seg": 0,
+       "status": "ok",
+       "unit": "g"
+      },
+      {
+       "first_img": -1,
+       "name": "nước mắm",
+       "qty": 2.0,
+       "raw": "2 muỗng",
+       "said_at": 11.0,
+       "seen_at": -1.0,
+       "seg": 1,
+       "status": "ok",
+       "unit": "muỗng"
+      }
+     ],
+     "report": "Định lượng: 2/2 khớp lời gốc.",
+     "servings": "",
+     "steps": [
+      {
+       "a": 0,
+       "b": 1,
+       "independent": false,
+       "ingredients": [],
+       "kind": "prep",
+       "t0": 1.0,
+       "t1": 17.0,
+       "text": "Ướp 500 gam thịt với 2 muỗng nước mắm."
+      },
+      {
+       "a": 2,
+       "b": 2,
+       "independent": false,
+       "ingredients": [],
+       "kind": "reaction",
+       "t0": 21.0,
+       "t1": 27.0,
+       "text": ""
+      },
+      {
+       "a": 3,
+       "b": 5,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 31.0,
+       "t1": 57.0,
+       "text": "Phi tỏi, cho thịt vào, thêm nước dừa kho."
+      },
+      {
+       "a": 6,
+       "b": 6,
+       "independent": false,
+       "ingredients": [],
+       "kind": "wait",
+       "t0": 61.0,
+       "t1": 67.0,
+       "text": ""
+      },
+      {
+       "a": 7,
+       "b": 8,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 71.0,
+       "t1": 87.0,
+       "text": "Nêm lại, rắc tiêu."
+      },
+      {
+       "a": 9,
+       "b": 11,
+       "independent": false,
+       "ingredients": [],
+       "kind": "plate",
+       "t0": 91.0,
+       "t1": 117.0,
+       "text": "Múc ra dĩa."
+      }
+     ],
+     "tips": [],
+     "unassigned": [],
+     "v": 1
+    },
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3 Lời mới4 mới4 mới4 Lời mới5 mới5 mới5 Lời mới6 mới6 mới6 Lời mới7 mới7 mới7 Lời mới8 mới8 mới8 Lời mới9 mới9 mới9 Lời mới10 mới10 mới10 Lời mới11 mới11 mới11",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:01,000 --> 00:00:02,500\nLời mới0 mới0 mới0\n\n2\n00:00:11,000 --> 00:00:12,500\nLời mới1 mới1 mới1\n\n3\n00:00:21,000 --> 00:00:22,500\nLời mới2 mới2 mới2\n\n4\n00:00:31,000 --> 00:00:32,500\nLời mới3 mới3 mới3\n\n5\n00:00:41,000 --> 00:00:42,500\nLời mới4 mới4 mới4\n\n6\n00:00:51,000 --> 00:00:52,500\nLời mới5 mới5 mới5\n\n7\n00:01:01,000 --> 00:01:02,500\nLời mới6 mới6 mới6\n\n8\n00:01:11,000 --> 00:01:12,500\nLời mới7 mới7 mới7\n\n9\n00:01:21,000 --> 00:01:22,500\nLời mới8 mới8 mới8\n\n10\n00:01:31,000 --> 00:01:32,500\nLời mới9 mới9 mới9\n\n11\n00:01:41,000 --> 00:01:42,500\nLời mới10 mới10 mới10\n\n12\n00:01:51,000 --> 00:01:52,500\nLời mới11 mới11 mới11\n",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": null
+  }
+ ]
+}

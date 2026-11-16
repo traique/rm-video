@@ -24,6 +24,7 @@ def wanted(job: Job) -> bool:
     if job.mode != Mode.COOK:
         return False
     return (config.POST_RECIPE == "1" or config.TIPS != "off" or config.REMAKE_STYLE == "strong"
+            or config.SHORT_VERSION == "on"
             or (job.source == Source.AUTO and config.AUTO_SKIP_ADS == "1"))
 
 

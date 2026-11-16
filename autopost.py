@@ -57,7 +57,8 @@ DEFAULT_ORDER = ["20:30", "11:30", "17:30", "21:30", "07:00", "12:30", "19:00", 
 VIEW_METRICS = ("fb_reels_total_plays", "blue_reels_play_count", "total_video_views", "post_video_views")
 
 
-SKIP_MARKS = (recipe.NOT_RECIPE, dedupe.DUP_MARK)   # job dừng sớm vì lý do của VIDEO NGUỒN: bỏ video, không tính lỗi
+SKIP_MARKS = (recipe.NOT_RECIPE, dedupe.DUP_MARK)
+SHORT_LABEL = "Bản ngắn"   # job dừng sớm vì lý do của VIDEO NGUỒN: bỏ video, không tính lỗi
 
 
 class FBError(RuntimeError):
@@ -620,6 +621,11 @@ def _post_text(job) -> tuple:
 
 
 def _output_files(job) -> tuple:
+    short = next((p["path"] for p in job.parts if p.get("label") == SHORT_LABEL and os.path.exists(p["path"])), "")
+    if short and config.AUTO_POST_VERSION != "full":     # bản ngắn ≤ 90s: đăng Reels (lan toả tốt hơn video thường)
+        thumb = next((p["path"] for p in job.parts if str(p.get("label", "")).startswith("Ảnh bìa")
+                      and os.path.exists(p["path"])), "")
+        return short, thumb
     video = next((p["path"] for p in job.parts if p.get("label") == "Video" and os.path.exists(p["path"])), "")
     video = video or (job.output if job.output and os.path.exists(job.output) else "")
     thumb = next((p["path"] for p in job.parts if str(p.get("label", "")).startswith("Ảnh bìa")
@@ -882,6 +888,9 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         p["slot"] = nxt[0][1] if nxt else datetime.fromtimestamp(now, VN).strftime("%H:%M")
     title, desc = _post_text(job)
     dur = job.out_dur or p.get("dur") or 0
+    if any(x.get("path") == video and x.get("label") == SHORT_LABEL for x in job.parts):
+        import core_video
+        dur = await core_video.probe_duration(video)          # bản ngắn: độ dài thật (≤ 90s -> Reels API)
     p["publishing"] = now
     save_state(st)                              # ghi dấu TRƯỚC khi tải lên; ghi lỗi thì dừng, chưa đăng gì
     try:

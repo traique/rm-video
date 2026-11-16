@@ -1,0 +1,1288 @@
+{
+ "calls": {
+  "ai.recipe": [
+   [
+    "Thịt kho tộ",
+    [
+     "bước 0 cho 200 gam thịt",
+     "bước 1 cho 200 gam thịt",
+     "bước 2 cho 200 gam thịt",
+     "bước 3 cho 200 gam thịt",
+     "bước 4 cho 200 gam thịt",
+     "bước 5 cho 200 gam thịt",
+     "bước 6 cho 200 gam thịt",
+     "bước 7 cho 200 gam thịt",
+     "bước 8 cho 200 gam thịt",
+     "bước 9 cho 200 gam thịt",
+     "bước 10 cho 200 gam thịt",
+     "bước 11 cho 200 gam thịt"
+    ],
+    12
+   ]
+  ],
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      1.0,
+      7.0,
+      "bước 0 cho 200 gam thịt"
+     ],
+     [
+      11.0,
+      17.0,
+      "bước 1 cho 200 gam thịt"
+     ],
+     [
+      21.0,
+      27.0,
+      "bước 2 cho 200 gam thịt"
+     ],
+     [
+      31.0,
+      37.0,
+      "bước 3 cho 200 gam thịt"
+     ],
+     [
+      41.0,
+      47.0,
+      "bước 4 cho 200 gam thịt"
+     ],
+     [
+      51.0,
+      57.0,
+      "bước 5 cho 200 gam thịt"
+     ],
+     [
+      61.0,
+      67.0,
+      "bước 6 cho 200 gam thịt"
+     ],
+     [
+      71.0,
+      77.0,
+      "bước 7 cho 200 gam thịt"
+     ],
+     [
+      81.0,
+      87.0,
+      "bước 8 cho 200 gam thịt"
+     ],
+     [
+      91.0,
+      97.0,
+      "bước 9 cho 200 gam thịt"
+     ],
+     [
+      101.0,
+      107.0,
+      "bước 10 cho 200 gam thịt"
+     ],
+     [
+      111.0,
+      117.0,
+      "bước 11 cho 200 gam thịt"
+     ]
+    ],
+    130.0,
+    0.0,
+    12
+   ],
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.15,
+      6.15,
+      "bước 0 cho 200 gam thịt"
+     ],
+     [
+      6.4,
+      12.45,
+      "bước 1 cho 200 gam thịt"
+     ],
+     [
+      12.7,
+      18.75,
+      "bước 2 cho 200 gam thịt"
+     ],
+     [
+      19.0,
+      25.05,
+      "bước 3 cho 200 gam thịt"
+     ],
+     [
+      25.3,
+      31.35,
+      "bước 4 cho 200 gam thịt"
+     ],
+     [
+      31.6,
+      37.65,
+      "bước 5 cho 200 gam thịt"
+     ],
+     [
+      37.9,
+      43.95,
+      "bước 6 cho 200 gam thịt"
+     ],
+     [
+      44.2,
+      50.25,
+      "bước 7 cho 200 gam thịt"
+     ],
+     [
+      50.5,
+      56.55,
+      "bước 8 cho 200 gam thịt"
+     ],
+     [
+      56.8,
+      62.85,
+      "bước 9 cho 200 gam thịt"
+     ],
+     [
+      63.1,
+      69.15,
+      "bước 10 cho 200 gam thịt"
+     ],
+     [
+      69.4,
+      75.45,
+      "bước 11 cho 200 gam thịt"
+     ]
+    ],
+    78.1,
+    0.0,
+    12
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "allow_hd": false,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "job": 137,
+     "kind": "remake",
+     "mode": "cook",
+     "out_dur": 130.0,
+     "pos_y": 973,
+     "render_dur": 0,
+     "segments": [
+      {
+       "i": 0,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 1.0,
+       "text": "Lời mới0 mới0 mới0"
+      },
+      {
+       "i": 1,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 11.0,
+       "text": "Lời mới1 mới1 mới1"
+      },
+      {
+       "i": 2,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 21.0,
+       "text": "Lời mới2 mới2 mới2"
+      },
+      {
+       "i": 3,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 31.0,
+       "text": "Lời mới3 mới3 mới3"
+      },
+      {
+       "i": 4,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 41.0,
+       "text": "Lời mới4 mới4 mới4"
+      },
+      {
+       "i": 5,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 51.0,
+       "text": "Lời mới5 mới5 mới5"
+      },
+      {
+       "i": 6,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 61.0,
+       "text": "Lời mới6 mới6 mới6"
+      },
+      {
+       "i": 7,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 71.0,
+       "text": "Lời mới7 mới7 mới7"
+      },
+      {
+       "i": 8,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 81.0,
+       "text": "Lời mới8 mới8 mới8"
+      },
+      {
+       "i": 9,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 91.0,
+       "text": "Lời mới9 mới9 mới9"
+      },
+      {
+       "i": 10,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 101.0,
+       "text": "Lời mới10 mới10 mới10"
+      },
+      {
+       "i": 11,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 111.0,
+       "text": "Lời mới11 mới11 mới11"
+      }
+     ],
+     "sep": {
+      "ok": true,
+      "windows": [
+       [
+        0.7,
+        7.3
+       ],
+       [
+        10.7,
+        17.3
+       ],
+       [
+        20.7,
+        27.3
+       ],
+       [
+        30.7,
+        37.3
+       ],
+       [
+        40.7,
+        47.3
+       ],
+       [
+        50.7,
+        57.3
+       ],
+       [
+        60.7,
+        67.3
+       ],
+       [
+        70.7,
+        77.3
+       ],
+       [
+        80.7,
+        87.3
+       ],
+       [
+        90.7,
+        97.3
+       ],
+       [
+        100.7,
+        107.3
+       ],
+       [
+        110.7,
+        117.3
+       ]
+      ]
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_CLOSE",
+      "BRAND_COLOR",
+      "BRAND_GRAIN",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_LOOK",
+      "BRAND_NAME",
+      "BRAND_SERIES",
+      "BRAND_STING",
+      "BRAND_TAGLINE",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "COVER_TEMPLATE",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "POST_RECIPE",
+      "PUBLIC_URL",
+      "QTY_CHECK",
+      "QUALITY",
+      "REMAKE_STYLE",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SHORT_VERSION",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TIME_SKIP_LABEL",
+      "TIPS",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "speech": [
+      [
+       1.0,
+       7.0
+      ],
+      [
+       11.0,
+       17.0
+      ],
+      [
+       21.0,
+       27.0
+      ],
+      [
+       31.0,
+       37.0
+      ],
+      [
+       41.0,
+       47.0
+      ],
+      [
+       51.0,
+       57.0
+      ],
+      [
+       61.0,
+       67.0
+      ],
+      [
+       71.0,
+       77.0
+      ],
+      [
+       81.0,
+       87.0
+      ],
+      [
+       91.0,
+       97.0
+      ],
+      [
+       101.0,
+       107.0
+      ],
+      [
+       111.0,
+       117.0
+      ]
+     ],
+     "src": {
+      "kind": "video",
+      "max_duration": 300,
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "subs": true,
+     "title": "THỊT KHO MỀM RỤC",
+     "token": "<TOKEN>",
+     "voice": {
+      "engine": "edge",
+      "id": "vi-VN-HoaiMyNeural",
+      "name": ""
+     }
+    }
+   ],
+   [
+    {
+     "allow_hd": false,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "edit": {
+      "level": "short",
+      "overlays": [],
+      "pieces": [
+       {
+        "a": 0.85,
+        "b": 7.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 10.85,
+        "b": 17.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 20.85,
+        "b": 27.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 30.85,
+        "b": 37.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.18
+       },
+       {
+        "a": 40.85,
+        "b": 47.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 50.85,
+        "b": 57.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 60.85,
+        "b": 67.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 70.85,
+        "b": 77.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.18
+       },
+       {
+        "a": 80.85,
+        "b": 87.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 90.85,
+        "b": 97.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 100.85,
+        "b": 107.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 110.85,
+        "b": 117.15,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.18
+       },
+       {
+        "a": 127.5,
+        "b": 130.0,
+        "fx": "",
+        "push": 0.06,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       }
+      ],
+      "stretch": 1.0,
+      "summary": "Bản ngắn: giữ 12/12 bước chính; 130s -> 78s.",
+      "texts": [],
+      "v": 1
+     },
+     "job": 137,
+     "kind": "remake",
+     "mode": "cook",
+     "out_dur": 78.1,
+     "pos_y": 973,
+     "render_dur": 0,
+     "segments": [
+      {
+       "i": 0,
+       "ost": "new",
+       "slot": 6.0,
+       "span": 6.0,
+       "start": 0.15,
+       "text": "Lời mới0 mới0 mới0"
+      },
+      {
+       "i": 1,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 6.4,
+       "text": "Lời mới1 mới1 mới1"
+      },
+      {
+       "i": 2,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 12.7,
+       "text": "Lời mới2 mới2 mới2"
+      },
+      {
+       "i": 3,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 19.0,
+       "text": "Lời mới3 mới3 mới3"
+      },
+      {
+       "i": 4,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 25.3,
+       "text": "Lời mới4 mới4 mới4"
+      },
+      {
+       "i": 5,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 31.6,
+       "text": "Lời mới5 mới5 mới5"
+      },
+      {
+       "i": 6,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 37.9,
+       "text": "Lời mới6 mới6 mới6"
+      },
+      {
+       "i": 7,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 44.2,
+       "text": "Lời mới7 mới7 mới7"
+      },
+      {
+       "i": 8,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 50.5,
+       "text": "Lời mới8 mới8 mới8"
+      },
+      {
+       "i": 9,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 56.8,
+       "text": "Lời mới9 mới9 mới9"
+      },
+      {
+       "i": 10,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 63.1,
+       "text": "Lời mới10 mới10 mới10"
+      },
+      {
+       "i": 11,
+       "ost": "new",
+       "slot": 6.05,
+       "span": 6.05,
+       "start": 69.4,
+       "text": "Lời mới11 mới11 mới11"
+      }
+     ],
+     "sep": {
+      "ok": true,
+      "windows": [
+       [
+        0.7,
+        7.3
+       ],
+       [
+        10.7,
+        17.3
+       ],
+       [
+        20.7,
+        27.3
+       ],
+       [
+        30.7,
+        37.3
+       ],
+       [
+        40.7,
+        47.3
+       ],
+       [
+        50.7,
+        57.3
+       ],
+       [
+        60.7,
+        67.3
+       ],
+       [
+        70.7,
+        77.3
+       ],
+       [
+        80.7,
+        87.3
+       ],
+       [
+        90.7,
+        97.3
+       ],
+       [
+        100.7,
+        107.3
+       ],
+       [
+        110.7,
+        117.3
+       ]
+      ]
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_CLOSE",
+      "BRAND_COLOR",
+      "BRAND_GRAIN",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_LOOK",
+      "BRAND_NAME",
+      "BRAND_SERIES",
+      "BRAND_STING",
+      "BRAND_TAGLINE",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "COVER_TEMPLATE",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "POST_RECIPE",
+      "PUBLIC_URL",
+      "QTY_CHECK",
+      "QUALITY",
+      "REMAKE_STYLE",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SHORT_VERSION",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TIME_SKIP_LABEL",
+      "TIPS",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "speech": [
+      [
+       0.15,
+       6.15
+      ],
+      [
+       6.45,
+       12.45
+      ],
+      [
+       12.75,
+       18.75
+      ],
+      [
+       19.05,
+       25.05
+      ],
+      [
+       25.35,
+       31.35
+      ],
+      [
+       31.65,
+       37.65
+      ],
+      [
+       37.95,
+       43.95
+      ],
+      [
+       44.25,
+       50.25
+      ],
+      [
+       50.55,
+       56.55
+      ],
+      [
+       56.85,
+       62.85
+      ],
+      [
+       63.15,
+       69.15
+      ],
+      [
+       69.45,
+       75.45
+      ]
+     ],
+     "src": {
+      "kind": "video",
+      "max_duration": 300,
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "subs": true,
+     "title": "THỊT KHO MỀM RỤC",
+     "token": "<TOKEN>",
+     "voice": {
+      "engine": "edge",
+      "id": "vi-VN-HoaiMyNeural",
+      "name": ""
+     }
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ],
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    130.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     5.417,
+     16.25,
+     27.083,
+     37.917,
+     48.75,
+     59.583,
+     70.417,
+     81.25,
+     92.083,
+     102.917,
+     113.75,
+     124.583
+    ]
+   ],
+   [
+    [
+     4.0,
+     14.0,
+     24.0,
+     34.0,
+     44.0,
+     54.0,
+     64.0,
+     74.0,
+     84.0,
+     94.0,
+     104.0,
+     114.0
+    ]
+   ],
+   [
+    [
+     4.0,
+     13.975,
+     23.975,
+     33.975,
+     43.975,
+     53.975,
+     63.975,
+     73.975,
+     83.975,
+     93.975,
+     103.975,
+     113.975
+    ]
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ℹ️ Bản ngắn: giữ 12/12 bước chính; 130s -> 78s. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "final_segments": [
+     {
+      "end": 11.0,
+      "i": 0,
+      "orig": "bước 0 cho 200 gam thịt",
+      "ost": "new",
+      "start": 1.0,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 2.0,
+       "speed": 1.0,
+       "start": 1.0
+      }
+     },
+     {
+      "end": 21.0,
+      "i": 1,
+      "orig": "bước 1 cho 200 gam thịt",
+      "ost": "new",
+      "start": 11.0,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 12.0,
+       "speed": 1.0,
+       "start": 11.0
+      }
+     },
+     {
+      "end": 31.0,
+      "i": 2,
+      "orig": "bước 2 cho 200 gam thịt",
+      "ost": "new",
+      "start": 21.0,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 22.0,
+       "speed": 1.0,
+       "start": 21.0
+      }
+     },
+     {
+      "end": 41.0,
+      "i": 3,
+      "orig": "bước 3 cho 200 gam thịt",
+      "ost": "new",
+      "start": 31.0,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 32.0,
+       "speed": 1.0,
+       "start": 31.0
+      }
+     },
+     {
+      "end": 51.0,
+      "i": 4,
+      "orig": "bước 4 cho 200 gam thịt",
+      "ost": "new",
+      "start": 41.0,
+      "text": "Lời mới4 mới4 mới4",
+      "voice": {
+       "end": 42.0,
+       "speed": 1.0,
+       "start": 41.0
+      }
+     },
+     {
+      "end": 61.0,
+      "i": 5,
+      "orig": "bước 5 cho 200 gam thịt",
+      "ost": "new",
+      "start": 51.0,
+      "text": "Lời mới5 mới5 mới5",
+      "voice": {
+       "end": 52.0,
+       "speed": 1.0,
+       "start": 51.0
+      }
+     },
+     {
+      "end": 71.0,
+      "i": 6,
+      "orig": "bước 6 cho 200 gam thịt",
+      "ost": "new",
+      "start": 61.0,
+      "text": "Lời mới6 mới6 mới6",
+      "voice": {
+       "end": 62.0,
+       "speed": 1.0,
+       "start": 61.0
+      }
+     },
+     {
+      "end": 81.0,
+      "i": 7,
+      "orig": "bước 7 cho 200 gam thịt",
+      "ost": "new",
+      "start": 71.0,
+      "text": "Lời mới7 mới7 mới7",
+      "voice": {
+       "end": 72.0,
+       "speed": 1.0,
+       "start": 71.0
+      }
+     },
+     {
+      "end": 91.0,
+      "i": 8,
+      "orig": "bước 8 cho 200 gam thịt",
+      "ost": "new",
+      "start": 81.0,
+      "text": "Lời mới8 mới8 mới8",
+      "voice": {
+       "end": 82.0,
+       "speed": 1.0,
+       "start": 81.0
+      }
+     },
+     {
+      "end": 101.0,
+      "i": 9,
+      "orig": "bước 9 cho 200 gam thịt",
+      "ost": "new",
+      "start": 91.0,
+      "text": "Lời mới9 mới9 mới9",
+      "voice": {
+       "end": 92.0,
+       "speed": 1.0,
+       "start": 91.0
+      }
+     },
+     {
+      "end": 111.0,
+      "i": 10,
+      "orig": "bước 10 cho 200 gam thịt",
+      "ost": "new",
+      "start": 101.0,
+      "text": "Lời mới10 mới10 mới10",
+      "voice": {
+       "end": 102.0,
+       "speed": 1.0,
+       "start": 101.0
+      }
+     },
+     {
+      "end": 130.0,
+      "i": 11,
+      "orig": "bước 11 cho 200 gam thịt",
+      "ost": "new",
+      "start": 111.0,
+      "text": "Lời mới11 mới11 mới11",
+      "voice": {
+       "end": 112.0,
+       "speed": 1.0,
+       "start": 111.0
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "full",
+    "no_autopost": "",
+    "out_dur": 130.0,
+    "parts": [
+     {
+      "file": "out_137_0.mp4",
+      "label": "Video"
+     },
+     {
+      "file": "out_137_1.mp4",
+      "label": "Bản ngắn"
+     }
+    ],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "recipe": {
+     "dish": "Thịt",
+     "fixes": [],
+     "is_recipe": true,
+     "items": [],
+     "report": "Định lượng: lời gốc không có số cụ thể.",
+     "servings": "",
+     "steps": [
+      {
+       "a": 0,
+       "b": 0,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 1.0,
+       "t1": 7.0,
+       "text": "Bước 0."
+      },
+      {
+       "a": 1,
+       "b": 1,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 11.0,
+       "t1": 17.0,
+       "text": "Bước 1."
+      },
+      {
+       "a": 2,
+       "b": 2,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 21.0,
+       "t1": 27.0,
+       "text": "Bước 2."
+      },
+      {
+       "a": 3,
+       "b": 3,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 31.0,
+       "t1": 37.0,
+       "text": "Bước 3."
+      },
+      {
+       "a": 4,
+       "b": 4,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 41.0,
+       "t1": 47.0,
+       "text": "Bước 4."
+      },
+      {
+       "a": 5,
+       "b": 5,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 51.0,
+       "t1": 57.0,
+       "text": "Bước 5."
+      },
+      {
+       "a": 6,
+       "b": 6,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 61.0,
+       "t1": 67.0,
+       "text": "Bước 6."
+      },
+      {
+       "a": 7,
+       "b": 7,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 71.0,
+       "t1": 77.0,
+       "text": "Bước 7."
+      },
+      {
+       "a": 8,
+       "b": 8,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 81.0,
+       "t1": 87.0,
+       "text": "Bước 8."
+      },
+      {
+       "a": 9,
+       "b": 9,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 91.0,
+       "t1": 97.0,
+       "text": "Bước 9."
+      },
+      {
+       "a": 10,
+       "b": 10,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 101.0,
+       "t1": 107.0,
+       "text": "Bước 10."
+      },
+      {
+       "a": 11,
+       "b": 11,
+       "independent": false,
+       "ingredients": [],
+       "kind": "cook",
+       "t0": 111.0,
+       "t1": 117.0,
+       "text": "Bước 11."
+      }
+     ],
+     "tips": [],
+     "unassigned": [
+      "200 g"
+     ],
+     "v": 1
+    },
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3 Lời mới4 mới4 mới4 Lời mới5 mới5 mới5 Lời mới6 mới6 mới6 Lời mới7 mới7 mới7 Lời mới8 mới8 mới8 Lời mới9 mới9 mới9 Lời mới10 mới10 mới10 Lời mới11 mới11 mới11",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,000 --> 00:00:01,000\nx\n",
+    "status": "queued",
+    "step": "Kaggle: chuẩn bị",
+    "teaser": {}
+   },
+   "result": null
+  }
+ ]
+}

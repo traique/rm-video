@@ -18,6 +18,7 @@ và TikTok.
 | S5 | `rmvideo/app/flow/dedupe.py`, lọc `AUTO_MIN_HEIGHT` / quảng cáo trong `autopost` | chế độ theo từng nguồn hoãn (hiện một nguồn nấu ăn) |
 | S6 | thẻ «MẸO» (`Remake.tip_card`, `renderer.overlay_filter`), README, CHANGELOG | mẹo chưa chen vào lời đọc (chỉ thẻ + bài đăng) |
 | S7 | — | hoãn đúng kế hoạch (chưa dùng nguồn nước ngoài) |
+| Bản ngắn | `rmvideo/app/flow/short.py`, `Remake.render_short`, `dispatch.run_job` (giao sau bản đầy đủ), `autopost` (`AUTO_POST_VERSION`) | thêm theo yêu cầu 16/11: mỗi bước chính ≥ 1 câu, đúng thứ tự, không lấy câu tán gẫu; lời đọc của bản ngắn AI viết sau khi duyệt bản đầy đủ (không qua màn duyệt) |
 
 Chạy thử trên video thật của nguồn: cánh gà chiên nước mắm, 277 giây, có phụ đề tiếng Việt của TikTok làm mốc lời.
 - Đo chuyển động: ~8 giây trên 4 lõi.

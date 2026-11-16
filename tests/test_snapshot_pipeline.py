@@ -548,6 +548,41 @@ def test_style_strong_botkeep(env, monkeypatch):
     snap("style_strong_botkeep", env, run(env, _job(env, 135)))
 
 
+def test_short_version_after_full(env, monkeypatch):
+    """SHORT_VERSION=on: video 130s -> bản đầy đủ giao trước, rồi bản ngắn ≤ 90s (kế hoạch riêng, AI viết lời riêng,
+    dựng vào thư mục con); timeline / phụ đề / độ dài của job vẫn là của bản đầy đủ."""
+    monkeypatch.setattr(config, "SHORT_VERSION", "on")
+    env.src = _video(os.path.join(env.tmp, "src", "long130.mp4"), dur=130)
+    env.segs = [(1.0 + 10 * k, 7.0 + 10 * k, t) for k, t in enumerate(
+        ["cho 500 gam thịt vào thau", "ướp với 2 muỗng nước mắm", "ôi thơm quá trời", "bắc chảo phi tỏi",
+         "cho thịt vào đảo đều", "thêm nước dừa kho lửa nhỏ", "nói chuyện chút xíu nha", "nêm lại cho vừa",
+         "rắc tiêu lên", "múc ra dĩa", "ăn với cơm nóng", "vậy là xong rồi"])]
+    env.cuts = []
+    env.recipe_ai = {"is_recipe": True, "dish": "Thịt kho", "servings": "",
+                     "ingredients": [{"name": "thịt", "qty": "500", "unit": "gam", "seg": 0},
+                                     {"name": "nước mắm", "qty": "2", "unit": "muỗng", "seg": 1}],
+                     "steps": [{"kind": "prep", "from": 0, "to": 1, "text": "Ướp 500 gam thịt với 2 muỗng nước mắm."},
+                               {"kind": "reaction", "from": 2, "to": 2, "text": ""},
+                               {"kind": "cook", "from": 3, "to": 5, "text": "Phi tỏi, cho thịt vào, thêm nước dừa kho."},
+                               {"kind": "wait", "from": 6, "to": 6, "text": ""},
+                               {"kind": "cook", "from": 7, "to": 8, "text": "Nêm lại, rắc tiêu."},
+                               {"kind": "plate", "from": 9, "to": 11, "text": "Múc ra dĩa."}], "tips": []}
+    snap("short_version_after_full", env, run(env, _job(env, 136, duration=0, long_mode="full"), fn="run_job"))
+
+
+def test_short_version_kaggle(env, monkeypatch):
+    """Bản ngắn dựng trên Kaggle: spec riêng mang kế hoạch "short"; bản đầy đủ không bị đè."""
+    kaggle_on(monkeypatch)
+    monkeypatch.setattr(config, "SHORT_VERSION", "on")
+    env.src = _video(os.path.join(env.tmp, "src", "long130.mp4"), dur=130)
+    env.segs = [(1.0 + 10 * k, 7.0 + 10 * k, f"bước {k} cho 200 gam thịt") for k in range(12)]
+    env.cuts = []
+    env.recipe_ai = {"is_recipe": True, "dish": "Thịt", "ingredients": [],
+                     "steps": [{"kind": "cook", "from": k, "to": k, "text": f"Bước {k}."} for k in range(12)],
+                     "tips": []}
+    snap("short_version_kaggle", env, run(env, _job(env, 137, long_mode="full"), fn="run_job"))
+
+
 def test_style_review_then_approved_reuses_plan(env, monkeypatch):
     monkeypatch.setattr(config, "REMAKE_STYLE", "light")
     _style_src(env)

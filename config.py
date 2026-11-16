@@ -63,7 +63,7 @@ ALLOWED_USERS: str; ADMIN_CHAT_ID: str; AUTO_POST: str; AUTO_SOURCES: str; AUTO_
 AUTO_PLATFORMS: str; AUTO_PER_DAY: str; AUTO_TIMES: str; AUTO_MODE: str; FB_PAGE_ID: str; FB_PAGE_TOKEN: str
 REMAKE_STYLE: str; POST_RECIPE: str; TIPS: str; QTY_CHECK: str; TIME_SKIP_LABEL: str; BRAND_COLOR: str
 BRAND_LOOK: str; BRAND_GRAIN: str; BRAND_TAGLINE: str; BRAND_CLOSE: str; BRAND_SERIES: str; BRAND_STING: str
-COVER_TEMPLATE: str; AUTO_SKIP_ADS: str; AUTO_MIN_HEIGHT: str
+COVER_TEMPLATE: str; AUTO_SKIP_ADS: str; AUTO_MIN_HEIGHT: str; SHORT_VERSION: str; AUTO_POST_VERSION: str
 
 # ===== Chỉ đặt qua biến môi trường =====
 # (BOT_TOKEN đổi là phải restart polling; WEB_PASSWORD không cho sửa từ web để kẻ lạ không tự đổi khóa)

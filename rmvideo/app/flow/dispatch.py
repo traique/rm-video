@@ -10,7 +10,7 @@ import os
 import config
 import state
 from queue_manager import Job
-from rmvideo.app.flow import common, delivery, long_video, photo
+from rmvideo.app.flow import common, delivery, long_video, photo, remake
 from rmvideo.app.flow import music as music_flow
 from rmvideo.app.flow.remake import Remake
 from rmvideo.domain.job import LongMode, Mode
@@ -91,10 +91,17 @@ async def finish_download(job: Job, tmp: str, inp: str, title: str) -> str:
 async def run_job(job: Job, tmp: str):
     if job.long_mode.startswith("split"):
         await long_video.process_split(job, tmp)
+        remake.SHORT_AFTER.pop(job.id, None)
     elif job.long_mode == LongMode.HIGHLIGHT:
         await long_video.process_highlights(job, tmp)
+        remake.SHORT_AFTER.pop(job.id, None)
     else:
         out = await process(job, tmp)
+        after = remake.SHORT_AFTER.pop(job.id, None)
         if out == "REVIEW":
             return "REVIEW"
         await delivery.deliver(job, out, "Video", job.post or job.script or "")
+        if after is not None:                  # bản ngắn ≤ 90s (SHORT_VERSION): làm SAU khi đã giao bản đầy đủ
+            short = await after()
+            if short and os.path.exists(short):
+                await delivery.deliver(job, short, remake.SHORT_LABEL, job.post or job.script or "")
