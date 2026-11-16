@@ -91,11 +91,17 @@ def montage_times(items: list, end: float, length: float) -> list[tuple]:
     return out
 
 
+_TAIL_STOP = {"thành", "và", "với", "trong", "khoảng", "tầm", "chừng", "cho", "để", "rồi", "là", "của", "vào", "ra",
+              "lên", "thêm", "nửa", "một", "các", "những", "đã", "sẽ", "đến", "tới", "từ"}
+
+
 def _short_step(text: str, kind: str) -> str:
     """Một bước cho lời tóm tắt: vế đầu, tối đa 6 chữ ("Chiên lửa nhỏ khoảng 1 phút rưỡi")."""
     head = (text or kind).split(",")[0].split(";")[0].strip().rstrip(".")
-    words = head.split()
-    return " ".join(words[:6]).lower()
+    words = head.split()[:6]
+    while len(words) > 2 and (words[-1].lower() in _TAIL_STOP or any(ch.isdigit() for ch in words[-1])):
+        words.pop()                               # không để cụt ở "thành", "và", "khoảng 15"
+    return " ".join(words).lower()
 
 
 def _label(it: recipe.Item) -> str:
