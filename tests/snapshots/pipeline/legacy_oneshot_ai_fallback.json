@@ -100,7 +100,7 @@
    "job": {
     "approved": [],
     "cut_at": 0.0,
-    "error": "ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
+    "error": "⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
     "final_segments": [],
     "hook": "",
     "local": "",

@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 130
-target-version = "py310"
+target-version = "py311"
 extend-exclude = ["static"]
 
 [tool.ruff.lint]
@@ -11,3 +11,14 @@ ignore = ["B905", "B007"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Mã mới trong gói rmvideo/ kiểm kiểu chặt (mã cũ ở gốc chưa có chú thích kiểu nên chưa bật).
+[tool.mypy]
+python_version = "3.11"
+files = ["rmvideo"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true

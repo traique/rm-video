@@ -1178,7 +1178,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     job.step = "Viết kịch bản + content (AI)"
     pack = await prompt_engine.generate(title, desc, job.mode, text, target)
     if pack.get("fallback"):
-        job.error = "⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt."
+        job.error = (job.error or "") + ("⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. "
+                                         "Kiểm tra key/model trong Cài đặt. ")
         job.no_autopost = "AI viết kịch bản lỗi, video dùng kịch bản mẫu"
     job.script = pack["script"]
     job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
@@ -1212,7 +1213,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         job.error = (job.error or "") + "".join(notes)
     await _finish_cover(cover_task)
     if bands:
-        job.error = f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."
+        job.error = (job.error or "") + f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."
     return out
 
 

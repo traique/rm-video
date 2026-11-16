@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -13,6 +13,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: ffmpeg (bản của hệ thống, không tải static-ffmpeg mỗi lần chạy)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pip install -r requirements.txt pytest ruff
+      - run: pip install -r requirements.txt pytest ruff mypy
       - run: ruff check .
+      - name: kiểm kiểu gói rmvideo
+        run: if [ -d rmvideo ]; then mypy; fi
       - run: pytest -q
