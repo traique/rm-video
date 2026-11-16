@@ -114,6 +114,10 @@ td .link{margin:2px 0}
 code{font:.8125rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut)}
 footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-size:.875rem}
 [hidden]{display:none}
+dialog.reauth{border:1px solid var(--edge);border-radius:var(--radius);background:var(--card);color:var(--text);
+  padding:16px;width:min(92vw,380px)}
+dialog.reauth::backdrop{background:rgb(0 0 0 / .45)}
+dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 </style>
 </head>
 <body>
@@ -171,6 +175,8 @@ footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-s
     <div id="set_fields" aria-live="polite"></div>
     <label for="logo_file">Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
     <input id="logo_file" name="logo" type="file" accept="image/png">
+    <label for="sting_file">Âm hiệu kênh cho màn kết (≤1,5 giây, tự cắt; bật/tắt ở nhóm 🎨 Nhận diện kênh)</label>
+    <input id="sting_file" name="sting" type="file" accept="audio/*">
     <label for="vref_file">Giọng mẫu cho giọng nhân bản VieNeu (3–15 giây, ít tạp âm, giọng bạn được phép dùng); chọn «clone» ở mục Giọng đọc</label>
     <input id="vref_file" name="ref" type="file" accept="audio/*,video/*">
     <button type="submit" id="save_set" class="btn btn-full">Lưu cài đặt</button>
@@ -230,6 +236,7 @@ footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-s
 </section>
 <section class="card" id="review_card" hidden aria-labelledby="h-review">
   <h2 id="h-review">📝 Duyệt kịch bản <span class="mut" id="review_info"></span></h2>
+  <div id="review_recipe" class="mut" hidden></div>
   <div id="review_rows"></div>
   <button type="button" id="approve_btn" class="btn btn-full">Render với kịch bản này</button>
 </section>
@@ -244,6 +251,15 @@ footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-s
 </section>
 </main>
 <footer>Video Bot · trang riêng của chủ bot, không lập chỉ mục.</footer>
+<dialog id="reauth_dlg" class="reauth" aria-labelledby="reauth_title">
+  <form method="dialog">
+    <h3 id="reauth_title">🔒 Nhập lại mật khẩu web</h3>
+    <p id="reauth_msg" class="mut"></p>
+    <label for="reauth_pw">Mật khẩu</label>
+    <input id="reauth_pw" name="reauth_pw" type="password" autocomplete="current-password">
+    <div class="inline" style="margin-top:12px"><button value="ok" class="btn">Xác nhận</button><button value="cancel" class="btn btn-2" formnovalidate>Huỷ</button></div>
+  </form>
+</dialog>
 <script>
 const $=id=>document.getElementById(id);
 const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -323,7 +339,9 @@ async function loadSettings(){
       }else f='<input id="'+id+'" data-k="'+k+'" autocomplete="off" spellcheck="false" placeholder="'+esc(v.value||'chưa đặt')+'">';
       const state=v.group=='api'?(v.set?' <span class="st-done">✅ đã điền</span>':' <span class="'+(v.need=='must'?'st-error':'mut')+'">'+(v.need=='must'?'⚠️ chưa điền':'chưa điền')+'</span>'):'';
       return '<label for="'+id+'"><b>'+esc(v.label||k)+'</b>'+(v.need?' <i>('+NEED[v.need]+')</i>':'')+state+
-        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+'<br><span>'+esc(v.help||'')+
+        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+
+        (v.pending?' <span class="mut">· áp dụng khi job đang chạy xong</span>':'')+
+        (v.reauth?' <span class="mut" title="Đổi mục này phải nhập lại mật khẩu web">· 🔒</span>':'')+'<br><span>'+esc(v.help||'')+
         (v.link?' <a href="'+esc(v.link)+'" target="_blank" rel="noopener">Lấy ở đây ↗</a>':'')+' <code translate="no">'+esc(k)+'</code></span></label>'+f;
     };
     $('set_fields').innerHTML=groups.map(g=>{
@@ -343,6 +361,9 @@ $('settings_form').onsubmit=async e=>{
 const hasUnsavedSettings=()=>[...document.querySelectorAll('[data-k]')].some(el=>el.value.trim());
 window.addEventListener('beforeunload',e=>{if(hasUnsavedSettings())e.preventDefault();});
 async function saveSettings(){
+  if($('sting_file').files.length){const sf=new FormData();sf.append('sting',$('sting_file').files[0]);
+    const sr=await fetch('/api/sting',{method:'POST',body:sf});
+    $('msg').textContent=sr.ok?'✅ Đã lưu âm hiệu':'❌ '+await sr.text();if(!sr.ok)return;$('sting_file').value='';}
   if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
     const lr=await fetch('/api/logo',{method:'POST',body:lf});
     $('msg').textContent=lr.ok?'✅ Đã lưu logo':'❌ '+await lr.text();if(!lr.ok)return;$('logo_file').value='';}
@@ -351,9 +372,24 @@ async function saveSettings(){
     $('msg').textContent=vr.ok?'✅ Đã lưu giọng mẫu ('+(await vr.json()).seconds+' giây)':'❌ '+await vr.text();if(!vr.ok)return;
     $('vref_file').value='';loadVoices();}
   const body={};document.querySelectorAll('[data-k]').forEach(el=>{if(el.value.trim())body[el.dataset.k]=el.value});
-  const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
-  $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();
+  const post=()=>fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
+  let r=await post();
+  if(r.status==403){
+    const j=await r.clone().json().catch(()=>null);
+    if(j&&j.need_password){
+      const pw=await askPassword(j.error);
+      if(!pw){$('msg').textContent='Chưa lưu: cần nhập lại mật khẩu để đổi '+j.keys.join(', ');return;}
+      body._password=pw;r=await post();
+      if(r.status==403){const j2=await r.json().catch(()=>({}));$('msg').textContent='❌ '+(j2.error||'Sai mật khẩu');return;}
+    }
+  }
+  $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng cho job kế tiếp':'❌ '+await r.text();
   if(r.ok){document.querySelectorAll('[data-k]').forEach(el=>el.value='');loadSettings();}
+}
+function askPassword(msg){
+  const d=$('reauth_dlg');$('reauth_msg').textContent=msg||'';$('reauth_pw').value='';d.returnValue='';
+  return new Promise(res=>{d.onclose=()=>{const pw=d.returnValue=='ok'?$('reauth_pw').value:'';$('reauth_pw').value='';res(pw);};
+    d.showModal();$('reauth_pw').focus();});
 }
 async function autoCall(act){
   try{
@@ -472,6 +508,9 @@ window._jobs={};
 async function cancelJob(id){if(!confirm('Hủy job #'+id+'?'))return;const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
 function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').hidden=false;$('review_card').dataset.id=id;
   $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
+  const rc=j.recipe||{};$('review_recipe').hidden=!rc.report;
+  $('review_recipe').innerHTML=rc.report?'<p>🧾 '+esc(rc.report)+(rc.plan?'<br>🎬 '+esc(rc.plan):'')+'</p>'+((rc.table||[]).length?'<table><thead><tr><th scope="col">Nguyên liệu</th><th scope="col">Lời gốc</th><th scope="col">In ra</th><th scope="col">Đối chiếu</th></tr></thead><tbody>'+
+    rc.table.map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+esc(r.raw||'—')+'</td><td>'+esc(r.std)+'</td><td>'+esc(r.status)+'</td></tr>').join('')+'</tbody></table>':''):'';
   $('review_rows').innerHTML=j.approved.map(s=>'<div class="review-seg"><label for="seg_'+s.i+'">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</label><textarea id="seg_'+s.i+'" data-i="'+s.i+'" rows="2">'+esc(s.text)+'</textarea>'+
     '<select data-ost="'+s.i+'" aria-label="Tiếng gốc của đoạn '+s.i+'">'+OST.map(o=>'<option value="'+o[0]+'"'+((s.ost||'new')==o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>').join('');
   $('review_card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}

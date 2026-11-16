@@ -34,6 +34,9 @@ import aiohttp
 
 import config
 import url_guard
+from rmvideo.app.flow import dedupe
+from rmvideo.domain import recipe
+from rmvideo.domain.sources import PLATFORMS, detect_platform, normalize_source, normalize_tiktok  # noqa: F401
 
 VN = timezone(timedelta(hours=7))           # Việt Nam không đổi giờ mùa hè
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +55,10 @@ EXPLORE = 0.25                 # xác suất thử một khung giờ khác thay 
 CANDIDATES = ["07:00", "09:30", "11:30", "12:30", "17:30", "19:00", "20:30", "21:30"]
 DEFAULT_ORDER = ["20:30", "11:30", "17:30", "21:30", "07:00", "12:30", "19:00", "09:30"]
 VIEW_METRICS = ("fb_reels_total_plays", "blue_reels_play_count", "total_video_views", "post_video_views")
+
+
+SKIP_MARKS = (recipe.NOT_RECIPE, dedupe.DUP_MARK)
+SHORT_LABEL = "Bản ngắn"   # job dừng sớm vì lý do của VIDEO NGUỒN: bỏ video, không tính lỗi
 
 
 class FBError(RuntimeError):
@@ -125,9 +132,6 @@ def tiktok_sources() -> list:
     return _norm_list(getattr(config, "AUTO_TIKTOK_SOURCES", ""), normalize_tiktok)
 
 
-PLATFORMS = ("facebook", "tiktok")
-
-
 def platforms() -> list:
     """Nền tảng nguồn đang tick (AUTO_PLATFORMS). Không tick gì / giá trị lạ -> cả hai."""
     got = [p for p in PLATFORMS if p in re.split(r"[,\s]+", (getattr(config, "AUTO_PLATFORMS", "") or "").lower())]
@@ -139,19 +143,6 @@ def all_sources() -> list:
     on = platforms()
     return ([("facebook", s) for s in sources()] if "facebook" in on else []) + \
         ([("tiktok", s) for s in tiktok_sources()] if "tiktok" in on else [])
-
-
-def detect_platform(link: str) -> str:
-    """Link thuộc Facebook hay TikTok? ("" nếu không nhận ra)."""
-    s = (link or "").strip()
-    if not s:
-        return ""
-    host = (urllib.parse.urlsplit(s if "://" in s else "https://" + s).hostname or "").lower()
-    if host == "tiktok.com" or host.endswith(".tiktok.com"):
-        return "tiktok"
-    if host in ("facebook.com", "fb.com", "fb.watch") or host.endswith((".facebook.com", ".fb.com")):
-        return "facebook"
-    return ""
 
 
 def _source_slot(link: str) -> tuple:
@@ -183,55 +174,6 @@ def remove_source(link: str) -> bool:
     rest = [s for s in cur if s != norm]
     config.save_settings({key: ",".join(rest) if rest else "-"})      # "-": bỏ giá trị đè, quay về biến môi trường
     return True
-
-
-def normalize_tiktok(s: str) -> str:
-    """'quetrai', '@quetrai', 'https://www.tiktok.com/@quetrai?lang=vi' -> https://www.tiktok.com/@quetrai.
-    Link một video (…/video/123) không phải link kênh."""
-    s = (s or "").strip()
-    if not s:
-        return ""
-    if re.match(r"(?i)^(?:[\w-]+\.)*tiktok\.com/", s):
-        s = "https://" + s
-    if s.startswith(("http://", "https://")):
-        parts = urllib.parse.urlsplit(s)
-        host = (parts.hostname or "").lower()
-        if not (host == "tiktok.com" or host.endswith(".tiktok.com")):
-            raise ValueError(f"«{s}» không phải kênh TikTok")
-        seg = [p for p in parts.path.split("/") if p]
-        if not seg or not seg[0].startswith("@") or len(seg) > 1:
-            raise ValueError(f"«{s}» là link video/trang khác, không phải link kênh TikTok (dạng tiktok.com/@tên)")
-        name = seg[0][1:]
-    else:
-        name = s.lstrip("@")
-    if not re.fullmatch(r"[A-Za-z0-9_.]{2,24}", name):
-        raise ValueError(f"«{s}» không phải tên kênh TikTok")
-    return f"https://www.tiktok.com/@{name.lower()}"
-
-
-def normalize_source(s: str) -> str:
-    """'duynauan', '@duynauan', 'https://m.facebook.com/duynauan/reels' -> https://www.facebook.com/duynauan;
-    profile.php?id=123 giữ id. Chỉ nhận kênh Facebook."""
-    s = (s or "").strip()
-    if not s:
-        return ""
-    if re.match(r"(?i)^(?:[\w-]+\.)*facebook\.com/", s):          # "facebook.com/x", "m.facebook.com/x"
-        s = "https://" + s
-    elif not s.startswith(("http://", "https://")):
-        s = "https://www.facebook.com/" + s.lstrip("@/")
-    parts = urllib.parse.urlsplit(s)
-    host = (parts.hostname or "").lower()
-    if not (host == "facebook.com" or host.endswith(".facebook.com")):
-        raise ValueError(f"«{s}» không phải kênh Facebook")
-    seg = [p for p in parts.path.split("/") if p]
-    if seg and seg[0] == "profile.php":
-        pid = urllib.parse.parse_qs(parts.query).get("id", [""])[0]
-        if not pid.isdigit():
-            raise ValueError(f"«{s}» thiếu id kênh")
-        return f"https://www.facebook.com/profile.php?id={pid}"
-    if not seg or seg[0] in ("reel", "watch", "share", "videos", "groups", "events", "login"):
-        raise ValueError(f"«{s}» là link video/nhóm, không phải link kênh")
-    return "https://www.facebook.com/" + seg[0]
 
 
 def per_day() -> int:
@@ -324,11 +266,9 @@ def list_tiktok_sync(src: str) -> tuple:
     trả id, link, chú thích, độ dài)."""
     import yt_dlp
     url_guard.check_url(src)
-    opts = {"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
-            "extract_flat": "in_playlist", "playlistend": 30,
-            "allowed_extractors": url_guard.YTDLP_EXTRACTORS}      # không bao giờ dùng extractor generic (như core_video)
-    if config.YTDLP_PROXY.strip():
-        opts["proxy"] = config.YTDLP_PROXY.strip()
+    from rmvideo.media import fetch
+    opts = fetch.ytdlp_base_options({"quiet": True, "no_warnings": True, "noprogress": True, "skip_download": True,
+                                     "extract_flat": "in_playlist", "playlistend": 30})   # không extractor generic, proxy
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(src, download=False)
     items = []
@@ -681,6 +621,11 @@ def _post_text(job) -> tuple:
 
 
 def _output_files(job) -> tuple:
+    short = next((p["path"] for p in job.parts if p.get("label") == SHORT_LABEL and os.path.exists(p["path"])), "")
+    if short and config.AUTO_POST_VERSION != "full":     # bản ngắn ≤ 90s: đăng Reels (lan toả tốt hơn video thường)
+        thumb = next((p["path"] for p in job.parts if str(p.get("label", "")).startswith("Ảnh bìa")
+                      and os.path.exists(p["path"])), "")
+        return short, thumb
     video = next((p["path"] for p in job.parts if p.get("label") == "Video" and os.path.exists(p["path"])), "")
     video = video or (job.output if job.output and os.path.exists(job.output) else "")
     thumb = next((p["path"] for p in job.parts if str(p.get("label", "")).startswith("Ảnh bìa")
@@ -787,9 +732,9 @@ def _enqueue(st, plat, vid, src, url, info, slot, now, queue, Job, QueueFull) ->
     dur = info.get("duration") or 0
     voice = config.default_voice()
     mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
-    job = Job(url=url, mode=mode, duration=0, voice=voice, source="auto",
-              long_mode="full" if dur > config.MAX_DURATION else "", chat_id=config.admin_chat_id() or 0,
-              title_hint=info.get("title", "")[:200])
+    from rmvideo.app import job_factory
+    job = job_factory.auto(url=url, title=info.get("title", ""), duration=dur, mode=mode, voice=voice,
+                           chat_id=config.admin_chat_id() or 0)
     queue.put(job)
     st["used"][vid] = {"at": now, "source": src, "job": job.id, "plat": plat, "dur": dur,
                        "title": _norm_title(info.get("title") or "")}
@@ -859,7 +804,12 @@ async def _pick_from(st, plat, srcs, slot, now, rnd, core_video, Job, QueueFull,
                 continue
             dur = info.get("duration") or 0
             dup = duplicate_of(st, vid, info)
+            ad = recipe.looks_like_ad(info.get("title") or "", dur) if config.AUTO_SKIP_ADS == "1" else ""
+            min_h = int(config.AUTO_MIN_HEIGHT or 0)
+            short = int(info.get("max_short") or 0)
             why = ("khác kênh" if _owner_mismatch(plat, lst, info) else
+                   ad if ad else
+                   f"nguồn chỉ {short}p < {min_h}p" if min_h and 0 < short < min_h else
                    f"dài {dur}s > {config.LONG_MAX}s" if dur > config.LONG_MAX else
                    "quá ngắn" if 0 < dur < 5 else
                    f"trùng video đã làm ({dup})" if dup else "")
@@ -906,8 +856,26 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         return await _job_failed(st, p, now, "job tự động không còn trong danh sách")
     if job.status in ("queued", "processing", "approved"):
         return f"đang làm job #{job.id}"
+    why_skip = next((m for m in SKIP_MARKS if m in (job.error or "") + str(getattr(job, "no_autopost", ""))), "")
+    if why_skip and job.status in ("done", "error"):
+        # video quảng cáo / không phải công thức / trùng video đã làm (job dừng sớm): bỏ hẳn video nguồn, KHÔNG tính
+        # là lỗi liên tiếp (3 video quảng cáo liền nhau không được làm dừng tự đăng)
+        _fail(st, p["vid"], p["source"], now, why_skip, hard=True)
+        st["pending"] = None
+        return f"job #{job.id}: {why_skip}, chọn video khác"
+    fp = (getattr(job, "source_meta", None) or {}).get("fp")
+    if fp and job.status == "done":                 # dấu vân hình của video đã làm (chống trùng lần sau)
+        fps = st.setdefault("fps", {})
+        fps[p["vid"]] = fp
+        for k in list(fps)[:-dedupe.KEEP]:
+            del fps[k]
     if job.status != "done":
         return await _job_failed(st, p, now, f"job #{job.id} {job.status}: {(job.error or '')[:100]}")
+    if str(getattr(job, "no_autopost", "")).startswith(recipe.NOT_RECIPE):
+        # video quảng cáo / không phải công thức (AI đọc lời gốc): bỏ hẳn video nguồn, KHÔNG tính là lỗi liên tiếp
+        _fail(st, p["vid"], p["source"], now, job.no_autopost, hard=True)
+        st["pending"] = None
+        return f"job #{job.id}: {job.no_autopost}, chọn video khác"
     if getattr(job, "no_autopost", ""):         # AI lỗi / lời mới gần như chép lời gốc: không đăng công khai
         return await _job_failed(st, p, now, f"job #{job.id}: {job.no_autopost}")
     video, thumb = _output_files(job)
@@ -920,6 +888,9 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         p["slot"] = nxt[0][1] if nxt else datetime.fromtimestamp(now, VN).strftime("%H:%M")
     title, desc = _post_text(job)
     dur = job.out_dur or p.get("dur") or 0
+    if any(x.get("path") == video and x.get("label") == SHORT_LABEL for x in job.parts):
+        import core_video
+        dur = await core_video.probe_duration(video)          # bản ngắn: độ dài thật (≤ 90s -> Reels API)
     p["publishing"] = now
     save_state(st)                              # ghi dấu TRƯỚC khi tải lên; ghi lỗi thì dừng, chưa đăng gì
     try:

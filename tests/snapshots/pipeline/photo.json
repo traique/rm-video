@@ -1,0 +1,46 @@
+{
+ "calls": {
+  "ai.generate": [
+   [
+    "Đà Lạt",
+    "photo",
+    "",
+    9
+   ]
+  ],
+  "slideshow.render": [
+   [
+    [
+     "a.jpg"
+    ],
+    "<TMP>/song.mp3",
+    10
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "",
+    "final_segments": [],
+    "hook": "",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 9.6,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho\n\n▶ TikTok:\nĐậm đà #thitkho\n\n▶ Facebook:\nĐậm đà\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho #Shorts\n\nĐậm đà\n\n#thitkho",
+    "script": "Nhạc 120 BPM, kiểu êm, hiệu ứng «Flash Pop»; lấy đoạn từ 2s; 3 cảnh, đổi cảnh đúng beat; 9.6s.",
+    "source_meta": {},
+    "srt": "",
+    "status": "queued",
+    "step": "Dựng ảnh theo nhạc (1 ảnh)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/121/output.mp4"
+  }
+ ]
+}

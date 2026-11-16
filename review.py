@@ -1,9 +1,9 @@
 """Duyệt kịch bản: cờ tiếng gốc từng đoạn, cú pháp trả lời trên Telegram, tạo job render từ bản đã duyệt."""
-import os
 import re
 import unicodedata
 
 from queue_manager import Job
+from rmvideo.app import job_factory
 from state import queue
 
 
@@ -55,17 +55,10 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
             raise ValueError(f"Đoạn {s['i']} đang giữ tiếng gốc nên chưa có lời: nhập lời mới cho đoạn này "
                              f"(\"{s['i']}: lời mới\") rồi mới bỏ giữ tiếng gốc.")
         if text or ost == "orig":
-            segs.append({"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
-                         "text": text, "orig": s.get("orig", ""), "ost": ost})
+            segs += job_factory.approved_segments([{**s, "text": text, "ost": ost}])
     if not segs:
         raise ValueError("Kịch bản trống: cần ít nhất một đoạn có lời.")
-    job = Job(url=src.url, mode=src.mode, duration=src.duration, voice=src.voice, subs=src.subs, cover=src.cover,
-              long_mode=src.long_mode, local=src.local if src.local and os.path.exists(src.local) else "",
-              tg_file_id=src.tg_file_id, title_hint=src.title_hint, music_url=src.music_url,
-              music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
-              approved=segs, cut_at=src.cut_at, source_meta=src.source_meta, teaser=dict(src.teaser or {}))
-    job.post = src.post
-    job.hook = src.hook          # chữ hook in màn hình + ảnh bìa (trước đây bản duyệt mất chữ hook, lấy tiêu đề bài)
+    job = job_factory.approved(src, segs)
     job.script = spoken_script(segs)
     # put() TRƯỚC, đổi trạng thái job cũ SAU: lỗi gì thì kịch bản vẫn còn ở job cũ để duyệt lại (lỗi #4).
     # Job đã duyệt được vượt giới hạn hàng đợi vì người dùng đã chờ và đã sửa tay.

@@ -1,0 +1,296 @@
+{
+ "calls": {
+  "ai.highlights": [
+   [
+    "",
+    130.0,
+    4,
+    [
+     2.0,
+     5.0
+    ],
+    0
+   ]
+  ],
+  "ai.timed": [
+   [
+    "Đoạn chiên (Đoạn hay 1/2)",
+    "cook",
+    [
+     [
+      0.5,
+      1.8,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.1,
+      3.4,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      3.6,
+      4.8,
+      "nêm muối vừa ăn"
+     ],
+     [
+      5.1,
+      7.8,
+      "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
+     ]
+    ],
+    35.082,
+    0.0,
+    4
+   ],
+   [
+    "Đoạn bày (Đoạn hay 2/2)",
+    "cook",
+    [
+     [
+      0.5,
+      1.8,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.1,
+      3.4,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      3.6,
+      4.8,
+      "nêm muối vừa ăn"
+     ],
+     [
+      5.1,
+      7.8,
+      "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
+     ]
+    ],
+    30.082,
+    0.0,
+    4
+   ]
+  ],
+  "asr": [
+   [
+    "audio_full.mp3",
+    "",
+    ""
+   ],
+   [
+    "audio.mp3",
+    "Đoạn chiên (Đoạn hay 1/2)",
+    ""
+   ],
+   [
+    "audio.mp3",
+    "Đoạn bày (Đoạn hay 2/2)",
+    ""
+   ]
+  ],
+  "metric": [
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ],
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": null,
+     "input": "<TMP>/w/125/p0/piece.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/125/p0/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:03.60,0:00:05.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:05.10,0:00:06.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/125/p0/voice.wav"
+    }
+   ],
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": null,
+     "input": "<TMP>/w/125/p1/piece.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/125/p1/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:03.60,0:00:05.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:05.10,0:00:06.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/125/p1/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze": [
+   [
+    "long.mp4",
+    130.0,
+    false,
+    "fast"
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "piece.mp4",
+    35.082,
+    true,
+    true
+   ],
+   [
+    "piece.mp4",
+    30.082,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.15,
+     2.75,
+     4.2,
+     6.45
+    ]
+   ],
+   [
+    [
+     1.15,
+     2.75,
+     4.2,
+     6.45
+    ]
+   ]
+  ],
+  "sep": [
+   [
+    "piece.mp4",
+    [
+     [
+      0.2,
+      8.1
+     ]
+    ]
+   ],
+   [
+    "piece.mp4",
+    [
+     [
+      0.2,
+      8.1
+     ]
+    ]
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới3 mới3 mới3",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "",
+    "final_segments": [],
+    "hook": "",
+    "local": "<TMP>/up/long.mp4",
+    "long_mode": "highlight",
+    "no_autopost": "",
+    "out_dur": 0.0,
+    "parts": [
+     {
+      "file": "out_125_0.mp4",
+      "label": "Đoạn hay 1/2"
+     },
+     {
+      "file": "out_125_1.mp4",
+      "label": "Đoạn hay 2/2"
+     }
+    ],
+    "pieces": [
+     {
+      "a": 10.0,
+      "b": 45.0,
+      "label": "Đoạn hay 1/2",
+      "note": "⭐ 9/10 · Đoạn chiên — hấp dẫn",
+      "title": "Đoạn chiên"
+     },
+     {
+      "a": 70.0,
+      "b": 100.0,
+      "label": "Đoạn hay 2/2",
+      "note": "⭐ 7/10 · Đoạn bày",
+      "title": "Đoạn bày"
+     }
+    ],
+    "post": "",
+    "script": "Đã xong 2/2 đoạn hay: 10-45s Đoạn chiên; 70-100s Đoạn bày",
+    "source_meta": {},
+    "srt": "",
+    "status": "queued",
+    "step": "Đoạn hay 2/2: Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": null
+  }
+ ]
+}

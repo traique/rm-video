@@ -1,0 +1,95 @@
+{
+ "calls": {
+  "ai.post_only": [
+   [
+    "Thịt kho tộ",
+    "cook"
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "music_bed": [
+   [
+    "<TMP>/w/112/input.mp4",
+    "<TMP>/bgm/nhac.mp3",
+    8.0,
+    3.0,
+    "off",
+    1.0
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/w/112/bed.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": null,
+     "input": "<TMP>/w/112/input.mp4",
+     "mode": "cook",
+     "music_bed": true,
+     "ost": null,
+     "out": "<TMP>/w/112/output.mp4",
+     "stretch": 1.0,
+     "subs": null,
+     "teaser": null,
+     "title": "XEM LÀ ĐÓI",
+     "voice": "<TMP>/w/112/bed.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Video không lời: chèn nhạc nền thay cho lời đọc (bỏ tiếng gốc); đã che 1 dải chữ gốc. ",
+    "final_segments": [],
+    "hook": "XEM LÀ ĐÓI",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 8.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Cảnh nấu ăn\n\n▶ TikTok:\nThư giãn #asmr\n\n▶ Facebook:\nThư giãn\n\n#asmr\n\n▶ YouTube Shorts:\nCảnh nấu ăn #Shorts\n\nThư giãn\n\n#asmr",
+    "script": "🎵 Video không lời: chèn nhạc nền «nhac.mp3» (từ giây 3 của bài), bỏ tiếng gốc; không thêm lời đọc để không nói sai nội dung video gốc.",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/112/output.mp4"
+  }
+ ]
+}

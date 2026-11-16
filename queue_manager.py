@@ -10,6 +10,8 @@ import time
 from dataclasses import asdict, dataclass, field
 
 import config
+from rmvideo.app import db, events
+from rmvideo.domain import job as job_vocab
 
 _ids = itertools.count(1)
 
@@ -18,25 +20,31 @@ class QueueFull(Exception):
     pass
 
 
+_MISSING = object()
+# trường hiện trên web/Telegram: đổi là báo bus sự kiện (SSE gửi ngay, không phải hỏi lại mỗi giây)
+_WATCHED = frozenset({"status", "step", "error", "script", "post", "hook", "output", "srt", "final_segments",
+                      "approved", "parts", "out_dur", "started_at", "finished_at"})
+
+
 @dataclass
 class Job:
     url: str                  # "" nếu input là file đính kèm
-    mode: str                 # "cook" | "review"
+    mode: str                 # rmvideo.domain.job.Mode: cook | review | music | photo | download
     duration: int             # 0 = giữ nguyên, hoặc 30/60/90 giây
     voice: str
     subs: bool = True
     cover: bool = True
-    long_mode: str = ""       # "" | "full" (remake nguyên ≤5 phút) | "split60" | "split90" (cắt nhiều phần) | "highlight" (AI chọn đoạn hay)
+    long_mode: str = ""       # rmvideo.domain.job.LongMode: "" | full | split60 | split90 | highlight
     local: str = ""           # đường dẫn file upload qua web
     tg_file_id: str = ""      # file_id video gửi kèm qua Telegram
     music_url: str = ""       # chế độ music: link nhạc mới
     music_local: str = ""     # chế độ music: file nhạc upload qua web
     music_tg_file_id: str = ""  # chế độ music: file nhạc gửi qua Telegram
     title_hint: str = ""      # tên file/caption gốc làm ngữ cảnh cho AI
-    source: str = "tg"        # "tg" | "web"
+    source: str = "tg"        # rmvideo.domain.job.Source: tg | web | auto
     chat_id: int = 0
     id: int = field(default_factory=lambda: next(_ids))
-    status: str = "queued"    # queued | processing | review | approved | done | error | cancelled
+    status: str = "queued"    # rmvideo.domain.job.Status
     step: str = ""
     error: str = ""
     script: str = ""
@@ -67,6 +75,22 @@ class Job:
     post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
     hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
     teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t"} (bản duyệt dùng lại)
+    edit: dict = field(default_factory=dict)     # kế hoạch dựng đã quyết (REMAKE_STYLE, rmvideo/media/edl.py; bản duyệt dùng lại)
+    recipe: dict = field(default_factory=dict)   # món + định lượng đã đối chiếu với lời gốc (rmvideo/domain/recipe.py)
+
+    def __setattr__(self, name, value):
+        old = self.__dict__.get(name, _MISSING)
+        object.__setattr__(self, name, value)
+        if old is _MISSING or name not in _WATCHED or old == value:
+            return                                   # lúc khởi tạo / trường nội bộ / không đổi: im lặng
+        if name == "step":
+            events.step_changed(self, value)         # ghi timeline, chép tiến độ phần con lên job cha (tức thì)
+        events.changed()
+
+    def note(self, text: str):
+        """Thêm ghi chú cho người dùng (ℹ️/⚠️) vào cuối — KHÔNG bao giờ gán đè ghi chú đã có."""
+        if text:
+            self.error = (self.error or "") + text
 
 
 # Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job
@@ -112,10 +136,10 @@ def phase_times(timeline: list, end: float) -> list:
     return [{"name": n, "secs": round(v, 1)} for n, v in out.items() if v >= 0.05]
 
 
-DB_PATH = os.environ.get("JOBS_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")
+DB_PATH = db.jobs_db_path()
 MAX_ATTEMPTS = 2            # job đang chạy lúc bot chết: chạy lại 1 lần (lần nữa thì báo lỗi, tránh vòng lặp chết)
 KEEP_IN_MEMORY = 30         # số job đã XONG giữ trong bộ nhớ cho web; job đang chờ/chạy/chờ duyệt luôn được giữ
-ACTIVE = ("queued", "processing", "review")
+ACTIVE = tuple(s.value for s in job_vocab.ACTIVE)
 REVIEW_TTL = 24 * 3600      # job chờ duyệt quá 24 giờ thì hết hạn, xoá file nguồn giữ lại
 
 
@@ -140,7 +164,7 @@ class JobQueue:
         self._q = asyncio.Queue()
         self.jobs: dict[int, Job] = {}   # lịch sử job cho web panel
         self.pending = 0                 # số job đang chờ + đang chạy
-        self._db = sqlite3.connect(db_path or DB_PATH)
+        self._db = db.connect(db_path or DB_PATH)          # WAL + busy_timeout (rmvideo/app/db.py)
         self._db.execute("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT)")
         self._db.execute("CREATE TABLE IF NOT EXISTS steps (job_id INTEGER, step TEXT, start REAL, end REAL)")
         self._db.execute("CREATE TABLE IF NOT EXISTS sources (job_id INTEGER, created REAL, source_url TEXT, "
@@ -203,6 +227,7 @@ class JobQueue:
             self._db.commit()
         except Exception:
             logging.exception("Không lưu được job %s", job.id)
+        events.changed()                             # vd phần kết quả mới (job.parts.append không qua __setattr__)
 
     def _evict(self):
         """Giữ KEEP_IN_MEMORY job đã xong gần nhất; KHÔNG bao giờ bỏ job đang chờ/chạy/chờ duyệt

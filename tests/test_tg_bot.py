@@ -181,3 +181,19 @@ def test_stale_buttons_do_not_hijack_photo_flow(tg):
     asyncio.run(flow())
     new = [j for j in state.queue.jobs.values() if id(j) not in before]
     assert len(new) == 1 and new[0].mode == "photo" and new[0].tg_images == ["fA"]
+
+
+def test_stale_button_answers_instead_of_crashing():
+    """Nút trên tin nhắn đã cũ (InaccessibleMessage): báo gửi lại, không gọi handler (trước đây lỗi im lặng)."""
+    from rmvideo.interfaces.telegram.access import StaleButtonMiddleware
+    answered, called = [], []
+    cb = CallbackQuery.model_construct(id="1", data="dur:30", message=None, chat_instance="x")
+
+    async def fake_answer(text, show_alert=False, **k):
+        answered.append(text)
+    object.__setattr__(cb, "answer", fake_answer)
+
+    async def handler(event, data):
+        called.append(event)
+    asyncio.run(StaleButtonMiddleware()(handler, cb, {}))
+    assert answered and "đã cũ" in answered[0] and not called

@@ -25,6 +25,8 @@ import urllib.request
 
 import numpy as np
 
+from rmvideo.media import proc
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.environ.get("OFFLINE_MODELS") or os.path.join(BASE, "models")   # biến môi trường: đổi chỗ để model
 REL = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
@@ -209,23 +211,14 @@ async def remove_voice_fast(src: str, out_wav: str, windows=None, timeout: float
     """Như vocal_sep.remove_voice nhưng bằng Spleeter. False nếu chưa cài/lỗi -> caller dùng cổng tắt tiếng nền."""
     if not spleeter_available():
         return False
-    import core_video
-    proc = await asyncio.create_subprocess_exec(sys.executable, os.path.abspath(__file__), "sep", src, out_wav,
-                                                json.dumps(windows), stdout=asyncio.subprocess.DEVNULL,
-                                                stderr=asyncio.subprocess.PIPE)
-    core_video.RUNNING.add(proc)
     try:
-        _, err = await asyncio.wait_for(proc.communicate(), timeout)
+        async with proc.spawn([sys.executable, os.path.abspath(__file__), "sep", src, out_wav, json.dumps(windows)],
+                              stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE) as p:
+            _, err = await asyncio.wait_for(p.communicate(), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
         logging.warning("Tách giọng nhanh quá %ss, bỏ qua", timeout)
         return False
-    except asyncio.CancelledError:
-        proc.kill()
-        raise
-    finally:
-        core_video.RUNNING.discard(proc)
-    if proc.returncode == 0 and os.path.exists(out_wav):
+    if p.returncode == 0 and os.path.exists(out_wav):
         return True
     logging.warning("Tách giọng nhanh lỗi: %s", err.decode(errors="ignore").strip()[-200:])
     return False
@@ -252,18 +245,10 @@ async def speak(text: str, out_path: str) -> None:
     """Đọc `text` bằng Piper vào out_path (định dạng theo đuôi file, vd .mp3). Ném lỗi nếu không được."""
     if not piper_available():
         raise RuntimeError("chưa cài giọng offline (lệnh setup_offline)")
-    import core_video
-    proc = await asyncio.create_subprocess_exec(sys.executable, os.path.abspath(__file__), "tts", text, out_path,
-                                                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-    core_video.RUNNING.add(proc)                 # huỷ job / quá hạn là giết được
-    try:
-        _, err = await asyncio.wait_for(proc.communicate(), 120)
-    except (asyncio.TimeoutError, asyncio.CancelledError):
-        proc.kill()
-        raise
-    finally:
-        core_video.RUNNING.discard(proc)
-    if proc.returncode != 0 or not os.path.exists(out_path):
+    async with proc.spawn([sys.executable, os.path.abspath(__file__), "tts", text, out_path],   # huỷ job: giết được
+                          stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE) as p:
+        _, err = await asyncio.wait_for(p.communicate(), 120)
+    if p.returncode != 0 or not os.path.exists(out_path):
         raise RuntimeError("Piper lỗi: " + err.decode(errors="ignore").strip()[-200:])
 
 

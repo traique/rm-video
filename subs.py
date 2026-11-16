@@ -70,6 +70,20 @@ def group_words(words, max_words=4, max_chars=22):
     return out
 
 
+def ass_color(hex_rgb: str) -> str:
+    """#RRGGBB -> màu ASS &H00BBGGRR."""
+    h = hex_rgb.lstrip("#")
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
+
+
+def style_line(style: str, brand_color: str = "") -> str:
+    """Dòng Style của phụ đề; có màu kênh (BRAND_COLOR) thì chữ đang đọc (karaoke) / chữ (plain) theo màu kênh."""
+    line = _STYLES.get(style, _STYLES["karaoke"])
+    if brand_color and style in ("karaoke", "plain"):
+        line = line.replace("&H0000E1FF", ass_color(brand_color))
+    return line
+
+
 def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"):
     """Phụ đề kiểu CapCut: mỗi dòng 3-4 từ, chữ đang đọc sáng dần sang vàng đúng nhịp giọng (\\kf).
     pos_y: tâm phụ đề theo trục dọc (0-1280) để đè lên dải chữ gốc; None = đáy màn hình."""
@@ -77,7 +91,8 @@ def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"
     lines = group_words(words)
     pos = ("%san5%spos(360,%d)" % (bs, bs, int(pos_y))) if pos_y else ""
     with open(path, "w", encoding="utf-8") as f:
-        f.write(_HEADER.replace("{style}", _STYLES.get(style, _STYLES["karaoke"])))
+        import config
+        f.write(_HEADER.replace("{style}", style_line(style, config.BRAND_COLOR)))
         karaoke = style == "karaoke"
         for start, end, ln in lines:
             parts = []

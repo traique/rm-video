@@ -1,0 +1,215 @@
+{
+ "calls": {
+  "ai.scenes": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.0,
+      1.5,
+      ""
+     ],
+     [
+      1.5,
+      4.0,
+      ""
+     ],
+     [
+      4.0,
+      6.0,
+      ""
+     ],
+     [
+      6.0,
+      8.0,
+      ""
+     ]
+    ],
+    4,
+    8.0
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "metric": [
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": null,
+     "input": "<TMP>/w/115/input.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/115/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.12,0:00:01.54,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:01.54,0:00:03.04,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:04.00,0:00:05.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:06.00,0:00:07.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3"
+     ],
+     "teaser": null,
+     "title": "CẢNH ĐẸP",
+     "voice": "<TMP>/w/115/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.detect_cuts": [
+   [
+    "input.mp4"
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     0.75,
+     2.75,
+     5.0,
+     7.0
+    ]
+   ]
+  ],
+  "sep": [
+   [
+    "input.mp4",
+    null
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới3 mới3 mới3",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ 4 đoạn giọng, 3 điểm chuyển cảnh; lệch tối đa 0.1s; đã che 1 dải chữ gốc.",
+    "final_segments": [
+     {
+      "end": 1.5,
+      "i": 0,
+      "orig": "",
+      "ost": "new",
+      "start": 0.0,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.42,
+       "speed": 1.0,
+       "start": 0.12
+      }
+     },
+     {
+      "end": 4.0,
+      "i": 1,
+      "orig": "",
+      "ost": "new",
+      "start": 1.5,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 2.84,
+       "speed": 1.0,
+       "start": 1.54
+      }
+     },
+     {
+      "end": 6.0,
+      "i": 2,
+      "orig": "",
+      "ost": "new",
+      "start": 4.0,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 5.3,
+       "speed": 1.0,
+       "start": 4.0
+      }
+     },
+     {
+      "end": 8.0,
+      "i": 3,
+      "orig": "",
+      "ost": "new",
+      "start": 6.0,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 7.3,
+       "speed": 1.0,
+       "start": 6.0
+      }
+     }
+    ],
+    "hook": "CẢNH ĐẸP",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 8.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Cảnh đẹp\n\n▶ TikTok:\nc #a\n\n▶ Facebook:\nc\n\n#a\n\n▶ YouTube Shorts:\nCảnh đẹp #Shorts\n\nc\n\n#a",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,120 --> 00:00:01,540\nLời mới0 mới0 mới0\n\n2\n00:00:01,540 --> 00:00:03,040\nLời mới1 mới1 mới1\n\n3\n00:00:04,000 --> 00:00:05,500\nLời mới2 mới2 mới2\n\n4\n00:00:06,000 --> 00:00:07,500\nLời mới3 mới3 mới3\n",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/115/output.mp4"
+  }
+ ]
+}

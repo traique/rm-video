@@ -12,6 +12,8 @@ import urllib.request
 
 import numpy as np
 
+from rmvideo.media import proc
+
 _DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 MODEL_NAME = "Kim_Vocal_2.onnx"
 MODEL_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
@@ -284,28 +286,19 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
         return False
     try:
         await asyncio.to_thread(_model_path)            # tải model (lần đầu) ngoài tiến trình con
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, os.path.abspath(__file__), src, ambient_wav, json.dumps(windows), vocals_wav,
-            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-        import core_video
-        core_video.RUNNING.add(proc)
         timeout = timeout or float(os.environ.get("SEP_BUDGET", "180")) + 90
-        try:
-            _, err = await asyncio.wait_for(proc.communicate(), timeout)
-        except asyncio.CancelledError:
-            proc.kill()
-            raise
-        finally:
-            core_video.RUNNING.discard(proc)
+        # tiến trình riêng, giết CẢ NHÓM khi huỷ / quá giờ (ffmpeg do tiến trình con gọi cũng chết theo)
+        async with proc.spawn([sys.executable, os.path.abspath(__file__), src, ambient_wav, json.dumps(windows),
+                               vocals_wav], stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE) as p:
+            _, err = await asyncio.wait_for(p.communicate(), timeout)
         log = err.decode(errors="ignore").strip().splitlines()
-        if proc.returncode == 0 and os.path.exists(ambient_wav):
+        if p.returncode == 0 and os.path.exists(ambient_wav):
             gpu = [x for x in log if x.startswith("GPU")]
             logging.info("Tách giọng AI: %s%s", log[-1] if log else "xong", f" ({gpu[-1]})" if gpu else "")
             return True
-        logging.warning("Tách giọng bỏ qua (mã %s): %s", proc.returncode, (log[-1] if log else "")[-200:])
+        logging.warning("Tách giọng bỏ qua (mã %s): %s", p.returncode, (log[-1] if log else "")[-200:])
         return False
     except asyncio.TimeoutError:
-        proc.kill()
         logging.warning("Tách giọng quá %ss, bỏ qua", timeout)
     except Exception:
         logging.exception("Tách giọng lỗi")

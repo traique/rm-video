@@ -7,9 +7,10 @@ import time
 
 import cache
 import config
-import core_video
 import kaggle_worker
 from queue_manager import Job, phase_times
+from rmvideo.app import context, events
+from rmvideo.media import proc
 from pipeline import run_job
 from review import OST_TAG, REVIEW_HELP
 from state import current, notify, queue
@@ -48,6 +49,13 @@ class _OverBudget(Exception):
     """Job chạy quá ngân sách thời gian (jobs.job_budget): huỷ và báo người dùng."""
 
 async def _run_one(job: Job):
+    """Chạy một job. Cài đặt ảnh hưởng tới cách dựng không đổi giữa chừng job (config.hold): lưu từ web trong lúc này
+    thì áp dụng cho job kế tiếp."""
+    with config.hold():
+        await _run_one_held(job)
+
+
+async def _run_one_held(job: Job):
     tg = job.source == "tg"
     if job.cancel:
         job.status, job.error = "cancelled", "Đã hủy trước khi chạy."
@@ -77,20 +85,17 @@ async def _run_one(job: Job):
         if tg:
             await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
         logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
-        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp:   # rmv_: bị giết giữa chừng thì lần sau dọn
+        # mọi tiến trình con của job (kể cả trong luồng phụ) mang mã job: huỷ chỉ giết đúng chúng (proc.kill_owner)
+        # dữ liệu tạm theo job (ảnh thu nhỏ đã trích...) sống trong job_scope, bỏ khi job xong
+        def _record(step: str):                    # ghi từng bước + thời điểm để đo, ngay lúc bước đổi (bus sự kiện)
+            t = round(time.time() - job.started_at, 1)
+            job.timeline.append((step, t))
+            logging.info("Job %s [%4.0fs] %s", job.id, t, step)
+        _record(job.step)
+        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp, proc.owned_by(job.id), \
+                context.job_scope(), events.watch_steps(job, _record):      # rmv_: bị giết giữa chừng thì lần sau dọn
             task = asyncio.create_task(run_job(job, tmp))
             current["task"] = task
-
-            async def _timeline():                 # ghi lại từng bước + thời điểm để đo
-                last = None
-                while True:
-                    if job.step != last:
-                        last = job.step
-                        t = round(time.time() - job.started_at, 1)
-                        job.timeline.append((job.step, t))
-                        logging.info("Job %s [%4.0fs] %s", job.id, t, job.step)
-                    await asyncio.sleep(1)
-            tl = asyncio.create_task(_timeline())
             try:
                 while True:                       # hạn co giãn: biết độ dài video rồi thì nới ra cho đủ
                     done, _ = await asyncio.wait({task}, timeout=5)
@@ -105,7 +110,6 @@ async def _run_one(job: Job):
                         await asyncio.gather(task, return_exceptions=True)
                         raise _OverBudget()
             finally:
-                tl.cancel()
                 if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
                     kaggle_worker.abort()
                     task.cancel()
@@ -113,12 +117,14 @@ async def _run_one(job: Job):
         if keep_source:
             if tg and job.status == "review":
                 lines = "\n".join(f"{s['i']}: {OST_TAG.get(s.get('ost', 'new'), '')}{s['text']}" for s in job.approved)
-                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3500]}\n\n"
+                extra = "".join(f"\n{x}" for x in (f"🧾 {(job.recipe or {}).get('report', '')}",
+                                                    f"🎬 {(job.edit or {}).get('summary', '')}") if len(x) > 3)
+                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3300]}\n{extra[:600]}\n\n"
                                            + REVIEW_HELP))
         else:
             job.status, job.step = "done", ""
     except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
                                           f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
         logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
@@ -126,7 +132,7 @@ async def _run_one(job: Job):
         if tg:
             await notify(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
     except asyncio.CancelledError:
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         me = asyncio.current_task()
         if me is not None and me.cancelling():
             # Chính worker bị huỷ = bot đang tắt (SIGTERM khi Botkeep dừng/khởi động lại), KHÔNG phải người dùng bấm
@@ -141,7 +147,7 @@ async def _run_one(job: Job):
         if tg:
             await notify(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
     except Exception as e:
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         logging.exception("Job %s thất bại", job.id)
         job.status, job.error, job.step = "error", str(e), ""
         if tg:
@@ -169,7 +175,7 @@ def job_budget(job: Job) -> float:
         return base
     per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)
     budget = min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
-    if not kaggle_worker.enabled():               # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
+    if kaggle_worker.is_enabled():                # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
         parts = max(1, int(job.out_dur // (90 if job.long_mode == "split90" else 60)) + 1) if job.long_mode else 1
         budget += kaggle_worker.TIMEOUT + kaggle_worker.TIMEOUT_PER_EXTRA * (parts - 1)
         if config.KAGGLE_ANALYZE != "0" and job.mode in ("cook", "review"):

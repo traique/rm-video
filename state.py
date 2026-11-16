@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+from typing import Any
 
 import config
 from queue_manager import JobQueue
@@ -13,7 +14,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 os.makedirs(config.UPLOAD_DIR, exist_ok=True)
 
 queue = JobQueue()
-bot = None                                     # aiogram.Bot khi có BOT_TOKEN (main gán lúc khởi động)
+bot: Any = None                                # aiogram.Bot khi có BOT_TOKEN (main gán lúc khởi động)
 current: dict = {"job": None, "task": None}    # job worker đang chạy + task của nó (để huỷ)
 
 async def notify(chat_id: int, text: str):

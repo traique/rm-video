@@ -1,0 +1,192 @@
+{
+ "calls": {
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.62,
+      2.25,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.6,
+      4.25,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      4.5,
+      6.0,
+      "nêm muối vừa ăn"
+     ]
+    ],
+    6.2,
+    0.0,
+    3
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "metric": [
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 6.2,
+     "gate": null,
+     "input": "<TMP>/w/107/input.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/107/output.mp4",
+     "stretch": 1.25,
+     "subs": [
+      "Dialogue: 0,0:00:00.62,0:00:02.12,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:02.60,0:00:04.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:04.50,0:00:06.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/107/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.148,
+     2.74,
+     4.2
+    ]
+   ]
+  ],
+  "sep": [
+   [
+    "input.mp4",
+    [
+     [
+      0.2,
+      4.96
+     ]
+    ]
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 6.2,
+    "error": "ℹ️ Đã cắt bỏ 4s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 3 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "final_segments": [
+     {
+      "end": 2.6,
+      "i": 0,
+      "orig": "cho thịt vào chảo",
+      "ost": "new",
+      "start": 0.62,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.92,
+       "speed": 1.0,
+       "start": 0.62
+      }
+     },
+     {
+      "end": 4.5,
+      "i": 1,
+      "orig": "đảo đều tay cho thịt săn lại",
+      "ost": "new",
+      "start": 2.6,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 3.9,
+       "speed": 1.0,
+       "start": 2.6
+      }
+     },
+     {
+      "end": 6.2,
+      "i": 2,
+      "orig": "nêm muối vừa ăn",
+      "ost": "new",
+      "start": 4.5,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 5.8,
+       "speed": 1.0,
+       "start": 4.5
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 6.2,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,620 --> 00:00:02,120\nLời mới0 mới0 mới0\n\n2\n00:00:02,600 --> 00:00:04,100\nLời mới1 mới1 mới1\n\n3\n00:00:04,500 --> 00:00:06,000\nLời mới2 mới2 mới2\n",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/107/output.mp4"
+  }
+ ]
+}

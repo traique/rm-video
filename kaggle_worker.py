@@ -8,30 +8,26 @@ Lỗi ở bất kỳ bước nào -> ném KaggleError, pipeline làm tiếp trê
 import asyncio
 import base64
 import contextvars
-import io
 import json
 import logging
 import os
 import re
 import secrets
-import subprocess
 import time
 import urllib.parse
-import zipfile
 
 import config
 import kaggle_api
 from kaggle_api import KaggleError
+from rmvideo.services import kaggle_bundle
+from rmvideo.media import proc
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
 SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
 SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
-BUNDLE = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
-          "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
-          "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
-          "assets/BeVietnamPro-ExtraBold.ttf"]
-BUNDLE_DIRS = ["capcut_tts_api"]
+# mã gửi kèm notebook: tính tự động từ import thật của kaggle_job.py (rmvideo/services/kaggle_bundle.py)
+BUNDLE = list(kaggle_bundle.files())
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
        "'transformers==4.57.6' safetensors yt-dlp edge-tts")
 PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu: khỏi cài model giọng
@@ -90,22 +86,9 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20):
     finally:
         _unwatch(run)
 
-# Giọng VieNeu v3 Turbo miền Nam (nhãn của model) và tốc độ đọc đo thật (chữ/giây, chỉ phần tiếng nói, 12/11/2026)
-SOUTH_FEMALE = ["Mỹ Duyên", "Thục Đoan", "Thùy Dung", "Kim Thanh"]
-SOUTH_MALE = ["Adam", "Thái Sơn", "Minh Triết", "Đức Trí"]
-RATE = {"Mỹ Duyên": 3.08, "Adam": 4.15, "Thùy Dung": 4.5}
-RATE_EDGE = 3.6                  # edge Hoài My/Nam Minh +8%: 3.9 chữ/giây phần tiếng nói, chừa biên
-RATE_CAPCUT = 3.8
-CLONE = "clone"
-
-
-def voice_name(voice: str) -> str:
-    """'vieneu:Mỹ Duyên' -> 'Mỹ Duyên'; giọng khác -> ''."""
-    return voice.split(":", 1)[1] if (voice or "").startswith("vieneu:") else ""
-
-
-def is_male(voice: str) -> bool:
-    return voice_name(voice) in SOUTH_MALE
+# danh mục giọng VieNeu + tốc độ đọc: rmvideo/domain/voices.py (giữ tên cũ ở đây cho mã/test đang dùng)
+from rmvideo.domain.voices import (CLONE, RATE, RATE_CAPCUT, RATE_EDGE, SOUTH_FEMALE, SOUTH_MALE,  # noqa: E402,F401
+                                   is_male, vieneu_rate, voice_name)
 
 
 def voice_engine(voice: str) -> str:
@@ -119,7 +102,7 @@ def voice_engine(voice: str) -> str:
 def words_per_sec(voice: str) -> float:
     name = voice_name(voice)
     if name:
-        return RATE.get(name, 3.6 if name != CLONE else 3.4)
+        return vieneu_rate(name)
     return RATE_CAPCUT if voice_engine(voice) == "capcut" else RATE_EDGE
 
 
@@ -180,11 +163,17 @@ def can_ref(path: str | None, url: str = "") -> bool:
 
 
 def enabled() -> str:
+    """LÝ DO Kaggle chưa dùng được ("" = dùng được). Hỏi có/không thì gọi is_enabled() cho rõ nghĩa."""
     if config.KAGGLE_USE == "0":
         return "KAGGLE_USE=0"
     if not kaggle_api.configured():
         return "chưa điền KAGGLE_API_TOKEN trong Cài đặt"
     return ""
+
+
+def is_enabled() -> bool:
+    """Kaggle đã bật và đã có token (enabled() trả lý do khi không)."""
+    return not enabled()
 
 
 def usable(job, local_path: str | None = None) -> str:
@@ -202,18 +191,7 @@ def usable(job, local_path: str | None = None) -> str:
 # ---------------- notebook ----------------
 
 def bundle_b64() -> str:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in BUNDLE:
-            z.write(os.path.join(BASE, rel), rel)
-        for d in BUNDLE_DIRS:
-            for root, _, files in os.walk(os.path.join(BASE, d)):
-                if "__pycache__" in root:
-                    continue
-                for f in files:
-                    p = os.path.join(root, f)
-                    z.write(p, os.path.relpath(p, BASE))
-    return base64.b64encode(buf.getvalue()).decode()
+    return kaggle_bundle.build_b64()
 
 
 def _jobs(spec: dict) -> list:
@@ -254,8 +232,9 @@ kaggle_job.main(json.loads(base64.b64decode("{spec_b64}").decode()))
 
 
 def settings_snapshot() -> dict:
-    return {k: getattr(config, k) for k in config.EDITABLE if k not in config.SECRET_KEYS
-            and not k.startswith(("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_"))}
+    """Cài đặt gửi kèm notebook: không bí mật, không tài khoản (rmvideo/app/settings.py quyết khoá nào được đi)."""
+    from rmvideo.app import settings as schema
+    return schema.snapshot({k: getattr(config, k) for k in config.EDITABLE})
 
 
 def _common(spec: dict) -> dict:
@@ -266,6 +245,9 @@ def _common(spec: dict) -> dict:
         else:                                   # trước đây: notebook quá 1MB -> MỌI việc Kaggle lỗi, âm thầm đổ về Botkeep
             logging.warning("Logo %dKB quá cỡ cho notebook Kaggle (tối đa %dKB): việc này dựng không logo, hãy tải logo nhỏ hơn",
                             os.path.getsize(logo) >> 10, config.LOGO_MAX_BYTES >> 10)
+    sting = os.path.join(BASE, "assets", "sting.mp3")
+    if config.BRAND_STING != "0" and os.path.exists(sting) and os.path.getsize(sting) <= 100 * 1024:
+        spec["sting_b64"] = base64.b64encode(open(sting, "rb").read()).decode()
     spec["settings"] = settings_snapshot()
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
@@ -273,7 +255,8 @@ def _common(spec: dict) -> dict:
 
 def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str,
                bands, pos_y, sep: dict, speech: list, max_duration: int, local_path: str | None = None,
-               src: dict | None = None, amb_token: str = "", teaser: dict | None = None) -> dict:
+               src: dict | None = None, amb_token: str = "", teaser: dict | None = None,
+               edit: dict | None = None, overlays: list | None = None) -> dict:
     """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep."""
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
@@ -288,6 +271,10 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["amb_token"] = amb_token
     if teaser:                                   # đoạn mở đầu: cảnh món đã xong chiếu trước (mốc đã lùi theo)
         spec["teaser"] = {k: teaser[k] for k in ("a", "dur", "still")}
+    if edit:                                     # kế hoạch dựng (REMAKE_STYLE): Kaggle dựng y hệt Botkeep
+        spec["edit"] = edit
+    if overlays:                                 # thẻ chữ ngoài kế hoạch dựng (mẹo trên video, TIPS=video)
+        spec["overlays"] = overlays
     if voice_name(job.voice) == CLONE:
         spec["ref_b64"] = base64.b64encode(open(VOICE_REF, "rb").read()).decode()
         spec["ref_ext"] = ".mp3"
@@ -376,8 +363,8 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             on_step(f"Kaggle: tải video về{f' ({k + 1}/{n})' if n > 1 else ''}")
             vid = os.path.join(tmp, f"output{tag}.mp4")
             kaggle_api.download(files[f"output{tag}.mp4"], vid)
-            p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
-                               capture_output=True, text=True, timeout=60)
+            p = proc.run_sync(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
+                              capture_output=True, text=True, timeout=60)
             try:
                 dur = float(p.stdout.strip())
             except ValueError:
@@ -473,7 +460,7 @@ async def produce(spec: dict, tmp: str, on_step=None) -> dict:
 async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
     """Nhiều việc trong MỘT phiên (nạp model + tải nguồn một lần). Trả danh sách: kết quả hoặc KaggleError từng việc."""
     on_step = on_step or (lambda s: None)
-    shared = ("settings", "logo_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
+    shared = ("settings", "logo_b64", "sting_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
     spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in shared} for s in specs],
             **{k: specs[0].get(k) for k in shared if specs[0].get(k)}}
     try:

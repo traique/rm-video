@@ -1,0 +1,109 @@
+{
+ "calls": {
+  "ai.recipe": [
+   [
+    "Thịt kho tộ",
+    [
+     "cho thịt vào chảo",
+     "đảo đều tay cho thịt săn lại",
+     "nêm muối vừa ăn"
+    ],
+    12
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "dedupe.fingerprint": [
+   [
+    8.0
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     0.206,
+     0.619,
+     1.031,
+     1.444,
+     1.856,
+     2.269,
+     2.681,
+     3.094,
+     3.506,
+     3.919,
+     4.331,
+     4.744
+    ]
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 4.95,
+    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ AI thấy video này không phải công thức nấu ăn: bài đăng không kèm công thức. ",
+    "final_segments": [],
+    "hook": "",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "không phải video công thức (AI đọc lời gốc)",
+    "out_dur": 4.95,
+    "parts": [],
+    "pieces": [],
+    "post": "",
+    "recipe": {
+     "dish": "",
+     "fixes": [],
+     "is_recipe": false,
+     "items": [],
+     "report": "AI xác định đây không phải video công thức.",
+     "servings": "",
+     "steps": [],
+     "tips": [],
+     "unassigned": [],
+     "v": 1
+    },
+    "script": "",
+    "source_meta": {
+     "fp": [
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff"
+     ],
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "queued",
+    "step": "AI đọc công thức + đối chiếu định lượng với lời gốc",
+    "teaser": {}
+   },
+   "result": "RuntimeError"
+  }
+ ]
+}

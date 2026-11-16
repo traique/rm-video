@@ -1,0 +1,120 @@
+{
+ "calls": {
+  "ai.generate": [
+   [
+    "",
+    "music",
+    "",
+    0
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "duration": 0,
+     "job": 120,
+     "kind": "music",
+     "music": {
+      "http": "https://bot.example.com/kin/<T>/song.mp3",
+      "name": "song.mp3"
+     },
+     "music_args": {
+      "keep_orig": true,
+      "speed": 1.0,
+      "trim": 6.0
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_CLOSE",
+      "BRAND_COLOR",
+      "BRAND_GRAIN",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_LOOK",
+      "BRAND_NAME",
+      "BRAND_SERIES",
+      "BRAND_STING",
+      "BRAND_TAGLINE",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "COVER_TEMPLATE",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "POST_RECIPE",
+      "PUBLIC_URL",
+      "QTY_CHECK",
+      "QUALITY",
+      "REMAKE_STYLE",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SHORT_VERSION",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TIME_SKIP_LABEL",
+      "TIPS",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "src": {
+      "http": "https://bot.example.com/kin/<T>/src.mp4",
+      "name": "src.mp4"
+     },
+     "token": "<TOKEN>"
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Dựng trên Kaggle (CPU) 7s. ",
+    "final_segments": [],
+    "hook": "",
+    "local": "<TMP>/src/src.mp4",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 0.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho\n\n▶ TikTok:\nĐậm đà #thitkho\n\n▶ Facebook:\nĐậm đà\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho #Shorts\n\nĐậm đà\n\n#thitkho",
+    "script": "Nhạc nền lấy từ giây 6 của bài, giữ tiếng gốc (nhạc tự nhỏ lại khi tiếng gốc to).",
+    "source_meta": {},
+    "srt": "",
+    "status": "queued",
+    "step": "Render nhạc nền (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/120/kaggle_out.mp4"
+  }
+ ]
+}

@@ -1,0 +1,537 @@
+{
+ "calls": {
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.5,
+      3.0,
+      "cho thịt vào chảo đảo đều"
+     ],
+     [
+      3.3,
+      6.0,
+      "đậy nắp hầm 30 phút cho mềm"
+     ],
+     [
+      8.09,
+      10.79,
+      "mở nắp ra nêm muối vừa ăn"
+     ],
+     [
+      11.19,
+      14.29,
+      "vậy là xong món thịt kho"
+     ]
+    ],
+    15.79,
+    0.0,
+    4
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ],
+   [
+    "audio.mp3",
+    "",
+    ""
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "metric": [
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "edit": {
+      "level": "light",
+      "overlays": [
+       {
+        "dur": 1.54,
+        "kind": "skip",
+        "t": 6.4,
+        "text": "»» 30 PHÚT SAU"
+       }
+      ],
+      "pieces": [
+       {
+        "a": 0.0,
+        "b": 3.2,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 3.2,
+        "b": 6.3,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 6.3,
+        "b": 12.2,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 3.5,
+        "tag": "skip",
+        "zoom": 1.0
+       },
+       {
+        "a": 12.2,
+        "b": 15.2,
+        "fx": "flash",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 15.2,
+        "b": 20.0,
+        "fx": "",
+        "push": 0.06,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       }
+      ],
+      "stretch": 1.0,
+      "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+      "texts": [],
+      "v": 1
+     },
+     "gate": null,
+     "input": "<TMP>/up/review_133.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/134/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:03.30,0:00:04.80,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:08.09,0:00:09.59,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:11.19,0:00:12.69,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/134/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    20.0,
+    true,
+    true
+   ],
+   [
+    "review_133.mp4",
+    20.0,
+    true,
+    false
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.75,
+     4.65,
+     13.654,
+     16.954
+    ]
+   ]
+  ],
+  "sep": [
+   [
+    "review_133.mp4",
+    [
+     [
+      0.2,
+      6.3
+     ],
+     [
+      12.2,
+      18.8
+     ]
+    ]
+   ]
+  ],
+  "style.motion": [
+   [
+    20.0
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới3 mới3 mới3",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [
+     {
+      "i": 0,
+      "orig": "cho thịt vào chảo đảo đều",
+      "ost": "new",
+      "slot": 2.5,
+      "span": 2.5,
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0"
+     },
+     {
+      "i": 1,
+      "orig": "đậy nắp hầm 30 phút cho mềm",
+      "ost": "new",
+      "slot": 2.7,
+      "span": 2.7,
+      "start": 3.3,
+      "text": "Lời mới1 mới1 mới1"
+     },
+     {
+      "i": 2,
+      "orig": "mở nắp ra nêm muối vừa ăn",
+      "ost": "new",
+      "slot": 2.7,
+      "span": 2.7,
+      "start": 8.09,
+      "text": "Lời mới2 mới2 mới2"
+     },
+     {
+      "i": 3,
+      "orig": "vậy là xong món thịt kho",
+      "ost": "new",
+      "slot": 3.1,
+      "span": 3.1,
+      "start": 11.19,
+      "text": "Lời mới3 mới3 mới3"
+     }
+    ],
+    "cut_at": 0.0,
+    "edit": {
+     "level": "light",
+     "overlays": [
+      {
+       "dur": 1.54,
+       "kind": "skip",
+       "t": 6.4,
+       "text": "»» 30 PHÚT SAU"
+      }
+     ],
+     "pieces": [
+      {
+       "a": 0.0,
+       "b": 3.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 3.2,
+       "b": 6.3,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.12
+      },
+      {
+       "a": 6.3,
+       "b": 12.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 3.5,
+       "tag": "skip",
+       "zoom": 1.0
+      },
+      {
+       "a": 12.2,
+       "b": 15.2,
+       "fx": "flash",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 15.2,
+       "b": 20.0,
+       "fx": "",
+       "push": 0.06,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      }
+     ],
+     "stretch": 1.0,
+     "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+     "texts": [],
+     "v": 1
+    },
+    "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ",
+    "final_segments": [],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "<TMP>/up/review_133.mp4",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 15.79,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "review",
+    "step": "Chờ bạn duyệt/sửa kịch bản rồi bấm Render",
+    "teaser": {}
+   },
+   "result": "REVIEW"
+  },
+  {
+   "job": {
+    "approved": [
+     {
+      "i": 0,
+      "orig": "cho thịt vào chảo đảo đều",
+      "ost": "new",
+      "slot": 2.5,
+      "span": 2.5,
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0"
+     },
+     {
+      "i": 1,
+      "orig": "đậy nắp hầm 30 phút cho mềm",
+      "ost": "new",
+      "slot": 2.7,
+      "span": 2.7,
+      "start": 3.3,
+      "text": "Lời mới1 mới1 mới1"
+     },
+     {
+      "i": 2,
+      "orig": "mở nắp ra nêm muối vừa ăn",
+      "ost": "new",
+      "slot": 2.7,
+      "span": 2.7,
+      "start": 8.09,
+      "text": "Lời mới2 mới2 mới2"
+     },
+     {
+      "i": 3,
+      "orig": "vậy là xong món thịt kho",
+      "ost": "new",
+      "slot": 3.1,
+      "span": 3.1,
+      "start": 11.19,
+      "text": "Lời mới3 mới3 mới3"
+     }
+    ],
+    "cut_at": 0.0,
+    "edit": {
+     "level": "light",
+     "overlays": [
+      {
+       "dur": 1.54,
+       "kind": "skip",
+       "t": 6.4,
+       "text": "»» 30 PHÚT SAU"
+      }
+     ],
+     "pieces": [
+      {
+       "a": 0.0,
+       "b": 3.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 3.2,
+       "b": 6.3,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.12
+      },
+      {
+       "a": 6.3,
+       "b": 12.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 3.5,
+       "tag": "skip",
+       "zoom": 1.0
+      },
+      {
+       "a": 12.2,
+       "b": 15.2,
+       "fx": "flash",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 15.2,
+       "b": 20.0,
+       "fx": "",
+       "push": 0.06,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      }
+     ],
+     "stretch": 1.0,
+     "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+     "texts": [],
+     "v": 1
+    },
+    "error": "ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 5 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "final_segments": [
+     {
+      "end": 3.3,
+      "i": 0,
+      "orig": "cho thịt vào chảo đảo đều",
+      "ost": "new",
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.8,
+       "speed": 1.0,
+       "start": 0.5
+      }
+     },
+     {
+      "end": 8.09,
+      "i": 1,
+      "orig": "đậy nắp hầm 30 phút cho mềm",
+      "ost": "new",
+      "start": 3.3,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 4.6,
+       "speed": 1.0,
+       "start": 3.3
+      }
+     },
+     {
+      "end": 11.19,
+      "i": 2,
+      "orig": "mở nắp ra nêm muối vừa ăn",
+      "ost": "new",
+      "start": 8.09,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 9.39,
+       "speed": 1.0,
+       "start": 8.09
+      }
+     },
+     {
+      "end": 15.79,
+      "i": 3,
+      "orig": "vậy là xong món thịt kho",
+      "ost": "new",
+      "start": 11.19,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 12.49,
+       "speed": 1.0,
+       "start": 11.19
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "<TMP>/up/review_133.mp4",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 15.79,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:03,300 --> 00:00:04,800\nLời mới1 mới1 mới1\n\n3\n00:00:08,090 --> 00:00:09,590\nLời mới2 mới2 mới2\n\n4\n00:00:11,190 --> 00:00:12,690\nLời mới3 mới3 mới3\n",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/134/output.mp4"
+  }
+ ]
+}

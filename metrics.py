@@ -5,21 +5,21 @@ từ đây: tỉ lệ rơi dự phòng tăng vọt là dấu hiệu một dịch
 Không bao giờ ném lỗi ra ngoài: đo đạc hỏng không được làm hỏng job.
 """
 import logging
-import sqlite3
 import threading
 import time
 
-import queue_manager
+from rmvideo.app import db
 
 _lock = threading.Lock()
 _conn = None
+DB_PATH = ""                  # trống = jobs.db (rmvideo/app/db.py); test đặt tệp riêng
 KINDS = {"download": "Tải video", "asr": "Bóc lời", "llm": "Viết kịch bản", "tts": "Đọc giọng", "sep": "Tách giọng"}
 
 
 def _db():
     global _conn
     if _conn is None:
-        _conn = sqlite3.connect(queue_manager.DB_PATH, check_same_thread=False)
+        _conn = db.connect(DB_PATH or db.jobs_db_path(), threads=True)   # cùng tệp jobs.db, WAL: không chặn hàng đợi
         _conn.execute("CREATE TABLE IF NOT EXISTS events (ts REAL, kind TEXT, provider TEXT, ok INTEGER, "
                       "fallback INTEGER, detail TEXT)")
         _conn.commit()

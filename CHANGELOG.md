@@ -13,6 +13,59 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 42 — phong cách remake, công thức đã đối chiếu, nhận diện kênh (chi tiết: docs/KE_HOACH_REMAKE_STYLE.md)
+
+Mọi khoá mới mặc định = hành vi cũ, trừ: giọng văn mặc định đổi sang **miền Nam** (`SPEECH_STYLE=mien_nam`), tự đăng
+**bỏ video quảng cáo của nguồn** (`AUTO_SKIP_ADS=1`) và **lọc nguồn dưới 540p** (`AUTO_MIN_HEIGHT=540`). Kiểm tra: ruff,
+mypy sạch; pytest toàn bộ xanh (thêm test đối chiếu định lượng, kế hoạch dựng với dữ liệu ngẫu nhiên, luật R1-R7,
+dựng thật bằng FFmpeg, dấu vân hình); snapshot cũ chỉ đổi ở khối giọng văn + khoá cài đặt gửi Kaggle.
+
+**Cần làm khi cập nhật lên Botkeep**: không bắt buộc. Muốn dùng: nhóm ✨ (REMAKE_STYLE, POST_RECIPE, TIPS) và 🎨 (màu,
+tông, tagline, câu chốt, âm hiệu, mẫu ảnh bìa) trên web. Đã đặt `SPEECH_STYLE=mien_tay` trên web trước đây thì đổi tay.
+
+| Giai đoạn | Nội dung |
+| --- | --- |
+| S0 | Giọng văn miền Nam mặc định; khoá cài đặt mới (nhóm ✨, 🎨); Job lưu `edit`, `recipe` (bản duyệt dùng lại) |
+| S1 | `rmvideo/domain/recipe.py` + `flow/dish.py`: đọc số tiếng Việt, quy đơn vị chuẩn VN, kiểm từng định lượng với lời gốc / mô tả, cộng dồn, công thức + mẹo trong bài đăng, bảng đối chiếu ở màn duyệt, lọc video quảng cáo |
+| S2 | Bộ nhận diện kênh: bộ màu, hạt phim, màu kênh (phụ đề, khung hook, thẻ, ảnh bìa), màn kết + tagline, âm hiệu (web + Kaggle), câu chốt, mẫu ảnh bìa + số tập |
+| S3 | `rmvideo/media/edl.py` (kế hoạch dựng, dùng chung Kaggle) + `flow/style.py` lớp A: cỡ khung luân phiên, bỏ khoảng chết, tua nhanh + thẻ, đẩy cận; khúc lặp / đảo dựng bằng clip phụ |
+| S4 | `flow/style_b.py` lớp B: điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế độc lập, bỏ lời tán gẫu; luật R1-R7, lùi về lớp A |
+| S5-S6 | Dấu vân hình chống trùng (`flow/dedupe.py`), thẻ «MẸO» trên video, tài liệu, chạy thử trên video thật của nguồn |
+| Tăng tốc Kaggle | Bản ngắn dựng chung một phiên Kaggle với bản đầy đủ (`Remake.prepare_short` + `produce_batch`), bản đầy đủ 720p / bản ngắn 1080p, tách giọng một lần mỗi video trong phiên, mã hoá GPU h264_nvenc khi có (`renderer.nvenc`) |
+| Bản ngắn | `flow/short.py` + `Remake.render_short`: thêm «Bản ngắn» ≤ 90 giây (`SHORT_VERSION`) sau bản đầy đủ, giữ mọi bước chính đúng thứ tự + điểm danh nguyên liệu; tự đăng chọn bản (`AUTO_POST_VERSION`) |
+
+Hoãn có chủ đích: đọc số tiếng Trung / Anh + đổi cup / oz / °F, đọc chéo chữ định lượng trên hình (S7 — khi dùng nguồn
+nước ngoài); chế độ riêng cho từng kênh nguồn (hiện chỉ một nguồn nấu ăn).
+
+## Bản 41 — tái cấu trúc kiến trúc (chi tiết: docs/KE_HOACH_REFACTOR.md)
+
+Không đổi chức năng người dùng thấy; giữ nguyên prompt AI từng byte và quyết định dựng (chụp bằng 25 kịch bản
+snapshot trước khi sửa). Kiểm tra: `ruff check .` sạch, `mypy` sạch cho gói `rmvideo/`, `pytest` 503 test xanh + 5 bỏ
+qua (cần key / model offline); CI chạy Python 3.11, 3.12, 3.13.
+
+**Cần làm khi cập nhật lên Botkeep**: không có bước bắt buộc. `jobs.db` tự chuyển sang chế độ WAL (sinh thêm
+`jobs.db-wal`, `jobs.db-shm` cạnh nó — đừng xoá khi bot đang chạy). Đổi `YTDLP_PROXY` / `PUBLIC_URL` / tài khoản
+Kaggle / Fanpage / `ALLOWED_USERS` trên web giờ hỏi lại mật khẩu.
+
+| Vùng | Trước | Sau |
+| --- | --- | --- |
+| Bộ điều phối | `pipeline.py` 1.230 dòng, `_process` một hàm 519 dòng / 15 hàm lồng | `rmvideo/app/flow/` 10 module; lớp `Remake` với các bước có tên, trạng thái có kiểu |
+| Dựng Botkeep ↔ Kaggle | hai bản giữ giống nhau bằng tay (`pipeline` và `kaggle_job.produce`) | một `rmvideo/app/assemble.py` cho cả hai |
+| Media | `core_video.py` 1.802 dòng (tải, giọng, xếp giọng, bộ lọc, render) | `rmvideo/media/` 7 module |
+| Web / Telegram | `build_app` 592 dòng, `tg_bot.setup` 316 dòng | `rmvideo/interfaces/web/` (auth, http, 5 nhóm route), `telegram/` (access, keyboards, handlers) |
+| Cài đặt | 3 nguồn sự thật (EDITABLE, META + chuỗi if 70 dòng, `_SETTING_OPTIONS`); đổi giữa job | một schema (`rmvideo/app/settings.py`); cài đặt dựng chờ job xong; khoá nhạy cảm hỏi lại mật khẩu (A5) |
+| Gọi AI | 6 vòng Gemini→OpenRouter tự viết; module khác gọi `_call_gemini` riêng tư | `rmvideo/services/llm.py`; `prompt_engine.call_gemini` công khai |
+| Tạo Job | 11 lời gọi `Job(...)` ở 6 tệp | `rmvideo/app/job_factory.py` |
+| Tiến trình con | ~40 chỗ, không timeout, huỷ giết cả ffprobe của web, không giết cháu, yt-dlp không dừng | `rmvideo/media/proc.py`: theo job, giết cả nhóm, stderr có trần; yt-dlp dừng khi huỷ (C8, C9) |
+| Theo dõi tiến độ | 3 vòng hỏi lại 1-2 giây; SSE dựng lại danh sách mỗi giây/khách | bus sự kiện; SSE gửi khi đổi, dựng một lần cho mọi khách |
+| SQLite | 2 kết nối, nhật ký mặc định | WAL + `busy_timeout` (C10) |
+| Bundle Kaggle | danh sách tệp viết tay | tự tính từ import thật; test chạy được trên Python 3.10 |
+
+Lỗi sửa được khi rà: ghi chú "⚠️ AI viết kịch bản lỗi" bị xoá khi video có dải chữ gốc (đường đọc một mạch); nút
+Telegram trên tin nhắn đã cũ làm handler lỗi im lặng (giờ báo gửi lại); `cookies.txt` tạo ra 0644 (giờ 0600).
+Hiệu năng: chấm điểm khung ảnh bìa và đọc ảnh đoạn hay ra khỏi vòng lặp sự kiện; đo độ dài giọng không mốc từ bớt một
+ffprobe mỗi đoạn (95ms → 56ms, kết quả giống hệt); đo song song tối đa 4 tiến trình (máy 2GB RAM).
+
 ## Giai đoạn 0 — vá khẩn
 
 | Lỗi | Sửa |

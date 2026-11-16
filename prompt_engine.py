@@ -14,6 +14,7 @@ import aiohttp
 import config
 import ingredients
 import metrics
+from rmvideo.services import llm
 import vocab
 
 try:
@@ -63,8 +64,36 @@ try:
         caption: str
         hashtags: str
         hook: str = ""
+    # mọi trường BẮT BUỘC: trường có giá trị mặc định thì Gemini hay bỏ qua (chạy thật 16/11: "text" của mọi bước rỗng)
+    class IngOut(BaseModel):
+        name: str
+        qty: str
+        unit: str
+        seg: int
+        quote: str
+        first_img: int
+
+    class StepOut(BaseModel):
+        kind: str
+        a: int                          # "from"/"to" là từ khoá Python: schema dùng a/b, prompt ghi rõ
+        b: int
+        text: str
+        ingredients: list[str]
+        independent: bool
+
+    class TipOut(BaseModel):
+        text: str
+        seg: int
+
+    class RecipeOut(BaseModel):
+        is_recipe: bool
+        dish: str
+        servings: str
+        ingredients: list[IngOut]
+        steps: list[StepOut]
+        tips: list[TipOut]
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
-    TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = None
+    TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = RecipeOut = None
 
 _STYLE = {
     "mien_tay": """
@@ -77,14 +106,46 @@ GIỌNG VĂN MIỀN TÂY NAM BỘ (bắt buộc): viết như người miền T�
 - Đổi từ địa phương KHÔNG đổi số liệu: "2 thìa" thành "2 muỗng" được, nhưng con số giữ nguyên.""",
     "mien_nam": """
 
-GIỌNG VĂN MIỀN NAM (bắt buộc): xưng "mình"/"tui", gọi "mọi người", "cả nhà"; dùng từ miền Nam (chén, muỗng, heo, trái, bắp, xài, thiệt); tiếng đệm vừa phải: nha, nè, á, luôn. Viết đúng chính tả chuẩn. Đổi từ địa phương không đổi số liệu.""",
+GIỌNG VĂN MIỀN NAM (bắt buộc): viết như người Sài Gòn / Đồng Nai đang chỉ nhau nấu ăn, gần gũi mà gọn gàng.
+- Xưng "mình", gọi người xem "mọi người", "cả nhà".
+- Từ ngữ miền Nam: chén (không dùng bát), muỗng (không dùng thìa), heo (không dùng lợn), trái (không dùng quả), bắp (ngô), đậu phộng (lạc), ngò (rau mùi), thơm/khóm (dứa), trụng (không dùng trần / chần), xắt (thái), xài (dùng), thiệt (thật), mắc (đắt), bự (to), "vô" (vào).
+- Tiếng đệm cuối câu tự nhiên: nha, nè, á, luôn, đó. Cảm thán: "ngon dữ luôn", "đậm đà khỏi chê", "bắt cơm lắm luôn", "thơm nức mũi".
+- Vừa phải, không lố: mỗi câu tối đa 1 tiếng đệm. Không dùng giọng miền Tây đậm ("bà con", "nghen", "hen", "dữ thần", "hết sảy"). Viết đúng chính tả chuẩn để giọng đọc phát âm đúng.
+- Đổi từ địa phương KHÔNG đổi số liệu: "2 thìa" thành "2 muỗng" được, nhưng con số giữ nguyên.""",
     "pho_thong": "",
 }
 
 
+_GLOSSARY: contextvars.ContextVar[tuple] = contextvars.ContextVar("glossary", default=())
+
+
+def set_glossary(names) -> None:
+    """Tên nguyên liệu ĐÚNG của món đang làm (AI đọc công thức đã sửa lỗi máy nghe): các lời nhắc viết lời của job này
+    kèm danh sách, và kiểm "bịa nguyên liệu" chấp nhận tên trong danh sách (lời gốc "nấm mặn" -> lời mới "nước mắm")."""
+    _GLOSSARY.set(tuple(dict.fromkeys(n for n in names if n)))
+
+
+def _glossary_hint() -> str:
+    names = _GLOSSARY.get()
+    return ("" if not names else "\n\nTÊN NGUYÊN LIỆU ĐÚNG CỦA MÓN NÀY (lời gốc do máy nghe nên có thể viết sai, ví dụ "
+            "\"nấm mặn\" là \"nước mắm\"): " + ", ".join(names) + ". Gặp chữ máy nghe sai thì viết đúng theo danh sách này.")
+
+
+def _not_in_glossary(added: list) -> list:
+    names = _GLOSSARY.get()
+    if not names:
+        return added
+    ok = set().union(*(ingredients.find(n) for n in names))
+    loose = [ingredients._loose(n).strip() for n in names]
+    # "tỏi phi" là dạng của "tỏi" trong danh sách: không tính là bịa
+    return [x for x in added if not ingredients.find(x) & ok
+            and not any(n and f" {n} " in ingredients._loose(x) for n in loose)]
+
+
 def style_block() -> str:
-    """Giọng văn (SPEECH_STYLE) + từ điển của kênh (ASR_VOCAB): mọi lời nhắc viết lời đều kèm khối này."""
-    return _STYLE.get(config.SPEECH_STYLE, "") + vocab.prompt_hint()
+    """Giọng văn (SPEECH_STYLE) + từ điển của kênh (ASR_VOCAB) [+ tên nguyên liệu đúng của món, khi có]: mọi lời
+    nhắc viết lời đều kèm khối này."""
+    return _STYLE.get(config.SPEECH_STYLE, "") + vocab.prompt_hint() + _glossary_hint()
 
 
 def _norm_words(t: str) -> list:
@@ -297,6 +358,22 @@ async def _call_openrouter(prompt: str) -> str:
     raise RuntimeError(f"OpenRouter: không model nào trả lời ({last})")
 
 
+async def call_gemini(prompt: str, *args, **kwargs) -> str:
+    """API công khai cho module khác (ảnh bìa, đoạn hay, kiểm tra định kỳ) — trước đây gọi thẳng _call_gemini riêng
+    tư. Tham số như _call_gemini(prompt, images=None, schema=None, label=..., timeout=...), chuyển nguyên trạng."""
+    return await _call_gemini(prompt, *args, **kwargs)
+
+
+async def call_openrouter(prompt: str) -> str:
+    return await _call_openrouter(prompt)
+
+
+def _chain(gemini_call) -> list:
+    """Gemini (nếu có thư viện + key) rồi OpenRouter (nếu có key). Hàm gọi tra lúc chạy (test thay được)."""
+    return llm.providers(gemini_call, lambda pr: _call_openrouter(pr), gemini_ok=bool(genai and config.GEMINI_API_KEY),
+                         openrouter_ok=bool(config.OPENROUTER_API_KEY))
+
+
 def parse_pack(text: str, fallback_title: str) -> dict:
     """Bóc JSON kể cả khi model bọc trong ```json ... ``` hoặc kèm chữ thừa."""
     t = text.strip()
@@ -329,20 +406,16 @@ def _fallback(title: str, mode: str) -> dict:
 async def generate(title: str, desc: str, mode: str, transcript: str = "", duration: int = 0) -> dict:
     """Trả về {script, title, caption, hashtags}. Không bao giờ raise."""
     prompt = _build_prompt(title, desc, mode, transcript, duration)
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=ScriptOut)))
-    if config.OPENROUTER_API_KEY:
-        providers.append(("OpenRouter", _call_openrouter))
-    for k, (name, call) in enumerate(providers):
-        try:
-            pack = parse_pack(await call(prompt), title)
-            pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
-            metrics.record("llm", name.lower(), fallback=k > 0)
-            return pack
-        except Exception as e:
-            metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
-            logging.exception("Provider %s lỗi, thử provider kế tiếp", name)
+
+    async def attempt(p):
+        pack = parse_pack(await p.call(prompt), title)
+        pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
+        return pack
+    pack = await llm.first_success(
+        _chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt, record=metrics.record,
+        on_error=lambda p, e: logging.error("Provider %s lỗi, thử provider kế tiếp", p.name, exc_info=e))
+    if pack is not None:
+        return pack
     metrics.record("llm", "template", fallback=True)
     return _fallback(title, mode)
 
@@ -367,23 +440,19 @@ async def post_only(title: str, desc: str, mode: str) -> dict:
     if title or desc:
         prompt = POST_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                     desc=desc[:1500] or "(không có)")
-        providers = []
-        if genai and config.GEMINI_API_KEY:
-            providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=PostOut)))
-        if config.OPENROUTER_API_KEY:
-            providers.append(("OpenRouter", _call_openrouter))
-        for k, (name, call) in enumerate(providers):
-            try:
-                t = (await call(prompt)).strip()
-                d = json.loads(t[t.index("{"): t.rindex("}") + 1])
-                metrics.record("llm", name.lower(), fallback=k > 0)
-                return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
-                        "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
-                        "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
-                        "hook": clean_hook(str(d.get("hook") or ""))}
-            except Exception as e:
-                metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
-                logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", name, str(e)[:120])
+
+        async def attempt(p):
+            t = (await p.call(prompt)).strip()
+            d = json.loads(t[t.index("{"): t.rindex("}") + 1])
+            return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
+                    "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
+                    "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
+                    "hook": clean_hook(str(d.get("hook") or ""))}
+        pack = await llm.first_success(
+            _chain(lambda pr: _call_gemini(pr, schema=PostOut)), attempt, record=metrics.record,
+            on_error=lambda p, e: logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", p.name, str(e)[:120]))
+        if pack is not None:
+            return pack
     metrics.record("llm", "template", fallback=True)
     fb = _fallback(title, mode)
     return {"title": fb["title"], "caption": fb["caption"], "hashtags": fb["hashtags"], "hook": "", "fallback": True}
@@ -656,20 +725,17 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             prompt += IMAGE_HINT
         except Exception:
             images = None
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        async def _gem(pr, _imgs=images):
-            schema = TimedOstOut if ost_auto else TimedOut
-            try:
-                return await _call_gemini(pr, _imgs, schema=schema)
-            except Exception as e:
-                if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
-                    raise
-                logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
-                return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
-        providers.append(("Gemini", _gem))
-    if config.OPENROUTER_API_KEY:
-        providers.append(("OpenRouter", lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, ""))))
+    async def _gem(pr, _imgs=images):
+        schema = TimedOstOut if ost_auto else TimedOut
+        try:
+            return await _call_gemini(pr, _imgs, schema=schema)
+        except Exception as e:
+            if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
+                raise
+            logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
+            return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
+    chain = llm.providers(_gem, lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, "")),
+                          gemini_ok=bool(genai and config.GEMINI_API_KEY), openrouter_ok=bool(config.OPENROUTER_API_KEY))
     def _parse(raw):
         d = loads_lenient(raw)
         got, osts = {}, {}
@@ -704,92 +770,89 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return intro and k == 0 and bool(_GREET_RE.search(text or ""))
 
     orig_all = " ".join(s[4] for s in slots)
-    for pk, (name, call) in enumerate(providers):
-        try:
-            d, got = _parse(await call(prompt))
+    async def attempt(p):
+        name, call = p.name, p.call
+        d, got = _parse(await call(prompt))
 
-            def _score(g, osts):
-                """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
-                Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
-                new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
-                miss, added = ingredients.check_rewrite(orig_all, new_all)
-                mn, an = ingredients.check_numbers(orig_all, new_all)
-                return _bad(g, osts), miss + mn, added + an
+        def _score(g, osts):
+            """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
+            Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
+            new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
+            miss, added = ingredients.check_rewrite(orig_all, new_all)
+            mn, an = ingredients.check_numbers(orig_all, new_all)
+            return _bad(g, osts), miss + mn, _not_in_glossary(added) + an
 
-            bad, miss, added = _score(got, d["_ost"])
-            for attempt in range(2):                    # tối đa 2 lần bắt viết lại
-                txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
-                severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
-                          or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
-                          or _hook_bad(k, got.get(k, ""))]
-                # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
-                # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
-                too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
-                if not (too_copy or miss or added):
-                    break
-                logging.warning("AI %s lần %d: %d đoạn chép/thiếu; nguyên liệu thiếu %s; bịa/đổi %s -> viết lại",
-                                name, attempt + 1, len(bad), miss, added)
-                why = []
-                ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
-                subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
-                hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
-                copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
-                if subs:
-                    why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
-                               "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
-                if hooks:
-                    why.append(f"đoạn 0 phải là CÂU HOOK gây tò mò, không chào hỏi («{got.get(0, '')}»)")
-                if too_copy and copies:
-                    why.append("các đoạn sau thiếu hoặc chép gần nguyên lời gốc: " +
-                               ", ".join(f"{k} («{got.get(k, '(thiếu)')}»)" for k in copies[:8]))
-                if ads:
-                    why.append("các đoạn sau còn lời bán hàng/kêu gọi mua hoặc tự nhận sản phẩm của người gốc, "
-                               "viết lại thành lời về món ăn: " + ", ".join(f"{k} («{got[k]}»)" for k in ads[:8]))
-                if miss:
-                    why.append("BỎ MẤT nguyên liệu/số liệu: " + ", ".join(miss) +
-                               " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
-                if added:
-                    why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
-                               " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng)")
-                fix = prompt + "\n\nBẢN TRƯỚC BỊ LOẠI vì " + "; ".join(why) + \
-                    ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
-                try:
-                    d2, got2 = _parse(await call(fix))
-                    b2, m2, a2 = _score(got2, d2["_ost"])
-                    old_err = len(bad) + 3 * (len(miss) + len(added))
-                    new_err = len(b2) + 3 * (len(m2) + len(a2))
-                    if new_err < old_err:
-                        d, got, bad, miss, added = d2, got2, b2, m2, a2
-                except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
-                    logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
-                                    str(e)[:120])
-                    break
-            if miss or added:
-                logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
-            d["_issues"] = (miss, added)
-            out = []
-            for k, st, slot, mx, tx, span in slots:
-                ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
-                # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
-                text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
-                # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
-                # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
-                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
-                            "copy": 0.0 if ost == "orig" else round(copy_ratio(text, tx), 2)})
-            for o, (k, st, slot, mx, tx, span) in zip(out, slots):
-                logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
-            script = " ".join(x["text"] for x in out if x["text"])
-            fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
-            metrics.record("llm", name.lower(), fallback=pk > 0)
-            return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
-                    "hook": clean_hook(d.get("hook") or "") if intro else "",
-                    "title": (d.get("title") or title or script[:80]).strip(),
-                    "caption": (d.get("caption") or script).strip(),
-                    "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
-        except Exception as e:
-            metrics.record("llm", name.lower(), ok=False, fallback=pk > 0, detail=str(e))
-            logging.exception("generate_timed: provider %s lỗi", name)
-    return None
+        bad, miss, added = _score(got, d["_ost"])
+        for attempt in range(2):                    # tối đa 2 lần bắt viết lại
+            txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
+            severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
+                      or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
+                      or _hook_bad(k, got.get(k, ""))]
+            # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
+            # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
+            too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
+            if not (too_copy or miss or added):
+                break
+            logging.warning("AI %s lần %d: %d đoạn chép/thiếu; nguyên liệu thiếu %s; bịa/đổi %s -> viết lại",
+                            name, attempt + 1, len(bad), miss, added)
+            why = []
+            ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
+            subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
+            hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
+            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
+            if subs:
+                why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
+                           "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
+            if hooks:
+                why.append(f"đoạn 0 phải là CÂU HOOK gây tò mò, không chào hỏi («{got.get(0, '')}»)")
+            if too_copy and copies:
+                why.append("các đoạn sau thiếu hoặc chép gần nguyên lời gốc: " +
+                           ", ".join(f"{k} («{got.get(k, '(thiếu)')}»)" for k in copies[:8]))
+            if ads:
+                why.append("các đoạn sau còn lời bán hàng/kêu gọi mua hoặc tự nhận sản phẩm của người gốc, "
+                           "viết lại thành lời về món ăn: " + ", ".join(f"{k} («{got[k]}»)" for k in ads[:8]))
+            if miss:
+                why.append("BỎ MẤT nguyên liệu/số liệu: " + ", ".join(miss) +
+                           " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
+            if added:
+                why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
+                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng)")
+            fix = prompt + "\n\nBẢN TRƯỚC BỊ LOẠI vì " + "; ".join(why) + \
+                ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
+            try:
+                d2, got2 = _parse(await call(fix))
+                b2, m2, a2 = _score(got2, d2["_ost"])
+                old_err = len(bad) + 3 * (len(miss) + len(added))
+                new_err = len(b2) + 3 * (len(m2) + len(a2))
+                if new_err < old_err:
+                    d, got, bad, miss, added = d2, got2, b2, m2, a2
+            except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
+                logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
+                                str(e)[:120])
+                break
+        if miss or added:
+            logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
+        d["_issues"] = (miss, added)
+        out = []
+        for k, st, slot, mx, tx, span in slots:
+            ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
+            # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
+            text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
+            # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
+            # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
+            out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
+                        "copy": 0.0 if ost == "orig" else round(copy_ratio(text, tx), 2)})
+        for o, (k, st, slot, mx, tx, span) in zip(out, slots):
+            logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
+        script = " ".join(x["text"] for x in out if x["text"])
+        fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
+        return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
+                "hook": clean_hook(d.get("hook") or "") if intro else "",
+                "title": (d.get("title") or title or script[:80]).strip(),
+                "caption": (d.get("caption") or script).strip(),
+                "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
+    return await llm.first_success(chain, attempt, record=metrics.record,
+                                   on_error=lambda p, e: logging.error("generate_timed: provider %s lỗi", p.name, exc_info=e))
 
 
 SHORTEN_PROMPT = """Rút gọn các câu thoại video dưới đây cho vừa thời gian, mỗi câu tối đa số từ ghi kèm.
@@ -802,18 +865,13 @@ Trả về DUY NHẤT JSON: {{"segments": [{{"i": số, "text": "..."}}]}}"""
 async def shorten(items: list) -> dict:
     """items: [(i, text, max_words)] -> {i: text_ngắn}. Lỗi thì trả {}."""
     prompt = SHORTEN_PROMPT.format(items="\n".join(f"{i} | tối đa {mx} từ | {t}" for i, t, mx in items)) + style_block()
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        providers.append(lambda pr: _call_gemini(pr, schema=ShortOut))
-    if config.OPENROUTER_API_KEY:
-        providers.append(_call_openrouter)
-    for call in providers:
-        try:
-            d = loads_lenient(await call(prompt))
-            return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
-        except Exception:
-            logging.exception("shorten lỗi")
-    return {}
+
+    async def attempt(p):
+        d = loads_lenient(await p.call(prompt))
+        return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
+    out = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ShortOut)), attempt,
+                                  on_error=lambda p, e: logging.error("shorten lỗi", exc_info=e))
+    return out if out is not None else {}
 
 
 SCENE_PROMPT = """Bạn là biên kịch video ngắn tiếng Việt. Video không có lời thoại; dưới đây là ảnh đại diện của từng CẢNH theo thứ tự, kèm thời điểm và số từ tối đa. Viết lời thuyết minh cho TỪNG CẢNH, nói đúng điều đang thấy trong ảnh của cảnh đó (không đoán thứ không thấy, không bịa số liệu). Cảnh đầu là CÂU HOOK: nói ngay điều hấp dẫn nhất (món thành phẩm, mẹo, câu hỏi gây tò mò), không chào hỏi, không giới thiệu kênh. KHÔNG kêu gọi đăng ký / theo dõi / like / share kênh ở bất kỳ cảnh nào. Giọng nói chuyện tự nhiên, câu ngắn, có dấu câu. Không emoji trong "text".
@@ -929,10 +987,75 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
 _PROMO_STRONG = re.compile(
     r"giỏ hàng|giỏ hàn|chào hàng|góc (trái|phải)|độc quyền|chính tay (em|mình|tui|tôi)|bấm vào|nhấn vào|link|mã giảm|"
     r"khuyến mãi|(đặt|chốt) mua|mua (bột|gói|hũ|sản phẩm|hàng|ngay|giúp|ủng)|sản phẩm (của|bên) (em|mình|shop)|"
-    r"inbox|nhắn tin|freeship|đặt hàng|shop (em|mình)", re.IGNORECASE)
+    r"inbox|nhắn tin|freeship|đặt hàng|shop (em|mình)|khóa học|khoá học|đăng ký học|học viên|lớp (dạy|học) nấu|"
+    r"nhận (dạy|đặt tiệc|nấu tiệc)|đặt tiệc|tiệc (trọn gói|cưới)|hotline|zalo|số điện thoại", re.IGNORECASE)
 _PROMO_WEAK = re.compile(r"màn hình|ủng hộ (em|mình|shop|kênh)|giá (đang|rất|chỉ|cực|siêu|ưu)|(có|nhớ) mua|mua (ở|tại)",
                          re.IGNORECASE)
 _PROMO_RE = re.compile(_PROMO_STRONG.pattern + "|" + _PROMO_WEAK.pattern, re.IGNORECASE)
+
+
+RECIPE_PROMPT = """Bạn là đầu bếp kiêm biên tập viên công thức. Dưới đây là lời thoại gốc của một video nấu ăn (máy nghe chép, có thể sai chính tả), chia thành các ĐOẠN có số thứ tự{img_note}. Hãy đọc kỹ và trả về:
+
+1. "is_recipe": video có hướng dẫn nấu một món không (false nếu là quảng cáo khóa học, tiệc, quán, vlog...).
+2. "dish": tên món ngắn gọn.
+3. "servings": khẩu phần CHỈ KHI lời gốc / mô tả nói rõ (vd "4 người ăn"), không thì để "".
+4. "ingredients": MỌI nguyên liệu và gia vị được nhắc, theo thứ tự xuất hiện. Mỗi nguyên liệu:
+   - "name": tên THẬT của nguyên liệu, tiếng Việt chuẩn. Máy nghe hay sai: phải sửa theo ý nghĩa món, ví dụ "nạt vai" -> "nạc vai", "nấm mặn" -> "nước mắm", "hột ngọt" -> "bột ngọt", "củ hành sắt" -> "củ hành xắt". Không ghi nguyên chữ máy nghe sai.
+   - "qty", "unit": định lượng ĐÚNG như người trong video nói (vd "500" + "gam", "2" + "muỗng canh", "1/2" + "muỗng cà phê"). Không nói số thì để "" (vừa đủ). TUYỆT ĐỐI không đoán, không tự quy đổi, không làm tròn.
+   - "seg": số thứ tự ĐOẠN nơi nghe thấy định lượng đó (-1 nếu lấy từ mô tả); "quote": trích nguyên văn mấy chữ trong đoạn đó.
+   - Cùng một nguyên liệu dùng ở hai bước với hai lượng khác nhau thì ghi HAI dòng.
+   - "first_img": số thứ tự ẢNH đầu tiên thấy rõ nguyên liệu đó (-1 nếu không có ảnh / không thấy).
+5. "steps": chia TOÀN BỘ các đoạn thành các bước theo đúng thứ tự, mỗi đoạn thuộc đúng một bước; "a", "b" là số đoạn đầu và cuối của bước. Chia NHỎ: mỗi bước một thao tác chính (không gộp cả quá trình chiên vài phút thành một bước); các đoạn chỉ giải thích, khen, tán gẫu, không có thao tác thì tách riêng thành bước "other" / "reaction" / "wait".
+   - "kind": intro (chào hỏi, giới thiệu) | ingredients (bày / giới thiệu nguyên liệu) | prep (sơ chế, ướp) | cook (nấu trên lửa) | wait (chờ chín, tán gẫu trong lúc chờ) | plate (bày ra đĩa) | taste (nếm, ăn thử) | reaction (khen, cảm thán, không có thao tác) | promo (quảng cáo quán, khóa học, sản phẩm, kêu gọi) | other.
+   - "text": câu hướng dẫn ngắn (≤ 25 chữ) cho phần CÁCH LÀM của bài đăng, viết lại bằng lời của bạn{style}, chỉ dùng nguyên liệu và con số có trong lời gốc; để "" cho intro / reaction / promo / other.
+   - "ingredients": tên nguyên liệu dùng ở bước đó.
+   - "independent": true nếu đây là bước SƠ CHẾ không phụ thuộc bước sơ chế liền trước (vd băm tỏi và thái hành).
+6. "tips": tối đa 3 mẹo hay. Ưu tiên mẹo chính người trong video nói (ghi "seg" của đoạn đó). Được thêm TỐI ĐA 1 mẹo kỹ thuật của bạn ("seg": -1) gắn với một bước có trong video: không có con số, không nói về sức khỏe / chữa bệnh / giảm cân, không thêm nguyên liệu mới.
+
+Không kêu gọi đăng ký / theo dõi kênh. Không lời quảng cáo của quán, khóa học.
+
+Tiêu đề gốc: {title}
+Mô tả gốc: {desc}
+
+CÁC ĐOẠN (số thứ tự | lời gốc):
+{segments}
+
+Trả về DUY NHẤT JSON hợp lệ, không markdown:
+{{"is_recipe": true, "dish": "...", "servings": "", "ingredients": [{{"name": "...", "qty": "...", "unit": "...", "seg": 0, "quote": "...", "first_img": -1}}], "steps": [{{"kind": "prep", "a": 0, "b": 2, "text": "...", "ingredients": ["..."], "independent": false}}], "tips": [{{"text": "...", "seg": 3}}]}}"""
+
+RECIPE_SEG_MAX = 160          # đoạn lời gốc tối đa gửi AI (video 5 phút ~ 80-120 đoạn)
+
+
+async def recipe_facts(title: str, desc: str, texts: list[str], images: list | None = None,
+                       times: list | None = None) -> dict | None:
+    """AI đọc lời gốc (và ảnh theo mốc giây) -> nguyên liệu + định lượng kèm chỗ nghe thấy, các bước có nhãn, mẹo.
+    CHỈ là đề xuất: rmvideo/domain/recipe.verify kiểm từng con số với lời gốc. Lỗi / không có AI: None."""
+    texts = [str(t or "").strip() for t in texts][:RECIPE_SEG_MAX]
+    if not texts:
+        return None
+    img_note = ""
+    if images and times:
+        img_note = ("; kèm " + str(len(images)) + " ảnh chụp theo thời gian ("
+                    + ", ".join(f"Ảnh {k}: giây {t:.0f}" for k, t in enumerate(times)) + ")")
+    style = {"mien_nam": " (giọng miền Nam, gọn)", "mien_tay": " (giọng miền Tây, gọn)"}.get(config.SPEECH_STYLE, "")
+    prompt = RECIPE_PROMPT.format(img_note=img_note, style=style, title=title or "(không có)",
+                                  desc=(desc or "(không có)")[:800],
+                                  segments="\n".join(f"{k} | {t}" for k, t in enumerate(texts)))
+
+    def norm(d: dict) -> dict:
+        for st in d.get("steps") or []:                  # schema dùng a/b; JSON mode tự do có thể ghi from/to
+            st.setdefault("from", st.get("a", 0))
+            st.setdefault("to", st.get("b", st.get("from", 0)))
+        if not isinstance(d.get("ingredients"), list) or not isinstance(d.get("steps"), list):
+            raise ValueError("thiếu ingredients/steps")
+        return d
+
+    async def attempt(p):
+        return norm(loads_lenient(await p.call(prompt)))
+    return await llm.first_success(
+        _chain(lambda pr: _call_gemini(pr, images=images or None, schema=RecipeOut, label="Ảnh", timeout=90)),
+        attempt, record=metrics.record,
+        on_error=lambda p, e: logging.warning("AI đọc công thức bằng %s lỗi (%s)", p.name, str(e)[:120]))
 
 
 def find_promo_tail(segs: list, dur: float) -> float | None:
@@ -986,7 +1109,8 @@ def same_sentence(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, w(a), w(b)).ratio()
 
 
-def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> str:
+def platform_post(title: str, caption: str, hashtags: str, credit: str = "", recipe: str = "",
+                  recipe_line: str = "") -> str:
     """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag. credit: dòng ghi nguồn + nhãn giọng AI
     (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại)."""
     tags = ["#" + t.lstrip("#") for t in hashtags.replace(",", " ").split() if t.strip("#")]   # AI đôi khi quên dấu #
@@ -998,6 +1122,11 @@ def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> 
         tiktok = (cap + " " + " ".join(tags[:4])).strip()
     facebook = f"{caption.strip()}\n\n{' '.join(tags[:3])}"
     youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:8])}"
+    if recipe:                                 # công thức đã đối chiếu (POST_RECIPE / TIPS): nằm giữa caption và hashtag
+        facebook = f"{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:3])}"
+        youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:8])}"
+    if recipe_line:
+        tiktok = f"{tiktok}\n{recipe_line.strip()}"
     if credit:
         tiktok, facebook, youtube = f"{tiktok}\n{credit}", f"{facebook}\n\n{credit}", f"{youtube}\n\n{credit}"
     return (f"📌 {title.strip()}\n\n▶ TikTok:\n{tiktok}\n\n▶ Facebook:\n{facebook}\n\n▶ YouTube Shorts:\n{youtube}")

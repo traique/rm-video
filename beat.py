@@ -1,9 +1,10 @@
 """Dò BPM + mốc beat đầu tiên bằng numpy thuần (không cần librosa/aubio nặng nề).
 Đủ chính xác cho nhạc có beat rõ (dance/pop/EDM) — đúng thể loại video nhảy."""
 import asyncio
-import subprocess
 
 import numpy as np
+
+from rmvideo.media import proc
 
 SR = 22050
 HOP = 512
@@ -11,7 +12,7 @@ _FPS = SR / HOP  # ~43 khung onset / giây
 
 
 def _decode(path: str, max_s: float = 90) -> np.ndarray:
-    out = subprocess.run(
+    out = proc.run_sync(
         ["ffmpeg", "-v", "error", "-i", path, "-t", str(max_s), "-vn",
          "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
         check=True, capture_output=True,

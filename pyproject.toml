@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 130
-target-version = "py310"
+target-version = "py311"
 extend-exclude = ["static"]
 
 [tool.ruff.lint]
@@ -11,3 +11,40 @@ ignore = ["B905", "B007"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Mã mới trong gói rmvideo/ kiểm kiểu chặt (mã cũ ở gốc chưa có chú thích kiểu nên chưa bật).
+[tool.mypy]
+python_version = "3.11"
+files = ["rmvideo"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+follow_imports = "silent"         # mã cũ ở gốc chỉ dùng làm kiểu tham chiếu, không báo lỗi trong đó
+
+[[tool.mypy.overrides]]
+module = ["config", "queue_manager", "core_video", "pipeline", "kaggle_worker", "kaggle_api", "scenes", "prompt_engine"]
+disallow_untyped_defs = false
+
+# Mã chuyển nguyên văn từ pipeline.py / core_video.py (Phase 4, 6): dict tự do chưa có kiểu, kiểm dần khi sửa tiếp.
+[[tool.mypy.overrides]]
+module = ["rmvideo.app.flow.analysis", "rmvideo.app.flow.teaser", "rmvideo.app.flow.music", "rmvideo.app.flow.photo",
+          "rmvideo.app.flow.long_video", "rmvideo.app.flow.delivery",
+          "rmvideo.media.ff", "rmvideo.media.fetch", "rmvideo.media.tts_engine", "rmvideo.media.voiceplan",
+          "rmvideo.media.filtergraph", "rmvideo.media.renderer"]
+disallow_untyped_defs = false
+ignore_errors = true
+
+# các bước của Remake / dispatch đã có kiểu cho trạng thái; hàm trợ giúp nội bộ chưa chú thích đủ
+[[tool.mypy.overrides]]
+module = ["rmvideo.app.flow.remake", "rmvideo.app.flow.dispatch", "rmvideo.app.flow.backends", "rmvideo.app.flow.common",
+          "rmvideo.interfaces.web.*", "rmvideo.interfaces.telegram.*"]
+disallow_untyped_defs = false
+
+# handler aiogram: kiểu tuỳ chọn của Message/CallbackQuery (cb.message, cb.data) đã được middleware bảo đảm
+# (StaleButtonMiddleware) và bộ lọc (F.text...), mypy không suy ra được
+[[tool.mypy.overrides]]
+module = ["rmvideo.interfaces.telegram.handlers"]
+disable_error_code = ["union-attr"]

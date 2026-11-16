@@ -14,13 +14,13 @@ import asyncio
 import logging
 import os
 import re
-import subprocess
 
 import numpy as np
 
 import config
 import core_video
 import scenes
+from rmvideo.media import proc
 
 SW, SH = 144, 256          # cỡ chấm điểm
 N_CAND = 6
@@ -31,7 +31,7 @@ COVER_NAME, THUMB_NAME = "cover.jpg", "thumb.jpg"
 
 def _raw_frames(args: list, pre_vf: str = "") -> np.ndarray:
     """Khung RGB SHxSW từ ffmpeg. pre_vf: bộ lọc chạy TRƯỚC bước thu nhỏ (vd fps=...) — chỉ được có một -vf."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", *args, "-vf",
+    raw = proc.run_sync(["ffmpeg", "-v", "error", *args, "-vf",
                           (pre_vf + "," if pre_vf else "")
                           + f"scale={SW}:{SH}:force_original_aspect_ratio=increase,crop={SW}:{SH}",
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=180).stdout
@@ -48,7 +48,7 @@ def frames_sync(src: str, thumbs_dir: str | None, thumb_times: list | None = Non
             k = min(len(fr), len(thumb_times))
             return np.array(thumb_times[:k], dtype=float), fr[:k]
         return np.arange(len(fr)) / scenes.THUMB_FPS, fr
-    err = subprocess.run(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
+    err = proc.run_sync(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
                           "-fps_mode", "passthrough", "-f", "null", "-"], capture_output=True, text=True, timeout=180).stderr
     times = [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
     fr = _raw_frames(["-skip_frame", "nokey", "-i", src, "-an", "-fps_mode", "passthrough"])
@@ -149,7 +149,7 @@ def opening_times(window: float, n: int = 4) -> list:
 
 def _small_frames(src: str, t0: float, dur: float, fps: float = 2.0, w: int = 24, h: int = 42) -> np.ndarray:
     """Khung màu thu nhỏ (h x w x 3, float) trong [t0, t0 + dur] — chỉ giải mã đúng khúc đó."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
+    raw = proc.run_sync(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
                           "-vf", f"fps={fps},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                          capture_output=True, timeout=120).stdout
     n = len(raw) // (w * h * 3)
@@ -204,7 +204,7 @@ async def ai_judge(images: list, title: str, mode: str, opening=None, opening_se
         prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(
             first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX)
     try:
-        raw = await prompt_engine._call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
+        raw = await prompt_engine.call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
         d = prompt_engine.loads_lenient(raw)
         best = int(d.get("best"))
         if 0 <= best < len(images):
@@ -258,26 +258,43 @@ def layout_title(text: str) -> tuple:
     return "\n".join(lines), 0.046
 
 
+def _brand_rgb() -> str:
+    c = (config.BRAND_COLOR or "").lstrip("#")
+    return f"0x{c.upper()}" if len(c) == 6 else ""
+
+
 def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title_files: list | None,
-                 title_size: float, logo: bool) -> str:
+                 title_size: float, logo: bool, series_file: str | None = None) -> str:
     """filter_complex cho MỘT khung: màu như video -> che dải chữ gốc -> tối dần phía trên -> tiêu đề -> logo,
     ra 2 nhãn [big] (ảnh bìa) và [small] (thumbnail Telegram 180x320)."""
-    v = "[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h) + core_video._cover_filter(bands or [], W, H)
+    v = "[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h, grain=False) + core_video._cover_filter(bands or [], W, H)
+    color = _brand_rgb()
+    kenh = config.COVER_TEMPLATE == "kenh"
     if title_files:
         fs = int(H * title_size)
         v += (",format=yuv420p,geq=lum='lum(X,Y)*(0.58+0.42*min(1,Y/(H*0.46)))':cb='cb(X,Y)':cr='cr(X,Y)'"
               + core_video.drawtext_lines(
                   title_files, fs, "h*0.085", int(fs * 1.18 + H * 0.012),
-                  f"fontcolor=0xFFE100:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
+                  f"fontcolor={color or '0xFFE100'}:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
                   f"shadowx={int(H * 0.003)}:shadowy={int(H * 0.004)}"))
+    if kenh:
+        # mẫu kênh: vạch màu kênh ở đáy + tên loạt và số tập (cùng một khuôn cho mọi video -> nhận ra kênh)
+        bar = int(H * 0.085)
+        v += f",drawbox=x=0:y=ih-{bar}:w=iw:h={bar}:color={color or '0xFFE100'}@0.92:t=fill"
+        if series_file:
+            v += (f",drawtext=fontfile={core_video.FONT_PATH}:textfile={series_file}:expansion=none:"
+                  f"fontsize={int(bar * 0.5)}:fontcolor=white:borderw=2:bordercolor=black@0.7:x={int(W * 0.05)}:"
+                  f"y=h-{bar}+({bar}-text_h)/2")
     if logo:
         k = H / 1280
+        y = f"H-h-{int(H * 0.085) + int(16 * k)}" if kenh else f"H-h-{int(40 * k)}"
         v += (f"[vb];[1:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
-              f"[vb][lg]overlay=W-w-{int(24 * k)}:H-h-{int(40 * k)}")
+              f"[vb][lg]overlay=W-w-{int(24 * k)}:{y}")
     return v + ",split=2[big][s0];[s0]scale=-2:320:flags=lanczos[small]"
 
 
-async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: str, bands=None) -> str | None:
+async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: str, bands=None,
+                       series: str = "") -> str | None:
     """Dựng cover.jpg + thumb.jpg trong out_dir từ khung tại t_src (giây trên video gốc). Trả đường dẫn ảnh bìa."""
     src_w, src_h, _ = await core_video.source_info(src)
     W, H = (1080, 1920) if (config.OUTPUT_HD and src_h >= 1600) else (720, 1280)
@@ -288,7 +305,8 @@ async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: s
         title_files = core_video.write_lines(wrapped, out_dir, "cover_title")
     logo = config.BRAND_LOGO != "0" and os.path.exists(core_video.LOGO_PATH)
     big, small = os.path.join(out_dir, COVER_NAME), os.path.join(out_dir, THUMB_NAME)
-    fc = cover_filter(mode, W, H, src_w, src_h, bands, title_files, size, logo)
+    series_file = core_video.write_lines(series, out_dir, "cover_series")[0] if series else None
+    fc = cover_filter(mode, W, H, src_w, src_h, bands, title_files, size, logo, series_file)
     await core_video._run_ffmpeg("-y", "-ss", f"{max(0.0, t_src):.3f}", "-i", src,
                                  *(["-i", core_video.LOGO_PATH] if logo else []),
                                  "-filter_complex", fc,
@@ -307,7 +325,7 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
         times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
         if not len(frames):
             return None
-        sc = score_frames(frames, times, src_dur, mode, cuts, end)
+        sc = await asyncio.to_thread(score_frames, frames, times, src_dur, mode, cuts, end)   # numpy: không chặn vòng lặp
         cand = pick_candidates(times, sc)
         if not cand:
             return None
@@ -336,7 +354,7 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
 
 async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
                      end: float | None = None, bands=None, thumbs_dir: str | None = None,
-                     thumb_times: list | None = None, at: float | None = None) -> str | None:
+                     thumb_times: list | None = None, at: float | None = None, series: str = "") -> str | None:
     """Toàn bộ quy trình (thời gian theo video GỐC). at: khung đã chọn sẵn (cùng khoảnh khắc với đoạn mở đầu) thì
     dựng luôn, khỏi chấm điểm + hỏi AI lần nữa. Không bao giờ ném lỗi: trả None nếu không làm được."""
     if config.COVER == "0":
@@ -348,7 +366,7 @@ async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: flo
                 return None
             at = m["t"]
         logging.info("Ảnh bìa: khung %.1fs", at)
-        return await render_cover(src, at, out_dir, mode, title, bands)
+        return await render_cover(src, at, out_dir, mode, title, bands, series)
     except Exception as e:
         logging.warning("Không tạo được ảnh bìa: %s", str(e)[:200])
         return None
