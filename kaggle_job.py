@@ -145,7 +145,9 @@ def make_synth(spec: dict, ref_path: str | None):
 
 # ---------------- các loại việc ----------------
 
-_SEP_DONE: dict = {}   # nguồn -> tiếng nền đã tách trong phiên này (bản đầy đủ + bản ngắn cùng video: tách MỘT lần)
+# nguồn -> tiếng nền đã tách trong PHIÊN Kaggle này (bản đầy đủ + bản ngắn cùng video: tách MỘT lần). None = không
+# ở trong một phiên (gọi produce trực tiếp, vd trong test): không dùng lại, tránh lẫn giữa các lần gọi không liên quan
+_SEP_DONE: dict | None = None
 
 
 async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
@@ -160,8 +162,9 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     sep_task = None
     reused = mounted_ambient(spec.get("amb_token", "")) if spec.get("mode") == "cook" else None
     src_key = json.dumps(spec.get("src") or {}, sort_keys=True)
-    if not reused and spec.get("mode") == "cook" and _SEP_DONE.get(src_key) and os.path.exists(_SEP_DONE[src_key]):
-        reused = _SEP_DONE[src_key]                     # việc trước trong cùng phiên đã tách giọng video này
+    done = (_SEP_DONE or {}).get(src_key)
+    if not reused and spec.get("mode") == "cook" and done and os.path.exists(done):
+        reused = done                                   # việc trước trong cùng phiên đã tách giọng video này
     if reused:
         t["sep"] = 0.0
         logging.info("Dùng lại tiếng nền đã tách ở phiên phân tích: %s", reused)
@@ -179,7 +182,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             os.environ.setdefault("SEP_DEVICE", "cuda")   # có GPU thì tách bằng GPU; không có CUDA thì tự về CPU
             ok = await vocal_sep.remove_voice(inp, p, windows=None)
             t["sep"] = round(time.time() - t0, 1)
-            if ok:
+            if ok and _SEP_DONE is not None:
                 _SEP_DONE[src_key] = p
             return p if ok else None
         sep_task = asyncio.create_task(_sep())
@@ -375,6 +378,8 @@ def _jsonable(o):
 
 
 def main(spec: dict, out_dir: str = "/kaggle/working"):
+    global _SEP_DONE
+    _SEP_DONE = {}                                       # một phiên Kaggle: các việc cùng video dùng chung tiếng nền
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     prepare_env(spec)
     sys.path.insert(0, APP)

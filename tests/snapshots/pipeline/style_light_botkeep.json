@@ -57,7 +57,7 @@
    [
     {
      "allow_hd": true,
-     "ambient": "<TMP>/cache/ambient/f7796a0cf435aceafa4a771746178514.wav",
+     "ambient": "<TMP>/cache/ambient/<HASH>.wav",
      "bands": [
       [
        0.7,

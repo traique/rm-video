@@ -102,6 +102,9 @@ def _norm(obj, roots):
             s = s.replace(root, name)
         s = re.sub(r"/kin/[A-Za-z0-9_-]{20,}/", "/kin/<T>/", s)
         s = re.sub(r"rmv_[A-Za-z0-9_]+", "rmv_<X>", s)
+        # tên file bộ nhớ đệm = băm nội dung video thử; FFmpeg mỗi máy mã hoá video thử khác vài byte (CI GitHub đỏ
+        # từ bản 41 chỉ vì chỗ này) -> không đưa mã băm vào snapshot
+        s = re.sub(r"(/cache/[\w-]+/)[0-9a-f]{16,}", r"\1<HASH>", s)
         return s
     if isinstance(obj, kaggle_worker.Deferred):
         return "<Deferred>"
