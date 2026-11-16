@@ -145,6 +145,9 @@ def make_synth(spec: dict, ref_path: str | None):
 
 # ---------------- các loại việc ----------------
 
+_SEP_DONE: dict = {}   # nguồn -> tiếng nền đã tách trong phiên này (bản đầy đủ + bản ngắn cùng video: tách MỘT lần)
+
+
 async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     """Remake: CÙNG hàm dựng với đường Botkeep (rmvideo/app/assemble.py), trừ bước AI rút gọn (không có key ở đây;
     Botkeep đã rút gọn trước theo tốc độ của giọng): đoạn còn dài thì nói nhanh hơn trong giới hạn của plan_voice."""
@@ -156,6 +159,9 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     out_dur = float(spec["out_dur"])
     sep_task = None
     reused = mounted_ambient(spec.get("amb_token", "")) if spec.get("mode") == "cook" else None
+    src_key = json.dumps(spec.get("src") or {}, sort_keys=True)
+    if not reused and spec.get("mode") == "cook" and _SEP_DONE.get(src_key) and os.path.exists(_SEP_DONE[src_key]):
+        reused = _SEP_DONE[src_key]                     # việc trước trong cùng phiên đã tách giọng video này
     if reused:
         t["sep"] = 0.0
         logging.info("Dùng lại tiếng nền đã tách ở phiên phân tích: %s", reused)
@@ -173,6 +179,8 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             os.environ.setdefault("SEP_DEVICE", "cuda")   # có GPU thì tách bằng GPU; không có CUDA thì tự về CPU
             ok = await vocal_sep.remove_voice(inp, p, windows=None)
             t["sep"] = round(time.time() - t0, 1)
+            if ok:
+                _SEP_DONE[src_key] = p
             return p if ok else None
         sep_task = asyncio.create_task(_sep())
 

@@ -128,6 +128,8 @@ class Remake:
         self.cards: list = []                    # thẻ chữ ngoài kế hoạch dựng (mẹo trên video), mốc chưa cộng mở đầu
         self.end_src = 0.0                       # hết phần dựng trên video GỐC (đã cắt quảng cáo cuối)
         self.short_pass = False                  # đang làm bản ngắn: không làm lại ảnh bìa
+        self.short_ready: dict | None = None     # bản ngắn đã viết lời (+ việc Kaggle)
+        self.short_out: dict | None = None       # kết quả Kaggle của bản ngắn (dựng chung phiên với bản đầy đủ)
 
     # ---------------- các bước ----------------
 
@@ -166,7 +168,8 @@ class Remake:
         segs_t = timed["segments"]
         await self.pre_shorten(segs_t)
         if self.remote:
-            out = await self.render_remote(segs_t)
+            ready = await self.prepare_short() if self.short_wanted() else None
+            out = await self.render_remote(segs_t, ready.get("spec") if ready else None)
             if out is not None:
                 self.queue_short(out)
                 return out
@@ -176,17 +179,20 @@ class Remake:
 
     # ---------------- bản ngắn ≤ 90 giây (SHORT_VERSION) ----------------
 
-    def queue_short(self, out: Any):
-        """Hẹn làm bản ngắn sau khi giao bản đầy đủ: video nấu ăn dài hơn Reels, không phải phần của video dài."""
+    def short_wanted(self) -> bool:
+        """Có làm bản ngắn không: video nấu ăn dài hơn Reels, không phải phần của video dài."""
         job = self.job
-        if (config.SHORT_VERSION == "on" and job.mode == Mode.COOK and isinstance(out, str) and not job.remote_src
+        return (config.SHORT_VERSION == "on" and job.mode == Mode.COOK and not job.remote_src
                 and not kaggle_worker.collecting() and self.end_src * self.stretch > short.MIN_SOURCE
-                and self.out_dur > short.REEL_MAX):
-            SHORT_AFTER[job.id] = self.render_short
+                and self.out_dur > short.REEL_MAX)
 
-    async def render_short(self) -> str | None:
-        """Bản ngắn: kế hoạch riêng (rmvideo/app/flow/short.py), AI viết lời mới cho các câu được giữ, dựng (Kaggle nếu
-        được, không thì Botkeep) vào thư mục con. Lỗi: ghi chú, chỉ còn bản đầy đủ (không làm hỏng job)."""
+    def queue_short(self, out: Any):
+        """Hẹn giao bản ngắn sau bản đầy đủ (đã dựng chung phiên Kaggle thì giao ngay, không thì dựng lúc đó)."""
+        if isinstance(out, str) and self.short_wanted():
+            SHORT_AFTER[self.job.id] = self.render_short
+
+    def _short_plan(self) -> tuple | None:
+        """(kế hoạch, lời gốc theo trục mới, điểm cắt, quãng nói, giây mở đầu) của bản ngắn; None (đã ghi chú)."""
         job = self.job
         T = float(self.tz["dur"]) if self.tz else 0.0
         end = self.end_src
@@ -198,18 +204,45 @@ class Remake:
         mapped = [(round(oa + T, 2), round(ob + T, 2), t) for a, b, t in segs_src
                   for oa, ob in [(plan.to_out(a), plan.to_out(b))] if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
         side = [(round(x["t"] + T, 2), round(x["t"] + x["dur"] + T, 2), x["text"]) for x in plan.texts if x.get("text")]
-        segs = sorted(mapped + side)
         cuts = ([T] if T else []) + [round(c + T, 2) for c in plan.cut_points()]
         speech = [(a + T, b + T) for a, b in plan.map_windows([(a, b) for a, b, _ in segs_src])]
-        sub = os.path.join(self.tmp, "short")
-        os.makedirs(sub, exist_ok=True)
+        return plan, sorted(mapped + side), cuts, speech, T
+
+    def _enter_short(self, plan: edl.EditPlan, segs: list, cuts: list, speech: list, T: float) -> tuple:
+        """Chuyển Remake sang trạng thái bản ngắn (thư mục con, 1080p cho Reels, không làm lại ảnh bìa)."""
+        job = self.job
         keep = {k: getattr(self, k) for k in ("segs", "cuts", "speech", "out_dur", "render_dur", "edit", "tmp", "cards",
-                                              "ass", "tasks", "pre_cover")}
+                                              "ass", "tasks", "pre_cover", "is_long")}
         keep_job = (job.srt, job.final_segments, job.script, job.out_dur)
+        sub = os.path.join(keep["tmp"], "short")
+        os.makedirs(sub, exist_ok=True)
         self.short_pass = True
         self.segs, self.cuts, self.speech, self.edit, self.tmp, self.cards = segs, cuts, speech, plan, sub, []
         self.out_dur = round(plan.out_dur() + T, 2)
         self.render_dur, self.ass, self.tasks, self.pre_cover = 0, os.path.join(sub, "subs.ass"), [], None
+        self.is_long = False                             # bản ngắn ≤ 90s: 1080p (Reels) khi nguồn đủ nét
+        return keep, keep_job
+
+    async def _exit_short(self, saved: tuple):
+        keep, keep_job = saved
+        for t in self.tasks:                              # việc nền của riêng lượt bản ngắn
+            if not t.done():
+                t.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        for k, v in keep.items():
+            setattr(self, k, v)
+        self.job.srt, self.job.final_segments, self.job.script, self.job.out_dur = keep_job
+        self.short_pass = False
+
+    async def prepare_short(self) -> dict | None:
+        """Kế hoạch + lời AI của bản ngắn (+ việc Kaggle nếu dựng trên Kaggle). Gọi TRƯỚC khi gửi bản đầy đủ để hai
+        bản dựng chung một phiên Kaggle. Lỗi: ghi chú, None (chỉ còn bản đầy đủ)."""
+        job = self.job
+        st = self._short_plan()
+        if st is None:
+            return None
+        plan, segs, cuts, speech, T = st
+        saved = self._enter_short(plan, segs, cuts, speech, T)
         try:
             job.note(f"ℹ️ {plan.summary} ")
             job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
@@ -223,9 +256,40 @@ class Remake:
             brand.add_close(segs_t)
             if not job.approved:
                 await self.pre_shorten(segs_t)
+            ready: dict = {"st": st, "segs_t": segs_t, "timed": timed}
+            if self.remote:
+                try:
+                    ready["spec"] = self._spec(segs_t)
+                except Exception as e:                    # không gửi được: dựng riêng sau bản đầy đủ
+                    logging.info("Bản ngắn chưa gửi kèm Kaggle được: %s", e)
+            self.short_ready = ready
+            return ready
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logging.warning("Bản ngắn lỗi: %s", e)
+            job.note(f"⚠️ Bản ngắn lỗi ({str(e)[:120]}): chỉ có bản đầy đủ. ")
+            return None
+        finally:
+            await self._exit_short(saved)
+
+    async def render_short(self) -> str | None:
+        """Bản ngắn (kế hoạch rmvideo/app/flow/short.py): đã dựng chung phiên Kaggle với bản đầy đủ thì trả luôn; không
+        thì dựng bây giờ (Kaggle nếu được, không thì Botkeep) vào thư mục con. Lỗi: ghi chú, chỉ còn bản đầy đủ."""
+        job = self.job
+        if self.short_out:
+            tm = self.short_out.get("timings") or {}
+            job.note(f"ℹ️ Bản ngắn dựng chung phiên Kaggle với bản đầy đủ (dựng {tm.get('render', 0):.0f}s). ")
+            return self.short_out["video"]
+        ready = self.short_ready or await self.prepare_short()
+        if not ready:
+            return None
+        saved = self._enter_short(*ready["st"])
+        try:
+            segs_t = ready["segs_t"]
             out = await self.render_remote(segs_t) if self.remote else None
             if not isinstance(out, str):
-                out = await self.render_local(segs_t, timed)
+                out = await self.render_local(segs_t, ready["timed"])
             return out
         except asyncio.CancelledError:
             raise
@@ -234,14 +298,7 @@ class Remake:
             job.note(f"⚠️ Bản ngắn lỗi ({str(e)[:120]}): chỉ có bản đầy đủ. ")
             return None
         finally:
-            for t in self.tasks:                          # việc nền của riêng lượt bản ngắn
-                if not t.done():
-                    t.cancel()
-            await asyncio.gather(*self.tasks, return_exceptions=True)
-            for k, v in keep.items():
-                setattr(self, k, v)
-            job.srt, job.final_segments, job.script, job.out_dur = keep_job
-            self.short_pass = False
+            await self._exit_short(saved)
 
     async def measure(self):
         job = self.job
@@ -263,7 +320,9 @@ class Remake:
         self.limit = config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION
         self.out_dur = job.out_dur = min(vid_dur, job.duration or vid_dur, self.limit)
         self.render_dur = job.duration or (int(self.limit) if vid_dur > self.limit + 0.5 else 0)
-        self.is_long = self.out_dur > 100                 # video dài: 720p
+        # video dài: 720p; có bản ngắn (Reels 1080p) thì bản đầy đủ (đăng dạng video thường) cũng 720p: dựng nhanh ~2 lần
+        self.is_long = self.out_dur > 100 or (config.SHORT_VERSION == "on" and job.mode == Mode.COOK
+                                              and self.out_dur > short.REEL_MAX)
         if vid_dur > self.limit + 0.5 and not job.duration:
             job.note(f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {self.limit}s đầu (chọn chế độ video dài để làm hết). ")
 
@@ -543,21 +602,27 @@ class Remake:
             self.job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
             await self.shorten(segs_t, sure_long, est)
 
-    async def render_remote(self, segs_t: list) -> Any:
-        """Đọc giọng + tách giọng + dựng trên Kaggle. None = không gửi được / Kaggle lỗi (đã ghi chú): làm trên Botkeep.
-        Phần của video dài: trả Deferred để chạy chung một phiên với các phần khác."""
+    def _spec(self, segs_t: list) -> dict:
+        """Việc dựng gửi Kaggle theo trạng thái hiện tại (bản đầy đủ, hoặc bản ngắn khi đang ở lượt bản ngắn)."""
         job = self.job
-        post_title = common.post_title(job, self.title)
         # Kaggle 4 lõi: không cần giới hạn của Botkeep; tách CẢ BÀI nên không cần mốc lời (bóc lời không nghe được
         # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
         sep_r = {"ok": self.sep.ok, "windows": self.sep.windows, "secs": self.sep.secs, "why": self.sep.why,
                  "engines": self.sep.engines, "ok_remote": job.mode == Mode.COOK and config.VOICE_SEPARATION != "0"}
+        return kaggle_worker.build_spec(
+            job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, common.post_title(job, self.title),
+            self.bands, self.pos_y, sep_r, self.speech,
+            config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
+            local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
+            teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
+
+    async def render_remote(self, segs_t: list, extra: dict | None = None) -> Any:
+        """Đọc giọng + tách giọng + dựng trên Kaggle. None = không gửi được / Kaggle lỗi (đã ghi chú): làm trên Botkeep.
+        Phần của video dài: trả Deferred để chạy chung một phiên với các phần khác."""
+        job = self.job
+        post_title = common.post_title(job, self.title)
         try:
-            spec = kaggle_worker.build_spec(
-                job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, post_title, self.bands,
-                self.pos_y, sep_r, self.speech, config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
-                local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
-                teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
+            spec = self._spec(segs_t)
         except Exception as e:
             job.note(f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. ")
             return None
@@ -582,6 +647,21 @@ class Remake:
             # này trên Botkeep mà KHÔNG bóc lời + gọi AI lần nữa (đi đường "kịch bản đã duyệt")
             return kaggle_worker.Deferred(spec, finish, job_factory.approved_segments(segs_t))
         self.pre_cover = self.start_cover(post_title)    # ảnh bìa làm trên Botkeep trong lúc Kaggle chạy
+        if extra is not None:
+            # bản ngắn đã viết lời xong: dựng CHUNG một phiên Kaggle với bản đầy đủ (bớt một lần chờ máy + nạp giọng)
+            job.step = "Kaggle: chuẩn bị (bản đầy đủ + bản ngắn)"
+            main, sh = await kaggle_worker.produce_batch([spec, extra], self.tmp,
+                                                         on_step=lambda st: setattr(job, "step", st))
+            if isinstance(sh, dict):
+                self.short_out = sh
+            else:
+                job.note(f"ℹ️ Bản ngắn: Kaggle lỗi ({str(sh)[:120]}), dựng lại sau bản đầy đủ. ")
+            if isinstance(main, dict):
+                return await finish(main, self.pre_cover)
+            logging.warning("Kaggle lỗi, làm tiếp trên Botkeep: %s", main)
+            metrics.record("kaggle", "kaggle", ok=False, detail=str(main))
+            job.note(f"ℹ️ Kaggle lỗi ({str(main):.160}): đọc giọng + dựng trên Botkeep. ")
+            return None
         job.step = "Kaggle: chuẩn bị"
         res = await backends.try_produce(job, spec, self.tmp, "ℹ️ Kaggle lỗi ({err:.160}): đọc giọng + dựng trên Botkeep. ")
         return None if res is None else await finish(res, self.pre_cover)

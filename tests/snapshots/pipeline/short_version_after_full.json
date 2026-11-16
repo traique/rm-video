@@ -252,7 +252,7 @@
    ],
    [
     {
-     "allow_hd": false,
+     "allow_hd": true,
      "ambient": null,
      "bands": [
       [

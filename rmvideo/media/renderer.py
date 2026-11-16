@@ -123,6 +123,30 @@ def output_size(src_h: int, allow_hd: bool, out_dur: float, notes: list | None =
     return 1080, 1920
 
 
+_NVENC: dict = {}
+
+
+def nvenc() -> list | None:
+    """Tham số bộ mã hoá GPU NVIDIA (h264_nvenc) nếu máy có GPU + FFmpeg hỗ trợ (phiên GPU của Kaggle), không thì None
+    (Botkeep, phiên CPU: x264 như cũ). Thử mã hoá thật một khung một lần mỗi tiến trình; RM_NVENC=0 để tắt."""
+    if "args" in _NVENC:
+        return _NVENC["args"]
+    _NVENC["args"] = None
+    if os.environ.get("RM_NVENC") == "0" or not (os.path.exists("/dev/nvidia0") or os.path.exists("/dev/nvidiactl")):
+        return None
+    for preset in (["-preset", "p5", "-tune", "hq"], ["-preset", "slow"]):     # FFmpeg mới / cũ đặt tên preset khác nhau
+        try:
+            r = subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=640x360:d=0.2",
+                                "-c:v", "h264_nvenc", *preset, "-f", "null", "-"], capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            break
+        if r.returncode == 0:
+            _NVENC["args"] = preset
+            logging.info("Mã hoá video bằng GPU (h264_nvenc %s)", " ".join(preset))
+            break
+    return _NVENC["args"]
+
+
 def encode_args(H: int, fps: float = 30.0) -> list:
     """Thông số x264/AAC theo QUALITY và độ phân giải. high = chuẩn TVC: preset medium, crf 18,
     1080p ~10 Mbps; balanced = veryfast/crf 20; fast = superfast/crf 23. Luôn: High 4.1, bt709,
@@ -135,8 +159,12 @@ def encode_args(H: int, fps: float = 30.0) -> list:
         maxrate, buf = {"fast": ("2500k", "4000k"), "high": ("6000k", "10000k")}.get(q, ("4500k", "7000k"))
     # -threads ở đây là luồng của bộ mã hoá x264 (tuỳ chọn đầu ra); để mặc định x264 tự lấy theo số lõi MÁY CHỦ
     # (container 1.5 vCPU vẫn thấy hàng chục lõi -> tốn RAM lookahead, tranh CPU)
+    gpu = nvenc()
+    # GPU (Kaggle): mã hoá nhanh gấp nhiều lần x264 trên CPU; cq hạ 1 bậc so với crf để giữ chất lượng tương đương
+    codec = (["-c:v", "h264_nvenc", *gpu, "-rc", "vbr", "-cq", str(crf + 1), "-b:v", "0", "-bf", "3",
+              "-spatial-aq", "1"] if gpu else ["-c:v", "libx264", "-preset", preset, "-crf", str(crf)])
     return ["-threads", str(ff.ffmpeg_threads()),
-            "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-maxrate", maxrate, "-bufsize", buf,
+            *codec, "-maxrate", maxrate, "-bufsize", buf,
             "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-g", str(round(2 * fps)), "-keyint_min", str(round(2 * fps)),
             "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"]
@@ -303,7 +331,8 @@ async def side_clip(src: str, pieces: list, out: str, mode: str, W: int, H: int,
         fc += ";" + "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[sa]"
     await ff._run_ffmpeg("-y", *ff.thread_args(), *ins, "-filter_complex", fc, "-map", "[sv]",
                          *(["-map", "[sa]", "-c:a", "pcm_s16le"] if ambient_wav else ["-an"]),
-                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "15", "-pix_fmt", "yuv420p", out)
+                         *(["-c:v", "h264_nvenc", *gpu, "-rc", "vbr", "-cq", "16", "-b:v", "0"] if (gpu := nvenc()) else
+                           ["-c:v", "libx264", "-preset", "veryfast", "-crf", "15"]), "-pix_fmt", "yuv420p", out)
     return bool(ambient_wav)
 
 
@@ -409,6 +438,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
         "-t", f"{out_dur:.2f}",
         output_mp4,
     )
+    if nvenc() and notes is not None:
+        notes.append(f"ℹ️ Mã hoá video bằng GPU (NVENC), dựng {time.time() - t_start:.0f}s. ")
     if mode == "cook" and config.QUALITY == "balanced":      # số đo cho lần quyết định 1080p/720p sau
         sp = record_render_speed(time.time() - t_start, out_dur, H)
         logging.info("Dựng %dp %.0fs video mất %.0fs (máy: %.1f giây / giây video 1080p)", H * 9 // 16, out_dur,
