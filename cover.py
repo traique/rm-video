@@ -20,7 +20,7 @@ import numpy as np
 import config
 import core_video
 import scenes
-from rmvideo.media import proc
+from rmvideo.media import proc, textfit
 
 SW, SH = 144, 256          # cỡ chấm điểm
 N_CAND = 6
@@ -234,32 +234,26 @@ def cover_title(text: str) -> str:
     return " ".join(t.split())[:70].strip(" -:,")
 
 
-def _wrap_lines(text: str, width: int) -> list:
-    lines, cur = [], ""
-    for w in text.split():
-        if cur and len(cur) + 1 + len(w) > width:
-            lines.append(cur)
-            cur = w
-        else:
-            cur = (cur + " " + w).strip()
-    if cur:
-        lines.append(cur)
-    return lines
+COVER_FS = (0.068, 0.046)      # cỡ chữ tiêu đề ảnh bìa theo chiều cao khung: lớn nhất / nhỏ nhất còn đọc rõ
 
 
 def layout_title(text: str) -> tuple:
-    """(chữ đã xuống dòng, cỡ chữ theo tỉ lệ chiều cao khung). Ngắn: chữ to; dài: chữ nhỏ hơn, tối đa 3 dòng."""
-    for width, size in ((12, 0.068), (15, 0.056), (19, 0.046)):
-        lines = _wrap_lines(text, width)
-        if len(lines) <= 3:
-            return "\n".join(lines), size
-    lines = _wrap_lines(text, 19)[:3]
-    lines[-1] = lines[-1].rstrip(" ,.") + "…"
-    return "\n".join(lines), 0.046
+    """(chữ đã xuống dòng, cỡ chữ theo tỉ lệ chiều cao khung). Ngắn: chữ to; dài: xuống dòng (tối đa 3), chữ nhỏ dần;
+    dài quá cỡ nhỏ nhất thì bớt chữ cuối, thêm «…». Đo theo font thật (textfit): chữ in hoa rộng hơn nhiều so với
+    đếm ký tự, trước đây tiêu đề 12 ký tự in hoa đã chạm hai mép ảnh bìa (bản 43)."""
+    W, H = 720, 1280                                     # ảnh bìa luôn khung 9:16; tỉ lệ cỡ chữ không đổi theo độ nét
+    avail = W * 0.9 - 2 * max(3, int(H * 0.0065))        # lề 5% mỗi bên + viền chữ
+    big, small = int(H * COVER_FS[0]), int(H * COVER_FS[1])
+    words = text.split()
+    lines, fs = textfit.fit(text, avail, big, max_lines=3)
+    while fs < small and len(words) > 1:
+        words = words[:-1]
+        lines, fs = textfit.fit(" ".join(words).rstrip(" ,.:-") + "…", avail, big, max_lines=3)
+    return "\n".join(lines), (COVER_FS[0] if fs >= big else round(fs / H, 4))
 
 
 def _brand_rgb() -> str:
-    c = (config.BRAND_COLOR or "").lstrip("#")
+    c = config.brand_text("BRAND_COLOR").lstrip("#")
     return f"0x{c.upper()}" if len(c) == 6 else ""
 
 
@@ -303,12 +297,13 @@ async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: s
     if text:
         wrapped, size = layout_title(text)
         title_files = core_video.write_lines(wrapped, out_dir, "cover_title")
-    logo = config.BRAND_LOGO != "0" and os.path.exists(core_video.LOGO_PATH)
+    logo_file = core_video.ff.logo_path()
+    logo = config.BRAND_LOGO != "0" and bool(logo_file)
     big, small = os.path.join(out_dir, COVER_NAME), os.path.join(out_dir, THUMB_NAME)
     series_file = core_video.write_lines(series, out_dir, "cover_series")[0] if series else None
     fc = cover_filter(mode, W, H, src_w, src_h, bands, title_files, size, logo, series_file)
     await core_video._run_ffmpeg("-y", "-ss", f"{max(0.0, t_src):.3f}", "-i", src,
-                                 *(["-i", core_video.LOGO_PATH] if logo else []),
+                                 *(["-i", logo_file] if logo else []),
                                  "-filter_complex", fc,
                                  "-map", "[big]", "-frames:v", "1", "-q:v", "2", big,
                                  "-map", "[small]", "-frames:v", "1", "-q:v", "4", small)

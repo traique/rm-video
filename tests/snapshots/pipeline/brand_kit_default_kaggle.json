@@ -1,0 +1,396 @@
+{
+ "calls": {
+  "ai.recipe": [
+   [
+    "Thịt kho tộ",
+    [
+     "cho thịt vào chảo",
+     "đảo đều tay cho thịt săn lại",
+     "nêm muối vừa ăn",
+     "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
+    ],
+    12
+   ]
+  ],
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.5,
+      1.8,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.1,
+      3.4,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      3.6,
+      4.8,
+      "nêm muối vừa ăn"
+     ],
+     [
+      5.1,
+      7.8,
+      "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
+     ]
+    ],
+    10.2,
+    0.0,
+    4
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "allow_hd": true,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "edit": {
+      "level": "light",
+      "overlays": [],
+      "pieces": [
+       {
+        "a": 0.0,
+        "b": 5.0,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 5.0,
+        "b": 8.0,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       }
+      ],
+      "stretch": 1.0,
+      "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+      "texts": [],
+      "v": 1
+     },
+     "job": 141,
+     "kind": "remake",
+     "mode": "cook",
+     "out_dur": 10.2,
+     "pos_y": 973,
+     "render_dur": 0,
+     "segments": [
+      {
+       "i": 0,
+       "ost": "new",
+       "slot": 1.3,
+       "span": 1.3,
+       "start": 0.5,
+       "text": "Lời mới0 mới0 mới0"
+      },
+      {
+       "i": 1,
+       "ost": "new",
+       "slot": 1.3,
+       "span": 1.3,
+       "start": 2.1,
+       "text": "Lời mới1 mới1 mới1"
+      },
+      {
+       "i": 2,
+       "ost": "new",
+       "slot": 1.2,
+       "span": 1.2,
+       "start": 3.6,
+       "text": "Lời mới2 mới2 mới2"
+      },
+      {
+       "i": 3,
+       "ost": "new",
+       "slot": 2.7,
+       "span": 2.7,
+       "start": 5.1,
+       "text": "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha."
+      }
+     ],
+     "sep": {
+      "ok": true,
+      "windows": [
+       [
+        0.2,
+        8.0
+       ]
+      ]
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_CLOSE",
+      "BRAND_COLOR",
+      "BRAND_GRAIN",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_LOOK",
+      "BRAND_NAME",
+      "BRAND_SERIES",
+      "BRAND_STING",
+      "BRAND_TAGLINE",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "COVER_TEMPLATE",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_FALLBACK_MODELS",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "POST_RECIPE",
+      "PUBLIC_URL",
+      "QTY_CHECK",
+      "QUALITY",
+      "REMAKE_STYLE",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SHORT_VERSION",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TIME_SKIP_LABEL",
+      "TIPS",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "speech": [
+      [
+       0.5,
+       1.8
+      ],
+      [
+       2.0,
+       3.4
+      ],
+      [
+       3.6,
+       4.8
+      ],
+      [
+       5.0,
+       7.8
+      ]
+     ],
+     "src": {
+      "kind": "video",
+      "max_duration": 90,
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "subs": true,
+     "tail": 2.2,
+     "title": "THỊT KHO MỀM RỤC",
+     "token": "<TOKEN>",
+     "voice": {
+      "engine": "vieneu",
+      "id": "vieneu:Mỹ Duyên",
+      "name": "Mỹ Duyên"
+     }
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     0.333,
+     1.0,
+     1.667,
+     2.333,
+     3.0,
+     3.667,
+     4.333,
+     5.0,
+     5.667,
+     6.333,
+     7.0,
+     7.667
+    ]
+   ],
+   [
+    [
+     1.15,
+     2.75,
+     4.2,
+     6.45
+    ]
+   ]
+  ],
+  "style.motion": [
+   [
+    8.0
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "edit": {
+     "level": "light",
+     "overlays": [],
+     "pieces": [
+      {
+       "a": 0.0,
+       "b": 5.0,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 5.0,
+       "b": 8.0,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.12
+      }
+     ],
+     "stretch": 1.0,
+     "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+     "texts": [],
+     "v": 1
+    },
+    "error": "ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "final_segments": [
+     {
+      "end": 2.1,
+      "i": 0,
+      "orig": "cho thịt vào chảo",
+      "ost": "new",
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.5,
+       "speed": 1.0,
+       "start": 0.5
+      }
+     },
+     {
+      "end": 3.6,
+      "i": 1,
+      "orig": "đảo đều tay cho thịt săn lại",
+      "ost": "new",
+      "start": 2.1,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 3.1,
+       "speed": 1.0,
+       "start": 2.1
+      }
+     },
+     {
+      "end": 5.1,
+      "i": 2,
+      "orig": "nêm muối vừa ăn",
+      "ost": "new",
+      "start": 3.6,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 4.6,
+       "speed": 1.0,
+       "start": 3.6
+      }
+     },
+     {
+      "end": 10.2,
+      "i": 3,
+      "orig": "bà con bấm vào giỏ hàng góc trái màn hình mua ngay",
+      "ost": "new",
+      "start": 5.1,
+      "text": "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+      "voice": {
+       "end": 6.1,
+       "speed": 1.0,
+       "start": 5.1
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 10.2,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,000 --> 00:00:01,000\nx\n",
+    "status": "queued",
+    "step": "Kaggle: chuẩn bị",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/141/kaggle_out.mp4"
+  }
+ ]
+}

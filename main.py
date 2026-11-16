@@ -28,6 +28,10 @@ async def main():
         state.bot = Bot(config.BOT_TOKEN)
         dp = tg_bot.setup(state.bot)
     bot = state.bot
+    from rmvideo.app import brand
+    kit = brand.apply_default_kit()               # bản 43: bộ nhận diện «Bếp Đong Đủ» làm mặc định (một lần)
+    if kit:
+        logging.info("Đã chuyển %d cài đặt sang bộ nhận diện mặc định «Bếp Đong Đủ»: %s", len(kit), ", ".join(kit))
     shutil.rmtree(state.WORK_DIR, ignore_errors=True)        # file tạm sót lại từ lần chạy bị ngắt (TRƯỚC khi worker chạy)
     if sweep_tmp():
         logging.info("Đã dọn thư mục tạm còn sót từ lần chạy bị giết")

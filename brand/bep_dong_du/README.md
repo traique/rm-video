@@ -11,7 +11,9 @@ Tạo bằng `python brand/brand_kit.py "Bếp Đong Đủ" "Đong đủ, nấu 
 | `fb_cover.jpg` | **Ảnh bìa Fanpage** 1640x924: nội dung ở giữa (máy tính cắt trên dưới, điện thoại cắt hai bên, góc dưới trái bị ảnh đại diện đè) |
 | `avatar.jpg` | Bản ảnh vuông có câu dưới tên (dùng cho bài đăng / ảnh chia sẻ) |
 
-Điền trên web (⚙️ Cài đặt → nhóm 🎨 Nhận diện kênh, ✨ Phong cách remake & bài đăng):
+**Từ bản 43 đây là bộ mặc định của bot**: không cần điền gì. Logo và âm hiệu trong thư mục này được dùng khi chưa tải
+file riêng lên trang cài đặt; các giá trị dưới đây là mặc định (đổi ở ⚙️ Cài đặt → nhóm 🎨 Nhận diện kênh, ✨ Phong cách
+remake & bài đăng; nhập `0` để tắt chữ / màu):
 
 | Khoá | Giá trị |
 | --- | --- |

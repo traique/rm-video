@@ -30,6 +30,7 @@ import kaggle_worker
 import metrics
 import offline
 import pipeline
+from rmvideo.app import brand
 import prompt_engine
 from rmvideo.app.flow import dedupe, style
 import review
@@ -194,6 +195,8 @@ def env(monkeypatch, tmp_path):
     for k, v in (("QUALITY", "fast"), ("BRAND_INTRO", "0"), ("CUT_PROMO", "1"), ("COVER", "0"), ("TEASER", "0"),
                  ("TTS_PROVIDER", "edge"), ("KAGGLE_ANALYZE", "0"), ("BRAND_LOGO", "0"), ("PUBLIC_URL", ""),
                  ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0")):
+        monkeypatch.setattr(config, k, v)
+    for k, v in brand.OLD_DEFAULTS.items():      # kịch bản cũ: chưa đặt nhận diện kênh (bộ mặc định bản 43: test riêng)
         monkeypatch.setattr(config, k, v)
     monkeypatch.setattr(config, "UPLOAD_DIR", str(tmp_path / "up"))
     monkeypatch.setattr(cache, "DIR", str(tmp_path / "cache"))
@@ -744,3 +747,25 @@ def test_highlights_botkeep(env, long_src):
 def test_full_long_video_botkeep(env, long_src):
     src = _long(env, long_src)
     snap("full_long_video_botkeep", env, run(env, _job(env, 126, url="", local=src, long_mode="full")))
+
+
+# ---------------- bản 43: bộ nhận diện «Bếp Đong Đủ» làm mặc định ----------------
+
+def _brand_kit(monkeypatch):
+    """Mặc định của mã từ bản 43 (bộ nhận diện + phong cách mạnh + công thức + mẹo + bản ngắn)."""
+    for k in brand.OLD_DEFAULTS:
+        monkeypatch.setattr(config, k, config.EDITABLE[k])
+
+
+def test_brand_kit_default_botkeep(env, monkeypatch):
+    """Màn kết nối thêm 2,2 giây sau video (khung cuối giữ nguyên), câu chốt cuối, âm hiệu sau câu cuối."""
+    _brand_kit(monkeypatch)
+    monkeypatch.setattr(config, "CUT_PROMO", "0")
+    snap("brand_kit_default_botkeep", env, run(env, _job(env, 140)))
+
+
+def test_brand_kit_default_kaggle(env, monkeypatch):
+    _brand_kit(monkeypatch)
+    monkeypatch.setattr(config, "CUT_PROMO", "0")
+    kaggle_on(monkeypatch)
+    snap("brand_kit_default_kaggle", env, run(env, _job(env, 141, voice="vieneu:Mỹ Duyên")))

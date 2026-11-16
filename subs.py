@@ -92,7 +92,7 @@ def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"
     pos = ("%san5%spos(360,%d)" % (bs, bs, int(pos_y))) if pos_y else ""
     with open(path, "w", encoding="utf-8") as f:
         import config
-        f.write(_HEADER.replace("{style}", style_line(style, config.BRAND_COLOR)))
+        f.write(_HEADER.replace("{style}", style_line(style, config.brand_text("BRAND_COLOR"))))
         karaoke = style == "karaoke"
         for start, end, ln in lines:
             parts = []

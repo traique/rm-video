@@ -37,6 +37,7 @@ PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall 
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
+RUN_RESERVE = 15 * 60            # giờ chạy cần cho một việc: phiên chưa được cấp máy khi chỉ còn ngần này thì bỏ
 VOICE_REF = os.path.join(BASE, "assets", "voice_ref.mp3")
 LINK_TTL = 4 * 3600
 _LOCK = asyncio.Lock()
@@ -44,23 +45,29 @@ _ABORT = {"run": None}     # phiên đang chờ: {"flag", "slug"} riêng từng 
 
 
 def abort():
-    """Huỷ job / quá hạn / bot tắt khi đang chờ Kaggle: dừng vòng chờ ngay và nhờ Kaggle huỷ phiên để khỏi tốn giờ GPU.
-    Gọi API huỷ trong luồng riêng: trước đây chạy thẳng trong handler web/Telegram, chặn cả vòng lặp tới 120 giây."""
+    """Huỷ job / quá hạn / bot tắt khi đang chờ Kaggle: dừng vòng chờ ngay. Phiên Kaggle chưa được cấp máy sẽ tự thoát
+    khi được cấp (hạn `expires_at` trong việc gửi đi)."""
     run = _ABORT["run"]
     if not run:
         return
     run["flag"] = True
-    try:
-        asyncio.get_running_loop().run_in_executor(None, _cancel_session, run["slug"])
-    except RuntimeError:                  # không có vòng lặp (gọi từ test/console đồng bộ): huỷ ngay
-        _cancel_session(run["slug"])
+    _cancel_session(run["slug"])
 
 
 def _cancel_session(slug: str):
-    try:
-        kaggle_api.cancel(slug)
-    except Exception as e:
-        logging.info("Không huỷ được phiên Kaggle: %s", e)
+    """API công khai của Kaggle chỉ huỷ được phiên theo MÃ PHIÊN mà không có lệnh nào trả mã đó (bản cũ gửi tên
+    notebook nên luôn bị 403 và báo nhầm «token sai», bản 43). Thay vào đó mỗi việc gửi đi mang hạn bắt đầu
+    (`expires_at`): bot đã bỏ chờ thì phiên vừa được cấp máy thoát ngay, không tốn giờ GPU, không giữ chỗ."""
+    logging.info("Bỏ chờ phiên Kaggle %s: phiên chưa chạy sẽ tự thoát khi được cấp máy", slug)
+
+
+def with_expiry(spec: dict, start_within: float) -> dict:
+    """Gắn hạn bắt đầu cho việc gửi Kaggle: phiên được cấp máy sau hạn này (bot đã bỏ chờ, đã làm trên Botkeep) thì
+    thoát ngay (xem kernel_text)."""
+    return {**spec, "expires_at": round(time.time() + start_within + EXPIRY_SLACK)}
+
+
+EXPIRY_SLACK = 60          # giây: lệch đồng hồ + độ trễ hỏi trạng thái
 
 
 def _watch(slug: str) -> dict:
@@ -74,12 +81,13 @@ def _unwatch(run: dict):
         _ABORT["run"] = None
 
 
-def _wait_session(slug: str, timeout: float, on_status, every: float = 20):
-    """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, mất mạng, bị huỷ, notebook lỗi) thì nhờ Kaggle huỷ phiên: trước đây
-    phiên quá giờ vẫn nằm trong hàng chờ của Kaggle, lát sau tự chạy, tốn giờ GPU và chặn lượt kế của cùng notebook."""
+def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None):
+    """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, chờ máy quá queue_max, mất mạng, bị huỷ, notebook lỗi) thì bỏ phiên:
+    phiên chưa chạy tự thoát nhờ hạn `expires_at` (trước đây phiên quá giờ vẫn nằm trong hàng chờ, lát sau tự chạy,
+    tốn giờ GPU và chặn lượt kế)."""
     run = _watch(slug)
     try:
-        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"])
+        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"], queue_max=queue_max)
     except KaggleError:
         _cancel_session(slug)
         raise
@@ -217,7 +225,10 @@ def kernel_text(spec: dict) -> str:
     spec_b64 = base64.b64encode(json.dumps(spec, ensure_ascii=False).encode()).decode()
     pip = pip_for(spec)
     text = f'''# rm-video: job tự động (bot tạo, đừng sửa tay). Không chứa key API.
-import base64, io, json, subprocess, sys, zipfile
+import base64, io, json, subprocess, sys, time, zipfile
+if time.time() > {float(spec.get("expires_at") or 0)!r} > 0:
+    print("rm-video: bot đã thôi chờ việc này (chờ máy quá lâu / đã huỷ), thoát ngay để khỏi tốn giờ GPU")
+    sys.exit(0)
 APP = "/tmp/rm_app"
 zipfile.ZipFile(io.BytesIO(base64.b64decode("{bundle_b64()}"))).extractall(APP)
 r = subprocess.run({pip!r}, shell=True, capture_output=True, text=True)
@@ -238,15 +249,16 @@ def settings_snapshot() -> dict:
 
 
 def _common(spec: dict) -> dict:
-    logo = os.path.join(BASE, "assets", "logo.png")
-    if config.BRAND_LOGO != "0" and os.path.exists(logo):
+    from rmvideo.media import ff
+    logo = ff.logo_path()                       # logo tải lên, không có thì logo kênh mặc định (bản 43)
+    if config.BRAND_LOGO != "0" and logo:
         if os.path.getsize(logo) <= config.LOGO_MAX_BYTES:
             spec["logo_b64"] = base64.b64encode(open(logo, "rb").read()).decode()
         else:                                   # trước đây: notebook quá 1MB -> MỌI việc Kaggle lỗi, âm thầm đổ về Botkeep
             logging.warning("Logo %dKB quá cỡ cho notebook Kaggle (tối đa %dKB): việc này dựng không logo, hãy tải logo nhỏ hơn",
                             os.path.getsize(logo) >> 10, config.LOGO_MAX_BYTES >> 10)
-    sting = os.path.join(BASE, "assets", "sting.mp3")
-    if config.BRAND_STING != "0" and os.path.exists(sting) and os.path.getsize(sting) <= 100 * 1024:
+    sting = ff.sting_path()
+    if config.BRAND_STING != "0" and sting and os.path.getsize(sting) <= 100 * 1024:
         spec["sting_b64"] = base64.b64encode(open(sting, "rb").read()).decode()
     spec["settings"] = settings_snapshot()
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
@@ -256,7 +268,7 @@ def _common(spec: dict) -> dict:
 def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str,
                bands, pos_y, sep: dict, speech: list, max_duration: int, local_path: str | None = None,
                src: dict | None = None, amb_token: str = "", teaser: dict | None = None,
-               edit: dict | None = None, overlays: list | None = None) -> dict:
+               edit: dict | None = None, overlays: list | None = None, tail: float = 0.0) -> dict:
     """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep."""
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
@@ -275,6 +287,8 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["edit"] = edit
     if overlays:                                 # thẻ chữ ngoài kế hoạch dựng (mẹo trên video, TIPS=video)
         spec["overlays"] = overlays
+    if tail:                                     # màn kết nối thêm sau video (giây, đã tính trong out_dur)
+        spec["tail"] = tail
     if voice_name(job.voice) == CLONE:
         spec["ref_b64"] = base64.b64encode(open(VOICE_REF, "rb").read()).decode()
         spec["ref_ext"] = ".mp3"
@@ -337,12 +351,14 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     n = len(jobs)
     on_step(f"Kaggle: gửi {'lô ' + str(n) + ' việc' if n > 1 else 'job'} ({'GPU' if gpu else 'CPU'})")
     reuse = any(j.get("amb_token") for j in jobs)        # tiếng nền đã tách ở phiên phân tích: gắn vào, khỏi tách lại
-    kaggle_api.push(SLUG, "rmvideo worker", kernel_text(spec), gpu=gpu,
+    total = TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1)
+    queue_max = total - RUN_RESERVE - TIMEOUT_PER_EXTRA * (n - 1)
+    kaggle_api.push(SLUG, "rmvideo worker", kernel_text(with_expiry(spec, queue_max)), gpu=gpu,
                     kernel_sources=[SLUG_ANALYZE] if reuse else None)
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _wait_session(SLUG, TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1), st)
+    _wait_session(SLUG, total, st, queue_max=queue_max)
     d = kaggle_api.outputs(SLUG)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     out = []
@@ -379,6 +395,9 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
 
 
 TIMEOUT_ANALYZE = 30 * 60        # phân tích: hàng chờ máy + cài thư viện + tải model Whisper + chạy
+# chờ máy tối đa cho phân tích: Botkeep bóc lời được trong ~15 giây (kém hơn: chưa tách giọng), chờ Kaggle 30 phút
+# rồi mới làm trên Botkeep là phí (log 16/11: 30 phút QUEUED, sau đó phiên dựng lại được cấp máy ngay)
+QUEUE_ANALYZE = 8 * 60
 
 
 def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
@@ -395,19 +414,20 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
     src = [SLUG_PHOWHISPER] if spec.get("asr") == "phowhisper" else None
     try:
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True, kernel_sources=src)
+        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True,
+                        kernel_sources=src)
     except KaggleError as e:
         if not src:
             raise
         on_step("Kaggle: chưa có notebook PhoWhisper, dùng large-v3")   # tài khoản chưa chạy rmvideo-phowhisper
         logging.warning("Không gắn được notebook %s (%s): bóc lời bằng large-v3", SLUG_PHOWHISPER, str(e)[:120])
         spec = {**spec, "asr": "large-v3"}
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(spec), gpu=True)
+        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True)
 
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
                 f"({secs / 60:.0f} phút)")
-    _wait_session(SLUG_ANALYZE, TIMEOUT_ANALYZE, st, every=15)
+    _wait_session(SLUG_ANALYZE, TIMEOUT_ANALYZE, st, every=15, queue_max=QUEUE_ANALYZE)
     d = kaggle_api.outputs(SLUG_ANALYZE)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     if "result.json" not in files:

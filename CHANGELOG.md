@@ -13,6 +13,30 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 43 — sửa lỗi chạy thật «mực hấp gừng» (16/11/2026) + bộ nhận diện «Bếp Đong Đủ» làm mặc định
+
+Soát bản ra bằng nhận dạng giọng + so khung hình với video gốc: lời đọc đúng mốc của lời gốc (phần tua nhanh đã dời
+mốc đúng), lệch nằm ở NỘI DUNG và chỗ trống. Kiểm tra: ruff, mypy sạch; pytest toàn bộ xanh (thêm `tests/test_ban43.py`:
+dựng thật bằng FFmpeg đo điểm ảnh mép khung, Gemini quá tải giả lập, hạn tự thoát của phiên Kaggle chạy thật bằng
+Python); snapshot cũ chỉ thêm khoá `GEMINI_FALLBACK_MODELS`, thêm 2 kịch bản dùng bộ nhận diện mặc định.
+
+| Lỗi thấy trong log / video | Sửa |
+| --- | --- |
+| Chữ mở đầu «MỰC HẤP GÙNG GIÒN NGỌT» chạm hai mép (xuống dòng theo 22 ký tự, chữ in hoa rộng 752px > 720px) | `rmvideo/media/textfit.py`: đo theo bề rộng thật của font, chọn số dòng + cỡ chữ; áp cho hook, thẻ chữ, màn kết, ảnh bìa |
+| Hook sai dấu «GÙNG» (AI viết IN HOA hay rơi dấu móc) | AI viết chữ thường, máy in hoa; chữ không có trong tiêu đề / lời mà có chữ cùng khung (cùng dấu thanh) thì sửa theo |
+| Gemini 503 «high demand» suốt 5 phút → «Gemini không nhận ảnh, viết lại không kèm ảnh»: AI viết lời KHÔNG nhìn hình («thả mực vô» lúc mực đã trong nồi), không đọc được công thức | Quá tải / hết lượt không còn bị coi là lỗi ảnh; thử lần lượt model dự phòng (`GEMINI_FALLBACK_MODELS`, mặc định gemini-3.1-flash-lite, gemini-2.5-flash-lite), áp cho mọi lượt gọi Gemini |
+| Video im 14-16 giây hai chỗ dù đầu bếp đang nói (Whisper kéo một chữ phủ cả quãng, quãng trống < 8s nên không nghe lại) | Chữ dài quá 1,2 giây chỉ tính 1,2 giây khi dò quãng trống; nghe lại quãng từ 5 giây, tối đa 6 quãng |
+| Bóc lời chờ máy Kaggle 30 phút rồi mới làm trên Botkeep (12 giây) | Chờ máy tối đa 8 phút cho bước bóc lời (dựng: 35 phút) |
+| «Không huỷ được phiên Kaggle: Token Kaggle sai hoặc hết hạn (403)» — token đúng, lệnh huỷ gửi tên notebook trong khi Kaggle chỉ huỷ theo mã phiên (không lệnh nào trả mã đó) | Bỏ lệnh huỷ giả; mỗi việc gửi Kaggle mang hạn bắt đầu, phiên được cấp máy sau khi bot đã thôi chờ thì thoát ngay (không tốn giờ GPU, không giữ chỗ) |
+| «Lập kế hoạch dựng» 155 giây trên Botkeep | Đo chuyển động bỏ giải mã khung không làm mốc: nhanh ~2 lần, tín hiệu tương quan 0,99 |
+| Màn kết đè 2,2 giây cuối (che món, âm hiệu chen câu cuối) | Màn kết nối thêm sau video (giữ khung cuối); âm hiệu vang sau câu đọc cuối |
+
+**Bộ nhận diện mặc định**: tên kênh, câu dưới tên, câu chốt, màu, tông tươi sáng, tên loạt, ảnh bìa theo kênh, logo +
+âm hiệu `brand/bep_dong_du/` (khi chưa tải file riêng), dựng mạnh, công thức + mẹo, bản ngắn. Nhập `0` để tắt chữ / màu.
+
+**Cần làm khi cập nhật lên Botkeep**: không. Lần khởi động đầu, các ô đang đúng mặc định cũ tự chuyển sang bộ nhận
+diện (log «Đã chuyển N cài đặt sang bộ nhận diện mặc định»); ô bạn đã chọn khác giữ nguyên.
+
 ## Bản 42 — phong cách remake, công thức đã đối chiếu, nhận diện kênh (chi tiết: docs/KE_HOACH_REMAKE_STYLE.md)
 
 Mọi khoá mới mặc định = hành vi cũ, trừ: giọng văn mặc định đổi sang **miền Nam** (`SPEECH_STYLE=mien_nam`), tự đăng

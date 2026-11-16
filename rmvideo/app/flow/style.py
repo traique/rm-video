@@ -51,8 +51,10 @@ async def motion(inp: str, end: float, thumbs: dict | None = None) -> list[float
             cmd = ["ffmpeg", "-v", "error", "-framerate", f"{FPS:g}", "-i", os.path.join(thumbs["dir"], "%05d.jpg"),
                    "-frames:v", str(int(end * FPS) + 1), "-vf", "scale=32:56,format=gray", "-f", "rawvideo", "-"]
         else:
-            cmd = ["ffmpeg", "-v", "error", "-t", f"{end:.2f}", "-i", inp, "-an",
-                   "-vf", f"fps={FPS:g},scale=32:56,format=gray", "-f", "rawvideo", "-"]
+            # bỏ giải mã khung không làm mốc + bộ lọc khối: nhanh ~2 lần (video 197s 1080p HEVC: 35s -> 16s một lõi;
+            # Botkeep log 16/11 mất 155s), tín hiệu chuyển động gần như y hệt (tương quan 0,99)
+            cmd = ["ffmpeg", "-v", "error", "-skip_frame", "noref", "-skip_loop_filter", "all", "-t", f"{end:.2f}",
+                   "-i", inp, "-an", "-vf", f"fps={FPS:g},scale=32:56,format=gray", "-f", "rawvideo", "-"]
         res = await proc.run(cmd, stdout=True, timeout=600)
         return _motion_from_raw(res.stdout)
     except Exception as e:

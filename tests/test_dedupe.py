@@ -3,6 +3,7 @@ import asyncio
 import subprocess
 
 import config
+from rmvideo.app import brand
 from rmvideo.app.flow import dedupe
 from rmvideo.media import edl, renderer
 
@@ -40,6 +41,8 @@ def test_autopost_skips_duplicate_without_streak(monkeypatch, tmp_path):
 
 def test_tip_card_renders(tmp_path, monkeypatch):
     for k, d in config.EDITABLE.items():
+        monkeypatch.setattr(config, k, d)
+    for k, d in brand.OLD_DEFAULTS.items():      # như khi CHƯA đặt nhận diện kênh (mặc định bản 43: test_ban43.py)
         monkeypatch.setattr(config, k, d)
     monkeypatch.setattr(config, "QUALITY", "fast")
     monkeypatch.setattr(config, "BRAND_LOGO", "0")

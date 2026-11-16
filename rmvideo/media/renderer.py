@@ -8,7 +8,7 @@ import subprocess
 import time
 
 import config
-from rmvideo.media import edl, ff, filtergraph
+from rmvideo.media import edl, ff, filtergraph, textfit
 
 
 async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float | None:
@@ -170,28 +170,6 @@ def encode_args(H: int, fps: float = 30.0) -> list:
             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"]
 
 
-def _wrap(text: str, width: int) -> str:
-    """Xuống dòng tiêu đề cho vừa màn hình dọc (tối đa 3 dòng), các dòng dài gần bằng nhau: ngắt tham lam ra
-    "CÁ KÈO GIÒN KHÔNG NHẢY" / "CHẢO" (một dòng cụt) — giờ ra "CÁ KÈO GIÒN" / "KHÔNG NHẢY CHẢO"."""
-    words = text.split()
-    if not words:
-        return ""
-    n = min(3, max(1, -(-len(text) // width)))
-    while True:
-        target, lines, cur = len(text) / n, [], ""
-        for w in words:
-            if cur and (len(cur) + 1 + len(w) > width
-                        or (len(lines) < n - 1 and abs(len(cur) - target) < abs(len(cur) + 1 + len(w) - target))):
-                lines.append(cur)
-                cur = w
-            else:
-                cur = (cur + " " + w).strip()
-        lines.append(cur)
-        if len(lines) <= n or n >= 3:
-            return "\n".join(lines[:3])
-        n += 1
-
-
 async def source_info(path: str) -> tuple:
     """(rộng, cao, fps) của luồng hình; fps lấy avg_frame_rate (đúng cả với video tốc độ khung thay đổi)."""
     out = await ff._run_ffmpeg("-v", "error", "-select_streams", "v:0", "-show_entries",
@@ -237,21 +215,45 @@ def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: s
 
 def brand_hex(alpha: float | None = None) -> str:
     """Màu kênh cho drawtext/drawbox ("0xRRGGBB[@a]"), "" nếu chưa đặt BRAND_COLOR."""
-    c = (config.BRAND_COLOR or "").lstrip("#")
+    c = config.brand_text("BRAND_COLOR").lstrip("#")
     return (f"0x{c.upper()}" + (f"@{alpha:g}" if alpha is not None else "")) if len(c) == 6 else ""
 
 
 OUTRO_DUR = 2.2
+STING_LEN = 1.4            # âm hiệu màn kết (cắt ở 1,8 giây; bộ Bếp Đong Đủ dài 1,3 giây)
+
+
+TITLE_FS = 50          # cỡ chữ hook (khung 1280 cao); dài quá thì xuống dòng, vẫn không vừa thì thu nhỏ
+TITLE_PAD = 16
+SIDE = 0.05            # chừa mỗi bên mép 5% bề ngang cho mọi chữ in lên hình
+
+
+def text_room(W: int, pad: int) -> float:
+    """Bề ngang dành cho chữ: trừ lề hai bên và khung nền (boxborderw) của drawtext."""
+    return W * (1 - 2 * SIDE) - 2 * pad
+
+
+def title_layout(title: str, W: int, H: int) -> tuple[list, int]:
+    """(các dòng, cỡ chữ) của chữ hook cho vừa khung: đo theo font thật (textfit), tối đa 3 dòng."""
+    k = H / 1280
+    return textfit.fit(title.strip(), text_room(W, int(TITLE_PAD * k)), int(TITLE_FS * k), max_lines=3)
+
+
+def fit_one(text: str, W: int, fs_max: int) -> int:
+    """Cỡ chữ cho MỘT dòng (tên kênh, câu dưới tên) vừa khung."""
+    return textfit.fit(text, text_room(W, 0), fs_max, max_lines=1)[1]
 
 
 def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
-                  logo_idx: int | None, title_end: float | None = None, tagline_file: str | None = None) -> str:
+                  logo_idx: int | None, title_end: float | None = None, tagline_file: str | None = None,
+                  title_fs: int | None = None, outro_fs: int | None = None, tagline_fs: int | None = None) -> str:
     """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh).
-    title_end: có đoạn mở đầu thì chữ hook hiện NGAY khung đầu (khung đầu thường thành ảnh bìa) tới hết đoạn đó."""
+    title_end: có đoạn mở đầu thì chữ hook hiện NGAY khung đầu (khung đầu thường thành ảnh bìa) tới hết đoạn đó.
+    title_fs / outro_fs / tagline_fs: cỡ chữ đã tính cho vừa khung (title_layout / fit_one); None = cỡ mặc định."""
     k = H / 1280
     f = ""
     if title_files:
-        fs, pad = int(50 * k), int(16 * k)
+        fs, pad = title_fs or int(TITLE_FS * k), int(TITLE_PAD * k)
         lh = fs + 2 * pad + int(6 * k)
         if title_end:
             e = f"{title_end:.2f}"
@@ -266,11 +268,11 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
     if outro_file and out_dur > 6:
         st = out_dur - OUTRO_DUR
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
-              f",drawtext=fontfile={ff.FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={int(62 * k)}:fontcolor=white:"
+              f",drawtext=fontfile={ff.FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={outro_fs or int(62 * k)}:fontcolor=white:"
               f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
               f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'")
         if tagline_file:                               # câu dưới tên kênh (BRAND_TAGLINE), màu kênh
-            f += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={tagline_file}:expansion=none:fontsize={int(34 * k)}:"
+            f += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={tagline_file}:expansion=none:fontsize={tagline_fs or int(34 * k)}:"
                   f"fontcolor={brand_hex() or '0xFFE100'}:borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:"
                   f"y=(h-text_h)/2+{int(48 * k)}:enable='gte(t,{st + 0.25:.2f})':alpha='min(1,(t-{st + 0.25:.2f})/0.4)'")
         # bỏ dòng "Theo dõi để xem thêm": không kêu gọi đăng ký/theo dõi kênh ở cuối video (yêu cầu 13/11/2026)
@@ -286,19 +288,22 @@ def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
     vào/ra. Mốc của kế hoạch chưa tính đoạn mở đầu: cộng offset."""
     k = H / 1280
     out = ""
+    pad = int(14 * k)
     for i, o in enumerate(overlays):
+        big = o.kind in ("skip", "ingredient")
+        # đo theo font thật: mẹo dài xuống tối đa 4 dòng, thẻ khác 2 dòng; vẫn dài thì thu chữ (không tràn mép)
+        lines, fs = textfit.fit(o.text.strip(), text_room(W, pad), int((44 if big else 34) * k),
+                                max_lines=4 if o.kind == "tip" else 2)
         p = os.path.join(tmp, f"ov_{i}.txt")
         with open(p, "w", encoding="utf-8") as f:
-            f.write(_wrap(o.text.strip(), 26) if o.kind == "tip" else o.text.strip())   # mẹo dài: xuống dòng
+            f.write("\n".join(lines))
         t0, t1 = o.t + offset, o.t + offset + o.dur
         box = brand_hex(0.9) or "0xFFE100@0.9"
-        big = o.kind in ("skip", "ingredient")
-        fs = int((44 if big else 34) * k)
         y = {"skip": "h*0.16", "ingredient": "h*0.62", "tip": "h*0.12", "price": "h*0.62"}.get(o.kind, "h*0.16")
         alpha = f"alpha='min(1,min((t-{t0:.2f})/0.25,({t1:.2f}-t)/0.25))'"
         out += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={p}:expansion=none:fontsize={fs}:fontcolor=white:"
-                f"borderw={int(2 * k)}:bordercolor=black@0.8:box=1:boxcolor={box}:boxborderw={int(14 * k)}:"
-                f"x=(w-text_w)/2:y={y}:enable='between(t,{t0:.2f},{t1:.2f})':{alpha}")
+                f"borderw={int(2 * k)}:bordercolor=black@0.8:box=1:boxcolor={box}:boxborderw={pad}:"
+                f"line_spacing={int(8 * k)}:x=(w-text_w)/2:y={y}:enable='between(t,{t0:.2f},{t1:.2f})':{alpha}")
     return out
 
 
@@ -341,7 +346,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
                  music_bed: bool = False, teaser: dict | None = None, edit: dict | None = None,
-                 overlays: list | None = None):
+                 overlays: list | None = None, tail: float = 0.0, sting_after: float | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -349,11 +354,13 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     (phụ đề, cổng tiếng nền, giọng) là theo trục thời gian ĐÃ làm chậm.
     Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền).
     notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p).
-    teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29)."""
+    teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29).
+    tail: giây màn kết NỐI THÊM sau video (giữ khung cuối; bản 43), 0 = màn kết đè lên cuối video như cũ.
+    sting_after: giọng đọc dứt lúc nào: âm hiệu màn kết vang sau đó (trong phạm vi màn kết)."""
     t_start = time.time()
     T = float(teaser["dur"]) if teaser and teaser.get("dur") else 0.0
     plan = edl.EditPlan.from_dict(edit) if edit else None   # kế hoạch dựng (REMAKE_STYLE): khúc, tốc độ, cỡ khung
-    vid_dur = (plan.out_dur() if plan else await ff.probe_duration(input_mp4) * stretch) + T
+    vid_dur = (plan.out_dur() if plan else await ff.probe_duration(input_mp4) * stretch) + T + max(0.0, tail)
     out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
     out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
     ambient = await ff.has_audio(input_mp4)
@@ -365,24 +372,30 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  " (nguồn <1600px nên ra 720p; gửi link TikTok để bot lấy bản HD)" if src_h < 1600 else "", config.QUALITY)
     # thương hiệu: tiêu đề mở đầu, màn kết, logo (tất cả tùy chọn trong Cài đặt)
     tmp = tmp or os.path.dirname(output_mp4)
-    title_files, outro_file = [], None
+    title_files, outro_file, title_fs = [], None, None
     if title and config.BRAND_INTRO != "0":
-        title_files = write_lines(_wrap(title.strip(), 22), tmp, "title")
-    tagline_file = None
-    if config.BRAND_NAME.strip():
+        lines, title_fs = title_layout(title, W, H)
+        title_files = write_lines("\n".join(lines), tmp, "title")
+    tagline_file = outro_fs = tagline_fs = None
+    name, tagline = config.brand_text("BRAND_NAME"), config.brand_text("BRAND_TAGLINE")
+    if name:
         outro_file = os.path.join(tmp, "outro.txt")
-        open(outro_file, "w", encoding="utf-8").write(config.BRAND_NAME.strip())
-        if config.BRAND_TAGLINE.strip():
+        open(outro_file, "w", encoding="utf-8").write(name)
+        outro_fs = fit_one(name, W, int(62 * H / 1280))
+        if tagline:
             tagline_file = os.path.join(tmp, "tagline.txt")
-            open(tagline_file, "w", encoding="utf-8").write(config.BRAND_TAGLINE.strip())
-    use_logo = config.BRAND_LOGO != "0" and os.path.exists(ff.LOGO_PATH)
+            open(tagline_file, "w", encoding="utf-8").write(tagline)
+            tagline_fs = fit_one(tagline, W, int(34 * H / 1280))
+    logo_file = ff.logo_path()
+    use_logo = config.BRAND_LOGO != "0" and bool(logo_file)
     # đầu vào: 0 video, 1 giọng, [tiếng nền], [âm hiệu], [tiếng nền đoạn mở đầu], [logo], [hình đoạn mở đầu]. Các đầu
     # vào TIẾNG đứng trước để lượt đo âm lượng (two_pass_loudness, chỉ có các đầu vào tiếng) đánh số giống hệt.
     audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
     sting_idx = None
-    if config.BRAND_STING != "0" and os.path.exists(ff.STING_PATH) and out_dur > 6 and not music_bed:
+    sting_file = ff.sting_path()
+    if config.BRAND_STING != "0" and sting_file and out_dur > 6 and not music_bed:
         sting_idx = audio_in.count("-i")
-        audio_in += ["-i", ff.STING_PATH]
+        audio_in += ["-i", sting_file]
     side_inputs: dict = {}
     side_audio: dict = {}
     if plan:
@@ -409,9 +422,9 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
                       bed=bool(music_bed and ambient_wav), teaser=tz, edit=plan, side_inputs=side_inputs,
-                      side_audio=side_audio)
+                      side_audio=side_audio, tail=max(0.0, tail))
     brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None,
-                          tagline_file=tagline_file)
+                          tagline_file=tagline_file, title_fs=title_fs, outro_fs=outro_fs, tagline_fs=tagline_fs)
     cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
     if cards:
         brand = overlay_filter(cards, W, H, T, tmp) + brand
@@ -421,6 +434,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     if sting_idx is not None:
         # âm hiệu kênh vang lúc màn kết hiện (hoặc 1,6 giây cuối nếu không có màn kết), trộn trên giọng + tiếng nền
         at = max(0.0, out_dur - (OUTRO_DUR if outro_file else 1.6))
+        if sting_after is not None:                 # câu đọc cuối chưa dứt: lùi âm hiệu tới sau câu đó (còn kịp vang hết)
+            at = max(at, min(sting_after + 0.15, out_dur - STING_LEN))
         ms = int(at * 1000)
         fc = fc.replace("[a]", "[a0]", 1)
         fc += (f";[{sting_idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:1.8,"
@@ -430,7 +445,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     await ff._run_ffmpeg(
         "-y", *ff.thread_args(),
         *audio_in,
-        *(["-i", ff.LOGO_PATH] if use_logo else []),
+        *(["-i", logo_file] if use_logo else []),
         *extra_in,
         "-filter_complex", fc,
         "-map", "[v]", "-map", "[a]",

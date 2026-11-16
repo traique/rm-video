@@ -171,8 +171,11 @@ def _parse(d: dict, offset: float = 0.0, strict: bool = False) -> tuple:
     return units, pieces, len(bad)
 
 
-HOLE_MIN = 8.0        # quãng ≥ 8s không có chữ nào (giữa video có lời) thì nghe lại riêng quãng đó
-HOLE_N = 4            # tối đa số quãng nghe lại mỗi video
+HOLE_MIN = 5.0        # quãng ≥ 5s không có chữ nào (giữa video có lời) thì nghe lại riêng quãng đó (bản 43: 8s
+                      # bỏ sót hai quãng 14s người gốc đang nói -> video im 14-16 giây, hình chạy không lời)
+HOLE_N = 6            # tối đa số quãng nghe lại mỗi video
+WORD_MAX = 1.2        # một "chữ" Whisper kéo dài hơn thế này là chữ phủ cả quãng nó không nghe ra: tính quãng trống
+                      # từ sau 1,2 giây đầu của chữ đó ("Mực mình" 92-97s phủ mất lời gốc 93-98s)
 HOLE_TOTAL = 180.0    # và tổng số giây nghe lại (hạn mức Groq tính theo giây audio)
 HOLE_MODEL = "whisper-large-v3"   # bản ĐẦY ĐỦ (lượt đầu mặc định bản turbo): khác model thì khác kiểu nghe sót
 HOLE_ENOUGH = 0.4     # nghe lại mà < 0.4 chữ/giây của quãng thì nhờ Gemini nghe thêm
@@ -180,12 +183,13 @@ HOLE_GEMINI_TIMEOUT = 45.0
 
 
 def find_holes(units: list, dur: float, min_len: float = HOLE_MIN) -> list:
-    """Các quãng [a, b] dài ≥ min_len không có chữ nào (kể cả đầu và cuối video)."""
+    """Các quãng [a, b] dài ≥ min_len không có chữ nào (kể cả đầu và cuối video). Chữ bị Whisper kéo dài quá WORD_MAX
+    chỉ tính WORD_MAX giây đầu."""
     holes, prev = [], 0.0
     for a, b, _ in sorted(units):
         if a - prev >= min_len:
             holes.append((round(prev, 2), round(a, 2)))
-        prev = max(prev, b)
+        prev = max(prev, min(b, a + WORD_MAX))
     if dur - prev >= min_len:
         holes.append((round(prev, 2), round(dur, 2)))
     return holes
@@ -264,6 +268,8 @@ async def _fill_holes(audio_path: str, units: list, pieces: list, dur: float, la
         logging.info("Nghe lại quãng %.0f-%.0fs không có chữ: %s", a, b,
                      f"{src} thêm {len(u)} từ «{' '.join(t for _, t in p)[:80]}»" if u else "không có lời")
         if u:
+            # chữ cũ bị kéo dài phủ sang quãng vừa nghe lại: cắt ở đầu quãng (không để hai đoạn chồng mốc)
+            units = [(x, min(y, a) if x < a < y else y, t) for x, y, t in units]
             units += u
             pieces += p
             added += len(u)

@@ -13,3 +13,11 @@ os.environ.setdefault("RECENT_LOOKS", os.path.join(_TMP, "recent_looks.json"))  
 os.environ.setdefault("RENDER_SPEED_FILE", os.path.join(_TMP, "render_speed.json"))   # tốc độ dựng đo được
 os.environ.setdefault("AUTOPOST_STATE", os.path.join(_TMP, "autopost.json"))   # trạng thái tự động đăng
 os.environ.pop("BOT_TOKEN", None)          # test không bao giờ nối Telegram thật
+# Bản 43 đổi mặc định sang bộ nhận diện «Bếp Đong Đủ». Các test cũ (và ảnh chụp lệnh dựng) viết cho hành vi khi CHƯA
+# đặt nhận diện: ghim lại như cũ; test của bộ mặc định mới (test_ban43.py) tự đặt lại giá trị.
+_OLD_DEFAULTS = {"BRAND_NAME": "0", "BRAND_TAGLINE": "0", "BRAND_CLOSE": "0", "BRAND_SERIES": "0", "BRAND_COLOR": "0",
+                 "BRAND_LOOK": "goc", "COVER_TEMPLATE": "goc", "POST_RECIPE": "0", "TIPS": "off", "REMAKE_STYLE": "off",
+                 "SHORT_VERSION": "off"}
+for _k, _v in _OLD_DEFAULTS.items():
+    os.environ.setdefault(_k, _v)
+os.environ.setdefault("RM_BRAND_DIR", os.path.join(_TMP, "no_brand_kit"))   # không có logo / âm hiệu mặc định

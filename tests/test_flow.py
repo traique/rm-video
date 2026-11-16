@@ -78,9 +78,11 @@ def test_no_recheck_without_any_speech_or_holes(monkeypatch, tmp_path):
                      "words": _words(0.0, said, 1.0)}
     monkeypatch.setattr(transcribe, "_groq_post", fake_post)
     asyncio.run(transcribe._groq(audio, ""))
-    assert len(calls) == 1                                          # không có quãng trống ≥ 8s: không gọi thêm
+    assert len(calls) == 1                                          # không có quãng trống ≥ 5s: không gọi thêm
     assert transcribe.find_holes([(0, 1, "a"), (12, 13, "b")], 30) == [(1, 12), (13, 30)]
-    assert transcribe.find_holes([], 5) == []
+    assert transcribe.find_holes([], 4) == []
+    # chữ Whisper kéo dài phủ quãng nó không nghe ra (bản 43: "mình" 92-97s): tính quãng trống sau 1,2 giây đầu
+    assert transcribe.find_holes([(0, 1, "a"), (1, 9, "mình"), (15, 16, "b")], 16) == [(2.2, 15)]
 
 
 def test_hallucination_detectors_keep_real_speech():
