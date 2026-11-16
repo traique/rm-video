@@ -55,7 +55,7 @@ async def check_gemini():
     if not config.GEMINI_API_KEY:
         return None
     import prompt_engine
-    out = await _timed(prompt_engine._call_gemini("Chỉ trả lời đúng một từ: ok"), 60)
+    out = await _timed(prompt_engine.call_gemini("Chỉ trả lời đúng một từ: ok"), 60)
     if not out.strip():
         raise RuntimeError("trả về rỗng")
     return config.GEMINI_MODEL

@@ -204,7 +204,7 @@ async def ai_judge(images: list, title: str, mode: str, opening=None, opening_se
         prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(
             first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX)
     try:
-        raw = await prompt_engine._call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
+        raw = await prompt_engine.call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
         d = prompt_engine.loads_lenient(raw)
         best = int(d.get("best"))
         if 0 <= best < len(images):

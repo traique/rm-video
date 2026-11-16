@@ -14,6 +14,7 @@ import aiohttp
 import config
 import ingredients
 import metrics
+from rmvideo.services import llm
 import vocab
 
 try:
@@ -297,6 +298,22 @@ async def _call_openrouter(prompt: str) -> str:
     raise RuntimeError(f"OpenRouter: không model nào trả lời ({last})")
 
 
+async def call_gemini(prompt: str, *args, **kwargs) -> str:
+    """API công khai cho module khác (ảnh bìa, đoạn hay, kiểm tra định kỳ) — trước đây gọi thẳng _call_gemini riêng
+    tư. Tham số như _call_gemini(prompt, images=None, schema=None, label=..., timeout=...), chuyển nguyên trạng."""
+    return await _call_gemini(prompt, *args, **kwargs)
+
+
+async def call_openrouter(prompt: str) -> str:
+    return await _call_openrouter(prompt)
+
+
+def _chain(gemini_call) -> list:
+    """Gemini (nếu có thư viện + key) rồi OpenRouter (nếu có key). Hàm gọi tra lúc chạy (test thay được)."""
+    return llm.providers(gemini_call, lambda pr: _call_openrouter(pr), gemini_ok=bool(genai and config.GEMINI_API_KEY),
+                         openrouter_ok=bool(config.OPENROUTER_API_KEY))
+
+
 def parse_pack(text: str, fallback_title: str) -> dict:
     """Bóc JSON kể cả khi model bọc trong ```json ... ``` hoặc kèm chữ thừa."""
     t = text.strip()
@@ -329,20 +346,16 @@ def _fallback(title: str, mode: str) -> dict:
 async def generate(title: str, desc: str, mode: str, transcript: str = "", duration: int = 0) -> dict:
     """Trả về {script, title, caption, hashtags}. Không bao giờ raise."""
     prompt = _build_prompt(title, desc, mode, transcript, duration)
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=ScriptOut)))
-    if config.OPENROUTER_API_KEY:
-        providers.append(("OpenRouter", _call_openrouter))
-    for k, (name, call) in enumerate(providers):
-        try:
-            pack = parse_pack(await call(prompt), title)
-            pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
-            metrics.record("llm", name.lower(), fallback=k > 0)
-            return pack
-        except Exception as e:
-            metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
-            logging.exception("Provider %s lỗi, thử provider kế tiếp", name)
+
+    async def attempt(p):
+        pack = parse_pack(await p.call(prompt), title)
+        pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
+        return pack
+    pack = await llm.first_success(
+        _chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt, record=metrics.record,
+        on_error=lambda p, e: logging.error("Provider %s lỗi, thử provider kế tiếp", p.name, exc_info=e))
+    if pack is not None:
+        return pack
     metrics.record("llm", "template", fallback=True)
     return _fallback(title, mode)
 
@@ -367,23 +380,19 @@ async def post_only(title: str, desc: str, mode: str) -> dict:
     if title or desc:
         prompt = POST_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                     desc=desc[:1500] or "(không có)")
-        providers = []
-        if genai and config.GEMINI_API_KEY:
-            providers.append(("Gemini", lambda pr: _call_gemini(pr, schema=PostOut)))
-        if config.OPENROUTER_API_KEY:
-            providers.append(("OpenRouter", _call_openrouter))
-        for k, (name, call) in enumerate(providers):
-            try:
-                t = (await call(prompt)).strip()
-                d = json.loads(t[t.index("{"): t.rindex("}") + 1])
-                metrics.record("llm", name.lower(), fallback=k > 0)
-                return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
-                        "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
-                        "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
-                        "hook": clean_hook(str(d.get("hook") or ""))}
-            except Exception as e:
-                metrics.record("llm", name.lower(), ok=False, fallback=k > 0, detail=str(e))
-                logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", name, str(e)[:120])
+
+        async def attempt(p):
+            t = (await p.call(prompt)).strip()
+            d = json.loads(t[t.index("{"): t.rindex("}") + 1])
+            return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
+                    "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
+                    "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
+                    "hook": clean_hook(str(d.get("hook") or ""))}
+        pack = await llm.first_success(
+            _chain(lambda pr: _call_gemini(pr, schema=PostOut)), attempt, record=metrics.record,
+            on_error=lambda p, e: logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", p.name, str(e)[:120]))
+        if pack is not None:
+            return pack
     metrics.record("llm", "template", fallback=True)
     fb = _fallback(title, mode)
     return {"title": fb["title"], "caption": fb["caption"], "hashtags": fb["hashtags"], "hook": "", "fallback": True}
@@ -656,20 +665,17 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             prompt += IMAGE_HINT
         except Exception:
             images = None
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        async def _gem(pr, _imgs=images):
-            schema = TimedOstOut if ost_auto else TimedOut
-            try:
-                return await _call_gemini(pr, _imgs, schema=schema)
-            except Exception as e:
-                if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
-                    raise
-                logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
-                return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
-        providers.append(("Gemini", _gem))
-    if config.OPENROUTER_API_KEY:
-        providers.append(("OpenRouter", lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, ""))))
+    async def _gem(pr, _imgs=images):
+        schema = TimedOstOut if ost_auto else TimedOut
+        try:
+            return await _call_gemini(pr, _imgs, schema=schema)
+        except Exception as e:
+            if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
+                raise
+            logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
+            return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
+    chain = llm.providers(_gem, lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, "")),
+                          gemini_ok=bool(genai and config.GEMINI_API_KEY), openrouter_ok=bool(config.OPENROUTER_API_KEY))
     def _parse(raw):
         d = loads_lenient(raw)
         got, osts = {}, {}
@@ -704,92 +710,89 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return intro and k == 0 and bool(_GREET_RE.search(text or ""))
 
     orig_all = " ".join(s[4] for s in slots)
-    for pk, (name, call) in enumerate(providers):
-        try:
-            d, got = _parse(await call(prompt))
+    async def attempt(p):
+        name, call = p.name, p.call
+        d, got = _parse(await call(prompt))
 
-            def _score(g, osts):
-                """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
-                Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
-                new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
-                miss, added = ingredients.check_rewrite(orig_all, new_all)
-                mn, an = ingredients.check_numbers(orig_all, new_all)
-                return _bad(g, osts), miss + mn, added + an
+        def _score(g, osts):
+            """(số đoạn chép/thiếu, [nguyên liệu + số liệu] thiếu, [nguyên liệu + số liệu] bịa/đổi).
+            Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
+            new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
+            miss, added = ingredients.check_rewrite(orig_all, new_all)
+            mn, an = ingredients.check_numbers(orig_all, new_all)
+            return _bad(g, osts), miss + mn, added + an
 
-            bad, miss, added = _score(got, d["_ost"])
-            for attempt in range(2):                    # tối đa 2 lần bắt viết lại
-                txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
-                severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
-                          or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
-                          or _hook_bad(k, got.get(k, ""))]
-                # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
-                # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
-                too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
-                if not (too_copy or miss or added):
-                    break
-                logging.warning("AI %s lần %d: %d đoạn chép/thiếu; nguyên liệu thiếu %s; bịa/đổi %s -> viết lại",
-                                name, attempt + 1, len(bad), miss, added)
-                why = []
-                ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
-                subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
-                hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
-                copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
-                if subs:
-                    why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
-                               "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
-                if hooks:
-                    why.append(f"đoạn 0 phải là CÂU HOOK gây tò mò, không chào hỏi («{got.get(0, '')}»)")
-                if too_copy and copies:
-                    why.append("các đoạn sau thiếu hoặc chép gần nguyên lời gốc: " +
-                               ", ".join(f"{k} («{got.get(k, '(thiếu)')}»)" for k in copies[:8]))
-                if ads:
-                    why.append("các đoạn sau còn lời bán hàng/kêu gọi mua hoặc tự nhận sản phẩm của người gốc, "
-                               "viết lại thành lời về món ăn: " + ", ".join(f"{k} («{got[k]}»)" for k in ads[:8]))
-                if miss:
-                    why.append("BỎ MẤT nguyên liệu/số liệu: " + ", ".join(miss) +
-                               " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
-                if added:
-                    why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
-                               " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng)")
-                fix = prompt + "\n\nBẢN TRƯỚC BỊ LOẠI vì " + "; ".join(why) + \
-                    ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
-                try:
-                    d2, got2 = _parse(await call(fix))
-                    b2, m2, a2 = _score(got2, d2["_ost"])
-                    old_err = len(bad) + 3 * (len(miss) + len(added))
-                    new_err = len(b2) + 3 * (len(m2) + len(a2))
-                    if new_err < old_err:
-                        d, got, bad, miss, added = d2, got2, b2, m2, a2
-                except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
-                    logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
-                                    str(e)[:120])
-                    break
-            if miss or added:
-                logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
-            d["_issues"] = (miss, added)
-            out = []
-            for k, st, slot, mx, tx, span in slots:
-                ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
-                # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
-                text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
-                # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
-                # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
-                out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
-                            "copy": 0.0 if ost == "orig" else round(copy_ratio(text, tx), 2)})
-            for o, (k, st, slot, mx, tx, span) in zip(out, slots):
-                logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
-            script = " ".join(x["text"] for x in out if x["text"])
-            fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
-            metrics.record("llm", name.lower(), fallback=pk > 0)
-            return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
-                    "hook": clean_hook(d.get("hook") or "") if intro else "",
-                    "title": (d.get("title") or title or script[:80]).strip(),
-                    "caption": (d.get("caption") or script).strip(),
-                    "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
-        except Exception as e:
-            metrics.record("llm", name.lower(), ok=False, fallback=pk > 0, detail=str(e))
-            logging.exception("generate_timed: provider %s lỗi", name)
-    return None
+        bad, miss, added = _score(got, d["_ost"])
+        for attempt in range(2):                    # tối đa 2 lần bắt viết lại
+            txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
+            severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
+                      or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
+                      or _hook_bad(k, got.get(k, ""))]
+            # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
+            # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
+            too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
+            if not (too_copy or miss or added):
+                break
+            logging.warning("AI %s lần %d: %d đoạn chép/thiếu; nguyên liệu thiếu %s; bịa/đổi %s -> viết lại",
+                            name, attempt + 1, len(bad), miss, added)
+            why = []
+            ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
+            subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
+            hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
+            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
+            if subs:
+                why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
+                           "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
+            if hooks:
+                why.append(f"đoạn 0 phải là CÂU HOOK gây tò mò, không chào hỏi («{got.get(0, '')}»)")
+            if too_copy and copies:
+                why.append("các đoạn sau thiếu hoặc chép gần nguyên lời gốc: " +
+                           ", ".join(f"{k} («{got.get(k, '(thiếu)')}»)" for k in copies[:8]))
+            if ads:
+                why.append("các đoạn sau còn lời bán hàng/kêu gọi mua hoặc tự nhận sản phẩm của người gốc, "
+                           "viết lại thành lời về món ăn: " + ", ".join(f"{k} («{got[k]}»)" for k in ads[:8]))
+            if miss:
+                why.append("BỎ MẤT nguyên liệu/số liệu: " + ", ".join(miss) +
+                           " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
+            if added:
+                why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
+                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng)")
+            fix = prompt + "\n\nBẢN TRƯỚC BỊ LOẠI vì " + "; ".join(why) + \
+                ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
+            try:
+                d2, got2 = _parse(await call(fix))
+                b2, m2, a2 = _score(got2, d2["_ost"])
+                old_err = len(bad) + 3 * (len(miss) + len(added))
+                new_err = len(b2) + 3 * (len(m2) + len(a2))
+                if new_err < old_err:
+                    d, got, bad, miss, added = d2, got2, b2, m2, a2
+            except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
+                logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
+                                str(e)[:120])
+                break
+        if miss or added:
+            logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
+        d["_issues"] = (miss, added)
+        out = []
+        for k, st, slot, mx, tx, span in slots:
+            ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
+            # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
+            text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
+            # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
+            # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
+            out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
+                        "copy": 0.0 if ost == "orig" else round(copy_ratio(text, tx), 2)})
+        for o, (k, st, slot, mx, tx, span) in zip(out, slots):
+            logging.info("Đoạn %d %.1fs | gốc: %s | mới: %s | trùng %.0f%%", k, st, tx, o["text"], o["copy"] * 100)
+        script = " ".join(x["text"] for x in out if x["text"])
+        fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
+        return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
+                "hook": clean_hook(d.get("hook") or "") if intro else "",
+                "title": (d.get("title") or title or script[:80]).strip(),
+                "caption": (d.get("caption") or script).strip(),
+                "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
+    return await llm.first_success(chain, attempt, record=metrics.record,
+                                   on_error=lambda p, e: logging.error("generate_timed: provider %s lỗi", p.name, exc_info=e))
 
 
 SHORTEN_PROMPT = """Rút gọn các câu thoại video dưới đây cho vừa thời gian, mỗi câu tối đa số từ ghi kèm.
@@ -802,18 +805,13 @@ Trả về DUY NHẤT JSON: {{"segments": [{{"i": số, "text": "..."}}]}}"""
 async def shorten(items: list) -> dict:
     """items: [(i, text, max_words)] -> {i: text_ngắn}. Lỗi thì trả {}."""
     prompt = SHORTEN_PROMPT.format(items="\n".join(f"{i} | tối đa {mx} từ | {t}" for i, t, mx in items)) + style_block()
-    providers = []
-    if genai and config.GEMINI_API_KEY:
-        providers.append(lambda pr: _call_gemini(pr, schema=ShortOut))
-    if config.OPENROUTER_API_KEY:
-        providers.append(_call_openrouter)
-    for call in providers:
-        try:
-            d = loads_lenient(await call(prompt))
-            return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
-        except Exception:
-            logging.exception("shorten lỗi")
-    return {}
+
+    async def attempt(p):
+        d = loads_lenient(await p.call(prompt))
+        return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
+    out = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ShortOut)), attempt,
+                                  on_error=lambda p, e: logging.error("shorten lỗi", exc_info=e))
+    return out if out is not None else {}
 
 
 SCENE_PROMPT = """Bạn là biên kịch video ngắn tiếng Việt. Video không có lời thoại; dưới đây là ảnh đại diện của từng CẢNH theo thứ tự, kèm thời điểm và số từ tối đa. Viết lời thuyết minh cho TỪNG CẢNH, nói đúng điều đang thấy trong ảnh của cảnh đó (không đoán thứ không thấy, không bịa số liệu). Cảnh đầu là CÂU HOOK: nói ngay điều hấp dẫn nhất (món thành phẩm, mẹo, câu hỏi gây tò mò), không chào hỏi, không giới thiệu kênh. KHÔNG kêu gọi đăng ký / theo dõi / like / share kênh ở bất kỳ cảnh nào. Giọng nói chuyện tự nhiên, câu ngắn, có dấu câu. Không emoji trong "text".

@@ -7,6 +7,7 @@ Không có lời thoại (video ASMR không nói) hoặc AI lỗi: trả [] đ�
 import logging
 
 import config
+from rmvideo.services import llm
 
 HL_MAX = 3
 HL_MIN, HL_LEN = 30.0, 90.0
@@ -130,31 +131,37 @@ async def choose(title: str, desc: str, dur: float, segs: list, cuts: list, sile
     if speech_coverage(segs, dur) < 0.15:
         logging.info("Đoạn hay: video ít lời (%.0f%%), không đủ để AI chấm", speech_coverage(segs, dur) * 100)
         return []
-    providers = []
-    if prompt_engine.genai and config.GEMINI_API_KEY:
-        async def _gem():
-            pr = build_prompt(title, dur, segs, cuts, image_times=image_times if images else None)
-            try:
-                return await prompt_engine._call_gemini(pr, images or None, schema=HighlightsOut, label="Ảnh", timeout=90)
-            except Exception as e:
-                if not images or prompt_engine.is_quota_error(str(e)):
-                    raise
-                logging.warning("Gemini không nhận ảnh (%s), chọn đoạn hay chỉ theo lời", str(e)[:80])
-                return await prompt_engine._call_gemini(build_prompt(title, dur, segs, cuts), schema=HighlightsOut,
-                                                        timeout=90)
-        providers.append(("gemini", _gem))
-    if config.OPENROUTER_API_KEY:
-        providers.append(("openrouter", lambda: prompt_engine._call_openrouter(build_prompt(title, dur, segs, cuts))))
-    for name, call in providers:
+    async def _gem():
+        pr = build_prompt(title, dur, segs, cuts, image_times=image_times if images else None)
         try:
-            d = prompt_engine.loads_lenient(await call())
-            clips = normalize(d.get("clips") or [], dur, cuts, silences)
-            if clips:
-                for c in clips:
-                    logging.info("Đoạn hay %.0f-%.0fs điểm %d: %s (%s)", c["start"], c["end"], c["score"], c["title"],
-                                 c["reason"][:100])
-                return clips
-            logging.warning("AI %s không chọn được đoạn hợp lệ", name)
+            return await prompt_engine.call_gemini(pr, images or None, schema=HighlightsOut, label="Ảnh", timeout=90)
         except Exception as e:
-            logging.warning("AI %s chọn đoạn hay lỗi: %s", name, str(e)[:150])
-    return []
+            if not images or prompt_engine.is_quota_error(str(e)):
+                raise
+            logging.warning("Gemini không nhận ảnh (%s), chọn đoạn hay chỉ theo lời", str(e)[:80])
+            return await prompt_engine.call_gemini(build_prompt(title, dur, segs, cuts), schema=HighlightsOut,
+                                                   timeout=90)
+    chain = llm.providers(_gem, lambda: prompt_engine.call_openrouter(build_prompt(title, dur, segs, cuts)),
+                          gemini_ok=bool(prompt_engine.genai and config.GEMINI_API_KEY),
+                          openrouter_ok=bool(config.OPENROUTER_API_KEY), names=("gemini", "openrouter"))
+
+    async def attempt(p):
+        d = prompt_engine.loads_lenient(await p.call())
+        clips = normalize(d.get("clips") or [], dur, cuts, silences)
+        if not clips:
+            raise _NoClips()                               # kết quả không dùng được: thử nhà cung cấp kế
+        for c in clips:
+            logging.info("Đoạn hay %.0f-%.0fs điểm %d: %s (%s)", c["start"], c["end"], c["score"], c["title"],
+                         c["reason"][:100])
+        return clips
+
+    def on_error(p, e):
+        if isinstance(e, _NoClips):
+            logging.warning("AI %s không chọn được đoạn hợp lệ", p.name)
+        else:
+            logging.warning("AI %s chọn đoạn hay lỗi: %s", p.name, str(e)[:150])
+    return await llm.first_success(chain, attempt, on_error=on_error) or []
+
+
+class _NoClips(Exception):
+    """AI trả lời được nhưng không có đoạn nào hợp lệ (quá ngắn / quá dài / chồng nhau)."""
