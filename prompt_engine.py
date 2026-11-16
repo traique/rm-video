@@ -64,34 +64,34 @@ try:
         caption: str
         hashtags: str
         hook: str = ""
+    # mọi trường BẮT BUỘC: trường có giá trị mặc định thì Gemini hay bỏ qua (chạy thật 16/11: "text" của mọi bước rỗng)
     class IngOut(BaseModel):
         name: str
-        qty: str = ""
-        unit: str = ""
-        seg: int = -1
-        quote: str = ""
-        first_img: int = -1
+        qty: str
+        unit: str
+        seg: int
+        quote: str
+        first_img: int
 
     class StepOut(BaseModel):
         kind: str
-        text: str = ""
-        ingredients: list[str] = []
-        independent: bool = False
-        # "from"/"to" là từ khoá Python: schema dùng a/b, prompt ghi rõ
-        a: int
+        a: int                          # "from"/"to" là từ khoá Python: schema dùng a/b, prompt ghi rõ
         b: int
+        text: str
+        ingredients: list[str]
+        independent: bool
 
     class TipOut(BaseModel):
         text: str
-        seg: int = -1
+        seg: int
 
     class RecipeOut(BaseModel):
         is_recipe: bool
         dish: str
-        servings: str = ""
+        servings: str
         ingredients: list[IngOut]
         steps: list[StepOut]
-        tips: list[TipOut] = []
+        tips: list[TipOut]
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
     TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = RecipeOut = None
 
@@ -108,7 +108,7 @@ GIỌNG VĂN MIỀN TÂY NAM BỘ (bắt buộc): viết như người miền T�
 
 GIỌNG VĂN MIỀN NAM (bắt buộc): viết như người Sài Gòn / Đồng Nai đang chỉ nhau nấu ăn, gần gũi mà gọn gàng.
 - Xưng "mình", gọi người xem "mọi người", "cả nhà".
-- Từ ngữ miền Nam: chén (không dùng bát), muỗng (không dùng thìa), heo (không dùng lợn), trái (không dùng quả), bắp (ngô), đậu phộng (lạc), ngò (rau mùi), thơm/khóm (dứa), xài (dùng), thiệt (thật), mắc (đắt), bự (to), "vô" (vào).
+- Từ ngữ miền Nam: chén (không dùng bát), muỗng (không dùng thìa), heo (không dùng lợn), trái (không dùng quả), bắp (ngô), đậu phộng (lạc), ngò (rau mùi), thơm/khóm (dứa), trụng (không dùng trần / chần), xắt (thái), xài (dùng), thiệt (thật), mắc (đắt), bự (to), "vô" (vào).
 - Tiếng đệm cuối câu tự nhiên: nha, nè, á, luôn, đó. Cảm thán: "ngon dữ luôn", "đậm đà khỏi chê", "bắt cơm lắm luôn", "thơm nức mũi".
 - Vừa phải, không lố: mỗi câu tối đa 1 tiếng đệm. Không dùng giọng miền Tây đậm ("bà con", "nghen", "hen", "dữ thần", "hết sảy"). Viết đúng chính tả chuẩn để giọng đọc phát âm đúng.
 - Đổi từ địa phương KHÔNG đổi số liệu: "2 thìa" thành "2 muỗng" được, nhưng con số giữ nguyên.""",
@@ -116,9 +116,36 @@ GIỌNG VĂN MIỀN NAM (bắt buộc): viết như người Sài Gòn / Đồng
 }
 
 
+_GLOSSARY: contextvars.ContextVar[tuple] = contextvars.ContextVar("glossary", default=())
+
+
+def set_glossary(names) -> None:
+    """Tên nguyên liệu ĐÚNG của món đang làm (AI đọc công thức đã sửa lỗi máy nghe): các lời nhắc viết lời của job này
+    kèm danh sách, và kiểm "bịa nguyên liệu" chấp nhận tên trong danh sách (lời gốc "nấm mặn" -> lời mới "nước mắm")."""
+    _GLOSSARY.set(tuple(dict.fromkeys(n for n in names if n)))
+
+
+def _glossary_hint() -> str:
+    names = _GLOSSARY.get()
+    return ("" if not names else "\n\nTÊN NGUYÊN LIỆU ĐÚNG CỦA MÓN NÀY (lời gốc do máy nghe nên có thể viết sai, ví dụ "
+            "\"nấm mặn\" là \"nước mắm\"): " + ", ".join(names) + ". Gặp chữ máy nghe sai thì viết đúng theo danh sách này.")
+
+
+def _not_in_glossary(added: list) -> list:
+    names = _GLOSSARY.get()
+    if not names:
+        return added
+    ok = set().union(*(ingredients.find(n) for n in names))
+    loose = [ingredients._loose(n).strip() for n in names]
+    # "tỏi phi" là dạng của "tỏi" trong danh sách: không tính là bịa
+    return [x for x in added if not ingredients.find(x) & ok
+            and not any(n and f" {n} " in ingredients._loose(x) for n in loose)]
+
+
 def style_block() -> str:
-    """Giọng văn (SPEECH_STYLE) + từ điển của kênh (ASR_VOCAB): mọi lời nhắc viết lời đều kèm khối này."""
-    return _STYLE.get(config.SPEECH_STYLE, "") + vocab.prompt_hint()
+    """Giọng văn (SPEECH_STYLE) + từ điển của kênh (ASR_VOCAB) [+ tên nguyên liệu đúng của món, khi có]: mọi lời
+    nhắc viết lời đều kèm khối này."""
+    return _STYLE.get(config.SPEECH_STYLE, "") + vocab.prompt_hint() + _glossary_hint()
 
 
 def _norm_words(t: str) -> list:
@@ -753,7 +780,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
             miss, added = ingredients.check_rewrite(orig_all, new_all)
             mn, an = ingredients.check_numbers(orig_all, new_all)
-            return _bad(g, osts), miss + mn, added + an
+            return _bad(g, osts), miss + mn, _not_in_glossary(added) + an
 
         bad, miss, added = _score(got, d["_ost"])
         for attempt in range(2):                    # tối đa 2 lần bắt viết lại
@@ -973,12 +1000,12 @@ RECIPE_PROMPT = """Bạn là đầu bếp kiêm biên tập viên công thức. 
 2. "dish": tên món ngắn gọn.
 3. "servings": khẩu phần CHỈ KHI lời gốc / mô tả nói rõ (vd "4 người ăn"), không thì để "".
 4. "ingredients": MỌI nguyên liệu và gia vị được nhắc, theo thứ tự xuất hiện. Mỗi nguyên liệu:
-   - "name": tên tiếng Việt chuẩn, chính tả đúng (sửa lỗi máy nghe: "nạt vai" -> "nạc vai").
+   - "name": tên THẬT của nguyên liệu, tiếng Việt chuẩn. Máy nghe hay sai: phải sửa theo ý nghĩa món, ví dụ "nạt vai" -> "nạc vai", "nấm mặn" -> "nước mắm", "hột ngọt" -> "bột ngọt", "củ hành sắt" -> "củ hành xắt". Không ghi nguyên chữ máy nghe sai.
    - "qty", "unit": định lượng ĐÚNG như người trong video nói (vd "500" + "gam", "2" + "muỗng canh", "1/2" + "muỗng cà phê"). Không nói số thì để "" (vừa đủ). TUYỆT ĐỐI không đoán, không tự quy đổi, không làm tròn.
    - "seg": số thứ tự ĐOẠN nơi nghe thấy định lượng đó (-1 nếu lấy từ mô tả); "quote": trích nguyên văn mấy chữ trong đoạn đó.
    - Cùng một nguyên liệu dùng ở hai bước với hai lượng khác nhau thì ghi HAI dòng.
    - "first_img": số thứ tự ẢNH đầu tiên thấy rõ nguyên liệu đó (-1 nếu không có ảnh / không thấy).
-5. "steps": chia TOÀN BỘ các đoạn thành các bước theo đúng thứ tự, mỗi đoạn thuộc đúng một bước; "a", "b" là số đoạn đầu và cuối của bước.
+5. "steps": chia TOÀN BỘ các đoạn thành các bước theo đúng thứ tự, mỗi đoạn thuộc đúng một bước; "a", "b" là số đoạn đầu và cuối của bước. Chia NHỎ: mỗi bước một thao tác chính (không gộp cả quá trình chiên vài phút thành một bước); các đoạn chỉ giải thích, khen, tán gẫu, không có thao tác thì tách riêng thành bước "other" / "reaction" / "wait".
    - "kind": intro (chào hỏi, giới thiệu) | ingredients (bày / giới thiệu nguyên liệu) | prep (sơ chế, ướp) | cook (nấu trên lửa) | wait (chờ chín, tán gẫu trong lúc chờ) | plate (bày ra đĩa) | taste (nếm, ăn thử) | reaction (khen, cảm thán, không có thao tác) | promo (quảng cáo quán, khóa học, sản phẩm, kêu gọi) | other.
    - "text": câu hướng dẫn ngắn (≤ 25 chữ) cho phần CÁCH LÀM của bài đăng, viết lại bằng lời của bạn{style}, chỉ dùng nguyên liệu và con số có trong lời gốc; để "" cho intro / reaction / promo / other.
    - "ingredients": tên nguyên liệu dùng ở bước đó.

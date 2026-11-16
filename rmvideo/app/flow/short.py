@@ -49,6 +49,7 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
     """(kế hoạch, lý do không làm). segs: lời gốc trục GỐC; budget: giây ra tối đa (đã trừ đoạn mở đầu)."""
     if facts is None or not facts.is_recipe or not facts.steps:
         return None, "chưa có nhãn bước của AI đọc công thức"
+    segs = [(a, min(b, end), t) for a, b, t in segs if a < end]
     steps = [s for s in facts.steps if s.t0 >= 0]
     core = [s for s in steps if s.kind in style_b.CORE_KINDS]
     if not core:
@@ -83,12 +84,15 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
     # điểm danh nguyên liệu (khúc lặp, thẻ số đã đối chiếu) nếu còn chỗ
     items: list = []
     seen: set = set()
-    for it in sorted(facts.items, key=lambda it: it.seen_at if it.seen_at >= 0 else it.said_at):
-        t = it.seen_at if it.seen_at >= 0 else it.said_at
+    when = lambda it: it.seen_at if it.seen_at >= 0 else it.said_at          # noqa: E731
+    # nguyên liệu có định lượng đã đối chiếu được ưu tiên lên thẻ, rồi xếp lại theo lúc xuất hiện
+    for it in sorted(facts.items, key=lambda it: (not (it.verified and it.qty is not None), when(it))):
         key = recipe._key(it.name)
-        if t >= 0 and key not in seen and len(items) < 5:
+        if when(it) >= 0 and key not in seen and len(items) < 5:
             seen.add(key)
-            items.append((it, t))
+            items.append((it, when(it)))
+    items = [(it, t) for it, t in style_b.montage_times([it for it, _ in sorted(items, key=lambda x: x[1])], end,
+                                                         MONTAGE_LEN)]
     montage = items if len(items) >= 3 and _length(chosen + [(hero_a, end)]) + len(items) * MONTAGE_LEN <= cap else []
     room = cap - _length(chosen + [(hero_a, end)]) - len(montage) * MONTAGE_LEN
     # thêm câu điểm cao còn vừa
@@ -107,14 +111,12 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
         last = i == len(spans) - 1
         pieces.append(edl.Piece(round(a, 3), round(b, 3), zoom=1.0 if last else style.ZOOMS[i % len(style.ZOOMS)],
                                 push=style.PUSH if last else 0.0))
-    side = [edl.Piece(round(max(0.0, min(t, end - MONTAGE_LEN)), 3), round(max(0.0, min(t, end - MONTAGE_LEN))
-                                                                         + MONTAGE_LEN, 3),
-                      zoom=1.12, role="side", tag="montage") for _, t in montage]
+    side = [edl.Piece(t, round(t + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage") for _, t in montage]
     plan = edl.EditPlan(pieces=side + pieces, stretch=stretch, level="short")
     if montage:
         labels = [style_b._label(it) for it, _ in montage]
         plan.texts.append({"t": 0.0, "dur": round(len(montage) * MONTAGE_LEN * stretch, 2),
-                           "text": "Nguyên liệu gồm: " + ", ".join(labels) + "."})
+                           "text": "Nguyên liệu gồm: " + ", ".join(n[:1].lower() + n[1:] for n in labels) + "."})
         plan.overlays = [edl.Overlay(round(k * MONTAGE_LEN * stretch + 0.1, 2), round(MONTAGE_LEN * stretch - 0.2, 2),
                                      "ingredient", lab) for k, lab in enumerate(labels)]
     errs = plan.validate()

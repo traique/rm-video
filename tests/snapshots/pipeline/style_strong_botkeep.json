@@ -35,7 +35,7 @@
      [
       11.09,
       13.09,
-      "Tóm lại: cho thịt vào chảo, đậy nắp hầm 30 phút, mở nắp, nêm muối, bày ra dĩa."
+      "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa."
      ],
      [
       13.19,
@@ -186,7 +186,7 @@
        {
         "dur": 2.1,
         "t": 10.99,
-        "text": "Tóm lại: cho thịt vào chảo, đậy nắp hầm 30 phút, mở nắp, nêm muối, bày ra dĩa."
+        "text": "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa."
        }
       ],
       "v": 1
@@ -398,7 +398,7 @@
       {
        "dur": 2.1,
        "t": 10.99,
-       "text": "Tóm lại: cho thịt vào chảo, đậy nắp hầm 30 phút, mở nắp, nêm muối, bày ra dĩa."
+       "text": "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa."
       }
      ],
      "v": 1
@@ -447,7 +447,7 @@
      {
       "end": 13.19,
       "i": 3,
-      "orig": "Tóm lại: cho thịt vào chảo, đậy nắp hầm 30 phút, mở nắp, nêm muối, bày ra dĩa.",
+      "orig": "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa.",
       "ost": "new",
       "start": 11.09,
       "text": "Lời mới3 mới3 mới3",

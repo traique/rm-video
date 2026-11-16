@@ -59,6 +59,9 @@ _STD = {"g": "g", "gam": "g", "gram": "g", "gr": "g", "kg": "kg", "ký": "kg", "
 MASS_VOL = {"g", "kg", "ml", "lít", "muỗng", "muỗng canh", "muỗng cà phê", "chén", "ly", "lạng"}
 TIME_UNITS = {"phút", "giây", "giờ", "ngày"}
 _NOT_QTY = TIME_UNITS | {"độ", "%", "nghìn", "triệu", "đồng", "tuổi", "người", "cm", "mm", "m", "phần"}
+# "cái" / "chiếc" là mạo từ ("1 cái tô") hoặc máy nghe sai ("nửa cái cánh gà" = nửa ký): không phải định lượng
+_ARTICLES = {"cái", "chiếc"}
+_COUNTS = {"trái", "củ", "tép", "nhánh", "cây", "lá", "miếng", "lát", "con", "gói", "hộp", "lon", "chai", "chén", "ly"}
 _SPOONS = {"muỗng", "muỗng canh", "muỗng cà phê"}
 
 
@@ -98,6 +101,8 @@ def parse(text: str) -> list[Qty]:
     out = []
     for item in ingredients.numbers(t):
         n, u = item.split(" ", 1)
+        if u in _ARTICLES:
+            continue
         try:
             out.append(standard(Qty(_to_value(n), u)))
         except (ValueError, ZeroDivisionError):
@@ -107,7 +112,7 @@ def parse(text: str) -> list[Qty]:
 
 def fmt_number(v: float, unit: str = "") -> str:
     """Số kiểu Việt Nam: 1,5 / 500; muỗng, chén dưới 1 thì phân số (1/2 muỗng)."""
-    if unit in _SPOONS | {"chén", "ly"} and 0 < v < 1:
+    if unit in _SPOONS | _COUNTS and 0 < v < 1:
         for frac, s in ((0.25, "1/4"), (1 / 3, "1/3"), (0.5, "1/2"), (2 / 3, "2/3"), (0.75, "3/4")):
             if abs(v - frac) < 0.02:
                 return s
@@ -289,7 +294,10 @@ def verify(ai: dict, texts: list[str], desc: str) -> Facts:
 
 
 def _source_numbers(texts: list[str], desc: str) -> set:
-    return {q.key() for t in [*texts, desc or ""] for q in parse(t)}
+    """Số có đơn vị trong nguồn + số TRẦN (lời gốc "chặt ra là 4" -> câu "chặt thành 4 miếng" vẫn đúng: đơn vị đếm)."""
+    keys = {q.key() for t in [*texts, desc or ""] for q in parse(t)}
+    bare = {(float(n), "*") for t in [*texts, desc or ""] for n in re.findall(r"(?<![\d.,/])(\d+)(?![\d.,/])", t)}
+    return keys | bare
 
 
 _QTY_IN_TEXT = re.compile(r"(\d+(?:[.,/]\d+)?)\s*(" + "|".join(sorted(map(re.escape, ingredients._UNITS), key=len,
@@ -303,12 +311,18 @@ def clean_numbers(text: str, allowed: set) -> tuple[str, bool]:
     def sub(m: re.Match) -> str:
         nonlocal changed
         qs = parse(m.group(0))
-        if not qs or qs[0].key() in allowed:
+        if not qs or qs[0].key() in allowed or (qs[0].unit in _COUNTS | {"miếng", "khúc", "phần"}
+                                                and (round(qs[0].value, 3), "*") in allowed):
             return m.group(0)
         changed = True
         return "một lúc" if qs[0].unit in TIME_UNITS else "vừa đủ"
     out = _QTY_IN_TEXT.sub(sub, _spell_numbers(text))
     return (out if changed else text), changed
+
+
+def _clip(text: str, n: int) -> str:
+    """Cắt câu dài ở ranh giới từ (không để "...và mộ")."""
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0].rstrip(",;") + "…"
 
 
 def _steps(f: Facts, ai: dict, texts: list[str], desc: str) -> None:
@@ -328,7 +342,7 @@ def _steps(f: Facts, ai: dict, texts: list[str], desc: str) -> None:
         a, b = max(0, min(a, n - 1)), max(0, min(b, n - 1))
         kind = str(s.get("kind") or "other")
         raw.append(Step(kind=kind if kind in STEP_KINDS else "other", a=min(a, b), b=max(a, b),
-                        text=re.sub(r"\s+", " ", str(s.get("text") or "")).strip()[:200],
+                        text=_clip(re.sub(r"\s+", " ", str(s.get("text") or "")).strip(), 320),
                         ingredients=[str(x)[:40] for x in (s.get("ingredients") or [])][:12],
                         independent=bool(s.get("independent"))))
     raw.sort(key=lambda s: (s.a, s.b))

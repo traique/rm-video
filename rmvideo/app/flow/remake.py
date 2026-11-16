@@ -363,6 +363,8 @@ class Remake:
                                            self.out_dur / self.stretch, self.src_hash)
         if not job.approved:
             dish.apply(job, self.facts)
+        if self.facts is not None and self.facts.is_recipe:
+            prompt_engine.set_glossary(it.name for it in self.facts.items)   # sửa tên máy nghe sai khi viết lời
         if self.facts is not None and not self.facts.is_recipe and job.source == Source.AUTO \
                 and config.AUTO_SKIP_ADS == "1":
             raise RuntimeError(f"{recipe.NOT_RECIPE}: dừng sớm, tự đăng chọn video khác")   # khỏi tốn giọng + dựng

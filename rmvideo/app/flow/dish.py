@@ -15,7 +15,7 @@ from queue_manager import Job
 from rmvideo.domain import recipe
 from rmvideo.domain.job import Mode, Source
 
-RECIPE_V = 1          # đổi khi đổi lời nhắc / cách kiểm (cache cũ không dùng nữa)
+RECIPE_V = 2          # đổi khi đổi lời nhắc / cách kiểm (cache cũ không dùng nữa)
 N_IMAGES = 12
 
 

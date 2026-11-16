@@ -75,6 +75,29 @@ def _gap_bounds(segs: list, keep: list[bool], a: float, b: float) -> tuple[float
     return round(max(lo, a - 0.4), 3), round(min(hi, b + 0.4), 3)
 
 
+def montage_times(items: list, end: float, length: float) -> list[tuple]:
+    """[(nguyên liệu, giây bắt đầu khúc)]: lúc thấy nguyên liệu (ảnh) hoặc lúc nói định lượng; trùng / sát nhau (AI hay
+    chỉ cùng một ảnh cho cả loạt gia vị) thì lấy lúc nói, rồi lùi dần cho khỏi chiếu một cảnh nhiều lần."""
+    used: list = []
+    out = []
+    for it in items:
+        cands = [t for t in (it.seen_at, it.said_at) if t >= 0]
+        t = next((c for c in cands if all(abs(c - u) >= length for u in used)), cands[0] if cands else -1.0)
+        while any(abs(t - u) < length for u in used) and t + length < end:
+            t += length
+        t = round(max(0.0, min(t, end - length)), 3)
+        used.append(t)
+        out.append((it, t))
+    return out
+
+
+def _short_step(text: str, kind: str) -> str:
+    """Một bước cho lời tóm tắt: vế đầu, tối đa 6 chữ ("Chiên lửa nhỏ khoảng 1 phút rưỡi")."""
+    head = (text or kind).split(",")[0].split(";")[0].strip().rstrip(".")
+    words = head.split()
+    return " ".join(words[:6]).lower()
+
+
 def _label(it: recipe.Item) -> str:
     q = it.quantity()
     if q is not None and it.verified:
@@ -85,6 +108,7 @@ def _label(it: recipe.Item) -> str:
 def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label_mode: str,
                 facts: recipe.Facts | None) -> tuple[edl.EditPlan, str]:
     """(kế hoạch, ghi chú). Không đủ dữ liệu / vi phạm luật: kế hoạch lớp A + lý do."""
+    segs = [(a, min(b, end), t) for a, b, t in segs if a < end]          # câu cuối có thể dài quá hết video
     light = style.plan_light(end, segs, cuts, mot, stretch, label_mode, "light")
     if facts is None or not facts.is_recipe or not facts.steps:
         return light, "không có nhãn bước của AI: chỉ áp lớp A"
@@ -140,11 +164,8 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         if len(roll) >= MONTAGE_MAX:
             break
     roll.sort(key=lambda it: it.seen_at if it.seen_at >= 0 else it.said_at)
-    montage = []
-    for it in roll:
-        t = it.seen_at if it.seen_at >= 0 else it.said_at
-        a = round(max(0.0, min(t, end - MONTAGE_LEN)), 3)
-        montage.append((edl.Piece(a, round(a + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"), _label(it)))
+    montage = [(edl.Piece(a, round(a + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"), _label(it))
+               for it, a in montage_times(roll, end, MONTAGE_LEN)]
     if len(montage) >= 3:
         pieces = [p for p, _ in montage] + pieces
         did.append(f"điểm danh {len(montage)} nguyên liệu")
@@ -170,7 +191,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
             m = (s.t0 + s.t1) / 2
             tail.append(edl.Piece(round(max(0.0, m - RECAP_LEN / 2), 3), round(min(end, m + RECAP_LEN / 2), 3),
                                   zoom=1.18, role="side", tag="recap"))
-        tail_text.append("Tóm lại: " + ", ".join((s.text or s.kind).rstrip(".").lower() for s in pick) + ".")
+        tail_text.append("Tóm lại: " + ", ".join(_short_step(s.text, s.kind) for s in pick) + ".")
         did.append(f"tóm tắt {len(pick)} bước trước khi kết")
     if tail:
         last = max((k for k, p in enumerate(pieces) if p.role == "main"), default=len(pieces) - 1)
@@ -183,7 +204,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         names = [lab for _, lab in montage]
         t0 = starts[0]
         out.texts.append({"t": round(t0, 2), "dur": round(sum(p.length for p, _ in montage) * stretch, 2),
-                          "text": "Nguyên liệu gồm: " + ", ".join(names) + "."})
+                          "text": "Nguyên liệu gồm: " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
         out.overlays = [edl.Overlay(round(s + 0.1, 2), round(p.length * stretch - 0.2, 2), "ingredient", lab)
                         for (p, lab), s in zip(montage, starts[: len(montage)])]
     if moved:
