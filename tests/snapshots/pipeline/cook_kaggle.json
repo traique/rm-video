@@ -1,0 +1,260 @@
+{
+ "calls": {
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.5,
+      1.8,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.1,
+      3.4,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      3.6,
+      4.8,
+      "nêm muối vừa ăn"
+     ]
+    ],
+    4.95,
+    0.0,
+    3
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "allow_hd": true,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "job": 108,
+     "kind": "remake",
+     "mode": "cook",
+     "out_dur": 4.95,
+     "pos_y": 973,
+     "render_dur": 4.95,
+     "segments": [
+      {
+       "i": 0,
+       "ost": "new",
+       "slot": 1.3,
+       "span": 1.3,
+       "start": 0.5,
+       "text": "Lời mới0 mới0 mới0"
+      },
+      {
+       "i": 1,
+       "ost": "new",
+       "slot": 1.3,
+       "span": 1.3,
+       "start": 2.1,
+       "text": "Lời mới1 mới1 mới1"
+      },
+      {
+       "i": 2,
+       "ost": "new",
+       "slot": 1.2,
+       "span": 1.2,
+       "start": 3.6,
+       "text": "Lời mới2 mới2 mới2"
+      }
+     ],
+     "sep": {
+      "ok": true,
+      "windows": [
+       [
+        0.2,
+        4.95
+       ]
+      ]
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_NAME",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "PUBLIC_URL",
+      "QUALITY",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "speech": [
+      [
+       0.5,
+       1.8
+      ],
+      [
+       2.0,
+       3.4
+      ],
+      [
+       3.6,
+       4.8
+      ],
+      [
+       5.0,
+       7.8
+      ]
+     ],
+     "src": {
+      "kind": "video",
+      "max_duration": 90,
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "subs": true,
+     "title": "THỊT KHO MỀM RỤC",
+     "token": "<TOKEN>",
+     "voice": {
+      "engine": "vieneu",
+      "id": "vieneu:Mỹ Duyên",
+      "name": "Mỹ Duyên"
+     }
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.15,
+     2.75,
+     4.2
+    ]
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 4.95,
+    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "final_segments": [
+     {
+      "end": 2.1,
+      "i": 0,
+      "orig": "cho thịt vào chảo",
+      "ost": "new",
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.5,
+       "speed": 1.0,
+       "start": 0.5
+      }
+     },
+     {
+      "end": 3.6,
+      "i": 1,
+      "orig": "đảo đều tay cho thịt săn lại",
+      "ost": "new",
+      "start": 2.1,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 3.1,
+       "speed": 1.0,
+       "start": 2.1
+      }
+     },
+     {
+      "end": 4.95,
+      "i": 2,
+      "orig": "nêm muối vừa ăn",
+      "ost": "new",
+      "start": 3.6,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 4.6,
+       "speed": 1.0,
+       "start": 3.6
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 4.95,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,000 --> 00:00:01,000\nx\n",
+    "status": "queued",
+    "step": "Kaggle: chuẩn bị",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/108/kaggle_out.mp4"
+  }
+ ]
+}

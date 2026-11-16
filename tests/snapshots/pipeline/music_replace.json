@@ -1,0 +1,57 @@
+{
+ "calls": {
+  "ai.generate": [
+   [
+    "",
+    "music",
+    "",
+    0
+   ]
+  ],
+  "beat.analyze": [
+   [
+    "src.mp4"
+   ],
+   [
+    "song.mp3"
+   ]
+  ],
+  "render_music": [
+   [
+    "<TMP>/src/src.mp4",
+    "<TMP>/song.mp3",
+    0,
+    {
+     "delay": 0.0,
+     "speed": 0.833,
+     "trim": 0.2
+    }
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "",
+    "final_segments": [],
+    "hook": "",
+    "local": "<TMP>/src/src.mp4",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 0.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho\n\n▶ TikTok:\nĐậm đà #thitkho\n\n▶ Facebook:\nĐậm đà\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho #Shorts\n\nĐậm đà\n\n#thitkho",
+    "script": "Khớp beat: nhảy 120 BPM ↔ nhạc 100 BPM → tốc độ video x0.83",
+    "source_meta": {},
+    "srt": "",
+    "status": "queued",
+    "step": "Render khớp nhạc (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/119/output.mp4"
+  }
+ ]
+}

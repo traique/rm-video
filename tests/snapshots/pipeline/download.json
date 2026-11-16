@@ -1,0 +1,38 @@
+{
+ "calls": {
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    600
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "",
+    "final_segments": [],
+    "hook": "",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 0.0,
+    "parts": [],
+    "pieces": [],
+    "post": "Thịt kho tộ",
+    "script": "Tải xong: 8s, 0MB",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "queued",
+    "step": "Tải video gốc (không logo)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/123/output.mp4"
+  }
+ ]
+}

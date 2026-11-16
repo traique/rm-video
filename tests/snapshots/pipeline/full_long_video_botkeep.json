@@ -1,0 +1,204 @@
+{
+ "calls": {
+  "ai.timed": [
+   [
+    "",
+    "cook",
+    [
+     [
+      0.5,
+      1.8,
+      "cho thịt vào chảo"
+     ],
+     [
+      2.1,
+      3.4,
+      "đảo đều tay cho thịt săn lại"
+     ],
+     [
+      3.6,
+      4.8,
+      "nêm muối vừa ăn"
+     ],
+     [
+      5.1,
+      7.8,
+      "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
+     ]
+    ],
+    130.0,
+    0.0,
+    4
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "",
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": false,
+     "ambient": null,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": [
+      [
+       0.5,
+       1.8
+      ],
+      [
+       2.0,
+       3.4
+      ],
+      [
+       3.6,
+       4.8
+      ],
+      [
+       5.0,
+       7.8
+      ]
+     ],
+     "input": "<TMP>/up/long.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": [],
+     "out": "<TMP>/w/126/output.mp4",
+     "stretch": 1.0,
+     "subs": [
+      "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
+      "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
+      "Dialogue: 0,0:00:03.60,0:00:05.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:05.10,0:00:06.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3"
+     ],
+     "teaser": null,
+     "title": "THỊT KHO MỀM RỤC",
+     "voice": "<TMP>/w/126/voice.wav"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "long.mp4",
+    130.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.15,
+     2.75,
+     4.2,
+     6.45
+    ]
+   ]
+  ],
+  "tts": [
+   [
+    "Lời mới0 mới0 mới0",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới1 mới1 mới1",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới2 mới2 mới2",
+    "vi-VN-HoaiMyNeural"
+   ],
+   [
+    "Lời mới3 mới3 mới3",
+    "vi-VN-HoaiMyNeural"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "final_segments": [
+     {
+      "end": 2.1,
+      "i": 0,
+      "orig": "cho thịt vào chảo",
+      "ost": "new",
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.8,
+       "speed": 1.0,
+       "start": 0.5
+      }
+     },
+     {
+      "end": 3.6,
+      "i": 1,
+      "orig": "đảo đều tay cho thịt săn lại",
+      "ost": "new",
+      "start": 2.1,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 3.4,
+       "speed": 1.0,
+       "start": 2.1
+      }
+     },
+     {
+      "end": 5.1,
+      "i": 2,
+      "orig": "nêm muối vừa ăn",
+      "ost": "new",
+      "start": 3.6,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 4.9,
+       "speed": 1.0,
+       "start": 3.6
+      }
+     },
+     {
+      "end": 130.0,
+      "i": 3,
+      "orig": "bà con bấm vào giỏ hàng góc trái màn hình mua ngay",
+      "ost": "new",
+      "start": 5.1,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 6.4,
+       "speed": 1.0,
+       "start": 5.1
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "<TMP>/up/long.mp4",
+    "long_mode": "full",
+    "no_autopost": "",
+    "out_dur": 130.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3",
+    "source_meta": {},
+    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,100\nLời mới2 mới2 mới2\n\n4\n00:00:05,100 --> 00:00:06,600\nLời mới3 mới3 mới3\n",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/126/output.mp4"
+  }
+ ]
+}

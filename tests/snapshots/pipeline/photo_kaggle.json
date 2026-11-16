@@ -1,0 +1,112 @@
+{
+ "calls": {
+  "ai.generate": [
+   [
+    "Đà Lạt",
+    "photo",
+    "",
+    9
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "duration": 10,
+     "images": [
+      {
+       "http": "https://bot.example.com/kin/<T>/a.jpg",
+       "name": "a.jpg"
+      }
+     ],
+     "job": 122,
+     "kind": "photo",
+     "music": {
+      "http": "https://bot.example.com/kin/<T>/song.mp3",
+      "name": "song.mp3"
+     },
+     "recent": [
+      "calm_fade"
+     ],
+     "seed": "<TOKEN>",
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_NAME",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "PUBLIC_URL",
+      "QUALITY",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "token": "<TOKEN>"
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "trendfx.remember": [
+   [
+    "flash_pop"
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Dựng trên Kaggle (CPU) 9s. ",
+    "final_segments": [],
+    "hook": "",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 9.6,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho\n\n▶ TikTok:\nĐậm đà #thitkho\n\n▶ Facebook:\nĐậm đà\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho #Shorts\n\nĐậm đà\n\n#thitkho",
+    "script": "Nhạc 120 BPM, kiểu êm, hiệu ứng «Flash Pop»; lấy đoạn từ 2s; 2 cảnh, đổi cảnh đúng beat; 9.6s.",
+    "source_meta": {},
+    "srt": "",
+    "status": "queued",
+    "step": "Dựng ảnh theo nhạc (1 ảnh)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/122/kaggle_out.mp4"
+  }
+ ]
+}

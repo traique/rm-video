@@ -1,0 +1,139 @@
+{
+ "calls": {
+  "ai.post_only": [
+   [
+    "Thịt kho tộ",
+    "cook"
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "allow_hd": true,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "job": 113,
+     "kind": "bed",
+     "mode": "cook",
+     "music": {
+      "http": "https://bot.example.com/kin/<T>/nhac.mp3",
+      "name": "nhac.mp3"
+     },
+     "orig": "off",
+     "out_dur": 8.0,
+     "render_dur": 0,
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_NAME",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "PUBLIC_URL",
+      "QUALITY",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "src": {
+      "http": "https://bot.example.com/kin/<T>/input.mp4",
+      "kind": "video",
+      "max_duration": 90,
+      "name": "input.mp4",
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "title": "XEM LÀ ĐÓI",
+     "token": "<TOKEN>",
+     "trim": 3.0
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Dựng trên Kaggle (CPU) 7s. ℹ️ Video không lời: chèn nhạc nền thay cho lời đọc (bỏ tiếng gốc); đã che 1 dải chữ gốc. ",
+    "final_segments": [],
+    "hook": "XEM LÀ ĐÓI",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 8.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Cảnh nấu ăn\n\n▶ TikTok:\nThư giãn #asmr\n\n▶ Facebook:\nThư giãn\n\n#asmr\n\n▶ YouTube Shorts:\nCảnh nấu ăn #Shorts\n\nThư giãn\n\n#asmr",
+    "script": "🎵 Video không lời: chèn nhạc nền «nhac.mp3» (từ giây 3 của bài), bỏ tiếng gốc; không thêm lời đọc để không nói sai nội dung video gốc.",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "queued",
+    "step": "Kaggle: dựng video + nhạc nền",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/113/kaggle_out.mp4"
+  }
+ ]
+}

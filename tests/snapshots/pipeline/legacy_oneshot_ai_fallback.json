@@ -1,0 +1,126 @@
+{
+ "calls": {
+  "ai.generate": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    "thịt kho tộ ngon lắm luôn đó cả nhà ơi",
+    8
+   ],
+   [
+    "Thịt kho tộ",
+    "cook",
+    "thịt kho tộ ngon lắm luôn đó cả nhà ơi",
+    27
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    90
+   ]
+  ],
+  "metric": [
+   [
+    "sep",
+    "onnx",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "render": [
+   [
+    {
+     "allow_hd": true,
+     "ambient": "<TMP>/cache/ambient/03aa74c9101c48d2cf5ee3c2c625a990.wav",
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "duration": 0,
+     "gate": null,
+     "input": "<TMP>/w/117/input.mp4",
+     "mode": "cook",
+     "music_bed": false,
+     "ost": null,
+     "out": "<TMP>/w/117/output.mp4",
+     "stretch": 1.0,
+     "subs": [],
+     "teaser": null,
+     "title": "Thịt kho tộ",
+     "voice": "<TMP>/w/117/voice.mp3"
+    }
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    8.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.detect_cuts": [
+   [
+    "input.mp4"
+   ]
+  ],
+  "sep": [
+   [
+    "input.mp4",
+    [
+     [
+      0.2,
+      3.3
+     ]
+    ]
+   ]
+  ],
+  "tts.oneshot": [
+   [
+    "Kịch bản mẫu đọc một mạch.",
+    "vi-VN-HoaiMyNeural",
+    true,
+    973
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "error": "ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
+    "final_segments": [],
+    "hook": "",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "AI viết kịch bản lỗi, video dùng kịch bản mẫu",
+    "out_dur": 8.0,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho tộ\n\n▶ TikTok:\n\n\n▶ Facebook:\n\n\n\n\n▶ YouTube Shorts:\nThịt kho tộ #Shorts\n\n\n\n",
+    "script": "Kịch bản mẫu đọc một mạch.",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "",
+    "status": "queued",
+    "step": "Render (FFmpeg)",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/117/output.mp4"
+  }
+ ]
+}
