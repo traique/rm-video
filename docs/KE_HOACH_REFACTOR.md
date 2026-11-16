@@ -12,6 +12,12 @@ trong `pyproject.toml`); `pytest` 441 → 503 test xanh (+ 5 bỏ qua cần key 
 snapshot prompt giữ nguyên qua mọi bước (chỉ đổi 2 chỗ có chủ đích, ghi trong commit: lỗi ghi chú bị đè; bước hiển thị
 của job cha video dài giờ là bước thật mới nhất). Mỗi bước một commit, đã đẩy lên nhánh làm việc.
 
+Chạy thật: (1) trên **Kaggle** với tài khoản của bạn — một việc remake 10 giây (video mẫu công khai, giọng edge, CPU,
+không tốn giờ GPU) bằng bundle mới (278KB, 36 tệp): xong trong 45-86 giây, video 720x1280 đúng 10,000s, phụ đề khớp
+từng từ. Lần chạy đầu bắt được một lỗi do dời file mà test chưa phủ (font tiêu đề / logo tìm sai thư mục -> chữ tiêu
+đề mất dấu), đã sửa + thêm test; (2) khởi động `main.py` thật (chỉ web): `/health`, đăng nhập, đọc cài đặt, đổi
+`PUBLIC_URL` bị hỏi lại mật khẩu, SIGTERM thoát gọn.
+
 | Phase | Đã làm | Khác kế hoạch / ghi chú |
 | --- | --- | --- |
 | 0 Lưới an toàn | `tests/test_snapshot_pipeline.py` (25 kịch bản: Botkeep/Kaggle, phân tích Kaggle, duyệt, không lời, mở đầu, đường đọc một mạch, 🎵, 📸, tải về, cắt phần lô Kaggle có phần lỗi, đoạn hay), `test_snapshot_prompts.py`, `test_kaggle_bundle.py`; py311 + mypy + CI 3.11-3.13; sửa lỗi ghi chú bị đè | — |
