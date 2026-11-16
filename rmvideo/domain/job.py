@@ -30,7 +30,7 @@ class LongMode(StrEnum):
     HIGHLIGHT = "highlight"    # AI chọn tối đa 3 đoạn hay
 
     @property
-    def split(self) -> bool:
+    def is_split(self) -> bool:
         return self in (LongMode.SPLIT60, LongMode.SPLIT90)
 
     @property
