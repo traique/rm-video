@@ -190,7 +190,7 @@ def env(monkeypatch, tmp_path):
         monkeypatch.setattr(config, k, d)
     for k, v in (("QUALITY", "fast"), ("BRAND_INTRO", "0"), ("CUT_PROMO", "1"), ("COVER", "0"), ("TEASER", "0"),
                  ("TTS_PROVIDER", "edge"), ("KAGGLE_ANALYZE", "0"), ("BRAND_LOGO", "0"), ("PUBLIC_URL", ""),
-                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0")):
+                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0")):
         monkeypatch.setattr(config, k, v)
     monkeypatch.setattr(config, "UPLOAD_DIR", str(tmp_path / "up"))
     monkeypatch.setattr(cache, "DIR", str(tmp_path / "cache"))

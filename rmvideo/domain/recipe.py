@@ -43,9 +43,11 @@ def _spell_numbers(t: str) -> str:
     t = re.sub(rf"\b({_N})\s+mươi(?:\s+({_N}))?\b",
                lambda m: str(_num(m.group(1)) * 10 + (_num(m.group(2)) if m.group(2) else 0)), t)
     t = re.sub(r"\bkí\b", "ký", t)
-    t = re.sub(rf"\b({_DW})\s+(?=(ký|kg|cân|lít|muỗng|thìa|chén|bát|tiếng|giờ|lạng|ly|cốc)\s+rưỡi\b)",
+    t = re.sub(r"\bmi[\s-]?li[\s-]?lít\b|\bmililít\b", "ml", t)          # máy nghe viết đơn vị bằng chữ
+    t = re.sub(r"\bki[\s-]?lô[\s-]?gam\b|\bkilôgam\b", "kg", t)
+    t = re.sub(rf"\b({_DW})\s+(?=(ký|kg|cân|lít|muỗng|thìa|chén|bát|tiếng|giờ|phút|lạng|ly|cốc)\s+rưỡi\b)",
                lambda m: f"{_DIGIT_WORDS[m.group(1)]} ", t)
-    t = re.sub(r"\b(\d+)\s+(ký|kg|cân|lít|muỗng|thìa|chén|bát|tiếng|giờ|lạng|ly|cốc)\s+rưỡi\b",
+    t = re.sub(r"\b(\d+)\s+(ký|kg|cân|lít|muỗng|thìa|chén|bát|tiếng|giờ|phút|lạng|ly|cốc)\s+rưỡi\b",
                lambda m: f"{int(m.group(1)) + 0.5} {m.group(2)}", t)
     return t
 
@@ -225,6 +227,13 @@ def _evidence(name: str, want: Qty, text: str) -> bool:
     return bool(text) and _name_in(name, text) and any(q.key() == want.key() for q in parse(text))
 
 
+def _quoted(quote: str, want: Qty, text: str) -> bool:
+    """Câu AI trích có NGUYÊN VĂN trong lời gốc (so lỏng) và chứa đúng con số: tin số, cho AI sửa tên nguyên liệu máy
+    nghe sai ("1 muỗng nấm mặn" = nước mắm)."""
+    q = _loose(quote).strip()
+    return len(q.split()) >= 2 and f" {q} " in _loose(text) and any(x.key() == want.key() for x in parse(quote))
+
+
 def verify(ai: dict, texts: list[str], desc: str) -> Facts:
     """Bản AI đề xuất (dict theo RECIPE_PROMPT) + lời gốc từng đoạn + mô tả -> Facts đã kiểm."""
     texts = [t or "" for t in texts]
@@ -247,7 +256,8 @@ def verify(ai: dict, texts: list[str], desc: str) -> Facts:
             continue
         q = qs[0]
         it.qty, it.unit = q.value, q.unit
-        if _evidence(name, q, _window(texts, seg)):
+        quote = str(x.get("quote") or "")
+        if _evidence(name, q, _window(texts, seg)) or _quoted(quote, q, _window(texts, seg)):
             it.status = "ok"
         elif _evidence(name, q, desc or ""):
             it.status = "desc"

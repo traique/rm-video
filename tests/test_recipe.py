@@ -29,6 +29,10 @@ from rmvideo.domain import recipe as r
     ("chiên 5 phút", ["5 phút"]),
     ("cho vào 1 cái tô", []),
     ("đợi một lát là được", []),
+    ("mình sẽ Cho là 50 mi li lít nước", ["50 ml"]),          # lời bóc thật (Bảy Cua Quán, cánh gà chiên nước mắm)
+    ("lửa nhỏ Cho mình là khoảng một phút rưỡi", ["1,5 phút"]),
+    ("nêm là một muỗng đường 1/3 muỗng bột ngọt", ["1 muỗng", "1/3 muỗng"]),
+    ("tây và 50g đồ hành sắt hút", ["50 g"]),
 ])
 def test_parse_and_standard_units(text, want):
     assert [r.fmt(q) for q in r.parse(text)] == want
@@ -143,3 +147,17 @@ def test_autopost_skips_not_recipe_without_streak(monkeypatch, tmp_path):
     msg = asyncio.run(autopost._finish_pending(st, 1000.0, None))
     assert r.NOT_RECIPE in msg and st["pending"] is None and st.get("streak", 0) == 0
     assert st["used"]["tt:1"]["skip"] == r.NOT_RECIPE
+
+
+def test_real_transcript_quantities_with_asr_errors():
+    """Lời bóc thật: "1 muỗng nấm mặn" là nước mắm máy nghe sai; câu trích nguyên văn có trong lời gốc thì tin số."""
+    texts = ["mọi người Cho là nửa muỗng tỏi", "một muỗng tương ớt", "một muỗng nấm mặn", "Cho là 50 mi li lít nước"]
+    ai = {"is_recipe": True, "dish": "Cánh gà chiên nước mắm", "steps": [], "tips": [], "ingredients": [
+        {"name": "tỏi", "qty": "1/2", "unit": "muỗng", "seg": 0, "quote": "nửa muỗng tỏi"},
+        {"name": "tương ớt", "qty": "1", "unit": "muỗng", "seg": 1, "quote": "một muỗng tương ớt"},
+        {"name": "nước mắm", "qty": "1", "unit": "muỗng", "seg": 2, "quote": "một muỗng nấm mặn"},
+        {"name": "nước", "qty": "50", "unit": "ml", "seg": 3, "quote": "50 mi li lít nước"},
+        {"name": "nước mắm", "qty": "2", "unit": "muỗng", "seg": 2, "quote": "hai muỗng nước mắm"}]}
+    f = r.verify(ai, texts, "")
+    assert [x.status for x in f.items] == ["ok", "ok", "ok", "ok", "unverified"]
+    assert "• Tỏi: 1/2 muỗng" in r.recipe_block(f) and "• Nước: 50 ml" in r.recipe_block(f)
