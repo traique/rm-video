@@ -31,6 +31,7 @@ import metrics
 import offline
 import pipeline
 import prompt_engine
+from rmvideo.app.flow import style
 import review
 import scenes
 import slideshow
@@ -285,6 +286,11 @@ def env(monkeypatch, tmp_path):
         return json.loads(json.dumps(E.recipe_ai)) if E.recipe_ai is not None else None
     monkeypatch.setattr(prompt_engine, "recipe_facts", recipe_facts)
 
+    async def motion(inp, end, thumbs=None):            # chuyển động: cố định (khoảng 4.0-5.0 gần như đứng yên)
+        rec.add("style.motion", round(end, 2))
+        return [0.0004 if 13 <= k <= 24 else 0.03 for k in range(int(end * 2) + 2)]
+    monkeypatch.setattr(style, "motion", motion)
+
     async def choose(title, desc, dur, segs, cuts, sil, images, img_t):
         rec.add("ai.highlights", title, dur, len(segs), list(cuts), len(images))
         return [{"start": 10.0, "end": 45.0, "score": 9, "title": "Đoạn chiên", "reason": "hấp dẫn"},
@@ -322,11 +328,12 @@ def env(monkeypatch, tmp_path):
 
     async def render(input_mp4, voice_mp3, output_mp4, mode, duration=0, ass_path=None, cover_bands=None,
                      ambient_wav=None, speech_gate=None, allow_hd=True, title="", tmp=None, stretch=1.0, ost=None,
-                     notes=None, music_bed=False, teaser=None):
+                     notes=None, music_bed=False, teaser=None, **kw):
         rec.add("render", {"input": input_mp4, "voice": voice_mp3, "out": output_mp4, "mode": mode,
                            "duration": duration, "subs": _ass_text(ass_path), "bands": cover_bands,
                            "ambient": ambient_wav, "gate": speech_gate, "allow_hd": allow_hd, "title": title,
-                           "stretch": stretch, "ost": ost, "music_bed": music_bed, "teaser": teaser})
+                           "stretch": stretch, "ost": ost, "music_bed": music_bed, "teaser": teaser,
+                           **({"edit": kw["edit"]} if kw.get("edit") else {})})
         shutil.copy(input_mp4, output_mp4)
     monkeypatch.setattr(core_video, "render", render)
 
@@ -497,6 +504,39 @@ def test_auto_not_recipe_stops_early(env):
     with pytest.raises(RuntimeError, match="không phải video công thức"):
         run(env, job)
     snap("auto_not_recipe", env, {"result": "RuntimeError", "job": _job_view(job)})
+
+
+def _style_src(E):
+    """Video 20s: hai câu đầu, quãng chờ không lời 6-12.5s (đứng yên), câu cuối."""
+    E.src = _video(os.path.join(E.tmp, "src", "long20.mp4"), dur=20)
+    E.segs = [(0.5, 3.0, "cho thịt vào chảo đảo đều"), (3.4, 6.0, "đậy nắp hầm 30 phút cho mềm"),
+              (12.5, 15.0, "mở nắp ra nêm muối vừa ăn"), (15.4, 18.5, "vậy là xong món thịt kho")]
+    E.cuts = [6.5, 12.0]
+
+
+def test_style_light_botkeep(env, monkeypatch):
+    """REMAKE_STYLE=light: kế hoạch dựng chốt trước khi AI viết lời; lời gốc, điểm chuyển cảnh đổi sang trục mới."""
+    monkeypatch.setattr(config, "REMAKE_STYLE", "light")
+    _style_src(env)
+    snap("style_light_botkeep", env, run(env, _job(env, 131)))
+
+
+def test_style_light_kaggle(env, monkeypatch):
+    monkeypatch.setattr(config, "REMAKE_STYLE", "light")
+    _style_src(env)
+    kaggle_on(monkeypatch)
+    snap("style_light_kaggle", env, run(env, _job(env, 132)))
+
+
+def test_style_review_then_approved_reuses_plan(env, monkeypatch):
+    monkeypatch.setattr(config, "REMAKE_STYLE", "light")
+    _style_src(env)
+    job = _job(env, 133, review=True)
+    first = run(env, job)
+    approved = review.approve_job(job, {})
+    approved.id = 134
+    second = run(env, approved)
+    snap("style_review_then_approved", env, first, second)
 
 
 def test_stretch(env):

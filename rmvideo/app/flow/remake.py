@@ -41,12 +41,12 @@ import vocal_sep
 from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import brand, job_factory
-from rmvideo.app.assemble import assemble
-from rmvideo.app.flow import analysis, backends, common, dish, teaser
+from rmvideo.app.assemble import _edit_kw, assemble
+from rmvideo.app.flow import analysis, backends, common, dish, style, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
-from rmvideo.media import ff, filtergraph, renderer, tts_engine, voiceplan
+from rmvideo.media import edl, ff, filtergraph, renderer, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
@@ -120,6 +120,7 @@ class Remake:
         self.target = 0
         self.ass = os.path.join(tmp, "subs.ass")
         self.facts: recipe.Facts | None = None   # món + định lượng đã đối chiếu (bản 42)
+        self.edit: edl.EditPlan | None = None    # kế hoạch dựng (REMAKE_STYLE, bản 42)
 
     # ---------------- các bước ----------------
 
@@ -138,6 +139,7 @@ class Remake:
                                                 self.render_dur, self.stretch, self.is_long, self.bands,
                                                 self.local_only, self.start_cover, self.finish_cover)
         await self.understand()
+        await self.restyle()
         await self.decide_teaser(silent)
         self.apply_teaser()
         self.choose_backend()
@@ -264,6 +266,41 @@ class Remake:
                 and config.AUTO_SKIP_ADS == "1":
             raise RuntimeError(f"{recipe.NOT_RECIPE}: dừng sớm, tự đăng chọn video khác")   # khỏi tốn giọng + dựng
 
+    async def restyle(self):
+        """Kế hoạch dựng (REMAKE_STYLE): khúc / tốc độ / cỡ khung trên video gốc, chốt TRƯỚC khi AI viết lời; lời gốc,
+        điểm chuyển cảnh, quãng người gốc nói đổi sang trục mới. Bản đã duyệt dùng lại đúng kế hoạch đã lưu."""
+        job = self.job
+        lv = style.level()
+        if not lv or job.mode not in (Mode.COOK, Mode.REVIEW) or not self.raw_segs:
+            return
+        end = self.out_dur / self.stretch
+        segs_src = [(a, min(b, end), t) for a, b, t in self.raw_segs if a < end]
+        if job.approved:
+            plan = edl.EditPlan.from_dict(job.edit)
+            if plan is None:
+                return
+        else:
+            job.step = "Lập kế hoạch dựng (nhịp, khung hình)"
+            a = scenes.analyzed(self.inp)
+            mot = await style.motion(self.inp, end, a)
+            cuts_src = [c / self.stretch for c in self.cuts]
+            plan = style.plan_light(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL, lv)
+            errs = plan.validate()
+            if errs:
+                job.note(f"ℹ️ Không áp được kế hoạch dựng ({errs[0]}): dựng như bản gốc. ")
+                return
+            job.edit = plan.to_dict()
+            job.note(f"ℹ️ {plan.summary} ")
+        self.edit = plan
+        cuts_src = [c / self.stretch for c in self.cuts]
+        self.segs = plan.map_segments(segs_src)
+        self.cuts = sorted(set(plan.cut_points()) | {round(plan.to_out(c), 2) for c in cuts_src if c < end})
+        self.speech = plan.map_windows([(a, b) for a, b, _ in segs_src])
+        out = round(plan.out_dur(), 2)
+        if self.render_dur:
+            self.render_dur = min(self.render_dur, out)
+        self.out_dur = job.out_dur = out
+
     async def decide_teaser(self, silent: bool):
         """Đoạn mở đầu: cảnh MÓN ĐÃ XONG chiếu trước 3 giây kèm câu hook (chỉ video nấu ăn có lời)."""
         job = self.job
@@ -388,7 +425,7 @@ class Remake:
                 job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, post_title, self.bands,
                 self.pos_y, sep_r, self.speech, config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
                 local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
-                teaser=self.tz)
+                teaser=self.tz, edit=self.edit.to_dict() if self.edit else None)
         except Exception as e:
             job.note(f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. ")
             return None
@@ -433,7 +470,8 @@ class Remake:
             title=common.post_title(job, self.title), stretch=self.stretch, teaser=self.tz,
             shorten=lambda idx, durs: self.shorten(segs_t, idx, durs), on_step=lambda st: setattr(job, "step", st),
             tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep.ok else ""),
-            wait_step="Chờ tách giọng gốc xong" if sep.ok else "Render (FFmpeg)", before_render=cover_now)
+            wait_step="Chờ tách giọng gốc xong" if sep.ok else "Render (FFmpeg)", before_render=cover_now,
+            edit=self.edit.to_dict() if self.edit else None)
         if res.srt:
             job.srt = res.srt
         if res.notes:
@@ -487,7 +525,7 @@ class Remake:
         await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
                                 self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
-                                notes=notes, teaser=self.tz)
+                                notes=notes, teaser=self.tz, **_edit_kw(self.edit.to_dict() if self.edit else None))
         if notes:
             job.note("".join(notes))
         await self.finish_cover(cover_task)
@@ -508,7 +546,8 @@ class Remake:
         tz = self.tz
         if tz and x < tz["dur"]:
             return tz["a"] + (0.0 if tz.get("still") else min(x, tz["dur"] - 0.1))
-        return (x - (tz["dur"] if tz else 0.0)) / self.stretch
+        x -= tz["dur"] if tz else 0.0
+        return self.edit.src_time(x) if self.edit else x / self.stretch
 
     def keyframes_for(self, sg: list):
         """Ảnh cho AI: ảnh GIỮA mỗi đoạn, lấy trên video gốc."""

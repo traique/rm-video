@@ -8,7 +8,7 @@ import subprocess
 import time
 
 import config
-from rmvideo.media import ff, filtergraph
+from rmvideo.media import edl, ff, filtergraph
 
 
 async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float | None:
@@ -252,11 +252,66 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
     return f
 
 
+
+def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
+    """Thẻ chữ của kế hoạch dựng (⏩ tua nhanh, nguyên liệu kèm định lượng, mẹo, giá) theo màu kênh, hiện mờ dần
+    vào/ra. Mốc của kế hoạch chưa tính đoạn mở đầu: cộng offset."""
+    k = H / 1280
+    out = ""
+    for i, o in enumerate(overlays):
+        p = os.path.join(tmp, f"ov_{i}.txt")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(o.text.strip())
+        t0, t1 = o.t + offset, o.t + offset + o.dur
+        box = brand_hex(0.9) or "0xFFE100@0.9"
+        big = o.kind in ("skip", "ingredient")
+        fs = int((44 if big else 34) * k)
+        y = {"skip": "h*0.16", "ingredient": "h*0.62", "tip": "h*0.12", "price": "h*0.62"}.get(o.kind, "h*0.16")
+        alpha = f"alpha='min(1,min((t-{t0:.2f})/0.25,({t1:.2f}-t)/0.25))'"
+        out += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={p}:expansion=none:fontsize={fs}:fontcolor=white:"
+                f"borderw={int(2 * k)}:bordercolor=black@0.8:box=1:boxcolor={box}:boxborderw={int(14 * k)}:"
+                f"x=(w-text_w)/2:y={y}:enable='between(t,{t0:.2f},{t1:.2f})':{alpha}")
+    return out
+
+
+async def side_clip(src: str, pieces: list, out: str, mode: str, W: int, H: int, fps: float, src_w: int, src_h: int,
+                    ambient_wav: str | None, stretch: float = 1.0) -> bool:
+    """Dãy khúc lặp / đảo chỗ -> một clip ngắn đã chỉnh màu, đúng cỡ khung (mỗi khúc một đầu vào tua sẵn bằng -ss:
+    chỉ giải mã vài giây quanh khúc, không giải mã cả video). Kèm tiếng nền đã tách giọng nếu có. Trả có tiếng không."""
+    ins, vparts, aparts = [], [], []
+    n = len(pieces)
+    for i, p in enumerate(pieces):
+        ins += ["-ss", f"{p.a:.3f}", "-t", f"{p.b - p.a + 0.2:.3f}", "-i", src]
+    if ambient_wav:
+        for p in pieces:
+            ins += ["-ss", f"{p.a:.3f}", "-t", f"{p.b - p.a + 0.2:.3f}", "-i", ambient_wav]
+    for i, p in enumerate(pieces):
+        L = p.length * stretch
+        ch = (f"[{i}:v]trim=duration={p.b - p.a:.3f},setpts=(PTS-STARTPTS)*{stretch / p.speed:.5f},fps={fps:g},"
+              + filtergraph.look_chain(mode, W, H, src_w, src_h, zoom=p.zoom))
+        if p.push > 0:
+            ch += "," + edl.push_filter(W, H, p.push, L).rstrip(",")
+        if p.fx == "flash":
+            ch += f",fade=t=in:st=0:d={edl.FLASH}:color=white"
+        vparts.append(ch + f",setsar=1,trim=duration={L:.3f}[v{i}]")
+        if ambient_wav:
+            aparts.append(f"[{n + i}:a]atrim=duration={p.b - p.a:.3f},asetpts=PTS-STARTPTS,"
+                          f"{edl._atempo(p.speed / stretch)}aformat=sample_rates=44100:channel_layouts=stereo,"
+                          f"apad=whole_dur={L:.3f},atrim=0:{L:.3f}[a{i}]")
+    fc = ";".join(vparts + aparts) + ";" + "".join(f"[v{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[sv]"
+    if ambient_wav:
+        fc += ";" + "".join(f"[a{i}]" for i in range(n)) + f"concat=n={n}:v=0:a=1[sa]"
+    await ff._run_ffmpeg("-y", *ff.thread_args(), *ins, "-filter_complex", fc, "-map", "[sv]",
+                         *(["-map", "[sa]", "-c:a", "pcm_s16le"] if ambient_wav else ["-an"]),
+                         "-c:v", "libx264", "-preset", "veryfast", "-crf", "15", "-pix_fmt", "yuv420p", out)
+    return bool(ambient_wav)
+
+
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: float = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
-                 music_bed: bool = False, teaser: dict | None = None):
+                 music_bed: bool = False, teaser: dict | None = None, edit: dict | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -267,7 +322,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29)."""
     t_start = time.time()
     T = float(teaser["dur"]) if teaser and teaser.get("dur") else 0.0
-    vid_dur = await ff.probe_duration(input_mp4) * stretch + T
+    plan = edl.EditPlan.from_dict(edit) if edit else None   # kế hoạch dựng (REMAKE_STYLE): khúc, tốc độ, cỡ khung
+    vid_dur = (plan.out_dur() if plan else await ff.probe_duration(input_mp4) * stretch) + T
     out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
     out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
     ambient = await ff.has_audio(input_mp4)
@@ -297,6 +353,18 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     if config.BRAND_STING != "0" and os.path.exists(ff.STING_PATH) and out_dur > 6 and not music_bed:
         sting_idx = audio_in.count("-i")
         audio_in += ["-i", ff.STING_PATH]
+    side_inputs: dict = {}
+    side_audio: dict = {}
+    if plan:
+        # khúc lặp / đảo chỗ: dựng trước thành clip phụ ngắn (mỗi dãy một clip), bản dựng chính nhận như một đầu vào
+        for r, ks in enumerate(plan.side_runs()):
+            clip = os.path.join(tmp, f"side_{r}.mkv")      # mkv: chứa được tiếng PCM
+            has_a = await side_clip(input_mp4, [plan.pieces[k] for k in ks], clip, mode, W, H, fps, src_w, src_h,
+                                    ambient_wav, plan.stretch)
+            side_inputs[r] = audio_in.count("-i")
+            if has_a:
+                side_audio[r] = f"[{side_inputs[r]}:a]"
+            audio_in += ["-i", clip]
     tz, extra_in = None, []
     if T:
         a0 = max(0.0, float(teaser.get("a") or 0.0))
@@ -310,9 +378,12 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     fc = filtergraph.build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
-                      bed=bool(music_bed and ambient_wav), teaser=tz)
+                      bed=bool(music_bed and ambient_wav), teaser=tz, edit=plan, side_inputs=side_inputs,
+                      side_audio=side_audio)
     brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None,
                           tagline_file=tagline_file)
+    if plan and plan.overlays:
+        brand = overlay_filter(plan.overlays, W, H, T, tmp) + brand
     # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
     fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)

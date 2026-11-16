@@ -1,0 +1,441 @@
+{
+ "calls": {
+  "ai.timed": [
+   [
+    "Thịt kho tộ",
+    "cook",
+    [
+     [
+      0.5,
+      3.0,
+      "cho thịt vào chảo đảo đều"
+     ],
+     [
+      3.3,
+      6.0,
+      "đậy nắp hầm 30 phút cho mềm"
+     ],
+     [
+      8.09,
+      10.79,
+      "mở nắp ra nêm muối vừa ăn"
+     ],
+     [
+      11.19,
+      14.29,
+      "vậy là xong món thịt kho"
+     ]
+    ],
+    15.79,
+    0.0,
+    4
+   ]
+  ],
+  "asr": [
+   [
+    "audio.mp3",
+    "Thịt kho tộ",
+    "Món ngon mỗi ngày"
+   ]
+  ],
+  "download": [
+   [
+    "https://www.facebook.com/reel/1234567890/",
+    300
+   ]
+  ],
+  "kaggle.produce": [
+   [
+    {
+     "allow_hd": true,
+     "bands": [
+      [
+       0.7,
+       0.8
+      ]
+     ],
+     "edit": {
+      "level": "light",
+      "overlays": [
+       {
+        "dur": 1.54,
+        "kind": "skip",
+        "t": 6.4,
+        "text": "»» 30 PHÚT SAU"
+       }
+      ],
+      "pieces": [
+       {
+        "a": 0.0,
+        "b": 3.2,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 3.2,
+        "b": 6.3,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.12
+       },
+       {
+        "a": 6.3,
+        "b": 12.2,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 3.5,
+        "tag": "skip",
+        "zoom": 1.0
+       },
+       {
+        "a": 12.2,
+        "b": 15.2,
+        "fx": "flash",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       },
+       {
+        "a": 15.2,
+        "b": 20.0,
+        "fx": "",
+        "push": 0.06,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.0
+       }
+      ],
+      "stretch": 1.0,
+      "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+      "v": 1
+     },
+     "job": 132,
+     "kind": "remake",
+     "mode": "cook",
+     "out_dur": 15.79,
+     "pos_y": 973,
+     "render_dur": 0,
+     "segments": [
+      {
+       "i": 0,
+       "ost": "new",
+       "slot": 2.5,
+       "span": 2.5,
+       "start": 0.5,
+       "text": "Lời mới0 mới0 mới0"
+      },
+      {
+       "i": 1,
+       "ost": "new",
+       "slot": 2.7,
+       "span": 2.7,
+       "start": 3.3,
+       "text": "Lời mới1 mới1 mới1"
+      },
+      {
+       "i": 2,
+       "ost": "new",
+       "slot": 2.7,
+       "span": 2.7,
+       "start": 8.09,
+       "text": "Lời mới2 mới2 mới2"
+      },
+      {
+       "i": 3,
+       "ost": "new",
+       "slot": 3.1,
+       "span": 3.1,
+       "start": 11.19,
+       "text": "Lời mới3 mới3 mới3"
+      }
+     ],
+     "sep": {
+      "ok": true,
+      "windows": [
+       [
+        0.2,
+        6.3
+       ],
+       [
+        12.2,
+        18.8
+       ]
+      ]
+     },
+     "settings": [
+      "ASR_ORDER",
+      "ASR_VOCAB",
+      "BGM_LINKS",
+      "BGM_ORIG",
+      "BRAND_CLOSE",
+      "BRAND_COLOR",
+      "BRAND_GRAIN",
+      "BRAND_INTRO",
+      "BRAND_LOGO",
+      "BRAND_LOOK",
+      "BRAND_NAME",
+      "BRAND_SERIES",
+      "BRAND_STING",
+      "BRAND_TAGLINE",
+      "CAPCUT_VOICE_FEMALE",
+      "CAPCUT_VOICE_MALE",
+      "COVER",
+      "COVER_TEMPLATE",
+      "CUT_PROMO",
+      "GEMINI_ASR_MODEL",
+      "GEMINI_MODEL",
+      "GROQ_WHISPER_MODEL",
+      "NO_SPEECH",
+      "OPENROUTER_MODEL",
+      "OST_AUTO",
+      "POST_RECIPE",
+      "PUBLIC_URL",
+      "QTY_CHECK",
+      "QUALITY",
+      "REMAKE_STYLE",
+      "REVIEW_SCRIPT",
+      "SCENE_ANALYSIS",
+      "SOURCE_CREDIT",
+      "SPEECH_STYLE",
+      "SUB_STYLE",
+      "SUB_TIMING",
+      "TEASER",
+      "TEXT_DETECT",
+      "TIME_SKIP_LABEL",
+      "TIPS",
+      "TTS_OFFLINE",
+      "TTS_PITCH",
+      "TTS_PROVIDER",
+      "TTS_RATE",
+      "VIENEU_VOICE_FEMALE",
+      "VIENEU_VOICE_MALE",
+      "VOICE_HUMANIZE",
+      "VOICE_SEPARATION"
+     ],
+     "speech": [
+      [
+       0.5,
+       3.0
+      ],
+      [
+       3.4,
+       6.0
+      ],
+      [
+       8.29,
+       10.79
+      ],
+      [
+       11.19,
+       14.29
+      ]
+     ],
+     "src": {
+      "kind": "video",
+      "max_duration": 90,
+      "url": "https://www.facebook.com/reel/1234567890/"
+     },
+     "stretch": 1.0,
+     "subs": true,
+     "title": "THỊT KHO MỀM RỤC",
+     "token": "<TOKEN>",
+     "voice": {
+      "engine": "edge",
+      "id": "vi-VN-HoaiMyNeural",
+      "name": ""
+     }
+    }
+   ]
+  ],
+  "metric": [
+   [
+    "kaggle",
+    "kaggle",
+    true,
+    false,
+    ""
+   ]
+  ],
+  "scenes.analyze_cached": [
+   [
+    "input.mp4",
+    20.0,
+    true,
+    true
+   ]
+  ],
+  "scenes.keyframes": [
+   [
+    [
+     1.75,
+     4.65,
+     13.654,
+     16.954
+    ]
+   ]
+  ],
+  "style.motion": [
+   [
+    20.0
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "job": {
+    "approved": [],
+    "cut_at": 0.0,
+    "edit": {
+     "level": "light",
+     "overlays": [
+      {
+       "dur": 1.54,
+       "kind": "skip",
+       "t": 6.4,
+       "text": "»» 30 PHÚT SAU"
+      }
+     ],
+     "pieces": [
+      {
+       "a": 0.0,
+       "b": 3.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 3.2,
+       "b": 6.3,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.12
+      },
+      {
+       "a": 6.3,
+       "b": 12.2,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 3.5,
+       "tag": "skip",
+       "zoom": 1.0
+      },
+      {
+       "a": 12.2,
+       "b": 15.2,
+       "fx": "flash",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      },
+      {
+       "a": 15.2,
+       "b": 20.0,
+       "fx": "",
+       "push": 0.06,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.0
+      }
+     ],
+     "stretch": 1.0,
+     "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+     "v": 1
+    },
+    "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "final_segments": [
+     {
+      "end": 3.3,
+      "i": 0,
+      "orig": "cho thịt vào chảo đảo đều",
+      "ost": "new",
+      "start": 0.5,
+      "text": "Lời mới0 mới0 mới0",
+      "voice": {
+       "end": 1.5,
+       "speed": 1.0,
+       "start": 0.5
+      }
+     },
+     {
+      "end": 8.09,
+      "i": 1,
+      "orig": "đậy nắp hầm 30 phút cho mềm",
+      "ost": "new",
+      "start": 3.3,
+      "text": "Lời mới1 mới1 mới1",
+      "voice": {
+       "end": 4.3,
+       "speed": 1.0,
+       "start": 3.3
+      }
+     },
+     {
+      "end": 11.19,
+      "i": 2,
+      "orig": "mở nắp ra nêm muối vừa ăn",
+      "ost": "new",
+      "start": 8.09,
+      "text": "Lời mới2 mới2 mới2",
+      "voice": {
+       "end": 9.09,
+       "speed": 1.0,
+       "start": 8.09
+      }
+     },
+     {
+      "end": 15.79,
+      "i": 3,
+      "orig": "vậy là xong món thịt kho",
+      "ost": "new",
+      "start": 11.19,
+      "text": "Lời mới3 mới3 mới3",
+      "voice": {
+       "end": 12.19,
+       "speed": 1.0,
+       "start": 11.19
+      }
+     }
+    ],
+    "hook": "THỊT KHO MỀM RỤC",
+    "local": "",
+    "long_mode": "",
+    "no_autopost": "",
+    "out_dur": 15.79,
+    "parts": [],
+    "pieces": [],
+    "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3",
+    "source_meta": {
+     "uploader": "Kênh Gốc",
+     "webpage_url": "https://www.facebook.com/reel/1234567890/"
+    },
+    "srt": "1\n00:00:00,000 --> 00:00:01,000\nx\n",
+    "status": "queued",
+    "step": "Kaggle: chuẩn bị",
+    "teaser": {}
+   },
+   "result": "<TMP>/w/132/kaggle_out.mp4"
+  }
+ ]
+}

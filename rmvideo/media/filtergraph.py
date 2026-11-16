@@ -5,7 +5,7 @@ import math
 import re
 
 import config
-from rmvideo.media import ff
+from rmvideo.media import edl, ff
 
 # loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
 # sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản
@@ -191,7 +191,8 @@ LOOKS = {
 GRAIN = "noise=c0s=5:c0f=t+u"            # hạt phim rất nhẹ, chỉ kênh sáng; chỉ ở 1080p (720p bị nén thành khối)
 
 
-def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True) -> str:
+def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True,
+               zoom: float = 1.0) -> str:
     """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
     phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
     tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
@@ -208,11 +209,13 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     size = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},"
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
-    upscale = bool(src_w and src_h) and max(W / (src_w * 0.96), H / (src_h * 0.96)) > 1.05
+    keep = 0.96 / max(zoom, 1.0)               # zoom > 1: đẩy cận (kế hoạch dựng) ngay ở lần cắt viền, không tốn thêm
+    upscale = bool(src_w and src_h) and max(W / (src_w * keep), H / (src_h * keep)) > 1.05
     sharpen = "cas=strength=0.5" if config.QUALITY == "high" else "unsharp=3:3:0.6:3:3:0"
     # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
     tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
-    return "crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look) + sharpen + tail
+    crop = "crop=in_w*0.96:in_h*0.96," if abs(zoom - 1.0) < 1e-6 else f"crop=in_w*{keep:.4f}:in_h*{keep:.4f},"
+    return crop + (look + size if upscale else size + look) + sharpen + tail
 
 
 TEASER_DUR = 3.0          # đoạn mở đầu: cảnh món đã xong chiếu trước 3 giây, kèm câu hook (bản 29)
@@ -245,11 +248,17 @@ def subtitle_texts(segs: list, teaser: dict | None = None) -> list:
             for k, s in enumerate(segs)]
 
 
+def _plan_video(plan, mode: str, W: int, H: int, src_w: int, src_h: int, fps: float, side_inputs, lead) -> str:
+    return edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z), fps, W, H,
+                           side_inputs=side_inputs, lead=lead)
+
+
 def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
                  fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
-                 ost=None, orig_audio: bool = True, bed: bool = False, teaser: dict | None = None) -> str:
+                 ost=None, orig_audio: bool = True, bed: bool = False, teaser: dict | None = None,
+                 edit=None, side_inputs: dict | None = None, side_audio: dict | None = None) -> str:
     """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
     + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại.
     teaser: đoạn mở đầu {"iv": đầu vào hình (đã tua tới cảnh món xong), "ia": đầu vào tiếng nền của cảnh đó hoặc
@@ -257,9 +266,21 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     caller đưa vào đã tính cả đoạn mở đầu."""
     tz = teaser if teaser and teaser.get("dur") else None
     T = float(tz["dur"]) if tz else 0.0
+    plan = edit                                  # rmvideo.media.edl.EditPlan (REMAKE_STYLE) hoặc None = như cũ
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
-    slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
+    slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 and plan is None else ""
     orig_src = "[0:a]"
+    pre_audio = ""
+    if plan is not None:
+        # tiếng gốc / tiếng nền đi theo đúng các khúc của kế hoạch (cắt, tua nhanh, clip phụ)
+        if orig_audio and [w for w in (ost or []) if w[1] > w[0]]:
+            pre_audio += edl.audio_graph(plan, "[0:a]", "[orgE]", tag="o")
+            orig_src = "[orgE]"
+        if mode == "cook" and ambient and not bed:
+            pre_audio += edl.audio_graph(plan, ambient_src, "[ambE]", side_audio=side_audio, tag="b")
+            ambient_src = "[ambE]"
+        if cover_bands:
+            cover_bands = edl.zoomed_bands(list(cover_bands), {p.zoom for p in plan.pieces})
     if slow:
         ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
         orig_src += f"atempo={1 / stretch:.4f},"
@@ -281,13 +302,16 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
              f"crop={W}:{H}:x='(trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2-{W})/2'"
              f":y='(trunc({H}*(1+{z:.3f}*t/{T:.2f})/2)*2-{H})/2',setsar=1,"
              f"trim=duration={T:.3f}[tzv];"
-             f"[0:v]{slow}fps={fps:g},{look},setsar=1[mnv];[tzv][mnv]concat=n=2:v=1:a=0")
+             + (_plan_video(plan, mode, W, H, src_w, src_h, fps, side_inputs, ["[tzv]"]) if plan is not None else
+                f"[0:v]{slow}fps={fps:g},{look},setsar=1[mnv];[tzv][mnv]concat=n=2:v=1:a=0"))
+    elif plan is not None:
+        v = _plan_video(plan, mode, W, H, src_w, src_h, fps, side_inputs, None)
     else:
         v = f"[0:v]{slow}fps={fps:g}," + look
     v += _cover_filter(cover_bands or [], W, H)
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ff.ASSETS_DIR}"
-    v += "[v];"
+    v += "[v];" + pre_audio
     if bed:
         # video KHÔNG LỜI: lớp nền đã trộn sẵn (nhạc nền + tiếng gốc, music_bed) là tiếng chính, không có giọng đọc;
         # không qua lọc giọng (EQ/nén/vang làm méo nhạc), không làm chậm (nhạc giữ đúng nhịp, music_bed đã tính)
