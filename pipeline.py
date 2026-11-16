@@ -29,7 +29,7 @@ import subs as subs_mod
 import trendfx
 import vocal_sep
 from queue_manager import Job
-from rmvideo.app import events
+from rmvideo.app import events, job_factory
 from review import spoken_script
 from state import OUT_DIR, notify, queue
 from storage import _cleanup_outputs
@@ -182,11 +182,8 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
         how = await core_video.cut(src, piece, a, b, copy=copy)
         logging.info("%s: cắt %.1f-%.1fs (%s)", label, a, b, "chép luồng" if how == "copy" else "mã hoá lại")
         # long_mode="full": làm TRỌN phần đã cắt (split90 có phần tới 112s; trước đây không có Kaggle thì bị cắt còn 90s)
-        sub = Job(url="", mode=job.mode, duration=0, voice=job.voice, subs=job.subs, cover=job.cover, long_mode="full",
-                  local=piece, title_hint=f"{pc.get('title') or title} ({label})", source=job.source,
-                  chat_id=job.chat_id, source_meta=job.source_meta,
-                  remote_src={"cut": [a, b, copy], "of": parent_ref} if parent_ref else {})
-        sub.id = job.id
+        sub = job_factory.piece(job, piece, f"{pc.get('title') or title} ({label})",
+                                {"cut": [a, b, copy], "of": parent_ref} if parent_ref else {})
 
         def _mirror(step, lb=label):                  # hiện tiến độ của phần đang làm lên job cha (ngay lúc đổi)
             if step:
@@ -1012,9 +1009,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         if not job.approved:
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"], credit_line(job))
         if allow_review and job.source != "auto" and (job.review or config.REVIEW_SCRIPT == "1") and not job.approved:
-            job.approved = [{"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
-                             "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")}
-                            for s in timed["segments"]]
+            job.approved = job_factory.approved_segments(timed["segments"])
             if amb_task:
                 amb_task.cancel()    # dừng chờ duyệt: tách giọng làm sau, lúc render bản đã duyệt
                 await asyncio.gather(amb_task, return_exceptions=True)
@@ -1106,9 +1101,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
             if spec is not None and kaggle_worker.collecting():
                 # video dài: chạy chung một phiên với các phần khác; kèm lời đã chốt để nếu Kaggle lỗi thì làm lại
                 # phần này trên Botkeep mà KHÔNG bóc lời + gọi AI lần nữa (đi đường "kịch bản đã duyệt")
-                return kaggle_worker.Deferred(spec, _finish_remote, [
-                    {"i": s["i"], "start": s["start"], "slot": s["slot"], "span": s.get("span", s["slot"]),
-                     "text": s["text"], "orig": s.get("orig", ""), "ost": s.get("ost", "new")} for s in segs_t])
+                return kaggle_worker.Deferred(spec, _finish_remote, job_factory.approved_segments(segs_t))
             if spec is not None:
                 pre_cover = _start_cover(post_title)    # ảnh bìa làm trên Botkeep trong lúc Kaggle chạy
                 try:

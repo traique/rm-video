@@ -8,7 +8,8 @@ import url_guard
 from aiogram import BaseMiddleware, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from queue_manager import Job, QueueFull
+from queue_manager import QueueFull
+from rmvideo.app import job_factory
 from jobs import cancel_job
 from review import REVIEW_HELP, approve_job, parse_review_reply
 from state import queue
@@ -100,8 +101,7 @@ def setup(bot):
         q = cb.data.split(":")[1]
         made, pos = 0, 0
         for u in (p.get("urls") or [p.get("url", "")]):
-            job = Job(url=u, mode="download", duration=0, voice="", source="tg",
-                      chat_id=cb.message.chat.id, quality="" if q == "best" else q)
+            job = job_factory.download(source="tg", url=u, quality=q, chat_id=cb.message.chat.id)
             try:
                 pos = queue.put(job)
                 made += 1
@@ -205,9 +205,9 @@ def setup(bot):
             await cb.answer("Hãy gửi 1-4 ảnh rồi gửi nhạc trước nhé.", show_alert=True)
             return
         pending.pop(cb.message.chat.id, None)
-        job = Job(url="", mode="photo", duration=int(cb.data.split(":")[1]), voice="", source="tg",
-                  chat_id=cb.message.chat.id, tg_images=list(p["images"]), title_hint=p.get("title", ""),
-                  music_url=p.get("music_url", ""), music_tg_file_id=p.get("music_file_id", ""))
+        job = job_factory.photo(source="tg", duration=int(cb.data.split(":")[1]), chat_id=cb.message.chat.id,
+                                tg_images=p["images"], title_hint=p.get("title", ""), music_url=p.get("music_url", ""),
+                                music_tg_file_id=p.get("music_file_id", ""))
         try:
             pos = queue.put(job)
             await cb.message.edit_text(f"✅ Đã nhận {len(p['images'])} ảnh + nhạc, vị trí hàng đợi: #{pos}")
@@ -276,8 +276,8 @@ def setup(bot):
                 await cb.answer()
                 return
             pending.pop(cb.message.chat.id, None)
-            job = Job(url="", mode="download", duration=0, voice="", source="tg",
-                      chat_id=cb.message.chat.id, tg_file_id=p.get("file_id", ""), title_hint=p.get("title", ""))
+            job = job_factory.download(source="tg", tg_file_id=p.get("file_id", ""), title_hint=p.get("title", ""),
+                                       chat_id=cb.message.chat.id)
             try:
                 pos = queue.put(job)
                 await cb.message.edit_text(f"✅ Đã nhận, vị trí hàng đợi: #{pos}")
@@ -301,25 +301,21 @@ def setup(bot):
                 pending[cb.message.chat.id] = p             # nút cũ của luồng khác: giữ nguyên ảnh đã gửi
             await cb.answer("Hãy gửi link, chọn chế độ (và nhạc mới nếu chọn 🎵) trước nhé.", show_alert=True)
             return
-        if config.TTS_PROVIDER == "capcut":
-            voice = config.CAPCUT_VOICE_FEMALE if p["mode"] == "cook" else config.CAPCUT_VOICE_MALE
-        else:
-            voice = config.default_voice()                  # VieNeu Mỹ Duyên / edge Hoài My cho mọi chế độ
+        voice = job_factory.telegram_voice(p["mode"])
         choice = cb.data.split(":")[1]
         if choice == "review":
             pending[cb.message.chat.id] = p
             p["review"] = not p.get("review", False)
             await cb.answer(("Bật" if p["review"] else "Tắt") + " duyệt kịch bản. Giờ chọn thời lượng.", show_alert=True)
             return
-        long_mode = choice if choice in ("full", "split60", "split90", "highlight") else ""
+        long_mode = choice if choice in job_factory.LONG_MODES else ""
         made, pos = 0, 0
         for u in (p.get("urls") or [p.get("url", "")]):
-            job = Job(url=u, mode=p["mode"], duration=0 if long_mode else int(choice),
-                      long_mode=long_mode, review=p.get("review", False),
-                      voice=voice, source="tg", chat_id=cb.message.chat.id,
-                      tg_file_id=p.get("file_id", ""), title_hint=p.get("title", ""),
-                      music_url=p.get("music_url", ""), music_tg_file_id=p.get("music_file_id", ""),
-                      music_mix=p.get("music_mix", "") if p["mode"] == "music" else "")
+            job = job_factory.remake(url=u, mode=p["mode"], duration=0 if long_mode else int(choice),
+                                     long_mode=long_mode, review=p.get("review", False), voice=voice, source="tg",
+                                     chat_id=cb.message.chat.id, tg_file_id=p.get("file_id", ""),
+                                     title_hint=p.get("title", ""), music_url=p.get("music_url", ""),
+                                     music_tg_file_id=p.get("music_file_id", ""), music_mix=p.get("music_mix", ""))
             try:
                 pos = queue.put(job)
                 made += 1

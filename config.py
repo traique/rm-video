@@ -49,6 +49,19 @@ GROUPS = list(_schema.GROUPS)
 META = {k: _schema.BY_KEY[k].meta() for k in _schema.DISPLAY_ORDER}
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
+# Khai báo kiểu cho mọi khoá sửa được từ web (giá trị gán lúc chạy bởi _apply()): công cụ tĩnh (mypy, IDE) thấy được
+# tên, gõ sai tên cài đặt báo lỗi ngay. Danh sách phải khớp schema (tests/test_settings_schema.py kiểm).
+GEMINI_API_KEY: str; GEMINI_MODEL: str; OPENROUTER_API_KEY: str; OPENROUTER_MODEL: str; GROQ_API_KEY: str
+GROQ_WHISPER_MODEL: str; GEMINI_ASR_MODEL: str; ASR_ORDER: str; ASR_VOCAB: str; YTDLP_COOKIES: str; YTDLP_PROXY: str
+TTS_RATE: str; TTS_PITCH: str; TTS_PROVIDER: str; VIENEU_VOICE_FEMALE: str; VIENEU_VOICE_MALE: str; KAGGLE_USE: str
+KAGGLE_ANALYZE: str; KAGGLE_ASR: str; KAGGLE_USERNAME: str; KAGGLE_API_TOKEN: str; CAPCUT_VOICE_FEMALE: str
+CAPCUT_VOICE_MALE: str; VOICE_SEPARATION: str; VOICE_HUMANIZE: str; SPEECH_STYLE: str; PUBLIC_URL: str
+BRAND_NAME: str; BRAND_LOGO: str; BRAND_INTRO: str; SUB_STYLE: str; COVER: str; TEXT_DETECT: str
+SCENE_ANALYSIS: str; TTS_OFFLINE: str; TEASER: str; NO_SPEECH: str; BGM_LINKS: str; BGM_ORIG: str; OST_AUTO: str
+SUB_TIMING: str; REVIEW_SCRIPT: str; CUT_PROMO: str; QUALITY: str; SOURCE_CREDIT: str; ALLOWED_SOURCES: str
+ALLOWED_USERS: str; ADMIN_CHAT_ID: str; AUTO_POST: str; AUTO_SOURCES: str; AUTO_TIKTOK_SOURCES: str
+AUTO_PLATFORMS: str; AUTO_PER_DAY: str; AUTO_TIMES: str; AUTO_MODE: str; FB_PAGE_ID: str; FB_PAGE_TOKEN: str
+
 # ===== Chỉ đặt qua biến môi trường =====
 # (BOT_TOKEN đổi là phải restart polling; WEB_PASSWORD không cho sửa từ web để kẻ lạ không tự đổi khóa)
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")

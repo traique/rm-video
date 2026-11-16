@@ -21,6 +21,8 @@ def store(monkeypatch, tmp_path):
 
 def test_legacy_tables_are_derived_from_schema():
     assert list(config.EDITABLE) == [s.key for s in schema.SCHEMA]
+    declared = [k for k, t in config.__annotations__.items() if k.isupper() and t in (str, "str")]
+    assert set(declared) == set(config.EDITABLE), set(declared) ^ set(config.EDITABLE)   # khai báo kiểu khớp schema
     assert list(config.META) == list(schema.DISPLAY_ORDER) and set(config.META) == set(config.EDITABLE)
     assert config.SECRET_KEYS == {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
                                   "YTDLP_COOKIES", "FB_PAGE_TOKEN", "KAGGLE_API_TOKEN"}

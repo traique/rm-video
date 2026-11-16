@@ -22,3 +22,8 @@ warn_redundant_casts = true
 check_untyped_defs = true
 disallow_untyped_defs = true
 no_implicit_optional = true
+follow_imports = "silent"         # mã cũ ở gốc chỉ dùng làm kiểu tham chiếu, không báo lỗi trong đó
+
+[[tool.mypy.overrides]]
+module = ["config", "queue_manager", "core_video", "pipeline", "kaggle_worker", "kaggle_api", "scenes", "prompt_engine"]
+disallow_untyped_defs = false

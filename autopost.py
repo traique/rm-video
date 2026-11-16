@@ -723,9 +723,9 @@ def _enqueue(st, plat, vid, src, url, info, slot, now, queue, Job, QueueFull) ->
     dur = info.get("duration") or 0
     voice = config.default_voice()
     mode = config.AUTO_MODE if config.AUTO_MODE in ("cook", "review") else "cook"
-    job = Job(url=url, mode=mode, duration=0, voice=voice, source="auto",
-              long_mode="full" if dur > config.MAX_DURATION else "", chat_id=config.admin_chat_id() or 0,
-              title_hint=info.get("title", "")[:200])
+    from rmvideo.app import job_factory
+    job = job_factory.auto(url=url, title=info.get("title", ""), duration=dur, mode=mode, voice=voice,
+                           chat_id=config.admin_chat_id() or 0)
     queue.put(job)
     st["used"][vid] = {"at": now, "source": src, "job": job.id, "plat": plat, "dur": dur,
                        "title": _norm_title(info.get("title") or "")}

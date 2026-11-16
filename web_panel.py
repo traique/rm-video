@@ -18,11 +18,11 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 import config
-from rmvideo.app import events
+from rmvideo.app import events, job_factory
 from rmvideo.media import proc
 import slideshow
 import url_guard
-from queue_manager import Job, JobQueue, QueueFull, phase_times
+from queue_manager import JobQueue, QueueFull, phase_times
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_HTML = os.path.join(_DIR, "static", "index.html")
@@ -33,27 +33,11 @@ _STEP_LABEL = {"queued": "Đang chờ", "processing": "Đang xử lý", "done": 
 
 
 IMAGE_MAX = 15 * 1024 * 1024
-PHOTO_DURATIONS = ("0", "10", "15", "30", "60")     # 0 = tự động theo nhạc
+PHOTO_DURATIONS = job_factory.PHOTO_DURATIONS     # 0 = tự động theo nhạc
 
 
-def _parse_duration(v) -> tuple:
-    """'30'/'60'/'90'/'0' -> (giây, ""); 'full'/'split60'/'split90'/'highlight' -> (0, chế độ video dài)."""
-    v = str(v or "0").strip()
-    if v in ("full", "split60", "split90", "highlight"):
-        return 0, v
-    try:
-        d = int(v)
-    except ValueError:
-        return 0, ""
-    return (d if d in (0, 30, 60, 90) else 0), ""
-
-
-def _pick_voice(v: str) -> str:
-    if v == "male":
-        return config.default_voice(male=True)
-    if not v or v == "female":
-        return config.default_voice()
-    return v[:80]   # id giọng cụ thể do người dùng chọn trong dropdown
+_parse_duration = job_factory.parse_duration        # tên cũ (test / mã đang dùng)
+_pick_voice = job_factory.pick_voice
 
 
 # ---------------- Phiên đăng nhập ----------------
@@ -462,7 +446,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         urls = [await _guard(u) for u in urls[:10]]
         if d.get("mode") == "photo":
             raise web.HTTPBadRequest(text="Chế độ 📸 cần tải ảnh lên (dùng ô chọn ảnh)")
-        mode = d.get("mode") if d.get("mode") in ("cook", "review", "music", "download") else "cook"
+        mode = job_factory.video_mode(d.get("mode"))
         dur, long_mode = _parse_duration(d.get("duration"))
         voice = _pick_voice(d.get("voice") or "")
         subs = bool(d.get("subs", True))
@@ -473,10 +457,10 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
             music_url = await _guard(music_url)
         ids, pos = [], 0
         for u in urls:
-            job = Job(url=u, mode=mode, duration=dur, voice=voice, subs=subs, long_mode=long_mode,
-                      cover=bool(d.get("cover", True)), review=bool(d.get("review", False)),
-                      quality=str(d.get("quality", ""))[:8], music_url=music_url, source="web",
-                      music_mix="bg" if (mode == "music" and d.get("music_mix") == "bg") else "")
+            job = job_factory.remake(url=u, mode=mode, duration=dur, voice=voice, subs=subs, long_mode=long_mode,
+                                     cover=bool(d.get("cover", True)), review=bool(d.get("review", False)),
+                                     quality=str(d.get("quality", "")), music_url=music_url, source="web",
+                                     music_mix=str(d.get("music_mix") or ""))
             try:
                 pos = queue.put(job)
             except QueueFull as e:
@@ -539,9 +523,9 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                         raise web.HTTPBadRequest(text="Chế độ 📸 cần nhạc: link TikTok/YouTube hoặc file nhạc")
                     music_url = await _guard(music_url)
                 pdur = fields.get("duration", "0")
-                job = Job(url="", mode="photo", duration=int(pdur) if pdur in PHOTO_DURATIONS else 0, voice="",
-                          images=[p for p in images], music_local=music_saved, music_url=music_url,
-                          title_hint=fields.get("title", "")[:200], source="web")
+                job = job_factory.photo(source="web", duration=int(pdur) if pdur in PHOTO_DURATIONS else 0,
+                                        images=images, music_local=music_saved, music_url=music_url,
+                                        title_hint=fields.get("title", ""))
                 pos = queue.put(job)
                 _cleanup(saved)                              # video gửi kèm không dùng ở chế độ ảnh
                 return web.json_response({"id": job.id, "position": pos})
@@ -550,7 +534,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 if not url_field:
                     raise web.HTTPBadRequest(text="Thiếu file video hoặc link video")
                 url_field = await _guard(url_field.split()[0])
-            mode = fields.get("mode") if fields.get("mode") in ("cook", "review", "music", "download") else "cook"
+            mode = job_factory.video_mode(fields.get("mode"))
             dur, long_mode = _parse_duration(fields.get("duration"))
             voice = _pick_voice(fields.get("voice", ""))
             music_url = fields.get("music_url", "").strip()
@@ -558,12 +542,13 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                 if not music_url:
                     raise web.HTTPBadRequest(text="Chế độ 🎵 cần link nhạc hoặc file nhạc")
                 music_url = await _guard(music_url)
-            job = Job(url="" if saved else url_field, mode=mode, duration=dur, voice=voice, long_mode=long_mode,
-                      subs=fields.get("subs") != "false", cover=fields.get("cover") != "false", local=saved,
-                      review=fields.get("review") == "true",
-                      music_local=music_saved, music_url=music_url if mode == "music" else "",
-                      music_mix="bg" if (mode == "music" and fields.get("music_mix") == "bg") else "",
-                      title_hint=fields.get("filename", ""), source="web")
+            job = job_factory.remake(url="" if saved else url_field, mode=mode, duration=dur, voice=voice,
+                                     long_mode=long_mode, subs=fields.get("subs") != "false",
+                                     cover=fields.get("cover") != "false", local=saved,
+                                     review=fields.get("review") == "true", music_local=music_saved,
+                                     music_url=music_url if mode == "music" else "",
+                                     music_mix=fields.get("music_mix", ""), title_hint=fields.get("filename", ""),
+                                     source="web")
             pos = queue.put(job)
             _cleanup(*images)                                # ảnh gửi kèm không dùng ở chế độ video
         except QueueFull as e:
