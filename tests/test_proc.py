@@ -127,3 +127,17 @@ def test_jobs_db_uses_wal_and_metrics_share_it(tmp_path, monkeypatch):
     metrics.record("asr", "groq")
     assert sqlite3.connect(path).execute("SELECT provider FROM events").fetchall() == [("groq",)]
     assert db.jobs_db_path() == path and os.path.exists(path + "-wal")
+
+
+def test_ytdlp_options_one_place_and_cookies_private(tmp_path, monkeypatch):
+    import config
+    import url_guard
+    from rmvideo.media import fetch
+    monkeypatch.setattr(config, "YTDLP_PROXY", "socks5://1.2.3.4:1080")
+    monkeypatch.setattr(config, "YTDLP_COOKIES", "# Netscape HTTP Cookie File\n")
+    base = fetch.ytdlp_base_options({"quiet": True})
+    assert base["allowed_extractors"] == url_guard.YTDLP_EXTRACTORS and base["proxy"] == "socks5://1.2.3.4:1080"
+    full = {"quiet": True}
+    fetch._add_cookies(full, str(tmp_path))
+    assert full["allowed_extractors"] == url_guard.YTDLP_EXTRACTORS and fetch._stop_if_cancelled in full["progress_hooks"]
+    assert oct(os.stat(full["cookiefile"]).st_mode)[-3:] == "600"           # cookie phiên đăng nhập: 0600

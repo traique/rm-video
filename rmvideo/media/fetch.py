@@ -88,8 +88,20 @@ def _stop_if_cancelled(_d: dict):
         raise yt_dlp.utils.DownloadCancelled("job đã huỷ")
 
 
+def ytdlp_base_options(opts: dict | None = None) -> dict:
+    """Tuỳ chọn MỌI lời gọi yt-dlp phải có (tải video, xem định dạng, tải nhạc, liệt kê kênh TikTok): chỉ extractor
+    của nền tảng — không bao giờ 'generic' (tải được URL bất kỳ: SSRF) — và proxy trong Cài đặt."""
+    opts = dict(opts or {})
+    opts["allowed_extractors"] = url_guard.YTDLP_EXTRACTORS
+    if config.YTDLP_PROXY.strip():
+        opts["proxy"] = config.YTDLP_PROXY.strip()
+    return opts
+
+
 def _add_cookies(opts: dict, tmpdir: str):
-    opts["allowed_extractors"] = url_guard.YTDLP_EXTRACTORS     # không bao giờ dùng extractor generic (SSRF)
+    """Tuỳ chọn cho lời gọi tải / xem video: tuỳ chọn gốc + giả lập trình duyệt + PO token YouTube + cookies + dừng
+    khi job huỷ."""
+    opts.update(ytdlp_base_options(opts))
     opts.setdefault("progress_hooks", []).append(_stop_if_cancelled)
     if _IMPERSONATE:
         opts["impersonate"] = _IMPERSONATE
@@ -98,11 +110,10 @@ def _add_cookies(opts: dict, tmpdir: str):
         ea["youtubepot-bgutilhttp"] = {"base_url": [config.POT_SERVER.strip().rstrip("/")]}
     elif _pot_script():
         ea["youtubepot-bgutilscript"] = {"script_path": [_pot_script()]}
-    if config.YTDLP_PROXY.strip():
-        opts["proxy"] = config.YTDLP_PROXY.strip()
     if config.YTDLP_COOKIES.strip():
         cookie_file = os.path.join(tmpdir, "cookies.txt")
-        with open(cookie_file, "w", encoding="utf-8") as f:
+        fd = os.open(cookie_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # phiên đăng nhập: chỉ bot đọc được
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(config.YTDLP_COOKIES)
         opts["cookiefile"] = cookie_file
 
