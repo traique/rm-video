@@ -12,7 +12,7 @@
   mã khó sửa, và một lộ trình refactor **có lưới an toàn đủ chặt để giữ 100% chức năng**.
 - Quy mô: ~16.000 dòng Python chạy thật (42 module gốc + `capcut_tts_api/`), ~7.500 dòng test (368 hàm test),
   2 trang HTML. Một tiến trình asyncio chạy trên Botkeep (1.5 vCPU, 2GB đĩa) + mã lõi được nén gửi lên Kaggle chạy.
-- Baseline trước refactor: `ruff check .` sạch; `pytest` — xem mục 7 (kết quả chạy trên Python 3.13 + ffmpeg hệ thống).
+- Baseline trước refactor: `ruff check .` sạch; `pytest` 441 passed, 5 skipped (chi tiết mục 7).
 
 ---
 
@@ -393,7 +393,9 @@ Mẫu đã có sẵn và đã có test (`tests/test_samples.py`) làm điểm xu
 ## 7. Baseline đã đo trong phiên này
 
 - `ruff check .`: sạch.
-- `pytest`: (điền khi chạy xong — xem trả lời trong phiên làm việc).
+- `pytest -q` (Python 3.13, ffmpeg hệ thống, không mạng/token): **441 passed, 5 skipped** trong 7 phút 02 giây
+  (5 ca bỏ qua là test cần key Gemini thật / gói offline). Mọi phase phải giữ đúng con số này hoặc hơn.
+- Bundle mã gửi Kaggle hiện tại: 252KB (base64), trần notebook ~1MB.
 
 ---
 
