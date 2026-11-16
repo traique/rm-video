@@ -12,13 +12,14 @@ from rmvideo.app import db
 
 _lock = threading.Lock()
 _conn = None
+DB_PATH = ""                  # trống = jobs.db (rmvideo/app/db.py); test đặt tệp riêng
 KINDS = {"download": "Tải video", "asr": "Bóc lời", "llm": "Viết kịch bản", "tts": "Đọc giọng", "sep": "Tách giọng"}
 
 
 def _db():
     global _conn
     if _conn is None:
-        _conn = db.connect(db.jobs_db_path(), threads=True)      # cùng tệp jobs.db, WAL: không chặn hàng đợi
+        _conn = db.connect(DB_PATH or db.jobs_db_path(), threads=True)   # cùng tệp jobs.db, WAL: không chặn hàng đợi
         _conn.execute("CREATE TABLE IF NOT EXISTS events (ts REAL, kind TEXT, provider TEXT, ok INTEGER, "
                       "fallback INTEGER, detail TEXT)")
         _conn.commit()

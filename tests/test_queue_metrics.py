@@ -81,7 +81,7 @@ def test_steps_logged(tmp_path):
 
 
 def test_metrics_fallback_rate(monkeypatch, tmp_path):
-    monkeypatch.setattr(queue_manager, "DB_PATH", str(tmp_path / "m.db"))
+    monkeypatch.setattr(metrics, "DB_PATH", str(tmp_path / "m.db"))     # số liệu không còn đọc đường dẫn qua hàng đợi
     monkeypatch.setattr(metrics, "_conn", None)
     for _ in range(8):
         metrics.record("tts", "capcut")
