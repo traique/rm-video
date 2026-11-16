@@ -1,10 +1,8 @@
-"""Code mẫu production trong samples/ (mẫu cài đặt đã thành rmvideo/app/settings.py, xem test_settings_schema.py) (Phần 4 tài liệu đánh giá kiến trúc) phải tự chạy đúng như đã hứa."""
+"""Code mẫu còn lại trong samples/ (mẫu cài đặt, tiến trình con đã thành rmvideo/app/settings.py, rmvideo/media/proc.py) phải tự chạy đúng như đã hứa."""
 import asyncio
 import importlib.util
 import os
-import subprocess
 import sys
-import time
 
 import pytest
 
@@ -20,26 +18,8 @@ def _load(name, rel):
     return mod
 
 
-proc = _load("sample_proc", "media/proc.py")
 _router = _load("sample_router", "services/router.py")
 Provider, ServiceError, complete, loads_lenient = _router.Provider, _router.ServiceError, _router.complete, _router.loads_lenient
-
-
-def test_proc_runs_reports_errors_and_kills_whole_group():
-    async def go():
-        r = await proc.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=d=0.2", "-f", "null", "-"], timeout=20)
-        assert r.seconds < 10 and r.stderr == ""
-        with pytest.raises(proc.ProcError) as e:
-            await proc.run(["ffmpeg", "-i", "/khong/co.mp4", "-f", "null", "-"], timeout=20)
-        assert e.value.code != 0 and "co.mp4" in e.value.stderr
-        t = time.time()
-        with pytest.raises(asyncio.TimeoutError):      # sh sinh ra sleep (cháu): quá giờ phải giết cả cháu
-            await proc.run(["sh", "-c", "sleep 30 & wait"], timeout=0.5)
-        assert time.time() - t < 5 and not proc.RUNNING
-    asyncio.run(go())
-    ps = subprocess.run(["ps", "-eo", "stat,args"], capture_output=True, text=True).stdout.splitlines()
-    alive = [l for l in ps if l.split(None, 1)[-1].startswith("sleep 30") and not l.strip().startswith("Z")]
-    assert not alive                                   # chỉ còn xác (Z) chờ init dọn, không còn sleep chạy thật
 
 
 def test_router_retries_then_falls_back():

@@ -2,20 +2,21 @@
 Nguyên lý: chữ phụ đề là pixel sáng nằm sát pixel tối (viền/bóng), cố định ở một dải ngang
 qua phần lớn video, trong khi cảnh quay thay đổi. numpy thuần, ~1s cho video 90s."""
 import asyncio
-import subprocess
 
 import numpy as np
+
+from rmvideo.media import proc
 
 _W, _H, _N = 270, 480, 16
 
 
 def _detect_sync(path: str) -> list[tuple[float, float]]:
-    dur = float(subprocess.run(
+    dur = float(proc.run_sync(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
         capture_output=True, text=True).stdout or 0)
     if dur <= 0:
         return []
-    raw = subprocess.run(
+    raw = proc.run_sync(
         ["ffmpeg", "-v", "error", "-i", path, "-vf", f"fps={_N / dur:.5f},scale={_W}:{_H},format=gray",
          "-f", "rawvideo", "-pix_fmt", "gray", "-"], capture_output=True).stdout
     return bands_from_raw(raw)

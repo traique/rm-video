@@ -13,7 +13,6 @@ import logging
 import os
 import re
 import secrets
-import subprocess
 import time
 import urllib.parse
 
@@ -21,6 +20,7 @@ import config
 import kaggle_api
 from kaggle_api import KaggleError
 from rmvideo.services import kaggle_bundle
+from rmvideo.media import proc
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
@@ -349,8 +349,8 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             on_step(f"Kaggle: tải video về{f' ({k + 1}/{n})' if n > 1 else ''}")
             vid = os.path.join(tmp, f"output{tag}.mp4")
             kaggle_api.download(files[f"output{tag}.mp4"], vid)
-            p = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
-                               capture_output=True, text=True, timeout=60)
+            p = proc.run_sync(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
+                              capture_output=True, text=True, timeout=60)
             try:
                 dur = float(p.stdout.strip())
             except ValueError:

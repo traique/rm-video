@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict, dataclass, field
 
 import config
+from rmvideo.app import db
 
 _ids = itertools.count(1)
 
@@ -112,7 +113,7 @@ def phase_times(timeline: list, end: float) -> list:
     return [{"name": n, "secs": round(v, 1)} for n, v in out.items() if v >= 0.05]
 
 
-DB_PATH = os.environ.get("JOBS_DB") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "jobs.db")
+DB_PATH = db.jobs_db_path()
 MAX_ATTEMPTS = 2            # job đang chạy lúc bot chết: chạy lại 1 lần (lần nữa thì báo lỗi, tránh vòng lặp chết)
 KEEP_IN_MEMORY = 30         # số job đã XONG giữ trong bộ nhớ cho web; job đang chờ/chạy/chờ duyệt luôn được giữ
 ACTIVE = ("queued", "processing", "review")
@@ -140,7 +141,7 @@ class JobQueue:
         self._q = asyncio.Queue()
         self.jobs: dict[int, Job] = {}   # lịch sử job cho web panel
         self.pending = 0                 # số job đang chờ + đang chạy
-        self._db = sqlite3.connect(db_path or DB_PATH)
+        self._db = db.connect(db_path or DB_PATH)          # WAL + busy_timeout (rmvideo/app/db.py)
         self._db.execute("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT)")
         self._db.execute("CREATE TABLE IF NOT EXISTS steps (job_id INTEGER, step TEXT, start REAL, end REAL)")
         self._db.execute("CREATE TABLE IF NOT EXISTS sources (job_id INTEGER, created REAL, source_url TEXT, "

@@ -11,6 +11,7 @@ import os
 import subprocess
 
 import numpy as np
+from rmvideo.media import proc
 
 _DIR = os.environ.get("OFFLINE_MODELS") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 MODEL_NAME = "PP-OCRv6_det_tiny.onnx"
@@ -105,22 +106,22 @@ def detect_sync(path: str, start: float = 0.0, dur: float | None = None) -> list
     if dur:
         args += ["-t", f"{dur:.2f}"]
     args += ["-vf", f"fps={FPS},scale={W}:{H}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"]
-    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     c0, c1 = int(W * CENTER[0]), int(W * CENTER[1])
     runs = []
-    try:
-        while True:
-            buf = proc.stdout.read(W * H * 3)
-            if len(buf) < W * H * 3:
-                break
-            frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3)
-            mask = prob_map(frame)[:, c0:c1] > THRESH
-            runs.append(longest_runs(mask))
-    finally:
-        proc.stdout.close()
-        proc.wait()
-    if proc.returncode != 0 or not runs:          # không giải mã được khung nào: báo lỗi để dùng heuristic, không cache "không có chữ"
-        raise RuntimeError(f"ffmpeg không trích được khung hình (mã {proc.returncode})")
+    with proc.popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:   # huỷ job: dừng giải mã
+        try:
+            while True:
+                buf = p.stdout.read(W * H * 3)
+                if len(buf) < W * H * 3:
+                    break
+                frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3)
+                mask = prob_map(frame)[:, c0:c1] > THRESH
+                runs.append(longest_runs(mask))
+        finally:
+            p.stdout.close()
+            p.wait()
+    if p.returncode != 0 or not runs:          # không giải mã được khung nào: báo lỗi để dùng heuristic, không cache "không có chữ"
+        raise RuntimeError(f"ffmpeg không trích được khung hình (mã {p.returncode})")
     bands = bands_from_runs(np.array(runs), W)
     logging.info("OCR dò chữ: %d khung, dải %s", len(runs), bands)
     return bands

@@ -14,6 +14,7 @@ import aiohttp
 
 import cache as cache_file
 import config
+from rmvideo.media import proc
 import metrics
 import vocab
 
@@ -191,12 +192,10 @@ def find_holes(units: list, dur: float, min_len: float = HOLE_MIN) -> list:
 
 
 async def _cut_audio(src: str, dst: str, start: float, length: float):
-    p = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{length:.2f}", "-i", src, "-vn", "-ac", "1",
-        "-ar", "16000", "-b:a", "48k", dst, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-    _, err = await p.communicate()
-    if p.returncode != 0:
-        raise RuntimeError(err.decode(errors="replace")[-150:])
+    r = await proc.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-t", f"{length:.2f}", "-i", src, "-vn",
+                        "-ac", "1", "-ar", "16000", "-b:a", "48k", dst], timeout=300, check=False)
+    if r.code != 0:
+        raise RuntimeError(r.stderr[-150:])
 
 
 async def _recheck_groq(clip: str, lang: str) -> tuple:

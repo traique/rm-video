@@ -4,6 +4,7 @@ Dùng để: (1) căn câu thoại mới bắt đầu đúng lúc chuyển cản
 import asyncio
 import re
 import subprocess
+from rmvideo.media import proc
 
 
 _ANALYZED: dict = {}      # path -> {"dir": thư mục ảnh thu nhỏ, "n": số ảnh, "times": mốc từng ảnh (chế độ nhẹ)}
@@ -52,14 +53,9 @@ def _light_sync(path: str, tmpdir: str, dur: float, want_gray: bool):
     outs = ["-map", "[to]", "-fps_mode", "passthrough", "-q:v", "5", os.path.join(tdir, "%05d.jpg")]
     if want_gray:
         outs += ["-map", "[go]", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "-y", gray]
-    import core_video
-    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-y", "-skip_frame", "nokey", "-i", path, "-an",
-                             "-filter_complex", fc] + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    core_video.RUNNING.add(proc)
-    try:
-        err = proc.communicate()[1]
-    finally:
-        core_video.RUNNING.discard(proc)
+    with proc.popen(["ffmpeg", "-hide_banner", "-y", "-skip_frame", "nokey", "-i", path, "-an", "-filter_complex", fc]
+                    + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True) as p:   # bấm Hủy là dừng
+        err = p.communicate()[1]
     times = [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
     n = len(os.listdir(tdir))
     if n < max(4, min(12, dur / 10)) or len(times) < n:
@@ -97,14 +93,9 @@ def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold
     if want_gray:
         fc += f";[g]fps={textzone._N / max(dur, 1):.5f},scale={textzone._W}:{textzone._H},format=gray[go]"  # như cũ
         outs += ["-map", "[go]", "-f", "rawvideo", "-pix_fmt", "gray", "-y", gray]
-    import core_video
-    proc = subprocess.Popen(["ffmpeg", "-hide_banner", "-y", *_decode_opts(m), "-i", path, "-an", "-filter_complex", fc]
-                            + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    core_video.RUNNING.add(proc)                  # bấm Hủy / quá hạn là giết được ngay
-    try:
-        err = proc.communicate()[1]
-    finally:
-        core_video.RUNNING.discard(proc)
+    with proc.popen(["ffmpeg", "-hide_banner", "-y", *_decode_opts(m), "-i", path, "-an", "-filter_complex", fc]
+                    + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True) as p:   # Hủy / quá hạn: dừng ngay
+        err = p.communicate()[1]
     _ANALYZED[path] = {"dir": tdir, "n": len(os.listdir(tdir))}
     while len(_ANALYZED) > 4:
         _ANALYZED.pop(next(iter(_ANALYZED)))
@@ -143,7 +134,7 @@ async def analyze_cached(path: str, tmpdir: str, dur: float, want_gray: bool, sr
 
 
 def _cuts_sync(path: str, threshold: float = 0.3, min_gap: float = 0.8) -> list[float]:
-    err = subprocess.run(
+    err = proc.run_sync(
         ["ffmpeg", "-hide_banner", *_decode_opts(cut_mode()), "-i", path, "-an", "-vf",
          f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
         capture_output=True, text=True).stderr
@@ -160,7 +151,7 @@ def _cuts_near_sync(path: str, t0: float, t1: float, threshold: float = 0.3) -> 
     """Điểm chuyển cảnh trong [t0, t1] (giây video gốc): chỉ giải mã đúng khúc đó (vài giây), không cả video."""
     if t1 - t0 < 0.5:
         return []
-    err = subprocess.run(
+    err = proc.run_sync(
         ["ffmpeg", "-hide_banner", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{t1 - t0:.2f}", "-i", path, "-an", "-vf",
          f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
         capture_output=True, text=True, timeout=60).stderr
@@ -216,7 +207,7 @@ def scene_segments(cuts: list, out_dur: float, min_len: float = 1.5) -> list:
 
 
 def _keyframe_sync(path: str, t: float) -> bytes:
-    return subprocess.run(
+    return proc.run_sync(
         ["ffmpeg", "-v", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
          "-vf", "scale=384:-2", "-q:v", "5", "-f", "image2", "-c:v", "mjpeg", "-"],
         capture_output=True).stdout

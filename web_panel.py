@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 import config
+from rmvideo.media import proc
 import slideshow
 import url_guard
 from queue_manager import Job, JobQueue, QueueFull, phase_times
@@ -847,12 +848,10 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         try:
             with open(tmp, "wb") as f:
                 f.write(data)
-            p = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-v", "error", "-y", "-i", tmp, "-t", "10", "-vn", "-ac", "1", "-ar", "24000", "-b:a", "96k",
-                out, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-            _, err = await p.communicate()
-            if p.returncode != 0 or not os.path.exists(out):
-                raise web.HTTPBadRequest(text="Không đọc được file âm thanh: " + err.decode(errors="replace")[-200:])
+            r = await proc.run(["ffmpeg", "-v", "error", "-y", "-i", tmp, "-t", "10", "-vn", "-ac", "1", "-ar", "24000",
+                                "-b:a", "96k", out], timeout=120, check=False)     # không thuộc job: huỷ job không giết
+            if r.code != 0 or not os.path.exists(out):
+                raise web.HTTPBadRequest(text="Không đọc được file âm thanh: " + r.stderr[-200:])
             import core_video
             try:
                 dur = await core_video.probe_duration(out)

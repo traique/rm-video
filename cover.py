@@ -14,13 +14,13 @@ import asyncio
 import logging
 import os
 import re
-import subprocess
 
 import numpy as np
 
 import config
 import core_video
 import scenes
+from rmvideo.media import proc
 
 SW, SH = 144, 256          # cỡ chấm điểm
 N_CAND = 6
@@ -31,7 +31,7 @@ COVER_NAME, THUMB_NAME = "cover.jpg", "thumb.jpg"
 
 def _raw_frames(args: list, pre_vf: str = "") -> np.ndarray:
     """Khung RGB SHxSW từ ffmpeg. pre_vf: bộ lọc chạy TRƯỚC bước thu nhỏ (vd fps=...) — chỉ được có một -vf."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", *args, "-vf",
+    raw = proc.run_sync(["ffmpeg", "-v", "error", *args, "-vf",
                           (pre_vf + "," if pre_vf else "")
                           + f"scale={SW}:{SH}:force_original_aspect_ratio=increase,crop={SW}:{SH}",
                           "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=180).stdout
@@ -48,7 +48,7 @@ def frames_sync(src: str, thumbs_dir: str | None, thumb_times: list | None = Non
             k = min(len(fr), len(thumb_times))
             return np.array(thumb_times[:k], dtype=float), fr[:k]
         return np.arange(len(fr)) / scenes.THUMB_FPS, fr
-    err = subprocess.run(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
+    err = proc.run_sync(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
                           "-fps_mode", "passthrough", "-f", "null", "-"], capture_output=True, text=True, timeout=180).stderr
     times = [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
     fr = _raw_frames(["-skip_frame", "nokey", "-i", src, "-an", "-fps_mode", "passthrough"])
@@ -149,7 +149,7 @@ def opening_times(window: float, n: int = 4) -> list:
 
 def _small_frames(src: str, t0: float, dur: float, fps: float = 2.0, w: int = 24, h: int = 42) -> np.ndarray:
     """Khung màu thu nhỏ (h x w x 3, float) trong [t0, t0 + dur] — chỉ giải mã đúng khúc đó."""
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
+    raw = proc.run_sync(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
                           "-vf", f"fps={fps},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
                          capture_output=True, timeout=120).stdout
     n = len(raw) // (w * h * 3)

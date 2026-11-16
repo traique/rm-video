@@ -7,9 +7,9 @@ import time
 
 import cache
 import config
-import core_video
 import kaggle_worker
 from queue_manager import Job, phase_times
+from rmvideo.media import proc
 from pipeline import run_job
 from review import OST_TAG, REVIEW_HELP
 from state import current, notify, queue
@@ -84,7 +84,8 @@ async def _run_one_held(job: Job):
         if tg:
             await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
         logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
-        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp:   # rmv_: bị giết giữa chừng thì lần sau dọn
+        # mọi tiến trình con của job (kể cả trong luồng phụ) mang mã job: huỷ chỉ giết đúng chúng (proc.kill_owner)
+        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp, proc.owned_by(job.id):   # rmv_: dọn lần sau
             task = asyncio.create_task(run_job(job, tmp))
             current["task"] = task
 
@@ -125,7 +126,7 @@ async def _run_one_held(job: Job):
         else:
             job.status, job.step = "done", ""
     except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
                                           f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
         logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
@@ -133,7 +134,7 @@ async def _run_one_held(job: Job):
         if tg:
             await notify(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
     except asyncio.CancelledError:
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         me = asyncio.current_task()
         if me is not None and me.cancelling():
             # Chính worker bị huỷ = bot đang tắt (SIGTERM khi Botkeep dừng/khởi động lại), KHÔNG phải người dùng bấm
@@ -148,7 +149,7 @@ async def _run_one_held(job: Job):
         if tg:
             await notify(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
     except Exception as e:
-        core_video.kill_running()
+        proc.kill_owner(job.id)
         logging.exception("Job %s thất bại", job.id)
         job.status, job.error, job.step = "error", str(e), ""
         if tg:

@@ -27,7 +27,6 @@ import os
 import random
 import resource
 import secrets
-import subprocess
 import time
 
 import numpy as np
@@ -36,6 +35,7 @@ import beat
 import config
 import core_video
 import trendfx
+from rmvideo.media import proc
 
 SR = beat.SR
 HOP = beat.HOP
@@ -450,7 +450,7 @@ def xfade_transitions() -> set:
     """Các kiểu xfade bản FFmpeg đang có (bản cũ thiếu vài kiểu: thiếu thì dùng 'fade')."""
     if not _XFADE:
         try:
-            out = subprocess.run(["ffmpeg", "-hide_banner", "-h", "filter=xfade"], capture_output=True, text=True,
+            out = proc.run_sync(["ffmpeg", "-hide_banner", "-h", "filter=xfade"], capture_output=True, text=True,
                                  timeout=20).stdout
             import re
             _XFADE.update(re.findall(r"^\s+(\w+)\s+-?\d+\s+\S+", out, re.M))
@@ -463,7 +463,7 @@ def image_size(path: str) -> tuple:
     """(rộng, cao) của ảnh SAU KHI giải mã (ffmpeg tự xoay theo EXIF Orientation của ảnh chụp điện thoại, còn
     ffprobe vẫn báo kích thước chưa xoay) — đúng cỡ khung mà bộ lọc sẽ nhận. Ảnh hỏng: báo lỗi rõ ràng."""
     import re
-    dec = subprocess.run(["ffmpeg", "-hide_banner", "-i", path, "-frames:v", "1", "-vf", "showinfo", "-f", "null", "-"],
+    dec = proc.run_sync(["ffmpeg", "-hide_banner", "-i", path, "-frames:v", "1", "-vf", "showinfo", "-f", "null", "-"],
                          capture_output=True, text=True)
     m = re.search(r"\bs:(\d+)x(\d+)", dec.stderr)
     if dec.returncode != 0 or not m or "Invalid data found" in dec.stderr:

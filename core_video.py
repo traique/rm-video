@@ -24,6 +24,7 @@ import metrics
 import subs as subs_mod
 import url_guard
 from rmvideo.domain import voices
+from rmvideo.media import proc
 
 
 def _ensure_ffmpeg():
@@ -104,8 +105,16 @@ def pot_status() -> str:
     return "script (node)" if _pot_script() else ""
 
 
+def _stop_if_cancelled(_d: dict):
+    """Hook tiến độ của yt-dlp (gọi mỗi khúc tải, trong luồng phụ): job đã huỷ / quá hạn thì dừng tải ngay (C8).
+    Trước đây huỷ job chỉ dừng task; luồng yt-dlp vẫn tải/ghép tới 300MB vào thư mục tạm đã bị xoá."""
+    if proc.cancelled():
+        raise yt_dlp.utils.DownloadCancelled("job đã huỷ")
+
+
 def _add_cookies(opts: dict, tmpdir: str):
     opts["allowed_extractors"] = url_guard.YTDLP_EXTRACTORS     # không bao giờ dùng extractor generic (SSRF)
+    opts.setdefault("progress_hooks", []).append(_stop_if_cancelled)
     if _IMPERSONATE:
         opts["impersonate"] = _IMPERSONATE
     ea = opts.setdefault("extractor_args", {})
@@ -403,9 +412,9 @@ def _size_limit(max_duration: int) -> int:
 
 
 def _has_video(path: str) -> bool:
-    out = subprocess.run(
+    out = proc.run_sync(
         ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_type",
-         "-of", "csv=p=0", path], capture_output=True, text=True).stdout
+         "-of", "csv=p=0", path], capture_output=True, text=True, timeout=120).stdout
     return "video" in out
 
 
@@ -572,13 +581,10 @@ async def cut(src: str, dst: str, start: float, end: float, copy: bool = False) 
 
 async def silences(path: str, noise_db: int = -35, min_len: float = 0.35) -> list:
     """Các khoảng im lặng [(start, end)] — chỗ người nói ngưng, hợp để cắt phần."""
-    proc = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-hide_banner", "-i", path, "-vn", "-af", f"silencedetect=n={noise_db}dB:d={min_len}",
-        "-f", "null", "-", stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
-    _, err = await proc.communicate()
-    import re as _re
-    st = [float(x) for x in _re.findall(r"silence_start: ([0-9.]+)", err.decode(errors="ignore"))]
-    en = [float(x) for x in _re.findall(r"silence_end: ([0-9.]+)", err.decode(errors="ignore"))]
+    r = await proc.run(["ffmpeg", "-hide_banner", "-i", path, "-vn", "-af", f"silencedetect=n={noise_db}dB:d={min_len}",
+                        "-f", "null", "-"], stderr_keep=None, check=False)
+    st = [float(x) for x in re.findall(r"silence_start: ([0-9.]+)", r.stderr)]
+    en = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", r.stderr)]
     return list(zip(st, en))
 
 
@@ -874,8 +880,8 @@ VOICED_SR = 16000
 def _voiced_intervals_sync(path: str) -> list:
     """Khoảng có tiếng của cả file giọng (giải mã 16kHz mono qua ffmpeg)."""
     import numpy as np
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(VOICED_SR), "-f", "s16le", "-"],
-                         capture_output=True, timeout=120).stdout
+    raw = proc.run_sync(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(VOICED_SR), "-f", "s16le", "-"],
+                        capture_output=True, timeout=120).stdout
     x = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
     return align.voiced_intervals(x, VOICED_SR)
 
@@ -924,38 +930,21 @@ async def words_for_track(clips: list, plan: list, track_path: str, texts: list)
     return out
 
 
-RUNNING: set = set()      # tiến trình con đang chạy (ffmpeg/ffprobe) để hủy job thì giết được ngay
-
-
 def kill_running():
-    for p in list(RUNNING):
-        try:
-            p.kill()
-        except Exception:
-            pass
-    RUNNING.clear()
+    """Giết MỌI tiến trình con đang theo dõi (tắt bot). Huỷ một job: proc.kill_owner(job.id) — chỉ tiến trình của job đó."""
+    proc.kill_all()
 
 
-async def _run_ffmpeg_full(*args: str, tool: str = "ffmpeg") -> tuple:
-    """Chạy ffmpeg/ffprobe (huỷ job là giết được ngay). Trả (stdout, stderr)."""
-    proc = await asyncio.create_subprocess_exec(
-        tool, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    RUNNING.add(proc)
-    try:
-        out, err = await proc.communicate()
-    except asyncio.CancelledError:
-        proc.kill()
-        raise
-    finally:
-        RUNNING.discard(proc)
-    if proc.returncode != 0:
-        raise RuntimeError(f"{tool} lỗi: " + err.decode(errors="ignore")[-400:])
-    return out.decode(errors="ignore"), err.decode(errors="ignore")
+async def _run_ffmpeg_full(*args: str, tool: str = "ffmpeg", stderr_keep: int | None = None) -> tuple:
+    """Chạy ffmpeg/ffprobe (huỷ job là giết được ngay, cả nhóm). Trả (stdout, stderr). stderr_keep=None: giữ trọn
+    stderr cho caller phân tích log (vd ebur128)."""
+    r = await proc.run([tool, *args], stdout=True, stderr_keep=stderr_keep)
+    return r.stdout.decode(errors="ignore"), r.stderr
 
 
 async def _run_ffmpeg(*args: str, tool: str = "ffmpeg"):
-    return (await _run_ffmpeg_full(*args, tool=tool))[0]
+    """Chỉ cần stdout: stderr chỉ giữ phần cuối để báo lỗi (render in hàng MB log không làm phình RAM)."""
+    return (await _run_ffmpeg_full(*args, tool=tool, stderr_keep=proc.STDERR_KEEP))[0]
 
 
 # ---------- Tự kiểm tra ffmpeg (bản trên máy có chạy được mọi bộ lọc bot dùng không) ----------
