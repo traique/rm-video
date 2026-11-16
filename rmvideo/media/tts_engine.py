@@ -6,15 +6,16 @@ import logging
 import os
 import random
 import shutil
+
 import edge_tts
+
 import align
 import cache
 import config
 import metrics
 import subs as subs_mod
 from rmvideo.domain import voices
-from rmvideo.media import ff, fetch, filtergraph, renderer, tts_engine, voiceplan  # noqa: F401
-
+from rmvideo.media import voiceplan
 
 _EDGE_VOICES = {config.VOICE_FEMALE, config.VOICE_MALE}
 
@@ -142,7 +143,7 @@ async def synth_clip_ex(text: str, voice: str, path: str) -> tuple:
     if config.TTS_OFFLINE != "1":
         raise err
     try:                                       # cả hai dịch vụ ngoài đều lỗi: giọng offline Piper (nếu đã cài)
-        import offline                         # không gửi lên Kaggle (kaggle_bundle.OPTIONAL)
+        import offline  # không gửi lên Kaggle (kaggle_bundle.OPTIONAL)
     except ImportError:
         raise err from None
     try:

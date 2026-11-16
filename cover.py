@@ -307,7 +307,7 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
         times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
         if not len(frames):
             return None
-        sc = score_frames(frames, times, src_dur, mode, cuts, end)
+        sc = await asyncio.to_thread(score_frames, frames, times, src_dur, mode, cuts, end)   # numpy: không chặn vòng lặp
         cand = pick_candidates(times, sc)
         if not cand:
             return None

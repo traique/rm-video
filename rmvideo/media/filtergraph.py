@@ -3,9 +3,9 @@
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
 import math
 import re
-import config
-from rmvideo.media import ff, fetch, filtergraph, renderer, tts_engine, voiceplan  # noqa: F401
 
+import config
+from rmvideo.media import ff
 
 # loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
 # sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản

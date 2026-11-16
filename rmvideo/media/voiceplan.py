@@ -3,10 +3,10 @@
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
 import asyncio
 import logging
+
 import align
 import config
-from rmvideo.media import proc
-from rmvideo.media import ff, fetch, filtergraph, renderer, tts_engine, voiceplan  # noqa: F401
+from rmvideo.media import ff, proc
 
 
 def speech_windows(speech: list, total: float, pad: float = 0.3, merge: float = 0.8) -> list:
@@ -137,13 +137,18 @@ def _map_script(script: str, timed: list, s: float, e: float, clip: int) -> list
 VOICED_SR = 16000
 
 
-def _voiced_intervals_sync(path: str) -> list:
-    """Khoảng có tiếng của cả file giọng (giải mã 16kHz mono qua ffmpeg)."""
+def _voiced_and_total_sync(path: str) -> tuple:
+    """(khoảng có tiếng, tổng độ dài giây) của cả file giọng — MỘT lần giải mã 16kHz mono qua ffmpeg."""
     import numpy as np
     raw = proc.run_sync(["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(VOICED_SR), "-f", "s16le", "-"],
                         capture_output=True, timeout=120).stdout
     x = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
-    return align.voiced_intervals(x, VOICED_SR)
+    return align.voiced_intervals(x, VOICED_SR), len(x) / VOICED_SR
+
+
+def _voiced_intervals_sync(path: str) -> list:
+    """Khoảng có tiếng của cả file giọng (giải mã 16kHz mono qua ffmpeg)."""
+    return _voiced_and_total_sync(path)[0]
 
 
 async def voiced_intervals(path: str) -> list | None:
@@ -197,14 +202,22 @@ async def speech_duration(path: str, words=None) -> float:
     """Độ dài tới hết TIẾNG NÓI của một đoạn giọng TTS (bỏ khoảng lặng cuối file). edge-tts để ~0.78s lặng ở cuối mọi
     file (đo 28 câu, cả NamMinh lẫn HoaiMy): tính cả vào thì khe ngắn nào cũng "quá dài" — Botkeep: 13/14 đoạn bị AI
     rút gọn rồi đọc lại vô ích. words: mốc từ của edge-tts; không có (CapCut/Piper) thì đo khoảng có tiếng."""
-    total = await ff.probe_duration(path)
-    end = 0.0
     if words:
+        total = await ff.probe_duration(path)
         end = max(float(w[1]) for w in words)
     else:
-        ivs = await voiced_intervals(path)
-        if ivs:
-            end = ivs[-1][1]
+        # CapCut / Piper / VieNeu: đằng nào cũng phải giải mã để tìm chỗ hết tiếng. Hết tiếng + đuôi nằm gọn trong độ
+        # dài giải mã được (gần như mọi đoạn) thì kết quả chắc chắn là end + đuôi (độ dài container ffprobe báo luôn
+        # >= độ dài giải mã: có thêm phần đệm của bộ mã hoá) -> khỏi chạy ffprobe; còn lại hỏi ffprobe như cũ.
+        try:
+            ivs, decoded = await asyncio.to_thread(_voiced_and_total_sync, path)
+        except Exception as e:
+            logging.warning("Không đo được khoảng có tiếng của giọng (%s), rải phụ đề đều", str(e)[:100])
+            ivs, decoded = None, 0.0
+        end = ivs[-1][1] if ivs else 0.0
+        if end > 0 and end + SPEECH_TAIL <= decoded:
+            return end + SPEECH_TAIL
+        total = await ff.probe_duration(path)
     if end <= 0:
         return total
     return min(total, end + SPEECH_TAIL)

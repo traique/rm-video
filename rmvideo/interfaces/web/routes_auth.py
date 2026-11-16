@@ -6,8 +6,19 @@ from aiohttp import web
 
 import config
 from queue_manager import JobQueue
-from rmvideo.interfaces.web.auth import (SESSION_COOKIE, SESSION_TTL, _authed, _check_origin, _client_key, _is_https,
-                                         _password_ok, login_locked, make_session, record_fail, revoke_sessions)
+from rmvideo.interfaces.web.auth import (
+    SESSION_COOKIE,
+    SESSION_TTL,
+    _authed,
+    _check_origin,
+    _client_key,
+    _is_https,
+    _password_ok,
+    login_locked,
+    make_session,
+    record_fail,
+    revoke_sessions,
+)
 from rmvideo.interfaces.web.http import LOGIN_BODY_MAX
 
 _DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # gốc bot

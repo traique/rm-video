@@ -5,9 +5,9 @@ import asyncio
 import logging
 
 import config
-from rmvideo.media import filtergraph
 import cover as cover_mod
 import scenes
+from rmvideo.media import filtergraph
 
 
 async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: list, end: float) -> tuple:

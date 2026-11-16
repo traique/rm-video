@@ -9,7 +9,6 @@ from rmvideo.interfaces.web.auth import _check
 from rmvideo.interfaces.web.http import _json_dict, _multipart
 
 
-
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     def _bgm_state():
         import bgm

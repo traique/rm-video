@@ -11,14 +11,14 @@ import shutil
 import urllib.error
 import urllib.parse
 import urllib.request
+
 import yt_dlp
 from yt_dlp.utils.networking import std_headers
+
 import config
 import metrics
 import url_guard
 from rmvideo.media import proc
-from rmvideo.media import ff, fetch, filtergraph, renderer, tts_engine, voiceplan  # noqa: F401
-
 
 # TikTok/YouTube chặn request "trông như bot" từ IP máy chủ. curl_cffi cho yt-dlp giả lập
 # chữ ký mạng của Chrome thật. Thiếu curl_cffi thì chạy như cũ, không crash.
@@ -62,7 +62,6 @@ def _friendly(e: Exception) -> RuntimeError:
 
 
 import potoken_setup  # noqa: E402
-
 
 potoken_setup.ensure_path()
 

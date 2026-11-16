@@ -1,12 +1,12 @@
 """Job: danh sách, luồng sự kiện SSE, timeline/phụ đề, tạo job (link / tải file lên), huỷ, duyệt kịch bản, tải kết quả, xem định dạng YouTube."""
 import asyncio
-from typing import Any
 import hmac
 import json
 import os
 import re
 import secrets
 import time
+from typing import Any
 
 from aiohttp import web
 
@@ -15,10 +15,22 @@ import slideshow
 from queue_manager import JobQueue, QueueFull, phase_times
 from rmvideo.app import events, job_factory
 from rmvideo.interfaces.web.auth import _check
-from rmvideo.interfaces.web.http import (FIELD_MAX, IMAGE_MAX, PHOTO_DURATIONS, SSE_MAX, _STEP_LABEL, _cleanup,
-                                         _file_response, _guard, _int_id, _json_dict, _multipart, _parse_duration,
-                                         _pick_voice, _read_capped)
-
+from rmvideo.interfaces.web.http import (
+    _STEP_LABEL,
+    FIELD_MAX,
+    IMAGE_MAX,
+    PHOTO_DURATIONS,
+    SSE_MAX,
+    _cleanup,
+    _file_response,
+    _guard,
+    _int_id,
+    _json_dict,
+    _multipart,
+    _parse_duration,
+    _pick_voice,
+    _read_capped,
+)
 
 
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
@@ -282,6 +294,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         _check(request)
         url = await _guard((request.query.get("url") or "").strip())
         import tempfile
+
         from rmvideo.media import fetch
         try:
             with tempfile.TemporaryDirectory() as td:

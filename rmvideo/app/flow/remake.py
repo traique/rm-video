@@ -28,7 +28,6 @@ from typing import Any
 
 import cache
 import config
-from rmvideo.media import ff, filtergraph, renderer, tts_engine, voiceplan
 import cover as cover_mod
 import ingredients
 import kaggle_worker
@@ -46,6 +45,7 @@ from rmvideo.app.assemble import assemble
 from rmvideo.app.flow import analysis, backends, common, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain.job import LongMode, Mode, Source, Status
+from rmvideo.media import ff, filtergraph, renderer, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)

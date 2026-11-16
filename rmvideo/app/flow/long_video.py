@@ -8,7 +8,6 @@ import os
 import shutil
 
 import config
-from rmvideo.media import fetch, ff
 import highlights
 import kaggle_worker
 import metrics
@@ -16,9 +15,10 @@ import scenes
 import state
 import transcribe
 from queue_manager import Job
-from state import notify, queue
 from rmvideo.app import events, job_factory
 from rmvideo.app.flow import common, delivery, dispatch
+from rmvideo.media import fetch, ff
+from state import notify, queue
 
 
 async def _long_source(job: Job, tmp: str, what: str) -> tuple:
@@ -177,14 +177,16 @@ async def _highlight_images(src: str, tmp: str, dur: float) -> tuple:
     if not a or not a["n"] or not config.GEMINI_API_KEY:
         return cuts, [], []
     step = max(8.0, dur / 60)
-    images, times, t = [], [], step / 2
+    picks, t = [], step / 2
     while t < dur:
         k = min(a["n"], int(round(t * scenes.THUMB_FPS)) + 1)
-        p = os.path.join(a["dir"], f"{k:05d}.jpg")
-        if os.path.exists(p):
-            images.append(open(p, "rb").read())
-            times.append(round(t, 1))
+        picks.append((os.path.join(a["dir"], f"{k:05d}.jpg"), round(t, 1)))
         t += step
+
+    def _read() -> tuple:                     # tối đa ~60 tệp: đọc trong luồng phụ, không chặn vòng lặp sự kiện
+        got = [(open(p, "rb").read(), tt) for p, tt in picks if os.path.exists(p)]
+        return [g[0] for g in got], [g[1] for g in got]
+    images, times = await asyncio.to_thread(_read)
     return cuts, images, times
 
 

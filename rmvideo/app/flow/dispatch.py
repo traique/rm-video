@@ -8,13 +8,13 @@ import asyncio
 import os
 
 import config
-from rmvideo.media import fetch, ff
 import state
 from queue_manager import Job
 from rmvideo.app.flow import common, delivery, long_video, photo
 from rmvideo.app.flow import music as music_flow
 from rmvideo.app.flow.remake import Remake
 from rmvideo.domain.job import LongMode, Mode
+from rmvideo.media import fetch, ff
 
 
 async def process(job: Job, tmp: str, allow_review: bool = True, local_only: bool = False, teaser_ok: bool = True):

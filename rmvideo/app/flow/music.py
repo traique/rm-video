@@ -8,7 +8,6 @@ import os
 import beat
 import bgm
 import config
-from rmvideo.media import fetch, ff, renderer
 import kaggle_worker
 import metrics
 import prompt_engine
@@ -16,7 +15,7 @@ import slideshow
 import state
 from queue_manager import Job
 from rmvideo.app.flow import backends, common
-
+from rmvideo.media import fetch, ff, renderer
 
 BED_ORIG_VI = {"off": "bỏ tiếng gốc", "low": "giữ tiếng gốc nhỏ dưới nhạc", "keep": "giữ tiếng gốc, nhạc nằm dưới"}
 

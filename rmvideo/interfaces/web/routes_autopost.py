@@ -7,7 +7,6 @@ from rmvideo.interfaces.web.auth import _check
 from rmvideo.interfaces.web.http import _json_dict
 
 
-
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     def _auto_payload() -> dict:
         import autopost

@@ -17,8 +17,8 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from rmvideo.media import filtergraph, renderer, voiceplan
 import subs as subs_mod
+from rmvideo.media import filtergraph, renderer, voiceplan
 
 # items [(chỉ số đoạn, lời)] + thư mục tạm -> {chỉ số: {"path": file giọng, "words": mốc từng từ | None}}
 Synth = Callable[[list[tuple[int, str]], str], Awaitable[dict[int, dict]]]
@@ -56,9 +56,17 @@ def spoken_items(segs: Sequence[dict], idx: Sequence[int] | None = None) -> list
             if segs[k].get("ost") != "orig" and (segs[k].get("text") or "").strip()]
 
 
+MEASURE_PARALLEL = 4     # tối đa chừng này ffmpeg/ffprobe đo cùng lúc (trước đây 30-45 tiến trình một lượt: máy 2GB RAM)
+
+
 async def _durations(clips: Sequence[dict]) -> list[float]:
+    sem = asyncio.Semaphore(MEASURE_PARALLEL)
+
     async def one(c: dict) -> float:
-        return await voiceplan.speech_duration(c["path"], c.get("words")) if c.get("path") else 0.0
+        if not c.get("path"):
+            return 0.0
+        async with sem:
+            return await voiceplan.speech_duration(c["path"], c.get("words"))
     return list(await asyncio.gather(*[one(c) for c in clips]))
 
 

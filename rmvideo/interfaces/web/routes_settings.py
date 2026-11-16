@@ -7,11 +7,9 @@ from aiohttp import web
 
 import config
 from queue_manager import JobQueue
-from rmvideo.media import proc
 from rmvideo.interfaces.web.auth import _check, _client_key, _password_ok, login_locked, record_fail
-from rmvideo.interfaces.web.http import (REAUTH_FIELD, VOICE_REF_MAX, _json_dict, _multipart, _read_capped,
-                                         _with_options)
-
+from rmvideo.interfaces.web.http import REAUTH_FIELD, VOICE_REF_MAX, _json_dict, _multipart, _read_capped, _with_options
+from rmvideo.media import proc
 
 
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:

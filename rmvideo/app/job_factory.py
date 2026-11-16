@@ -12,7 +12,7 @@ from typing import Any
 
 import config
 from queue_manager import Job
-from rmvideo.domain.job import LongMode, Mode, Source, WEB_VIDEO_MODES
+from rmvideo.domain.job import WEB_VIDEO_MODES, LongMode, Mode, Source
 
 DURATIONS = (0, 30, 60, 90)
 PHOTO_DURATIONS = ("0", "10", "15", "30", "60")     # 0 = tự động theo nhạc
