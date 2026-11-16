@@ -34,6 +34,20 @@ ASSETS_DIR = os.path.join(ROOT, "assets")
 
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
 STING_PATH = os.path.join(ASSETS_DIR, "sting.mp3")      # âm hiệu màn kết (BRAND_STING), tải lên ở trang cài đặt
+# bộ nhận diện mặc định «Bếp Đong Đủ» (bản 43): dùng khi chưa tải logo / âm hiệu riêng lên trang cài đặt
+BRAND_DIR = os.environ.get("RM_BRAND_DIR") or os.path.join(ROOT, "brand", "bep_dong_du")
+DEFAULT_LOGO = os.path.join(BRAND_DIR, "logo.png")
+DEFAULT_STING = os.path.join(BRAND_DIR, "sting.mp3")
+
+
+def logo_path() -> str:
+    """Logo tải lên ở Cài đặt; chưa có thì logo kênh mặc định. Trả "" nếu không có cả hai."""
+    return next((p for p in (LOGO_PATH, DEFAULT_LOGO) if os.path.exists(p)), "")
+
+
+def sting_path() -> str:
+    """Âm hiệu tải lên ở Cài đặt; chưa có thì âm hiệu kênh mặc định. Trả "" nếu không có cả hai."""
+    return next((p for p in (STING_PATH, DEFAULT_STING) if os.path.exists(p)), "")
 
 
 FONT_PATH = os.path.join(ASSETS_DIR, "BeVietnamPro-ExtraBold.ttf")

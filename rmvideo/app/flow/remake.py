@@ -125,6 +125,7 @@ class Remake:
         self.ass = os.path.join(tmp, "subs.ass")
         self.facts: recipe.Facts | None = None   # món + định lượng đã đối chiếu (bản 42)
         self.edit: edl.EditPlan | None = None    # kế hoạch dựng (REMAKE_STYLE, bản 42)
+        self.tail = 0.0                          # giây màn kết nối thêm sau video (bản 43), đã tính trong out_dur
         self.cards: list = []                    # thẻ chữ ngoài kế hoạch dựng (mẹo trên video), mốc chưa cộng mở đầu
         self.end_src = 0.0                       # hết phần dựng trên video GỐC (đã cắt quảng cáo cuối)
         self.short_pass = False                  # đang làm bản ngắn: không làm lại ảnh bìa
@@ -153,6 +154,7 @@ class Remake:
         self.tip_card()
         await self.decide_teaser(silent)
         self.apply_teaser()
+        self.add_tail()
         self.choose_backend()
         self.target = int(self.out_dur)               # đường dự phòng (đọc một mạch): theo độ dài SẼ dựng
         if self.raw_segs:                             # (sau khi cắt quảng cáo / thêm đoạn mở đầu)
@@ -197,7 +199,8 @@ class Remake:
         T = float(self.tz["dur"]) if self.tz else 0.0
         end = self.end_src
         segs_src = [(a, min(b, end), t) for a, b, t in self.raw_segs if a < end]
-        plan, why = short.plan_short(end, segs_src, self.facts, short.budget(T), self.stretch)
+        # màn kết nối thêm cũng nằm trong 90 giây của Reels
+        plan, why = short.plan_short(end, segs_src, self.facts, short.budget(T) - brand.tail_len(), self.stretch)
         if plan is None:
             job.note(f"ℹ️ Không làm bản ngắn ({why}). ")
             return None
@@ -212,13 +215,15 @@ class Remake:
         """Chuyển Remake sang trạng thái bản ngắn (thư mục con, 1080p cho Reels, không làm lại ảnh bìa)."""
         job = self.job
         keep = {k: getattr(self, k) for k in ("segs", "cuts", "speech", "out_dur", "render_dur", "edit", "tmp", "cards",
-                                              "ass", "tasks", "pre_cover", "is_long")}
+                                              "ass", "tasks", "pre_cover", "is_long", "tail")}
         keep_job = (job.srt, job.final_segments, job.script, job.out_dur)
         sub = os.path.join(keep["tmp"], "short")
         os.makedirs(sub, exist_ok=True)
         self.short_pass = True
         self.segs, self.cuts, self.speech, self.edit, self.tmp, self.cards = segs, cuts, speech, plan, sub, []
         self.out_dur = round(plan.out_dur() + T, 2)
+        self.tail = brand.end_tail(self.out_dur, short.REEL_MAX)
+        self.out_dur = round(self.out_dur + self.tail, 2)
         self.render_dur, self.ass, self.tasks, self.pre_cover = 0, os.path.join(sub, "subs.ass"), [], None
         self.is_long = False                             # bản ngắn ≤ 90s: 1080p (Reels) khi nguồn đủ nét
         return keep, keep_job
@@ -526,6 +531,16 @@ class Remake:
                  + (", cảnh ngắn nên đứng hình" if tz.get("still") else "") + ") kèm câu hook"
                  + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". ")
 
+    def add_tail(self):
+        """Màn kết nối thêm sau video (bản 43) khi video giữ độ dài tự nhiên; không vượt Reels 90 giây (video ≤ 90 giây)
+        hay giới hạn độ dài. Video cắt theo 30/60/90 giây / giới hạn: màn kết đè lên cuối như cũ."""
+        if self.render_dur:
+            return
+        cap = REEL_MAX if self.out_dur <= REEL_MAX + 0.01 else self.limit
+        self.tail = brand.end_tail(self.out_dur, cap)
+        if self.tail:
+            self.out_dur = self.job.out_dur = round(self.out_dur + self.tail, 2)
+
     def choose_backend(self):
         """Kaggle hay Botkeep. Tách giọng gốc (nặng CPU) bắt đầu NGAY trên Botkeep, chạy trong lúc chờ AI viết kịch
         bản và đọc giọng (việc mạng, CPU rảnh). Chạy trên Kaggle thì Kaggle tách."""
@@ -614,7 +629,8 @@ class Remake:
             self.bands, self.pos_y, sep_r, self.speech,
             config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
             local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
-            teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
+            teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None,
+            tail=self.tail)
 
     async def render_remote(self, segs_t: list, extra: dict | None = None) -> Any:
         """Đọc giọng + tách giọng + dựng trên Kaggle. None = không gửi được / Kaggle lỗi (đã ghi chú): làm trên Botkeep.
@@ -683,7 +699,7 @@ class Remake:
             shorten=lambda idx, durs: self.shorten(segs_t, idx, durs), on_step=lambda st: setattr(job, "step", st),
             tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep.ok else ""),
             wait_step="Chờ tách giọng gốc xong" if sep.ok else "Render (FFmpeg)", before_render=cover_now,
-            edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
+            edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None, tail=self.tail)
         if res.srt:
             job.srt = res.srt
         if res.notes:
@@ -737,7 +753,8 @@ class Remake:
         await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
                                 self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
-                                notes=notes, teaser=self.tz, **_edit_kw(self.edit.to_dict() if self.edit else None, self.cards or None))
+                                notes=notes, teaser=self.tz,
+                                **_edit_kw(self.edit.to_dict() if self.edit else None, self.cards or None, self.tail))
         if notes:
             job.note("".join(notes))
         await self.finish_cover(cover_task)

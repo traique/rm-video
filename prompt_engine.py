@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 from typing import Literal
 
 import aiohttp
@@ -273,26 +274,66 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
                 logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", str(e1)[:80], wait)
                 await asyncio.sleep(wait)
 
-    try:
+    async def _one(model: str):
+        nonlocal cfg
         try:
-            resp = await _gen(config.GEMINI_MODEL, cfg)
+            try:
+                return await _gen(model, cfg)
+            except Exception as e:
+                if not (schema and _schema_rejected(str(e))):
+                    raise
+                logging.warning("Gemini không nhận schema (%s), dùng JSON mode thường", str(e)[:80])
+                cfg = json_only or {"response_mime_type": "application/json"}
+                return await _gen(model, cfg)
         except Exception as e:
-            if not (schema and _schema_rejected(str(e))):
+            # Google ngừng model cũ và ghi tên model thay thế ngay trong lỗi 404
+            m = re.search(r"use models/([\w.\-]+)", str(e))
+            if "404" not in str(e) or not m or model != config.GEMINI_MODEL:
                 raise
-            logging.warning("Gemini không nhận schema (%s), dùng JSON mode thường", str(e)[:80])
-            cfg = json_only or {"response_mime_type": "application/json"}
-            resp = await _gen(config.GEMINI_MODEL, cfg)
+            new_model = m.group(1)
+            logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt", model, new_model)
+            config.save_settings({"GEMINI_MODEL": new_model})
+            return await _gen(new_model, cfg)
+
+    try:
+        resp = await _one(config.GEMINI_MODEL)
     except Exception as e:
-        # Google ngừng model cũ và ghi tên model thay thế ngay trong lỗi 404
-        m = re.search(r"use models/([\w.\-]+)", str(e))
-        if "404" not in str(e) or not m:
+        # model chính quá tải (503 "high demand", đã thử lại) / hết lượt: thử model dự phòng (hạn mức, tải riêng) thay
+        # vì bỏ cả bước (bản 43: cả job viết lời mù vì 3.5-flash-lite quá tải suốt 5 phút)
+        backups = [m for m in fallback_models() if m != config.GEMINI_MODEL]
+        if not backups or not _overloaded(str(e)):
             raise
-        new_model = m.group(1)
-        logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt",
-                        config.GEMINI_MODEL, new_model)
-        config.save_settings({"GEMINI_MODEL": new_model})
-        resp = await _gen(new_model, cfg)
+        last: Exception = e
+        for model in backups:
+            logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", config.GEMINI_MODEL, str(last)[:60], model)
+            try:
+                resp = await _one(model)
+                break
+            except Exception as e2:
+                last = e2
+                if not (_overloaded(str(e2)) or "404" in str(e2) or "NOT_FOUND" in str(e2)):
+                    raise
+        else:
+            raise last
     return resp.text or ""
+
+
+def fallback_models() -> list[str]:
+    return [m for m in re.split(r"[,\s]+", getattr(config, "GEMINI_FALLBACK_MODELS", "") or "") if m]
+
+
+def _overloaded(err: str) -> bool:
+    """Lỗi của riêng model đang gọi (quá tải / hết lượt / quá giờ) — model khác có thể vẫn chạy được."""
+    return (not err or retry_delay(err, 0) is not None or is_quota_error(err) or "high demand" in err
+            or "DEADLINE" in err or "Timeout" in err)
+
+
+def _image_rejected(err: str) -> bool:
+    """Lỗi do ẢNH (model không nhận ảnh, ảnh hỏng / quá nặng) — khác lỗi quá tải: quá tải mà bỏ ảnh thì AI viết lời
+    không nhìn hình, câu chữ lệch cảnh (bản 43)."""
+    e = err.lower()
+    return not _overloaded(err) and any(x in e for x in ("image", "inline", "mime", "too large", "413", "payload",
+                                                        "invalid_argument", "400"))
 
 
 _free_cache = {"at": 0.0, "models": []}
@@ -429,7 +470,7 @@ Trả về DUY NHẤT JSON hợp lệ, không markdown:
 {{"title": "tiêu đề đăng bài <= 90 ký tự",
 "caption": "caption 1-2 câu, được dùng emoji",
 "hashtags": "5-8 hashtag cách nhau bởi dấu cách",
-"hook": "3-7 chữ in lên màn hình 3 giây đầu: tên món / thành phẩm hấp dẫn nhất"}}"""
+"hook": "3-7 chữ in lên màn hình 3 giây đầu: tên món / thành phẩm hấp dẫn nhất, viết chữ thường có dấu đầy đủ"}}"""
 
 
 async def post_only(title: str, desc: str, mode: str) -> dict:
@@ -447,7 +488,7 @@ async def post_only(title: str, desc: str, mode: str) -> dict:
             return {"title": strip_sub_cta(str(d.get("title") or "")).strip() or title or "Video hot hôm nay",
                     "caption": strip_sub_cta(str(d.get("caption") or "")).strip() or title,
                     "hashtags": str(d.get("hashtags") or "").strip() or "#viral #xuhuong #fyp",
-                    "hook": clean_hook(str(d.get("hook") or ""))}
+                    "hook": clean_hook(str(d.get("hook") or ""), f"{title} {desc}")}
         pack = await llm.first_success(
             _chain(lambda pr: _call_gemini(pr, schema=PostOut)), attempt, record=metrics.record,
             on_error=lambda p, e: logging.warning("Viết bài đăng bằng %s lỗi (%s), thử provider kế", p.name, str(e)[:120]))
@@ -496,7 +537,7 @@ Trả về DUY NHẤT JSON hợp lệ, không markdown:
 "title": "tiêu đề đăng bài <= 90 ký tự",
 "caption": "caption 2-3 câu để đăng, được dùng emoji",
 "hashtags": "5-8 hashtag cách nhau bởi dấu cách",
-"hook": "3-7 chữ in lên màn hình 3 giây đầu"}}"""
+"hook": "3-7 chữ in lên màn hình 3 giây đầu, viết chữ thường có dấu đầy đủ"}}"""
 
 HOOK_RULE = """
 
@@ -504,7 +545,7 @@ CÂU HOOK — ĐOẠN 0 (3 giây đầu quyết định người xem có lướt
 - Đoạn 0 là câu HOOK: nói NGAY điều hấp dẫn nhất của video — món thành phẩm ngon/lạ, mẹo bất ngờ, con số ấn tượng, hoặc một câu hỏi gây tò mò. Ví dụ: "Cá kèo chiên kiểu này giòn rụm mà hổng văng dầu nè!", "Bí quyết để cá kèo không nhảy khỏi chảo là đây!", "Chỉ 3 bước là có dĩa mì xào bò mềm ngon như ngoài tiệm!".
 - KHÔNG chào hỏi ("xin chào", "chào cả nhà", "hôm nay mình làm..."), KHÔNG giới thiệu kênh, KHÔNG nói "video này".
 - Lời gốc đoạn 0 có thao tác, nguyên liệu, số liệu nào thì câu hook vẫn nhắc đủ và đúng. Đoạn 0 ghi "(chưa có lời gốc)" là phần mở đầu trước khi người gốc nói: chỉ dựa vào tiêu đề và hình, không thêm nguyên liệu hay số liệu mà lời gốc không có.
-- "hook": 3-7 chữ IN HOA lên màn hình cùng lúc (vd "CÁ KÈO GIÒN KHÔNG VĂNG DẦU"), không dấu chấm, không emoji."""
+- "hook": 3-7 chữ in lên màn hình cùng lúc (vd "cá kèo giòn không văng dầu"): viết chữ thường có dấu đầy đủ (máy tự in hoa), đúng chính tả tên món như trong lời, không dấu chấm, không emoji."""
 
 # Kêu gọi đăng ký / theo dõi kênh (người dùng không muốn có, kể cả cuối video — 13/11/2026). "theo dõi" chỉ tính khi đi
 # với kênh/trang/mình/để...: "theo dõi nhiệt độ", "theo dõi lửa" là thao tác nấu.
@@ -551,15 +592,52 @@ def is_sub_cta_line(text: str) -> bool:
     return has_sub_cta(text) and len(strip_sub_cta(text).split()) < 3
 
 
-def clean_hook(text: str) -> str:
-    """Chữ hook in màn hình: một dòng ngắn (≤ 40 ký tự, cắt ở ranh giới từ), bỏ dấu cuối, không emoji/kêu gọi."""
+_MODS = {"\u0302", "\u0306", "\u031b"}     # dấu mũ (â ê ô), trăng (ă), móc (ơ ư): AI hay rơi khi viết IN HOA
+
+
+def _skeleton(word: str) -> str:
+    """Chữ bỏ dấu mũ / trăng / móc và đ->d nhưng GIỮ dấu thanh: "gừng" và "gùng" cùng khung, "vàng" và "văng" thì không."""
+    d = unicodedata.normalize("NFD", word.lower().replace("đ", "d"))
+    return unicodedata.normalize("NFC", "".join(c for c in d if c not in _MODS))
+
+
+def repair_marks(text: str, ref: str) -> str:
+    """Sửa chữ AI viết rơi dấu mũ / trăng / móc ("MỰC HẤP GÙNG" -> "gừng", bản 43): chữ KHÔNG có trong tiêu đề / lời
+    gốc / lời mới mà có đúng một chữ ở đó cùng khung (cùng dấu thanh) thì thay bằng chữ đó (nhiều chữ: lấy chữ hay gặp
+    nhất). Chữ có thật trong `ref` giữ nguyên."""
+    vocab: dict = {}
+    for w in re.findall(r"\w+", (ref or "").lower()):
+        vocab[w] = vocab.get(w, 0) + 1
+    if not vocab:
+        return text
+    by_sk: dict = {}
+    for w, n in vocab.items():
+        by_sk.setdefault(_skeleton(w), []).append((n, w))
+
+    def fix(m):
+        w = m.group(0)
+        lw = w.lower()
+        if lw in vocab or not any(c.isalpha() for c in lw):
+            return w
+        cand = by_sk.get(_skeleton(lw))
+        if not cand:
+            return w
+        best = max(cand)[1]
+        return best.upper() if w.isupper() else best
+    return re.sub(r"\w+", fix, text)
+
+
+def clean_hook(text: str, ref: str = "") -> str:
+    """Chữ hook in màn hình: một dòng ngắn (≤ 40 ký tự, cắt ở ranh giới từ), bỏ dấu cuối, không emoji/kêu gọi.
+    AI viết chữ thường (viết IN HOA hay rơi dấu: "GÙNG" thay vì "GỪNG"); máy sửa dấu theo `ref` (tiêu đề + lời) rồi
+    tự in hoa."""
     t = re.sub(r"[^\w\s%,!?'-]", " ", text or "")
     t = " ".join(t.split()).strip(" .,!?-")
     if not t or has_sub_cta(t):
         return ""
     if len(t) > 40:
         t = t[:41].rsplit(" ", 1)[0]
-    return t.upper()
+    return repair_marks(t.lower(), ref).upper()
 
 
 _CTA_RE = re.compile(r"giỏ hàng|góc (trái|phải) màn hình|link (ở|dưới|trong)|mã giảm|bấm vào (mua|link|giỏ)|"
@@ -730,9 +808,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         try:
             return await _call_gemini(pr, _imgs, schema=schema)
         except Exception as e:
-            if not _imgs or is_quota_error(str(e)):        # hết hạn mức thì bỏ ảnh cũng không giúp gì
+            # chỉ bỏ ảnh khi lỗi DO ẢNH; quá tải / hết lượt thì bỏ ảnh cũng không giúp mà lời mất khớp hình
+            if not _imgs or not _image_rejected(str(e)):
                 raise
-            logging.warning("Gemini không nhận ảnh, viết lại không kèm ảnh")
+            logging.warning("Gemini không nhận ảnh (%s), viết lại không kèm ảnh", str(e)[:80])
             return await _call_gemini(pr.replace(IMAGE_HINT, ""), schema=schema)
     chain = llm.providers(_gem, lambda pr: _call_openrouter(pr.replace(IMAGE_HINT, "")),
                           gemini_ok=bool(genai and config.GEMINI_API_KEY), openrouter_ok=bool(config.OPENROUTER_API_KEY))
@@ -847,7 +926,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         script = " ".join(x["text"] for x in out if x["text"])
         fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
         return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
-                "hook": clean_hook(d.get("hook") or "") if intro else "",
+                "hook": clean_hook(d.get("hook") or "", " ".join([title, script, *(x["orig"] for x in out),
+                                                                   *_GLOSSARY.get()])) if intro else "",
                 "title": (d.get("title") or title or script[:80]).strip(),
                 "caption": (d.get("caption") or script).strip(),
                 "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
@@ -879,7 +959,7 @@ Thể loại: {mode}
 Tiêu đề gốc: {title}
 Mô tả gốc: {desc}
 {scenes}
-Trả về DUY NHẤT JSON: {{"segments": [{{"i": 0, "text": "..."}}, ...], "title": "...", "caption": "... (được dùng emoji)", "hashtags": "...", "hook": "3-7 chữ IN HOA hiện trên màn hình 3 giây đầu"}}"""
+Trả về DUY NHẤT JSON: {{"segments": [{{"i": 0, "text": "..."}}, ...], "title": "...", "caption": "... (được dùng emoji)", "hashtags": "...", "hook": "3-7 chữ hiện trên màn hình 3 giây đầu, viết chữ thường có dấu đầy đủ (máy tự in hoa)"}}"""
 
 
 async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: list, out_dur: float):
@@ -905,7 +985,8 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
         script = " ".join(x["text"] for x in out)
         metrics.record("llm", "gemini")
         return {"segments": out, "script": script, "title": (d.get("title") or title or script[:80]).strip(),
-                "caption": (d.get("caption") or script).strip(), "hook": clean_hook(d.get("hook") or ""),
+                "caption": (d.get("caption") or script).strip(),
+                "hook": clean_hook(d.get("hook") or "", f"{title} {desc} {script}"),
                 "hashtags": (d.get("hashtags") or "#viral #fyp").strip()}
     except Exception as e:
         metrics.record("llm", "gemini", ok=False, detail=str(e))

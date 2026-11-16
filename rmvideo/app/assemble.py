@@ -56,9 +56,12 @@ def spoken_items(segs: Sequence[dict], idx: Sequence[int] | None = None) -> list
             if segs[k].get("ost") != "orig" and (segs[k].get("text") or "").strip()]
 
 
-def _edit_kw(edit: dict | None, overlays: list | None = None) -> dict[str, Any]:
-    """Chỉ truyền kế hoạch dựng / thẻ chữ khi có (giữ nguyên lời gọi render cũ khi tắt)."""
-    return {**({"edit": edit} if edit else {}), **({"overlays": overlays} if overlays else {})}
+def _edit_kw(edit: dict | None, overlays: list | None = None, tail: float = 0.0,
+             voice_end: float | None = None) -> dict[str, Any]:
+    """Chỉ truyền kế hoạch dựng / thẻ chữ / màn kết nối thêm khi có (giữ nguyên lời gọi render cũ khi tắt).
+    voice_end: giọng đọc dứt lúc nào (âm hiệu màn kết vang SAU câu cuối, không chen vào)."""
+    return {**({"edit": edit} if edit else {}), **({"overlays": overlays} if overlays else {}),
+            **({"tail": tail} if tail else {}), **({"sting_after": voice_end} if voice_end else {})}
 
 
 MEASURE_PARALLEL = 4     # tối đa chừng này ffmpeg/ffprobe đo cùng lúc (trước đây 30-45 tiến trình một lượt: máy 2GB RAM)
@@ -80,7 +83,7 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
                    title: str, stretch: float, teaser: dict | None, shorten: Shorten | None = None,
                    on_step: Callable[[str], None] = lambda s: None, tts_step: str = "", wait_step: str = "",
                    before_render: Callable[[], Any] | None = None, edit: dict | None = None,
-                   overlays: list | None = None) -> Assembled:
+                   overlays: list | None = None, tail: float = 0.0) -> Assembled:
     """Đọc giọng + xếp + phụ đề + tiếng nền + render. segs: [{i, start, slot, span, text, ost, ...}] trên trục thời
     gian video ra (đã cộng đoạn mở đầu, đã kéo chậm). Ném lỗi của synth / ffmpeg cho caller."""
     t: dict = {}
@@ -120,8 +123,9 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     out = os.path.join(tmp, "output.mp4")
     notes: list = []
     t0 = time.time()
+    voice_end = max((p["end"] for p in plan), default=0.0)
     await renderer.render(inp, voice_track, out, mode, render_dur, ass, bands, amb, gate, allow_hd=allow_hd,
                             title=title, tmp=tmp, stretch=stretch, ost=filtergraph.ost_windows(segs, out_dur),
-                            notes=notes, teaser=teaser, **_edit_kw(edit, overlays))
+                            notes=notes, teaser=teaser, **_edit_kw(edit, overlays, tail, voice_end))
     t["render"] = round(time.time() - t0, 1)
     return Assembled(out, plan, too_long, srt, amb, clips, notes, t)

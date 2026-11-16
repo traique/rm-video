@@ -148,6 +148,7 @@ def test_settings_file_created_0600_before_secrets_written(monkeypatch, tmp_path
         modes.append(stat.S_IMODE(os.stat(a).st_mode))
         real(a, b)
     monkeypatch.setattr(config.os, "replace", spy)
+    monkeypatch.setattr(config, "BRAND_NAME", config.BRAND_NAME)    # save_settings áp vào config: trả lại sau test
     old = os.umask(0o022)
     try:
         config.save_settings({"BRAND_NAME": "Bếp"})
@@ -212,10 +213,11 @@ def test_sweep_tmp_and_clean_keeps_running_job_files(monkeypatch, tmp_path):
 
 
 def test_kaggle_spec_skips_oversized_logo(monkeypatch, tmp_path):
-    monkeypatch.setattr(kaggle_worker, "BASE", str(tmp_path))
+    from rmvideo.media import ff
     monkeypatch.setattr(config, "BRAND_LOGO", "1")
     (tmp_path / "assets").mkdir()
     logo = tmp_path / "assets" / "logo.png"
+    monkeypatch.setattr(ff, "LOGO_PATH", str(logo))
     logo.write_bytes(b"\0" * (config.LOGO_MAX_BYTES + 1))
     assert "logo_b64" not in kaggle_worker._common({})
     logo.write_bytes(b"\0" * 100)

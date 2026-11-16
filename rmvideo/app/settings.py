@@ -135,8 +135,10 @@ def _digits(key: str, msg: str) -> Validator:
 
 def _brand_color(v: str) -> str:
     v = v.strip()
+    if v == "0":                                   # 0 = không dùng màu kênh (vàng như cũ)
+        return v
     if v and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", v):
-        raise ValueError("BRAND_COLOR là mã màu dạng #FF8A00")
+        raise ValueError("BRAND_COLOR là mã màu dạng #FF8A00 (0 = vàng như cũ)")
     return ("#" + v.lstrip("#").upper()) if v else ""
 
 
@@ -154,6 +156,11 @@ SCHEMA: tuple[Setting, ...] = (
       link="https://aistudio.google.com/apikey", need="must", secret=True, live=True),
     S("GEMINI_MODEL", "gemini-3.5-flash-lite", "advanced", "Model Gemini viết lời",
       validate=_model("GEMINI_MODEL"), live=True),        # live: lỗi 404 tự đổi model giữa job
+    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-2.5-flash-lite", "advanced",
+      "Model Gemini dự phòng (khi quá tải / hết lượt)",
+      help="Model chính báo quá tải (503) hay hết lượt trong ngày thì thử lần lượt các model này (cách nhau dấu phẩy, "
+           "để trống = không thử). Mỗi model có hạn mức riêng.",
+      validate=_each(lambda v: _model("GEMINI_FALLBACK_MODELS")(v) if v else v), live=True),
     S("OPENROUTER_API_KEY", "", "api", "Key OpenRouter",
       help="Dự phòng viết lời khi Gemini lỗi/hết hạn mức (model miễn phí).", link="https://openrouter.ai/settings/keys",
       need="optional", secret=True, live=True),
@@ -227,9 +234,9 @@ SCHEMA: tuple[Setting, ...] = (
     S("PUBLIC_URL", "", "api", "Link web của bot",
       help="Ví dụ https://ten-may.bot-keep.xyz. Cần để Kaggle tải file bạn upload, Telegram gửi link tải video lớn.",
       need="should", validate=_PUBLIC_URL, reauth=True, live=True),
-    S("BRAND_NAME", "", "brand", "Tên kênh (màn kết)", help="Để trống = không có màn kết.",
+    S("BRAND_NAME", "Bếp Đong Đủ", "brand", "Tên kênh (màn kết)", help="Nhập 0 = không có màn kết.",
       validate=_max_len("BRAND_NAME", 60)),
-    S("BRAND_LOGO", "1", "brand", "Gắn logo", help="Logo tải lên ở cuối trang cài đặt.", options=_ONOFF_OPTS,
+    S("BRAND_LOGO", "1", "brand", "Gắn logo", help="Logo tải lên ở cuối trang cài đặt; chưa tải thì dùng logo Bếp Đong Đủ.", options=_ONOFF_OPTS,
       choices=ON_OFF),
     S("BRAND_INTRO", "1", "brand", "Hiện tiêu đề 3 giây đầu", options=_ONOFF_OPTS, choices=ON_OFF),
     S("SUB_STYLE", "karaoke", "video", "Kiểu phụ đề",
@@ -276,16 +283,16 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("fast", "Nhanh: luôn 720p, superfast (nhanh ~2.3 lần)"),
                ("balanced", "Cân bằng (mặc định): 1080p, máy chậm thì tự ra 720p"),
                ("high", "Chuẩn TVC: luôn 1080p, preset medium (chậm ~2x)")), choices=("fast", "balanced", "high")),
-    # ---- bản 42: phong cách remake, bài đăng có công thức, nhận diện kênh (mặc định = hành vi cũ) ----
-    S("REMAKE_STYLE", "off", "style", "Phong cách dựng lại",
+    # ---- bản 42: phong cách remake, bài đăng có công thức, nhận diện kênh; bản 43: mặc định = bộ «Bếp Đong Đủ» ----
+    S("REMAKE_STYLE", "strong", "style", "Phong cách dựng lại",
       help="Nhẹ: đổi cỡ khung, bỏ thời gian chết, tua nhanh đoạn chờ, màu kênh. Mạnh: thêm điểm danh nguyên liệu, "
            "tóm tắt cuối, đảo thứ tự có luật (các bước nấu luôn đúng thứ tự).",
       options=(("off", "Tắt (dựng như bản gốc, như trước)"), ("light", "Nhẹ: đổi nhịp, khung hình, giữ thứ tự"),
                ("strong", "Mạnh: thêm đảo thứ tự có kiểm soát (nấu ăn / review)")), choices=("off", "light", "strong")),
-    S("POST_RECIPE", "0", "style", "Công thức trong bài đăng",
+    S("POST_RECIPE", "1", "style", "Công thức trong bài đăng",
       help="Nguyên liệu + cách làm; chỉ in định lượng đối chiếu được với lời gốc (cần key Gemini).",
       options=(("0", "Tắt"), ("1", "Bật (video nấu ăn)")), choices=ON_OFF),
-    S("TIPS", "off", "style", "Mẹo hay",
+    S("TIPS", "video", "style", "Mẹo hay",
       options=(("off", "Tắt"), ("post", "Trong bài đăng"), ("video", "Bài đăng + thẻ «💡 MẸO» trên video")),
       choices=("off", "post", "video")),
     S("QTY_CHECK", "strict", "style", "Định lượng không đối chiếu được",
@@ -294,25 +301,25 @@ SCHEMA: tuple[Setting, ...] = (
     S("TIME_SKIP_LABEL", "auto", "style", "Chữ ở đoạn tua nhanh",
       options=(("auto", "Tự động: «⏩ 30 PHÚT SAU» khi lời gốc có thời gian, không thì chỉ ⏩"),
                ("icon", "Chỉ biểu tượng ⏩"), ("off", "Tắt")), choices=("auto", "icon", "off")),
-    S("SHORT_VERSION", "off", "style", "Thêm bản ngắn ≤ 90 giây (Reels)",
+    S("SHORT_VERSION", "on", "style", "Thêm bản ngắn ≤ 90 giây (Reels)",
       help="Video nấu ăn dài hơn 90 giây: thêm một bản giữ các bước chính + điểm danh nguyên liệu (cần key Gemini).",
       options=(("off", "Tắt"), ("on", "Bật: ra thêm «Bản ngắn» sau bản đầy đủ")), choices=("off", "on")),
-    S("BRAND_COLOR", "", "brand", "Màu kênh", help="Mã màu #RRGGBB: chữ đang đọc của phụ đề, khung chữ, thẻ, ảnh bìa. "
-      "Trống = vàng như cũ.", validate=_brand_color),
-    S("BRAND_LOOK", "goc", "brand", "Tông màu video",
+    S("BRAND_COLOR", "#F28C28", "brand", "Màu kênh", help="Mã màu #RRGGBB: chữ đang đọc của phụ đề, khung chữ, thẻ, ảnh bìa. "
+      "Nhập 0 = vàng như cũ.", validate=_brand_color),
+    S("BRAND_LOOK", "tuoi_sang", "brand", "Tông màu video",
       options=(("goc", "Gốc (công thức màu hiện tại)"), ("am_moc", "Ấm mộc"), ("tuoi_sang", "Tươi sáng"),
                ("dien_anh", "Điện ảnh")), choices=("goc", "am_moc", "tuoi_sang", "dien_anh")),
     S("BRAND_GRAIN", "0", "brand", "Hạt phim nhẹ", help="Chỉ ở bản 1080p (720p hạt bị nén thành khối).",
       options=_ONOFF_OPTS, choices=ON_OFF),
-    S("BRAND_TAGLINE", "", "brand", "Câu dưới tên kênh (màn kết)", validate=_max_len("BRAND_TAGLINE", 60)),
-    S("BRAND_CLOSE", "", "brand", "Câu chốt đọc cuối video",
-      help="Ví dụ «Chúc cả nhà nấu ngon nha». Không kêu gọi đăng ký/theo dõi (bị bỏ qua nếu có).",
+    S("BRAND_TAGLINE", "Đong đủ, nấu là ngon", "brand", "Câu dưới tên kênh (màn kết)", help="Nhập 0 = không có.", validate=_max_len("BRAND_TAGLINE", 60)),
+    S("BRAND_CLOSE", "Đong đủ là ngon, cả nhà nấu thử nha", "brand", "Câu chốt đọc cuối video",
+      help="Ví dụ «Chúc cả nhà nấu ngon nha». Nhập 0 = không có. Không kêu gọi đăng ký/theo dõi (bị bỏ qua nếu có).",
       validate=_max_len("BRAND_CLOSE", 120)),
-    S("BRAND_SERIES", "", "brand", "Tên loạt video (ảnh bìa)", help="Ví dụ «CÔNG THỨC CHUẨN»: ảnh bìa ghi kèm số tập.",
+    S("BRAND_SERIES", "Hôm nay nấu gì", "brand", "Tên loạt video (ảnh bìa)", help="Ví dụ «CÔNG THỨC CHUẨN»: ảnh bìa ghi kèm số tập. Nhập 0 = không có.",
       validate=_max_len("BRAND_SERIES", 40)),
-    S("BRAND_STING", "1", "brand", "Âm hiệu màn kết", help="Tệp âm thanh ≤1,5 giây tải lên ở cuối trang cài đặt.",
+    S("BRAND_STING", "1", "brand", "Âm hiệu màn kết", help="Tệp âm thanh ≤1,5 giây tải lên ở cuối trang cài đặt; chưa tải thì dùng âm hiệu Bếp Đong Đủ.",
       options=_ONOFF_OPTS, choices=ON_OFF),
-    S("COVER_TEMPLATE", "goc", "brand", "Mẫu ảnh bìa",
+    S("COVER_TEMPLATE", "kenh", "brand", "Mẫu ảnh bìa",
       options=(("goc", "Gốc"), ("kenh", "Theo kênh: vạch màu kênh, logo, tên loạt + số tập")), choices=("goc", "kenh")),
     S("SOURCE_CREDIT", "0", "video", "Ghi nguồn vào nội dung đăng",
       options=(("0", "Tắt (mặc định)"), ("1", "Bật (ghi nguồn + Giọng đọc AI)")), choices=ON_OFF),
@@ -387,7 +394,8 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "ALLOWED_SOURCES",
-    "GEMINI_MODEL", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER", "ASR_VOCAB",
+    "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
+    "ASR_VOCAB",
 )
 assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê đủ mọi khoá trong SCHEMA"
 

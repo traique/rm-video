@@ -605,7 +605,7 @@ def test_piece_retry_keeps_script_and_cancel_aborts(kaggle_fakes, kaggle_on, mon
     assert n_parts >= 1 and kaggle_fakes["llm"] == n_parts          # làm lại trên Botkeep KHÔNG gọi AI thêm lần nào
     # huỷ job đang chờ Kaggle: dừng chờ ngay + gọi huỷ phiên
     calls = []
-    monkeypatch.setattr(kaggle_api, "cancel", lambda slug: calls.append(slug))
+    monkeypatch.setattr(kaggle_worker, "_cancel_session", lambda slug: calls.append(slug))
     run = kaggle_worker._watch(kaggle_worker.SLUG)
     kaggle_worker.abort()
     assert calls == [kaggle_worker.SLUG] and run["flag"]

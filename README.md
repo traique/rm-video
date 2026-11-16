@@ -404,9 +404,13 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 - **Content đăng luôn**: AI trả trọn gói tiêu đề + caption + hashtag; Telegram gắn thẳng vào caption video, web có nút "Copy content".
 - **Luật cứng trong prompt**: định lượng công thức, giá, địa chỉ, tên quán/thương hiệu trong lời thoại gốc phải giữ nguyên văn, cấm bịa/làm tròn.
 
-## ✨ Phong cách remake + công thức trong bài + nhận diện kênh (bản 42)
+## ✨ Phong cách remake + công thức trong bài + nhận diện kênh (bản 42, mặc định từ bản 43)
 
-Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. Mọi khoá mới mặc định = hành vi cũ; bật ở web.
+Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. Từ bản 43 mặc định là bộ nhận diện **«Bếp Đong Đủ»**
+(`brand/bep_dong_du/`): tên kênh, câu dưới tên, câu chốt, màu cam #F28C28, tông tươi sáng, ảnh bìa theo kênh + tên loạt
+«Hôm nay nấu gì», logo + âm hiệu (dùng khi chưa tải file riêng), dựng mạnh, công thức + mẹo trong bài, thẻ mẹo trên
+video, bản ngắn. Lần khởi động đầu sau khi cập nhật, các ô bạn chưa đổi khỏi mặc định cũ tự chuyển sang bộ này (ô đã
+chọn khác giữ nguyên). Tắt chữ của kênh: nhập `0` (tên kênh, câu dưới tên, câu chốt, tên loạt, màu).
 
 - **Đối chiếu định lượng** (`POST_RECIPE=1` hoặc `TIPS`): một lượt Gemini đọc lời gốc + ảnh ra nguyên liệu, định lượng
   kèm chỗ nghe thấy, các bước có nhãn, mẹo. MÃ kiểm từng con số: phải có trong lời gốc đúng đoạn đó (± 1 đoạn) cùng
@@ -436,6 +440,12 @@ Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. M
   - Tốc độ: dựng trên Kaggle thì AI viết lời bản ngắn TRƯỚC, hai bản dựng chung MỘT phiên (một lần chờ máy GPU, một
     lần nạp giọng, tách giọng một lần); bản đầy đủ ra 720p (đăng video thường), bản ngắn 1080p (Reels). Phiên GPU có
     h264_nvenc thì mã hoá bằng GPU (ghi chú «Mã hoá video bằng GPU»), không thì x264 như cũ (`RM_NVENC=0` để tắt).
+- **Màn kết nối thêm** (bản 43): có tên kênh và video giữ độ dài tự nhiên thì màn kết 2,2 giây được NỐI SAU video
+  (giữ khung cuối, tối đi, tên kênh + câu dưới tên), không đè lên cảnh món thành phẩm; âm hiệu vang sau câu đọc cuối.
+  Video ≤ 90 giây không bị đẩy quá 90 giây (khi đó màn kết đè như cũ); bản ngắn chừa sẵn chỗ cho màn kết.
+- **Chữ vừa khung** (bản 43): chữ hook, thẻ chữ, màn kết, tiêu đề ảnh bìa đo theo bề rộng thật của font (không đếm ký
+  tự): tự xuống dòng (tối đa 3), vẫn dài thì thu chữ; luôn chừa 5% mỗi mép. AI viết hook chữ thường, máy tự in hoa và
+  sửa chữ rơi dấu mũ / trăng / móc theo tiêu đề + lời ("GÙNG" → "GỪNG").
 - **Nhận diện kênh** (nhóm 🎨): `BRAND_COLOR` (chữ đang đọc của phụ đề, khung chữ hook, thẻ, ảnh bìa), `BRAND_LOOK`
   (ấm mộc / tươi sáng / điện ảnh; `goc` = công thức màu cũ), `BRAND_GRAIN`, `BRAND_TAGLINE` (dưới tên kênh ở màn kết),
   `BRAND_CLOSE` (câu chốt đọc cuối video; bỏ nếu là kêu gọi đăng ký), âm hiệu màn kết (tải ở cuối trang cài đặt,

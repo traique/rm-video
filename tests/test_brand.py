@@ -17,6 +17,8 @@ from rmvideo.media import ff, filtergraph, renderer
 def cfg(monkeypatch):
     for k, d in config.EDITABLE.items():
         monkeypatch.setattr(config, k, d)
+    for k, d in brand.OLD_DEFAULTS.items():      # như khi CHƯA đặt nhận diện kênh (mặc định bản 43: test_ban43.py)
+        monkeypatch.setattr(config, k, d)
     monkeypatch.setattr(config, "QUALITY", "fast")
     return monkeypatch
 

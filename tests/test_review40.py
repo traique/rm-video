@@ -35,7 +35,7 @@ def test_failed_wait_cancels_session(monkeypatch):
     def too_long(*a, **k):
         raise kaggle_api.KaggleError("Kaggle chạy quá 30 phút (QUEUED)")
     monkeypatch.setattr(kaggle_api, "wait", too_long)
-    monkeypatch.setattr(kaggle_api, "cancel", lambda slug: cancelled.append(slug))
+    monkeypatch.setattr(kaggle_worker, "_cancel_session", lambda slug: cancelled.append(slug))
     with pytest.raises(kaggle_api.KaggleError, match="quá 30 phút"):
         kaggle_worker._wait_session(kaggle_worker.SLUG_ANALYZE, 60, lambda s, t: None)
     assert cancelled == [kaggle_worker.SLUG_ANALYZE] and kaggle_worker._ABORT["run"] is None

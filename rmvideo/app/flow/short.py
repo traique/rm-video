@@ -16,7 +16,7 @@ from rmvideo.domain import recipe
 from rmvideo.media import edl
 
 REEL_MAX = 90.0
-MARGIN = 1.5            # chừa cho màn kết / làm tròn
+MARGIN = 1.5            # chừa làm tròn (màn kết nối thêm chừa riêng: brand.tail_len)
 PAD = 0.15              # chừa quanh câu
 MERGE_GAP = 0.6         # hai câu giữ cách nhau ít hơn: lấy luôn khoảng giữa (khỏi giật hình)
 HERO = 2.5              # cảnh cuối

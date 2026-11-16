@@ -258,7 +258,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  ambient_src: str = "[0:a]", speech_gate=None,
                  fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
                  ost=None, orig_audio: bool = True, bed: bool = False, teaser: dict | None = None,
-                 edit=None, side_inputs: dict | None = None, side_audio: dict | None = None) -> str:
+                 edit=None, side_inputs: dict | None = None, side_audio: dict | None = None, tail: float = 0.0) -> str:
     """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
     + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại.
     teaser: đoạn mở đầu {"iv": đầu vào hình (đã tua tới cảnh món xong), "ia": đầu vào tiếng nền của cảnh đó hoặc
@@ -308,6 +308,8 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
         v = _plan_video(plan, mode, W, H, src_w, src_h, fps, side_inputs, None)
     else:
         v = f"[0:v]{slow}fps={fps:g}," + look
+    if tail > 0:                                 # màn kết nối thêm: giữ khung cuối (phụ đề / che chữ vẫn vẽ lên)
+        v += f",tpad=stop_mode=clone:stop_duration={tail:.3f}"
     v += _cover_filter(cover_bands or [], W, H)
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ff.ASSETS_DIR}"

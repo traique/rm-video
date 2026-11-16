@@ -134,10 +134,6 @@ def status(slug: str) -> tuple:
     return str(d.get("status") or "QUEUED"), d.get("failureMessage") or ""
 
 
-def cancel(slug: str):
-    call("CancelKernelSession", {"userName": user(), "kernelSlug": slug})
-
-
 def outputs(slug: str) -> dict:
     return call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 200})
 
@@ -168,8 +164,9 @@ DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
 
-def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=time.sleep, stop=None) -> str:
-    """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ)."""
+def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=time.sleep, stop=None,
+         queue_max: float | None = None) -> str:
+    """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ / chờ máy quá queue_max giây)."""
     t0 = time.time()
     last = ""
     reported = 0.0
@@ -200,6 +197,8 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
             raise KaggleError(f"Notebook Kaggle lỗi ({st}): {why[:200]}")
         if time.time() - t0 > timeout:
             raise KaggleError(f"Kaggle chạy quá {timeout / 60:.0f} phút ({st})")
+        if queue_max is not None and "QUEUED" in up and time.time() - t0 > queue_max:
+            raise KaggleError(f"Kaggle chờ máy quá {queue_max / 60:.0f} phút")
         sleep(every)
 
 

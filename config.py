@@ -51,7 +51,7 @@ _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
 # Khai báo kiểu cho mọi khoá sửa được từ web (giá trị gán lúc chạy bởi _apply()): công cụ tĩnh (mypy, IDE) thấy được
 # tên, gõ sai tên cài đặt báo lỗi ngay. Danh sách phải khớp schema (tests/test_settings_schema.py kiểm).
-GEMINI_API_KEY: str; GEMINI_MODEL: str; OPENROUTER_API_KEY: str; OPENROUTER_MODEL: str; GROQ_API_KEY: str
+GEMINI_API_KEY: str; GEMINI_MODEL: str; GEMINI_FALLBACK_MODELS: str; OPENROUTER_API_KEY: str; OPENROUTER_MODEL: str; GROQ_API_KEY: str
 GROQ_WHISPER_MODEL: str; GEMINI_ASR_MODEL: str; ASR_ORDER: str; ASR_VOCAB: str; YTDLP_COOKIES: str; YTDLP_PROXY: str
 TTS_RATE: str; TTS_PITCH: str; TTS_PROVIDER: str; VIENEU_VOICE_FEMALE: str; VIENEU_VOICE_MALE: str; KAGGLE_USE: str
 KAGGLE_ANALYZE: str; KAGGLE_ASR: str; KAGGLE_USERNAME: str; KAGGLE_API_TOKEN: str; CAPCUT_VOICE_FEMALE: str
@@ -138,6 +138,13 @@ def hold():
         if not _HOLD["depth"] and _DEFERRED:
             globals().update(_DEFERRED)               # chỉ các khoá đã lưu trong lúc job chạy
             _DEFERRED.clear()
+
+
+def brand_text(key: str) -> str:
+    """Chữ / màu nhận diện kênh (BRAND_NAME, BRAND_TAGLINE, BRAND_CLOSE, BRAND_SERIES, BRAND_COLOR): "0" = tắt. Từ
+    bản 43 các ô này có sẵn bộ «Bếp Đong Đủ», mà ô để trống trên web nghĩa là «không đổi», nên tắt bằng số 0."""
+    v = str(globals().get(key) or "").strip()
+    return "" if v in ("0", "off", "tắt") else v
 
 
 def save_settings(updates: dict):
