@@ -28,7 +28,7 @@ from typing import Any
 
 import cache
 import config
-import core_video
+from rmvideo.media import ff, filtergraph, renderer, tts_engine, voiceplan
 import cover as cover_mod
 import ingredients
 import kaggle_worker
@@ -159,7 +159,7 @@ class Remake:
 
     async def measure(self):
         job = self.job
-        self.src_dur = src_dur = await core_video.probe_duration(self.inp)
+        self.src_dur = src_dur = await ff.probe_duration(self.inp)
         if common.auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
             job.long_mode = LongMode.FULL.value
             job.note(f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
@@ -184,7 +184,7 @@ class Remake:
         job, inp = self.job, self.inp
         self.src_hash = await asyncio.to_thread(cache.file_hash, inp)
         want_gray = bool(job.subs and job.cover)
-        has_aud = await core_video.has_audio(inp)
+        has_aud = await ff.has_audio(inp)
         why_an = analysis.analyze_remote(job, inp, self.local_only) if has_aud else "nguồn không có tiếng"
         if not why_an or job.approved:                   # bản đã duyệt: lấy kết quả lần đầu trong cache (nếu có)
             job.step = "Bóc lời + phân tích hình trên Kaggle"
@@ -205,7 +205,7 @@ class Remake:
             async def _words():
                 if not has_aud:                          # clip câm tiếng (quay màn hình, xuất -an): không có lời để bóc
                     return "", []
-                await core_video.extract_audio(inp, audio_mp3)
+                await ff.extract_audio(inp, audio_mp3)
                 return await transcribe.transcribe_segments(audio_mp3, self.title, self.desc)   # ("", []) nếu thiếu STT
             (self.text, self.raw_segs), (self.cuts, self.bands) = await asyncio.gather(
                 _words(), scenes.analyze_cached(inp, self.tmp, self.src_dur, want_gray, self.src_hash,
@@ -220,7 +220,7 @@ class Remake:
         self.cuts = [round(c * st, 2) for c in self.cuts]
         self.speech = [(a, b) for a, b, _ in self.segs]
         if self.bands:
-            y, h = core_video.band_to_output(*self.bands[0])
+            y, h = filtergraph.band_to_output(*self.bands[0])
             self.pos_y = y + h // 2
 
     def cut_promo(self):
@@ -237,7 +237,7 @@ class Remake:
         phần sẽ render; giới hạn theo SỐ GIÂY CÓ LỜI, không theo độ dài video."""
         out_dur = self.out_dur
         end = out_dur / self.stretch                       # trục thời gian của video gốc
-        win = (core_video.speech_windows([(a, min(b, end)) for a, b, _ in self.raw_segs if a < end], end)
+        win = (voiceplan.speech_windows([(a, min(b, end)) for a, b, _ in self.raw_segs if a < end], end)
                if self.raw_segs else None)
         secs = sum(b - a for a, b in win) if win is not None else end
         kim = out_dur <= SEP_MAX_VIDEO and secs <= SEP_MAX_SPEECH
@@ -350,7 +350,7 @@ class Remake:
         est_k = 1.0 if self.remote else 0.85
         est = [0.0 if sg.get("ost") == "orig" else
                prompt_engine.spoken_words(sg["text"]) / prompt_engine.words_per_sec() * est_k for sg in segs_t]
-        _, sure_long = core_video.plan_voice(est, segs_t, self.out_dur)
+        _, sure_long = voiceplan.plan_voice(est, segs_t, self.out_dur)
         if sure_long:
             self.job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
             await self.shorten(segs_t, sure_long, est)
@@ -447,9 +447,9 @@ class Remake:
         job.step = "Đọc giọng AI + phụ đề"
         voice_mp3 = os.path.join(self.tmp, "voice.mp3")
         ass = self.ass if job.subs else None
-        got_subs = await core_video.tts(job.script, voice_mp3, job.voice, ass, self.pos_y)
+        got_subs = await tts_engine.tts(job.script, voice_mp3, job.voice, ass, self.pos_y)
         # Lưới an toàn: giọng đọc xong quá sớm (provider đọc nhanh hơn dự tính) -> viết lại dài hơn 1 lần
-        voice_dur = await core_video.probe_duration(voice_mp3)
+        voice_dur = await ff.probe_duration(voice_mp3)
         if target and voice_dur < 0.72 * target:
             job.step = f"Giọng {voice_dur:.0f}s ngắn hơn video {target}s, viết lại dài hơn"
             scaled = int(target * target / max(voice_dur, 1.0) * 0.95)
@@ -458,14 +458,14 @@ class Remake:
                 job.script = pack2["script"]
                 job.post = prompt_engine.platform_post(pack2["title"], pack2["caption"], pack2["hashtags"],
                                                        common.credit_line(job))
-                got_subs = await core_video.tts(job.script, voice_mp3, job.voice, ass, self.pos_y)
+                got_subs = await tts_engine.tts(job.script, voice_mp3, job.voice, ass, self.pos_y)
         job.step = "Render (FFmpeg)"
         out = os.path.join(self.tmp, "output.mp4")
         amb_wav, gate = await self.local_ambient()
         post_title = common.post_title(job, title)
         cover_task = self.start_cover(post_title)
         notes: list = []
-        await core_video.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
+        await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
                                 self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
                                 notes=notes, teaser=self.tz)
@@ -554,7 +554,7 @@ class Remake:
         async def one(k: int, text: str):
             p = os.path.join(tmp_dir, f"clip_{segs_t[k]['i']}_{cache.key('clip', text)[:10]}.mp3")
             async with sem:
-                w = await core_video.synth_clip_cached(text, self.job.voice, p)
+                w = await tts_engine.synth_clip_cached(text, self.job.voice, p)
             return k, {"path": p, "words": w}
         return dict(await common.gather_all([one(k, t) for k, t in items]))
 

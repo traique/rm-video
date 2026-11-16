@@ -26,7 +26,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         """Tải lên một hoặc nhiều file nhạc nền (mp3/m4a/wav..., tối đa bgm.MAX_MB mỗi file). Kiểm tra đọc được nhạc."""
         _check(request)
         import bgm
-        import core_video
+        from rmvideo.media import ff
         reader = await _multipart(request)
         saved = []
         while True:
@@ -48,7 +48,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
             except ValueError as e:
                 raise web.HTTPBadRequest(text=str(e)) from None
             try:
-                dur = await core_video.probe_duration(os.path.join(bgm.DIR, fn))
+                dur = await ff.probe_duration(os.path.join(bgm.DIR, fn))
             except (RuntimeError, ValueError):
                 dur = 0.0
             if dur < 5:

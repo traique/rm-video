@@ -72,8 +72,8 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
                                   "notebook chỉ chứa được 1MB): thu nhỏ về ≤512px rồi tải lại")
         if not data.startswith(b"\x89PNG\r\n\x1a\n"):
             raise web.HTTPBadRequest(text="File không phải PNG thật")
-        import core_video
-        with open(core_video.LOGO_PATH, "wb") as f:
+        from rmvideo.media import ff
+        with open(ff.LOGO_PATH, "wb") as f:
             f.write(data)
         return web.json_response({"ok": True})
 
@@ -99,9 +99,9 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
                                 "-b:a", "96k", out], timeout=120, check=False)     # không thuộc job: huỷ job không giết
             if r.code != 0 or not os.path.exists(out):
                 raise web.HTTPBadRequest(text="Không đọc được file âm thanh: " + r.stderr[-200:])
-            import core_video
+            from rmvideo.media import ff
             try:
-                dur = await core_video.probe_duration(out)
+                dur = await ff.probe_duration(out)
             except RuntimeError as e:
                 raise web.HTTPBadRequest(text=f"Không đọc được độ dài giọng mẫu: {str(e)[-150:]}") from None
             if dur < 3:

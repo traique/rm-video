@@ -8,7 +8,7 @@ import os
 import beat
 import bgm
 import config
-import core_video
+from rmvideo.media import fetch, ff, renderer
 import kaggle_worker
 import metrics
 import prompt_engine
@@ -100,12 +100,12 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
                 return await _finish_remote(res, pre_cover)
     job.step = "Trộn nhạc nền"
     bed = os.path.join(tmp, "bed.wav")
-    await core_video.music_bed(inp, music, bed, out_dur, trim, orig, stretch)
+    await renderer.music_bed(inp, music, bed, out_dur, trim, orig, stretch)
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
     cover_task = pre_cover or start_cover(post_title)
     notes: list = []
-    await core_video.render(inp, bed, out, job.mode, render_dur, None, bands, bed, None, allow_hd=not is_long,
+    await renderer.render(inp, bed, out, job.mode, render_dur, None, bands, bed, None, allow_hd=not is_long,
                             title=post_title, tmp=tmp, stretch=stretch, notes=notes, music_bed=True)
     job.note("".join(notes))
     await finish_cover(cover_task)
@@ -122,7 +122,7 @@ async def _get_music(job: Job, tmp: str) -> str:
     if job.music_local:
         return job.music_local
     if job.music_url:
-        return await core_video.download_audio(job.music_url, tmp)
+        return await fetch.download_audio(job.music_url, tmp)
     raise RuntimeError("Chế độ này cần nhạc: gửi link (TikTok/YouTube...) hoặc file nhạc.")
 
 
@@ -134,7 +134,7 @@ async def process_music(job: Job, tmp: str, inp: str, title: str, desc: str) -> 
     if job.music_mix == "bg":
         # nhạc nền: giữ tiếng gốc, không đổi tốc độ; lấy đoạn hay nhất (điệp khúc) của bài làm nền
         job.step = "Chọn đoạn nhạc hay làm nhạc nền"
-        vid = await core_video.probe_duration(inp)
+        vid = await ff.probe_duration(inp)
         try:
             info = await asyncio.to_thread(slideshow.analyze_music, music)
             start = slideshow.choose_window(info, min(vid, max(4.0, info["duration"] - 0.5)))[0]
@@ -148,7 +148,7 @@ async def process_music(job: Job, tmp: str, inp: str, title: str, desc: str) -> 
                                               "Nhạc nền")
         if not out:
             out = os.path.join(tmp, "output.mp4")
-            await core_video.render_music(inp, music, out, job.duration, **args)
+            await renderer.render_music(inp, music, out, job.duration, **args)
     else:
         job.step = "Dò beat & khớp nhịp"
         try:
@@ -165,7 +165,7 @@ async def process_music(job: Job, tmp: str, inp: str, title: str, desc: str) -> 
                                               "Thay nhạc")
         if not out:
             out = os.path.join(tmp, "output.mp4")
-            await core_video.render_music(inp, music, out, job.duration, **sync)
+            await renderer.render_music(inp, music, out, job.duration, **sync)
     pack = await prompt_engine.generate(title, desc, "music", "", job.duration)
     job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], common.credit_line(job))
     return out

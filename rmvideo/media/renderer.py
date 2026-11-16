@@ -1,0 +1,392 @@
+"""Render video ra: chọn độ phân giải theo tốc độ máy đo được, tham số mã hoá, logo / tiêu đề / màn kết, độ to hai lượt EBU R128; trộn nhạc nền (video không lời) và thay nhạc (🎵).
+
+Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
+import json
+import logging
+import os
+import subprocess
+import time
+import config
+from rmvideo.media import ff, fetch, filtergraph, renderer, tts_engine, voiceplan  # noqa: F401
+
+
+async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float | None:
+    """Độ to tích hợp (LUFS) của nhãn [a] trong audio_fc, chỉ xét out_dur giây đầu. Lỗi/im lặng: None."""
+    try:
+        _, err = await ff._run_ffmpeg_full("-hide_banner", "-nostats", *input_args, "-filter_complex", audio_fc,
+                                         "-map", "[a]", "-t", f"{out_dur:.2f}", "-f", "null", "-")
+    except Exception as e:
+        logging.warning("Đo độ to lỗi (%s), dùng loudnorm một lượt", str(e)[:120])
+        return None
+    m = filtergraph._LUFS_RE.findall(err)
+    if not m or m[-1] == "-inf" or float(m[-1]) < -60:
+        return None
+    return float(m[-1])
+
+
+async def two_pass_loudness(fc: str, input_args: list, out_dur: float) -> str:
+    """Thay loudnorm động trong filter graph bằng hệ số cố định đo từ lượt 1 (xem trên). Không đo được thì giữ
+    nguyên fc (loudnorm một lượt như cũ). input_args: đúng các '-i' (và tuỳ chọn đầu vào) của lần render."""
+    if config.LOUDNESS_2PASS == "0" or filtergraph.LOUDNORM not in fc:
+        return fc
+    # graph có hình: phần tiếng nằm sau "[v];"; graph chỉ có tiếng (ảnh + nhạc dựng hình riêng): cả graph
+    # ebur128 KHÔNG kèm tuỳ chọn: FFmpeg 8 trên Botkeep báo "Error applying options to the filter" với
+    # framelog=quiet. Dòng tổng kết "Integrated loudness" luôn in ở mức info nên vẫn đọc được.
+    audio = (fc.split("[v];", 1)[1] if "[v];" in fc else fc).replace(filtergraph.LOUDNORM, "ebur128", 1)
+    lufs = await measure_lufs(input_args, audio, out_dur)
+    if lufs is None:
+        return fc
+    gain = max(-30.0, min(24.0, filtergraph.TARGET_LUFS - lufs))
+    logging.info("Âm lượng: bản trộn %.1f LUFS -> nhân %+.1f dB (mục tiêu %.0f LUFS)", lufs, gain, filtergraph.TARGET_LUFS)
+    return fc.replace(filtergraph.LOUDNORM, filtergraph._linear_gain_filter(gain), 1)
+
+
+# Đo trên video thật 30s 1080p, 1 lõi: dựng 1080p 75s, 720p 38s (x2.0); trong đó vibrance (đổi sang RGB) ~23s,
+# unsharp ~9s, hqdn3d ~9s, x264 ~28s. Botkeep (1.5 lõi chậm) dựng 1080p video 88s mất cỡ 20 phút -> QUALITY=balanced
+# (mặc định) ước tính trước thời gian dựng 1080p theo tốc độ đo được của CHÍNH máy này; quá RENDER_BUDGET thì ra 720p.
+SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                                  "render_speed.json")
+
+
+RENDER_BUDGET = float(os.environ.get("RENDER_BUDGET", "600") or 0)     # giây; 0 = tắt (luôn 1080p khi nguồn đủ nét)
+
+
+HD_COST = 2.0                  # 1080p tốn ~2 lần 720p
+
+
+BENCH_FACTOR = 1.2             # bài đo testsrc2 nhanh hơn video thật ~1.2 lần (2.1 so với 2.5 giây/giây trên 1 lõi)
+
+
+def render_speed() -> float | None:
+    """Số giây máy này cần để dựng 1 giây video 1080p (chế độ nấu ăn, QUALITY=balanced); chưa đo thì None."""
+    try:
+        with open(SPEED_FILE, encoding="utf-8") as f:
+            v = float(json.load(f)["sec_per_sec_1080"])
+        return v if v > 0 else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def record_render_speed(elapsed: float, out_dur: float, H: int, source: str = "render") -> float | None:
+    """Ghi tốc độ dựng thật (đổi về 1080p). Lần dựng thật đầu tiên thay hẳn số của bài đo; sau đó lấy trung bình."""
+    if elapsed <= 0 or out_dur <= 0 or (out_dur < 3 and source != "bench"):    # video quá ngắn: số đo nhiễu
+        return None
+    s = elapsed / out_dur * (1.0 if H >= 1920 else HD_COST)
+    try:
+        with open(SPEED_FILE, encoding="utf-8") as f:
+            prev = json.load(f)
+    except (OSError, ValueError):
+        prev = {}
+    old = render_speed()
+    new = s if old is None or source == "bench" or prev.get("source") == "bench" else 0.5 * old + 0.5 * s
+    try:
+        with open(SPEED_FILE, "w", encoding="utf-8") as f:
+            json.dump({"sec_per_sec_1080": round(new, 3), "source": source, "at": int(time.time())}, f)
+    except OSError:
+        pass
+    return new
+
+
+def render_benchmark_sync(seconds: int = 3) -> float | None:
+    """Đo nhanh lúc khởi động (chỉ khi chưa có số đo): dựng `seconds` giây 1080p tổng hợp qua đúng chuỗi lọc nấu ăn +
+    x264 veryfast. Trả giây máy / giây video (đã quy đổi ra video thật)."""
+    t0 = time.time()
+    try:
+        r = subprocess.run(["ffmpeg", "-v", "error", *ff.thread_args(), "-f", "lavfi", "-i",
+                            f"testsrc2=s=1080x1920:r=30:d={seconds}", "-vf", filtergraph.look_chain("cook", 1080, 1920, 1080, 1920),
+                            "-threads", str(ff.ffmpeg_threads()), "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                            "-pix_fmt", "yuv420p", "-an", "-f", "null", "-"], capture_output=True, timeout=900)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    return record_render_speed((time.time() - t0) * BENCH_FACTOR, seconds, 1920, source="bench")
+
+
+def output_size(src_h: int, allow_hd: bool, out_dur: float, notes: list | None = None) -> tuple:
+    """(W, H) đầu ra. 1080p khi nguồn đủ nét (>=1600px), trừ khi: QUALITY=fast (luôn 720p, như chế độ 📸), hoặc
+    QUALITY=balanced mà ước tính dựng 1080p trên máy này quá RENDER_BUDGET giây (máy yếu: 720p nhanh gấp đôi)."""
+    if not (config.OUTPUT_HD and allow_hd and src_h >= 1600):
+        return 720, 1280
+    if config.QUALITY == "fast":
+        return 720, 1280
+    sp = render_speed()
+    if config.QUALITY == "balanced" and RENDER_BUDGET > 0 and sp and sp * out_dur > RENDER_BUDGET:
+        est = sp * out_dur
+        logging.info("Máy chậm (%.1f giây máy / giây video 1080p): 1080p ước tính %.0f phút > %.0f phút -> xuất 720p",
+                     sp, est / 60, RENDER_BUDGET / 60)
+        if notes is not None:
+            notes.append(f"ℹ️ Máy chủ chậm: bản 1080p ước tính mất ~{est / 60:.0f} phút dựng nên bot xuất 720p "
+                         f"(~{est / HD_COST / 60:.0f} phút). Muốn luôn 1080p: Cài đặt → Chất lượng = Chuẩn TVC. ")
+        return 720, 1280
+    return 1080, 1920
+
+
+def encode_args(H: int, fps: float = 30.0) -> list:
+    """Thông số x264/AAC theo QUALITY và độ phân giải. high = chuẩn TVC: preset medium, crf 18,
+    1080p ~10 Mbps; balanced = veryfast/crf 20; fast = superfast/crf 23. Luôn: High 4.1, bt709,
+    GOP 2s (60 khung) cho phát trực tuyến, AAC 192k 48 kHz."""
+    q = config.QUALITY
+    preset, crf = {"fast": ("superfast", 22), "high": ("medium", 18)}.get(q, ("veryfast", 20))
+    if H >= 1920:
+        maxrate, buf = {"fast": ("5000k", "8000k"), "high": ("12000k", "20000k")}.get(q, ("9000k", "14000k"))
+    else:
+        maxrate, buf = {"fast": ("2500k", "4000k"), "high": ("6000k", "10000k")}.get(q, ("4500k", "7000k"))
+    # -threads ở đây là luồng của bộ mã hoá x264 (tuỳ chọn đầu ra); để mặc định x264 tự lấy theo số lõi MÁY CHỦ
+    # (container 1.5 vCPU vẫn thấy hàng chục lõi -> tốn RAM lookahead, tranh CPU)
+    return ["-threads", str(ff.ffmpeg_threads()),
+            "-c:v", "libx264", "-preset", preset, "-crf", str(crf), "-maxrate", maxrate, "-bufsize", buf,
+            "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p", "-g", str(round(2 * fps)), "-keyint_min", str(round(2 * fps)),
+            "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709",
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart"]
+
+
+def _wrap(text: str, width: int) -> str:
+    """Xuống dòng tiêu đề cho vừa màn hình dọc (tối đa 3 dòng), các dòng dài gần bằng nhau: ngắt tham lam ra
+    "CÁ KÈO GIÒN KHÔNG NHẢY" / "CHẢO" (một dòng cụt) — giờ ra "CÁ KÈO GIÒN" / "KHÔNG NHẢY CHẢO"."""
+    words = text.split()
+    if not words:
+        return ""
+    n = min(3, max(1, -(-len(text) // width)))
+    while True:
+        target, lines, cur = len(text) / n, [], ""
+        for w in words:
+            if cur and (len(cur) + 1 + len(w) > width
+                        or (len(lines) < n - 1 and abs(len(cur) - target) < abs(len(cur) + 1 + len(w) - target))):
+                lines.append(cur)
+                cur = w
+            else:
+                cur = (cur + " " + w).strip()
+        lines.append(cur)
+        if len(lines) <= n or n >= 3:
+            return "\n".join(lines[:3])
+        n += 1
+
+
+async def source_info(path: str) -> tuple:
+    """(rộng, cao, fps) của luồng hình; fps lấy avg_frame_rate (đúng cả với video tốc độ khung thay đổi)."""
+    out = await ff._run_ffmpeg("-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=width,height,avg_frame_rate,r_frame_rate:stream_side_data=rotation",
+                            "-of", "default=nw=1", path, tool="ffprobe")
+    d = dict(line.split("=", 1) for line in out.strip().splitlines() if "=" in line)
+    try:
+        rot = int(round(float(d.get("rotation", 0) or 0)))   # ffmpeg tự xoay khi giải mã: kích thước thật đổi chiều
+    except ValueError:
+        rot = 0
+
+    def _rate(s):
+        try:
+            a, b = s.split("/")
+            return float(a) / float(b) if float(b) else 0.0
+        except Exception:
+            return 0.0
+    fps = _rate(d.get("avg_frame_rate", "")) or _rate(d.get("r_frame_rate", ""))
+    try:
+        w, h = int(d.get("width", 0)), int(d.get("height", 0))
+    except ValueError:
+        return 0, 0, fps
+    return (h, w, fps) if abs(rot) % 180 == 90 else (w, h, fps)
+
+
+def write_lines(text: str, out_dir: str, prefix: str) -> list:
+    """Mỗi dòng chữ một file (drawtext đọc textfile: khỏi phải thoát ký tự đặc biệt)."""
+    files = []
+    for i, line in enumerate([ln for ln in (text or "").split("\n") if ln.strip()]):
+        p = os.path.join(out_dir, f"{prefix}_{i}.txt")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(line.strip())
+        files.append(p)
+    return files
+
+
+def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: str) -> str:
+    """Khối chữ nhiều dòng, MỖI DÒNG căn giữa. Thay cho text_align=center (chỉ có từ FFmpeg 6.1; Botkeep dùng ffmpeg
+    5.1 của Debian 12 nên cả lệnh render hỏng — bài tự kiểm tra lúc khởi động bắt được)."""
+    return "".join(f",drawtext=fontfile={ff.FONT_PATH}:textfile={p}:expansion=none:fontsize={fontsize}:{style}:"
+                   f"x=(w-text_w)/2:y={y_top}+{i * line_h}" for i, p in enumerate(files))
+
+
+def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
+                  logo_idx: int | None, title_end: float | None = None) -> str:
+    """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh).
+    title_end: có đoạn mở đầu thì chữ hook hiện NGAY khung đầu (khung đầu thường thành ảnh bìa) tới hết đoạn đó."""
+    k = H / 1280
+    f = ""
+    if title_files:
+        fs, pad = int(50 * k), int(16 * k)
+        lh = fs + 2 * pad + int(6 * k)
+        if title_end:
+            e = f"{title_end:.2f}"
+            when = f"enable='lte(t,{e})':alpha='if(gt(t,{e}-0.4),({e}-t)/0.4,1)'"
+        else:
+            when = "enable='between(t,0.3,3.3)':alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'"
+        f += drawtext_lines(
+            title_files, fs, f"h*0.36-{len(title_files) * lh // 2}", lh,
+            f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={pad}:"
+            + when)
+    if outro_file and out_dur > 6:
+        st = out_dur - 2.2
+        f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
+              f",drawtext=fontfile={ff.FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={int(62 * k)}:fontcolor=white:"
+              f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
+              f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'")
+        # bỏ dòng "Theo dõi để xem thêm": không kêu gọi đăng ký/theo dõi kênh ở cuối video (yêu cầu 13/11/2026)
+    if logo_idx is not None:
+        f += (f"[vb];[{logo_idx}:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
+              f"[vb][lg]overlay=W-w-{int(24 * k)}:{int(24 * k)}")
+    return f
+
+
+async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
+                 duration: float = 0, ass_path: str | None = None, cover_bands=None,
+                 ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
+                 title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
+                 music_bed: bool = False, teaser: dict | None = None):
+    """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
+    [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
+    duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
+    stretch: làm chậm hình + tiếng nền (1.4 = dài thêm 40%) NGAY TRONG lần mã hoá này; mọi mốc thời gian
+    (phụ đề, cổng tiếng nền, giọng) là theo trục thời gian ĐÃ làm chậm.
+    Video nguồn câm tiếng vẫn chạy được chế độ cook (tự bỏ lớp tiếng nền).
+    notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p).
+    teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29)."""
+    t_start = time.time()
+    T = float(teaser["dur"]) if teaser and teaser.get("dur") else 0.0
+    vid_dur = await ff.probe_duration(input_mp4) * stretch + T
+    out_dur = vid_dur if duration <= 0 else min(duration, vid_dur)
+    out_dur = min(out_dur, config.HARD_MAX)       # trần tuyệt đối; giới hạn theo chế độ do caller truyền vào
+    ambient = await ff.has_audio(input_mp4)
+    # nguồn đủ nét (>=1600px) thì xuất 1080x1920, không thì 720x1280 (không phóng to giả nét)
+    src_w, src_h, src_fps = await source_info(input_mp4)
+    W, H = output_size(src_h, allow_hd, out_dur, notes)
+    fps = filtergraph.out_fps(src_fps)
+    logging.info("Render %dx%d %gfps | nguồn %dx%d %.2ffps%s | chất lượng %s", W, H, fps, src_w, src_h, src_fps,
+                 " (nguồn <1600px nên ra 720p; gửi link TikTok để bot lấy bản HD)" if src_h < 1600 else "", config.QUALITY)
+    # thương hiệu: tiêu đề mở đầu, màn kết, logo (tất cả tùy chọn trong Cài đặt)
+    tmp = tmp or os.path.dirname(output_mp4)
+    title_files, outro_file = [], None
+    if title and config.BRAND_INTRO != "0":
+        title_files = write_lines(_wrap(title.strip(), 22), tmp, "title")
+    if config.BRAND_NAME.strip():
+        outro_file = os.path.join(tmp, "outro.txt")
+        open(outro_file, "w", encoding="utf-8").write(config.BRAND_NAME.strip())
+    use_logo = config.BRAND_LOGO != "0" and os.path.exists(ff.LOGO_PATH)
+    # đầu vào: 0 video, 1 giọng, [tiếng nền], [tiếng nền đoạn mở đầu], [logo], [hình đoạn mở đầu]. Các đầu vào TIẾNG
+    # đứng trước để lượt đo âm lượng (two_pass_loudness, chỉ có các đầu vào tiếng) đánh số giống hệt.
+    audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
+    tz, extra_in = None, []
+    if T:
+        a0 = max(0.0, float(teaser.get("a") or 0.0))
+        tz = {"dur": T, "still": bool(teaser.get("still")), "ia": None}
+        if ambient_wav:
+            tz["ia"] = audio_in.count("-i")
+            audio_in += ["-ss", f"{a0:.3f}", "-t", f"{T:.3f}", "-i", ambient_wav]
+        tz["iv"] = audio_in.count("-i") + (1 if use_logo else 0)
+        extra_in = ["-ss", f"{a0:.3f}", "-t", "1" if tz["still"] else f"{T + 0.5:.3f}", "-i", input_mp4]
+    logo_idx = audio_in.count("-i") if use_logo else None
+    fc = filtergraph.build_filter(mode, out_dur, ambient or bool(ambient_wav), ass_path, cover_bands, W, H,
+                      "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
+                      fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
+                      bed=bool(music_bed and ambient_wav), teaser=tz)
+    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None)
+    # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
+    fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
+    fc = fc.replace("[v];", brand + fades + "[v];", 1)
+    fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
+    fc = await two_pass_loudness(fc, audio_in, out_dur)
+    await ff._run_ffmpeg(
+        "-y", *ff.thread_args(),
+        *audio_in,
+        *(["-i", ff.LOGO_PATH] if use_logo else []),
+        *extra_in,
+        "-filter_complex", fc,
+        "-map", "[v]", "-map", "[a]",
+        *encode_args(H, fps),
+        "-t", f"{out_dur:.2f}",
+        output_mp4,
+    )
+    if mode == "cook" and config.QUALITY == "balanced":      # số đo cho lần quyết định 1080p/720p sau
+        sp = record_render_speed(time.time() - t_start, out_dur, H)
+        logging.info("Dựng %dp %.0fs video mất %.0fs (máy: %.1f giây / giây video 1080p)", H * 9 // 16, out_dur,
+                     time.time() - t_start, sp or 0)
+    return out_dur
+
+
+MUSIC_BG_LEVEL = 0.32          # nhạc nền ≈ -10 dB so với tiếng gốc, tự hạ thêm khi tiếng gốc to (sidechain)
+
+
+BED_ORIG_LOW = 0.25             # BGM_ORIG=low: tiếng gốc (xèo xèo, tiếng dao...) ≈ -12 dB dưới nhạc nền
+
+
+async def music_bed(input_mp4: str, music_path: str | None, out_wav: str, out_dur: float, trim: float = 0.0,
+                    orig: str = "low", stretch: float = 1.0) -> str:
+    """Video KHÔNG LỜI: lớp tiếng = nhạc nền mới (từ giây `trim`, lặp nếu ngắn, vào 1s / ra 2s) + tiếng gốc theo
+    BGM_ORIG: low = nhạc là chính, tiếng gốc nhỏ (≈ -12 dB, vẫn nghe tiếng xèo xèo); keep = tiếng gốc là chính, nhạc
+    nằm dưới và tự hạ khi tiếng gốc to; off = chỉ nhạc mới. Không có nhạc thì chỉ tiếng gốc. Tiếng gốc chậm theo
+    hình khi kéo dài video; nhạc giữ nguyên nhịp."""
+    has_orig = orig != "off" and await ff.has_audio(input_mp4)
+    slow = f"atempo={1 / stretch:.4f}," if abs(stretch - 1) > 1e-3 else ""
+    og = f"[0:a]aformat=sample_rates=44100:channel_layouts=stereo,{slow}apad=whole_dur={out_dur:.2f}"
+    ins = ["-i", input_mp4]
+    if music_path:
+        ins += ["-stream_loop", "-1", "-ss", f"{max(0.0, trim):.3f}", "-i", music_path]
+        mus = (f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:{out_dur:.2f},asetpts=PTS-STARTPTS,"
+               f"afade=t=in:st=0:d=1.0,afade=t=out:st={max(0.0, out_dur - 2.0):.2f}:d=2.0")
+        if not has_orig:
+            fc = f"{mus},apad=whole_dur={out_dur:.2f}[a]"
+        elif orig == "keep":
+            fc = (f"{mus},volume={MUSIC_BG_LEVEL}[mus];{og},asplit=2[og][key];"
+                  "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
+                  "[og][musd]amix=inputs=2:duration=first:normalize=0[a]")
+        else:
+            fc = f"{mus}[mus];{og},volume={BED_ORIG_LOW}[og];[og][mus]amix=inputs=2:duration=first:normalize=0[a]"
+    elif has_orig or await ff.has_audio(input_mp4):
+        fc = f"{og}[a]"
+    else:
+        fc = f"anullsrc=r=44100:cl=stereo,atrim=0:{out_dur:.2f}[a]"
+    await ff._run_ffmpeg("-y", *ins, "-filter_complex", fc, "-map", "[a]", "-t", f"{out_dur:.2f}",
+                      "-ar", "44100", "-ac", "2", out_wav)
+    return out_wav
+
+
+async def render_music(input_mp4: str, music_path: str, output_mp4: str,
+                       duration: int = 0, speed: float = 1.0,
+                       trim: float = 0.0, delay: float = 0.0, keep_orig: bool = False):
+    """Chế độ nhảy/nhạc: bỏ tiếng gốc, lồng nhạc mới, video đổi tốc độ nhẹ cho khớp beat.
+    keep_orig=True (nhạc nền): GIỮ tiếng gốc, nhạc mới nằm dưới (tự hạ khi tiếng gốc to), không đổi tốc độ video;
+    nhạc ngắn hơn video thì lặp lại."""
+    vid_dur = await ff.probe_duration(input_mp4)
+    orig = keep_orig and await ff.has_audio(input_mp4)
+    music_len = 1e9 if keep_orig else max(0.0, await ff.probe_duration(music_path) - trim) + delay
+    out_dur = min(vid_dur / speed, music_len, config.HARD_MAX)
+    if duration > 0:
+        out_dur = min(out_dur, duration)
+    a = "[1:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+    if delay > 0.01:
+        ms = int(delay * 1000)
+        a += f"adelay={ms}|{ms},"
+    if orig:
+        # tiếng gốc đệm im lặng tới hết video: amix=duration=first lấy độ dài tiếng gốc, video có tiếng gốc ngắn hơn
+        # hình thì trước đây nhạc nền tắt theo
+        a += (f"volume={MUSIC_BG_LEVEL}[mus];[0:a]aformat=sample_rates=44100:channel_layouts=stereo,"
+              f"apad=whole_dur={out_dur:.2f},asplit=2[og][key];"
+              "[mus][key]sidechaincompress=threshold=0.05:ratio=4:attack=40:release=350[musd];"
+              "[og][musd]amix=inputs=2:duration=first:normalize=0,")
+    a += (f"{filtergraph.LOUDNORM},{filtergraph.AOUT},"                            # nhạc chuẩn -14 LUFS như nền tảng nhạc
+          f"afade=t=in:st=0:d={0.4 if keep_orig else 0.01},afade=t=out:st={max(0.0, out_dur - 0.8):.2f}:d=0.8,"
+          f"apad=whole_dur={out_dur:.2f}[a]")
+    v = ("[0:v]crop=in_w*0.96:in_h*0.96,"
+         "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,"
+         f"setpts=PTS/{speed:.4f},fps=30,hqdn3d=1.2:1.2:3:3,eq=contrast=1.05:brightness=0.012:saturation=1.04,vibrance=intensity=0.12,cas=strength=0.5[v];")
+    audio_in = ["-i", input_mp4, *(["-stream_loop", "-1"] if keep_orig else []), "-ss", f"{trim:.3f}", "-i", music_path]
+    fc = await two_pass_loudness(v + a, audio_in, out_dur)
+    await ff._run_ffmpeg(
+        "-y", *ff.thread_args(),
+        *audio_in,
+        "-filter_complex", fc,
+        "-map", "[v]", "-map", "[a]",
+        *encode_args(1280),
+        "-t", f"{out_dur:.2f}",
+        output_mp4,
+    )
+    return out_dur

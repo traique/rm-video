@@ -5,7 +5,7 @@ import asyncio
 import logging
 
 import config
-import core_video
+from rmvideo.media import filtergraph
 import cover as cover_mod
 import scenes
 
@@ -28,10 +28,10 @@ async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: lis
     win = cover_mod.opening_window(src_dur)
     if m["opens_with_dish"] or m["t"] < win:          # khung đẹp nhất nằm ngay phần mở đầu cũng vậy
         return None, m, "video gốc đã mở đầu bằng món"
-    T = core_video.TEASER_DUR
+    T = filtergraph.TEASER_DUR
     near = await scenes.cuts_near(inp, m["t"] - T - 0.5, min(end, m["t"] + T + 0.5))
     known = {c for c in cuts if abs(c - m["t"]) <= T + 1}
-    start, still = core_video.teaser_window(m["t"], sorted(set(near) | known), end, T)
+    start, still = filtergraph.teaser_window(m["t"], sorted(set(near) | known), end, T)
     # lưới an toàn không cần AI: phần mở đầu video gốc dùng lại ĐÚNG cảnh này (thường gặp: chiếu trước cảnh cuối) ->
     # chiếu thêm đoạn mở đầu sẽ lặp y hệt (video cá kèo 13/11/2026: giây 3.5 giống cảnh giây 209.5 tới 0.96)
     try:

@@ -282,10 +282,10 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         _check(request)
         url = await _guard((request.query.get("url") or "").strip())
         import tempfile
-        import core_video
+        from rmvideo.media import fetch
         try:
             with tempfile.TemporaryDirectory() as td:
-                d = await core_video.probe_formats(url, td)
+                d = await fetch.probe_formats(url, td)
             return web.json_response(d)
         except Exception as e:
             return web.json_response({"error": str(e)})

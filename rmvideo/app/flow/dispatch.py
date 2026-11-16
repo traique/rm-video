@@ -8,7 +8,7 @@ import asyncio
 import os
 
 import config
-import core_video
+from rmvideo.media import fetch, ff
 import state
 from queue_manager import Job
 from rmvideo.app.flow import common, delivery, long_video, photo
@@ -61,14 +61,14 @@ async def acquire(job: Job, tmp: str) -> tuple:
 
         def _pct(p, lbl=lbl):
             job.step = f"Tải {lbl}... {p}%"
-        inp, title = await core_video.download_format(job.url, tmp, job.quality, _pct)
+        inp, title = await fetch.download_format(job.url, tmp, job.quality, _pct)
         return inp, title, ""
     if job.mode == Mode.DOWNLOAD:
         job.step = "Tải video gốc (không logo)"
-        inp, title, desc, job.source_meta = await core_video.download(job.url, tmp, max_duration=600)
+        inp, title, desc, job.source_meta = await fetch.download(job.url, tmp, max_duration=600)
         return inp, title, desc
     job.step = "Tải video (yt-dlp)"
-    inp, title, desc, job.source_meta = await core_video.download(
+    inp, title, desc, job.source_meta = await fetch.download(
         job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == LongMode.FULL or common.auto_full(job)
         else config.MAX_DURATION)
     common.check_source_allowed(job)
@@ -81,8 +81,8 @@ async def finish_download(job: Job, tmp: str, inp: str, title: str) -> str:
         out = inp
     else:
         out = os.path.join(tmp, "output.mp4")
-        await core_video.remux(inp, out)
-    dur = await core_video.probe_duration(out)
+        await ff.remux(inp, out)
+    dur = await ff.probe_duration(out)
     job.script = f"Tải xong: {dur:.0f}s, {os.path.getsize(out) // 1024 // 1024}MB"
     job.post = title or ""
     return out

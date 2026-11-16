@@ -17,7 +17,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-import core_video
+from rmvideo.media import filtergraph, renderer, voiceplan
 import subs as subs_mod
 
 # items [(chỉ số đoạn, lời)] + thư mục tạm -> {chỉ số: {"path": file giọng, "words": mốc từng từ | None}}
@@ -58,7 +58,7 @@ def spoken_items(segs: Sequence[dict], idx: Sequence[int] | None = None) -> list
 
 async def _durations(clips: Sequence[dict]) -> list[float]:
     async def one(c: dict) -> float:
-        return await core_video.speech_duration(c["path"], c.get("words")) if c.get("path") else 0.0
+        return await voiceplan.speech_duration(c["path"], c.get("words")) if c.get("path") else 0.0
     return list(await asyncio.gather(*[one(c) for c in clips]))
 
 
@@ -77,7 +77,7 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     t["tts"] = round(time.time() - t0, 1)
     clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
     durs = await _durations(clips)
-    plan, too_long = core_video.plan_voice(durs, segs, out_dur)
+    plan, too_long = voiceplan.plan_voice(durs, segs, out_dur)
     if too_long and shorten is not None:                    # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
         on_step(f"Rút gọn {len(too_long)} đoạn quá dài")
         changed = await shorten(too_long, durs)
@@ -87,12 +87,12 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
                 clips[k] = redo.get(k) or {"path": None, "words": []}
             for k, d in zip(changed, await _durations([clips[k] for k in changed])):
                 durs[k] = d
-        plan, too_long = core_video.plan_voice(durs, segs, out_dur)
+        plan, too_long = voiceplan.plan_voice(durs, segs, out_dur)
     voice_track = os.path.join(tmp, "voice.wav")
-    await core_video.compose_voice(clips, plan, voice_track, out_dur)
+    await voiceplan.compose_voice(clips, plan, voice_track, out_dur)
     srt, ass = "", None
     if subs:
-        words = await core_video.words_for_track(clips, plan, voice_track, core_video.subtitle_texts(segs, teaser))
+        words = await voiceplan.words_for_track(clips, plan, voice_track, filtergraph.subtitle_texts(segs, teaser))
         if words:
             srt = subs_mod.to_srt(words)
             ass = os.path.join(tmp, "subs.ass")
@@ -106,8 +106,8 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     out = os.path.join(tmp, "output.mp4")
     notes: list = []
     t0 = time.time()
-    await core_video.render(inp, voice_track, out, mode, render_dur, ass, bands, amb, gate, allow_hd=allow_hd,
-                            title=title, tmp=tmp, stretch=stretch, ost=core_video.ost_windows(segs, out_dur),
+    await renderer.render(inp, voice_track, out, mode, render_dur, ass, bands, amb, gate, allow_hd=allow_hd,
+                            title=title, tmp=tmp, stretch=stretch, ost=filtergraph.ost_windows(segs, out_dur),
                             notes=notes, teaser=teaser)
     t["render"] = round(time.time() - t0, 1)
     return Assembled(out, plan, too_long, srt, amb, clips, notes, t)

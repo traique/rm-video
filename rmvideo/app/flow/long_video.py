@@ -8,7 +8,7 @@ import os
 import shutil
 
 import config
-import core_video
+from rmvideo.media import fetch, ff
 import highlights
 import kaggle_worker
 import metrics
@@ -31,7 +31,7 @@ async def _long_source(job: Job, tmp: str, what: str) -> tuple:
         await state.bot.download(job.tg_file_id, destination=src)
         return src, job.title_hint, ""
     job.step = what
-    src, title, desc, job.source_meta = await core_video.download(job.url, tmp, max_duration=config.SPLIT_MAX)
+    src, title, desc, job.source_meta = await fetch.download(job.url, tmp, max_duration=config.SPLIT_MAX)
     common.check_source_allowed(job)
     return src, title, desc
 
@@ -76,8 +76,8 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
         os.makedirs(part_dir, exist_ok=True)
         piece = os.path.join(part_dir, "piece.mp4")
         job.step = f"{label}: cắt {a:.0f}s-{b:.0f}s"
-        copy = core_video.is_keyframe(a, kfs)
-        how = await core_video.cut(src, piece, a, b, copy=copy)
+        copy = ff.is_keyframe(a, kfs)
+        how = await ff.cut(src, piece, a, b, copy=copy)
         logging.info("%s: cắt %.1f-%.1fs (%s)", label, a, b, "chép luồng" if how == "copy" else "mã hoá lại")
         # long_mode="full": làm TRỌN phần đã cắt (split90 có phần tới 112s; trước đây không có Kaggle thì bị cắt còn 90s)
         sub = job_factory.piece(job, piece, f"{pc.get('title') or title} ({label})",
@@ -147,7 +147,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
 
 def _even_pieces(dur: float, part_len: int, cuts: list, sil: list, kfs: list) -> list:
     bounds = scenes.split_points(dur, part_len, cuts, sil)
-    bounds = core_video.snap_to_keyframes(bounds, kfs)        # cắt đúng khung khoá -> chép luồng, không mã hoá lại
+    bounds = ff.snap_to_keyframes(bounds, kfs)        # cắt đúng khung khoá -> chép luồng, không mã hoá lại
     n = len(bounds) - 1
     return [{"a": bounds[i], "b": bounds[i + 1], "label": f"Phần {i + 1}/{n}"} for i in range(n)]
 
@@ -157,10 +157,10 @@ async def process_split(job: Job, tmp: str):
     remake từng phần, xong phần nào giao phần đó."""
     part_len = 90 if job.long_mode == "split90" else 60
     src, title, _ = await _long_source(job, tmp, "Tải video dài")
-    dur = min(await core_video.probe_duration(src), config.SPLIT_MAX)
+    dur = min(await ff.probe_duration(src), config.SPLIT_MAX)
     job.step = "Tìm điểm cắt (chỗ ngưng nói + chuyển cảnh)"
-    kfs = await core_video.keyframe_times(src)
-    pieces = _even_pieces(dur, part_len, await scenes.detect_cuts(src), await core_video.silences(src), kfs)
+    kfs = await ff.keyframe_times(src)
+    pieces = _even_pieces(dur, part_len, await scenes.detect_cuts(src), await ff.silences(src), kfs)
     ok, fails = await _remake_pieces(job, tmp, src, title, pieces, kfs)
     n = len(pieces)
     job.script = f"Đã xong {ok}/{n} phần (mỗi phần ~{part_len}s, cắt tại chỗ ngưng nói/chuyển cảnh)."
@@ -192,30 +192,30 @@ async def process_highlights(job: Job, tmp: str):
     """Chế độ ✨: AI chấm điểm và chọn tối đa 3 đoạn hay nhất (30-90s, trọn ý) của video dài, remake từng đoạn,
     đoạn điểm cao giao trước. Video ít lời / AI lỗi: quay về cắt phần 60s như chế độ ✂️ (có báo)."""
     src, title, desc = await _long_source(job, tmp, "Tải video dài")
-    dur = min(await core_video.probe_duration(src), config.SPLIT_MAX)
-    kfs = await core_video.keyframe_times(src)
+    dur = min(await ff.probe_duration(src), config.SPLIT_MAX)
+    kfs = await ff.keyframe_times(src)
     pieces = job.pieces                                 # đã chọn ở lần chạy trước (bot khởi động lại): giữ nguyên
     note = ""
     if not pieces:
         job.step = "Bóc lời toàn bộ video + dò cảnh"
         audio = os.path.join(tmp, "audio_full.mp3")
-        has_aud = await core_video.has_audio(src)
+        has_aud = await ff.has_audio(src)
 
         async def _words():
             if not has_aud:
                 return "", []
-            await core_video.extract_audio(src, audio, max_dur=dur)
+            await ff.extract_audio(src, audio, max_dur=dur)
             return await transcribe.transcribe_segments(audio, title, desc)
 
         async def _sil():
-            return await core_video.silences(src) if has_aud else []
+            return await ff.silences(src) if has_aud else []
         (_, segs), (cuts, images, img_t), sil = await asyncio.gather(_words(), _highlight_images(src, tmp, dur), _sil())
         job.step = f"Chấm điểm đoạn hay (AI){' + xem ' + str(len(images)) + ' ảnh' if images else ''}"
         clips = await highlights.choose(title, desc, dur, segs, cuts, sil, images, img_t)
         if clips:
             n = len(clips)
             for k, c in enumerate(clips):
-                _, a, b, _ = core_video.snap_to_keyframes([0.0, c["start"], c["end"], dur + 1.0], kfs)
+                _, a, b, _ = ff.snap_to_keyframes([0.0, c["start"], c["end"], dur + 1.0], kfs)
                 pieces.append({"a": a, "b": b, "label": f"Đoạn hay {k + 1}/{n}", "title": c["title"] or title,
                                "note": f"⭐ {c['score']}/10 · {c['title']}" + (f" — {c['reason']}" if c["reason"] else "")})
         else:
