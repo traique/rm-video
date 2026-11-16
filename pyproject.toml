@@ -27,3 +27,9 @@ follow_imports = "silent"         # mã cũ ở gốc chỉ dùng làm kiểu th
 [[tool.mypy.overrides]]
 module = ["config", "queue_manager", "core_video", "pipeline", "kaggle_worker", "kaggle_api", "scenes", "prompt_engine"]
 disallow_untyped_defs = false
+
+# Mã điều phối chuyển nguyên văn từ pipeline.py (Phase 4): dict tự do chưa có kiểu, kiểm dần khi tách tiếp.
+[[tool.mypy.overrides]]
+module = ["rmvideo.app.flow.*"]
+disallow_untyped_defs = false
+ignore_errors = true

@@ -1638,7 +1638,7 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
 
 
 async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
-                 duration: int = 0, ass_path: str | None = None, cover_bands=None,
+                 duration: float = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
                  music_bed: bool = False, teaser: dict | None = None):

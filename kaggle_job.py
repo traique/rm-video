@@ -145,17 +145,14 @@ def make_synth(spec: dict, ref_path: str | None):
 # ---------------- các loại việc ----------------
 
 async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
-    """Remake: phần nặng giống hệt đường chạy trên Botkeep (pipeline._process) từ sau khi lời đã chốt, trừ bước AI rút
-    gọn (không có key ở đây; Botkeep đã rút gọn trước theo tốc độ của giọng): đoạn còn dài thì nói nhanh hơn trong giới
-    hạn của plan_voice."""
+    """Remake: CÙNG hàm dựng với đường Botkeep (rmvideo/app/assemble.py), trừ bước AI rút gọn (không có key ở đây;
+    Botkeep đã rút gọn trước theo tốc độ của giọng): đoạn còn dài thì nói nhanh hơn trong giới hạn của plan_voice."""
     import config
-    import core_video
-    import subs as subs_mod
     import vocal_sep
+    from rmvideo.app.assemble import assemble
     t = {}
     segs = spec["segments"]
     out_dur = float(spec["out_dur"])
-    items = [(k, s["text"]) for k, s in enumerate(segs) if s.get("ost") != "orig" and (s.get("text") or "").strip()]
     sep_task = None
     reused = mounted_ambient(spec.get("amb_token", "")) if spec.get("mode") == "cook" else None
     if reused:
@@ -177,41 +174,27 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             t["sep"] = round(time.time() - t0, 1)
             return p if ok else None
         sep_task = asyncio.create_task(_sep())
-    try:
-        t0 = time.time()
-        voiced = await synth(items, tmp)
-        t["tts"] = round(time.time() - t0, 1)
-        clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
-        durs = [await core_video.speech_duration(c["path"], c.get("words")) if c["path"] else 0.0 for c in clips]
-        plan, too_long = core_video.plan_voice(durs, segs, out_dur)
-        voice_track = os.path.join(tmp, "voice.wav")
-        await core_video.compose_voice(clips, plan, voice_track, out_dur)
-        srt, ass = "", None
-        if spec.get("subs"):
-            words = await core_video.words_for_track(clips, plan, voice_track,
-                                                     core_video.subtitle_texts(segs, spec.get("teaser")))
-            if words:
-                srt = subs_mod.to_srt(words)
-                ass = os.path.join(tmp, "subs.ass")
-                subs_mod.write_ass(words, ass, spec.get("pos_y"), config.SUB_STYLE)
+
+    async def _ambient():
         amb = await sep_task if sep_task else None
+        gate = None
+        if spec.get("mode") == "cook" and not amb:
+            gate = [tuple(x) for x in spec.get("speech") or []] or [(0.0, 99999.0)]
+        return amb, gate
+    try:
+        res = await assemble(inp, tmp, mode=spec["mode"], segs=segs, out_dur=out_dur,
+                             render_dur=float(spec.get("render_dur") or 0), synth=synth, ambient=_ambient,
+                             subs=bool(spec.get("subs")), pos_y=spec.get("pos_y"), sub_style=config.SUB_STYLE,
+                             bands=spec.get("bands") or None, allow_hd=bool(spec.get("allow_hd", True)),
+                             title=spec.get("title") or "", stretch=float(spec.get("stretch") or 1.0),
+                             teaser=spec.get("teaser"))
     finally:
         if sep_task and not sep_task.done():          # lỗi giữa chừng: không để tiến trình tách giọng chạy mồ côi
             sep_task.cancel()
             await asyncio.gather(sep_task, return_exceptions=True)
-    gate = None
-    if spec.get("mode") == "cook" and not amb:
-        gate = [tuple(x) for x in spec.get("speech") or []] or [(0.0, 99999.0)]
-    t0 = time.time()
-    out = os.path.join(tmp, "output.mp4")
-    notes: list = []
-    await core_video.render(inp, voice_track, out, spec["mode"], float(spec.get("render_dur") or 0), ass,
-                            spec.get("bands") or None, amb, gate, allow_hd=bool(spec.get("allow_hd", True)),
-                            title=spec.get("title") or "", tmp=tmp, stretch=float(spec.get("stretch") or 1.0),
-                            ost=core_video.ost_windows(segs, out_dur), notes=notes, teaser=spec.get("teaser"))
-    t["render"] = round(time.time() - t0, 1)
-    return {"ok": True, "video": out, "plan": plan, "too_long": too_long, "srt": srt, "amb": bool(amb),
-            "notes": notes, "timings": t, "fast": sum(1 for p in plan if p["factor"] > 1.12)}
+    t.update(res.timings)
+    return {"ok": True, "video": res.video, "plan": res.plan, "too_long": res.too_long, "srt": res.srt,
+            "amb": bool(res.ambient), "notes": res.notes, "timings": t, "fast": res.fast}
 
 
 async def produce_bed(spec: dict, inp: str, tmp: str) -> dict:

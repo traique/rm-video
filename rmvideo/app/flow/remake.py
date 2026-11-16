@@ -20,12 +20,12 @@ import prompt_engine
 import scenes
 import slideshow
 import state
-import subs as subs_mod
 import transcribe
 import vocal_sep
 from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import job_factory
+from rmvideo.app.assemble import assemble
 from rmvideo.app.flow import analysis, backends, common, photo, teaser
 from rmvideo.app.flow import music as music_flow
 
@@ -391,22 +391,18 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 job.local = keep
             job.status, job.step = "review", "Chờ bạn duyệt/sửa kịch bản rồi bấm Render"
             return "REVIEW"
-        sem = asyncio.Semaphore(3)
-
-        async def _one(seg):
-            if seg.get("ost") == "orig" or not (seg.get("text") or "").strip():   # giữ tiếng gốc / không lời: không đọc
-                return {"path": None, "words": []}
-            p = os.path.join(tmp, f"clip_{seg['i']}_{cache.key('clip', seg['text'])[:10]}.mp3")
-            async with sem:
-                w = await core_video.synth_clip_cached(seg["text"], job.voice, p)   # đoạn không đổi: lấy từ cache
-            return {"path": p, "words": w}
-
-        async def _durs(cl):
-            async def one(c):
-                return await core_video.speech_duration(c["path"], c.get("words")) if c.get("path") else 0.0
-            return list(await asyncio.gather(*[one(c) for c in cl]))
-
         segs_t = timed["segments"]
+
+        async def _synth(items, tmp_dir):
+            """Đọc giọng trên Botkeep: tối đa 3 đoạn song song, đoạn không đổi lấy từ cache; một đoạn lỗi thì huỷ cả lô."""
+            sem = asyncio.Semaphore(3)
+
+            async def one(k, text):
+                p = os.path.join(tmp_dir, f"clip_{segs_t[k]['i']}_{cache.key('clip', text)[:10]}.mp3")
+                async with sem:
+                    w = await core_video.synth_clip_cached(text, job.voice, p)
+                return k, {"path": p, "words": w}
+            return dict(await common.gather_all([one(k, t) for k, t in items]))
 
         async def _shorten(idx: list, durs: list) -> list:
             """AI rút gọn các đoạn idx (nguyên câu, không mất nguyên liệu/con số). Trả chỉ số đoạn đã đổi."""
@@ -441,7 +437,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
 
         pre_cover = None
         if remote:
-            post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
+            post_title = common.post_title(job, title)
             # Kaggle 4 lõi: không cần giới hạn của Botkeep; tách CẢ BÀI nên không cần mốc lời (bóc lời không nghe được
             # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
             sep_r = dict(sep, ok_remote=job.mode == "cook" and config.VOICE_SEPARATION != "0")
@@ -486,58 +482,39 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 else:
                     return await _finish_remote(res, pre_cover)
         _local_ambient()
-        job.step = f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep["ok"] else "")
-        clips = list(await common.gather_all([_one(s) for s in segs_t]))
-        durs = await _durs(clips)
-        plan, too_long = core_video.plan_voice(durs, segs_t, out_dur)
-        if too_long:                                     # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
-            job.step = f"Rút gọn {len(too_long)} đoạn quá dài"
-            changed = await _shorten(too_long, durs)
-            if changed:
-                redo = await common.gather_all([_one(segs_t[i]) for i in changed])
-                for i, c in zip(changed, redo):
-                    clips[i] = c
-                for i, d in zip(changed, await _durs(redo)):
-                    durs[i] = d
-            plan, too_long = core_video.plan_voice(durs, segs_t, out_dur)
-        voice_track = os.path.join(tmp, "voice.wav")
-        await core_video.compose_voice(clips, plan, voice_track, out_dur)
-        got_subs = False
-        if job.subs:
-            words = await core_video.words_for_track(clips, plan, voice_track, core_video.subtitle_texts(segs_t, tz))
-            if words:
-                job.srt = subs_mod.to_srt(words)
-                subs_mod.write_ass(words, ass, pos_y, config.SUB_STYLE)
-                got_subs = True
-        job.step = "Chờ tách giọng gốc xong" if sep["ok"] else "Render (FFmpeg)"
-        amb_wav, gate = await _local_ambient()
-        job.step = "Render (FFmpeg)"
-        out = os.path.join(tmp, "output.mp4")
-        post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
-        cover_task = pre_cover or _start_cover(post_title)
-        notes = []
-        await core_video.render(inp, voice_track, out, job.mode, render_dur,
-                                ass if got_subs else None, bands, amb_wav, gate, allow_hd=not is_long,
-                                title=post_title, tmp=tmp,
-                                stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur), notes=notes, teaser=tz)
-        if notes:
-            job.note("".join(notes))
+        cover_task = None
+
+        def _cover_now():
+            nonlocal cover_task
+            post_title = common.post_title(job, title)
+            cover_task = pre_cover or _start_cover(post_title)
+        res = await assemble(
+            inp, tmp, mode=job.mode, segs=segs_t, out_dur=out_dur, render_dur=render_dur, synth=_synth,
+            ambient=_local_ambient, subs=job.subs, pos_y=pos_y, sub_style=config.SUB_STYLE, bands=bands,
+            allow_hd=not is_long, title=common.post_title(job, title),
+            stretch=stretch, teaser=tz, shorten=_shorten, on_step=lambda st: setattr(job, "step", st),
+            tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep["ok"] else ""),
+            wait_step="Chờ tách giọng gốc xong" if sep["ok"] else "Render (FFmpeg)", before_render=_cover_now)
+        if res.srt:
+            job.srt = res.srt
+        if res.notes:
+            job.note("".join(res.notes))
         await _finish_cover(cover_task)
-        job.final_segments = common.final_timeline(segs_t, plan, out_dur)
+        job.final_segments = common.final_timeline(segs_t, res.plan, out_dur)
         if job.mode == "cook":
             job.note((
-                "ℹ️ Đã tách bỏ giọng gốc bằng AI. " if amb_wav else
+                "ℹ️ Đã tách bỏ giọng gốc bằng AI. " if res.ambient else
                 f"ℹ️ Không tách giọng AI ({sep['why']}): tắt tiếng nền lúc người gốc nói. " if sep["why"] else
                 "ℹ️ Tách giọng AI không chạy được (máy chậm/thiếu RAM): tắt tiếng nền lúc người gốc nói. "))
-        fast = sum(1 for p in plan if p["factor"] > 1.12)
-        drift = max(abs(p["start"] - s["start"]) for p, s in zip(plan, segs_t))
+        fast, drift, too_long = res.fast, res.drift(segs_t), res.too_long
         job.note((
             (f"ℹ️ Lời mới {timed['fresh'] * 100:.0f}% khác lời gốc; " if "fresh" in timed else "ℹ️ ")
-            + f"{len(clips)} đoạn giọng" + (f", {len(cuts)} điểm chuyển cảnh" if cuts else "") + f"; lệch tối đa {drift:.1f}s"
+            + f"{len(res.clips)} đoạn giọng" + (f", {len(cuts)} điểm chuyển cảnh" if cuts else "")
+            + f"; lệch tối đa {drift:.1f}s"
             + (f"; {fast} đoạn nói nhanh" if fast else "")
             + (f"; {len(too_long)} đoạn vẫn hơi dài" if too_long else "")
             + (f"; đã che {len(bands)} dải chữ gốc" if bands else "") + "."))
-        return out
+        return res.video
 
     # ----- Đường cũ: không có mốc thời gian -> đọc một mạch -----
     job.step = "Viết kịch bản + content (AI)"
@@ -568,7 +545,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     job.step = "Render (FFmpeg)"
     out = os.path.join(tmp, "output.mp4")
     amb_wav, gate = await _local_ambient()
-    post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
+    post_title = common.post_title(job, title)
     cover_task = _start_cover(post_title)
     notes = []
     await core_video.render(inp, voice_mp3, out, job.mode, render_dur,

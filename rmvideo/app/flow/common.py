@@ -67,3 +67,9 @@ def credit_line(job: Job, narrated: bool = True) -> str:
     if job.mode != "music" and narrated:
         parts.append("🔊 Giọng đọc AI")
     return " · ".join(parts)
+
+
+def post_title(job: Job, title: str) -> str:
+    """Chữ in lên màn hình 3 giây đầu + ảnh bìa: câu hook AI viết, không có thì dòng đầu bài đăng, cuối cùng tiêu đề
+    gốc. (Trước đây biểu thức này lặp 4 lần trong pipeline.)"""
+    return job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)

@@ -60,7 +60,7 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
     job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"],
                                            common.credit_line(job, narrated=False))
     job.hook = pack.get("hook") or prompt_engine.clean_hook(pack["title"] if not pack.get("fallback") else "")
-    post_title = job.hook or (job.post.split("\n", 1)[0].replace("📌", "").strip() if job.post else title)
+    post_title = common.post_title(job, title)
     max_dur = config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION
     info = ((f"ℹ️ Video không lời: chèn nhạc nền thay cho lời đọc ({BED_ORIG_VI.get(orig, orig)})" if music else
              "ℹ️ Video không lời: giữ nguyên tiếng gốc, không thêm lời đọc (chưa có nhạc nền)")
