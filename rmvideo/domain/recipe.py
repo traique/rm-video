@@ -160,6 +160,7 @@ class Item:
     first_img: int = -1
     raw: str = ""                 # AI ghi định lượng thế nào (cho bảng đối chiếu)
     seen_at: float = -1.0         # giây (video gốc) thấy rõ nguyên liệu lần đầu: điểm danh nguyên liệu của kế hoạch dựng
+    said_at: float = -1.0         # giây (video gốc) đoạn lời nói định lượng
 
     def quantity(self) -> Qty | None:
         return Qty(self.qty, self.unit) if self.qty is not None else None

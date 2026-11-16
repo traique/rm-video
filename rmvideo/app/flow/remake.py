@@ -42,7 +42,7 @@ from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import brand, job_factory
 from rmvideo.app.assemble import _edit_kw, assemble
-from rmvideo.app.flow import analysis, backends, common, dish, style, teaser
+from rmvideo.app.flow import analysis, backends, common, dish, style, style_b, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
@@ -284,7 +284,13 @@ class Remake:
             a = scenes.analyzed(self.inp)
             mot = await style.motion(self.inp, end, a)
             cuts_src = [c / self.stretch for c in self.cuts]
-            plan = style.plan_light(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL, lv)
+            if lv == "strong" and job.mode == Mode.COOK:
+                plan, why = style_b.plan_strong(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL,
+                                                self.facts)
+                if why:
+                    job.note(f"ℹ️ Dựng mạnh: {why}. ")
+            else:
+                plan = style.plan_light(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL, lv)
             errs = plan.validate()
             if errs:
                 job.note(f"ℹ️ Không áp được kế hoạch dựng ({errs[0]}): dựng như bản gốc. ")
@@ -293,7 +299,15 @@ class Remake:
             job.note(f"ℹ️ {plan.summary} ")
         self.edit = plan
         cuts_src = [c / self.stretch for c in self.cuts]
-        self.segs = plan.map_segments(segs_src)
+        # lời gốc theo trục mới: chỉ câu nằm trong khúc chính tốc độ 1 (câu tán gẫu bị tua / bỏ ở lớp B thì không viết
+        # lời cho nó), cộng lời "gốc" do mã viết cho khúc lặp / đảo chỗ (điểm danh nguyên liệu, tóm tắt...)
+        mapped = plan.map_segments(segs_src)
+        if plan.level == "strong":
+            mapped = [(oa, ob, t) for a, b, t in segs_src
+                      for oa, ob in [(round(plan.to_out(a), 2), round(plan.to_out(b), 2))]
+                      if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
+        side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts if x.get("text")]
+        self.segs = sorted(mapped + side)
         self.cuts = sorted(set(plan.cut_points()) | {round(plan.to_out(c), 2) for c in cuts_src if c < end})
         self.speech = plan.map_windows([(a, b) for a, b, _ in segs_src])
         out = round(plan.out_dur(), 2)

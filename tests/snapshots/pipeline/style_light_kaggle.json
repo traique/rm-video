@@ -118,6 +118,7 @@
       ],
       "stretch": 1.0,
       "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+      "texts": [],
       "v": 1
      },
      "job": 132,
@@ -360,6 +361,7 @@
      ],
      "stretch": 1.0,
      "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+     "texts": [],
      "v": 1
     },
     "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",

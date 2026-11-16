@@ -54,18 +54,20 @@ class EditPlan:
     stretch: float = 1.0
     level: str = "light"
     summary: str = ""
+    texts: list = field(default_factory=list)   # lời "gốc" của khúc side (do mã viết): [{"t", "dur", "text"}] trục ra
 
     # ---------- (de)serialize ----------
     def to_dict(self) -> dict:
         return {"v": 1, "pieces": [asdict(p) for p in self.pieces], "overlays": [asdict(o) for o in self.overlays],
-                "stretch": self.stretch, "level": self.level, "summary": self.summary}
+                "stretch": self.stretch, "level": self.level, "summary": self.summary, "texts": list(self.texts)}
 
     @staticmethod
     def from_dict(d: dict | None) -> EditPlan | None:
         if not d or d.get("v") != 1 or not d.get("pieces"):
             return None
         return EditPlan([Piece(**p) for p in d["pieces"]], [Overlay(**o) for o in d.get("overlays") or []],
-                        float(d.get("stretch") or 1.0), d.get("level") or "light", d.get("summary") or "")
+                        float(d.get("stretch") or 1.0), d.get("level") or "light", d.get("summary") or "",
+                        list(d.get("texts") or []))
 
     # ---------- trục thời gian ----------
     def starts(self) -> list[float]:

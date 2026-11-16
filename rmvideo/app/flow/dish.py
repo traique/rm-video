@@ -63,6 +63,7 @@ async def understand(job: Job, inp: str, title: str, desc: str, raw_segs: list, 
     img_t = ai.get("_img_times") or []
     for it in facts.items:
         it.seen_at = round(float(img_t[it.first_img]), 2) if 0 <= it.first_img < len(img_t) else -1.0
+        it.said_at = round(segs[it.seg][0], 2) if 0 <= it.seg < len(segs) else -1.0
     # chỉ số đoạn của AI là trên danh sách đã lọc -> mốc giây trên video gốc để kế hoạch dựng dùng được
     for st in facts.steps:
         st.t0, st.t1 = round(segs[st.a][0], 2), round(segs[st.b][1], 2)

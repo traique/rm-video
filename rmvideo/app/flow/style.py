@@ -164,24 +164,32 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
             pieces[i] = edl.Piece(p.a, p.b, p.speed, 1.0, PUSH, p.fx, p.role, p.tag)
             break
     plan = edl.EditPlan(pieces=pieces, stretch=stretch, level=level)
-    # 5. thẻ tua nhanh
+    finalize(plan, segs, label_mode, end, removed, skipped_src)
+    return plan
+
+
+def finalize(plan: edl.EditPlan, segs: list, label_mode: str, end: float, removed: float = 0.0,
+             skipped_src: float = 0.0, extra: str = "") -> None:
+    """Thẻ tua nhanh (mốc theo khúc hiện tại) + câu tóm tắt kế hoạch. Gọi lại sau mỗi lần sửa khúc."""
     starts = plan.starts()
+    keep = [o for o in plan.overlays if o.kind != "skip"]
     ovs = []
     for p, s in zip(plan.pieces, starts):
         if p.tag == "skip":
             text = skip_label(segs, p.a, label_mode)
             if text:
-                ovs.append(edl.Overlay(round(s + 0.1, 2), round(min(1.6, p.length * stretch - 0.15), 2), "skip", text))
-    plan.overlays = ovs
-    out = plan.out_dur()
+                ovs.append(edl.Overlay(round(s + 0.1, 2), round(min(1.6, p.length * plan.stretch - 0.15), 2), "skip",
+                                       text))
+    plan.overlays = sorted(keep + ovs, key=lambda o: o.t)
+    pieces = plan.pieces
+    skipped_src = skipped_src or sum(p.b - p.a for p in pieces if p.tag == "skip")
     n_skip = sum(1 for p in pieces if p.tag == "skip")
     zchg = sum(1 for x, y in zip(pieces, pieces[1:]) if x.zoom != y.zoom)
-    plan.summary = (f"Nhịp dựng {'nhẹ' if level == 'light' else 'mạnh'}: {len(pieces)} khúc, đổi cỡ khung {zchg} lần"
+    plan.summary = (f"Nhịp dựng {'nhẹ' if plan.level == 'light' else 'mạnh'}: {len(pieces)} khúc, đổi cỡ khung {zchg} lần"
                     + (f", bỏ {removed:.0f}s khoảng chết" if removed >= 1 else "")
                     + (f", tua nhanh {n_skip} đoạn chờ ({skipped_src:.0f}s còn "
-                       f"{sum(p.length for p in pieces if p.tag == 'skip') * stretch:.0f}s)" if n_skip else "")
-                    + f"; video {end * stretch:.0f}s -> {out:.0f}s.")
-    return plan
+                       f"{sum(p.length for p in pieces if p.tag == 'skip') * plan.stretch:.0f}s)" if n_skip else "")
+                    + extra + f"; video {end * plan.stretch:.0f}s -> {plan.out_dur():.0f}s.")
 
 
 def level() -> str:

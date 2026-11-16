@@ -129,6 +129,7 @@
       ],
       "stretch": 1.0,
       "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+      "texts": [],
       "v": 1
      },
      "gate": null,
@@ -276,6 +277,7 @@
      ],
      "stretch": 1.0,
      "summary": "Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s.",
+     "texts": [],
      "v": 1
     },
     "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 5 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",

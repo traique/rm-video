@@ -528,6 +528,20 @@ def test_style_light_kaggle(env, monkeypatch):
     snap("style_light_kaggle", env, run(env, _job(env, 132)))
 
 
+def test_style_strong_botkeep(env, monkeypatch):
+    """REMAKE_STYLE=strong: nhãn bước của AI -> tóm tắt trước cảnh cuối (clip phụ) + lời "gốc" do mã viết cho khúc
+    đó; luật R1-R7 đạt nên không lùi về lớp A."""
+    monkeypatch.setattr(config, "REMAKE_STYLE", "strong")
+    _style_src(env)
+    env.recipe_ai = {"is_recipe": True, "dish": "Thịt kho", "servings": "",
+                     "ingredients": [{"name": "thịt", "qty": "", "unit": "", "seg": 0},
+                                     {"name": "muối", "qty": "", "unit": "", "seg": 2}],
+                     "steps": [{"kind": "cook", "from": 0, "to": 1, "text": "Cho thịt vào chảo, đậy nắp hầm 30 phút."},
+                               {"kind": "cook", "from": 2, "to": 2, "text": "Mở nắp, nêm muối."},
+                               {"kind": "plate", "from": 3, "to": 3, "text": "Bày ra dĩa."}], "tips": []}
+    snap("style_strong_botkeep", env, run(env, _job(env, 135)))
+
+
 def test_style_review_then_approved_reuses_plan(env, monkeypatch):
     monkeypatch.setattr(config, "REMAKE_STYLE", "light")
     _style_src(env)
