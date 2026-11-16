@@ -41,7 +41,7 @@ _ROUTES = {
     "AUTO_MIN_FRESH": (remake, "AUTO_MIN_FRESH"), "SEP_MAX_SPEECH": (remake, "SEP_MAX_SPEECH"),
     "SEP_MAX_VIDEO": (remake, "SEP_MAX_VIDEO"), "REEL_MAX": (remake, "REEL_MAX"),
     "NO_SPEECH_WORDS": (remake, "NO_SPEECH_WORDS"), "no_speech": (remake, "no_speech"),
-    "promo_cut": (remake, "promo_cut"), "_process": (remake, "_process"),
+    "promo_cut": (remake, "promo_cut"), "_process": (dispatch, "_process"),
     "transcribe_segments": (transcribe, "transcribe_segments"),
 }
 

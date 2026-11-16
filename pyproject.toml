@@ -30,6 +30,12 @@ disallow_untyped_defs = false
 
 # Mã điều phối chuyển nguyên văn từ pipeline.py (Phase 4): dict tự do chưa có kiểu, kiểm dần khi tách tiếp.
 [[tool.mypy.overrides]]
-module = ["rmvideo.app.flow.*"]
+module = ["rmvideo.app.flow.analysis", "rmvideo.app.flow.teaser", "rmvideo.app.flow.music", "rmvideo.app.flow.photo",
+          "rmvideo.app.flow.long_video", "rmvideo.app.flow.delivery"]
 disallow_untyped_defs = false
 ignore_errors = true
+
+# các bước của Remake / dispatch đã có kiểu cho trạng thái; hàm trợ giúp nội bộ chưa chú thích đủ
+[[tool.mypy.overrides]]
+module = ["rmvideo.app.flow.remake", "rmvideo.app.flow.dispatch", "rmvideo.app.flow.backends", "rmvideo.app.flow.common"]
+disallow_untyped_defs = false

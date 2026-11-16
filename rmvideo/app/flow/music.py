@@ -5,15 +5,17 @@ import asyncio
 import logging
 import os
 
+import beat
 import bgm
 import config
 import core_video
 import kaggle_worker
 import metrics
 import prompt_engine
+import slideshow
 import state
 from queue_manager import Job
-from rmvideo.app.flow import common
+from rmvideo.app.flow import backends, common
 
 
 BED_ORIG_VI = {"off": "bỏ tiếng gốc", "low": "giữ tiếng gốc nhỏ dưới nhạc", "keep": "giữ tiếng gốc, nhạc nằm dưới"}
@@ -92,14 +94,9 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
             return kaggle_worker.Deferred(spec, _finish_remote, [])     # phần của video dài: chạy chung một phiên
         if spec is not None:
             pre_cover = start_cover(post_title)
-            try:
-                job.step = "Kaggle: dựng video + nhạc nền"
-                res = await kaggle_worker.produce(spec, tmp, on_step=lambda st: setattr(job, "step", st))
-            except Exception as e:
-                logging.warning("Kaggle lỗi (video không lời), dựng trên Botkeep: %s", e)
-                metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
-                job.note(f"ℹ️ Kaggle lỗi ({str(e)[:140]}): dựng trên Botkeep. ")
-            else:
+            job.step = "Kaggle: dựng video + nhạc nền"
+            res = await backends.try_produce(job, spec, tmp, what="video không lời")
+            if res is not None:
                 return await _finish_remote(res, pre_cover)
     job.step = "Trộn nhạc nền"
     bed = os.path.join(tmp, "bed.wav")
@@ -127,3 +124,48 @@ async def _get_music(job: Job, tmp: str) -> str:
     if job.music_url:
         return await core_video.download_audio(job.music_url, tmp)
     raise RuntimeError("Chế độ này cần nhạc: gửi link (TikTok/YouTube...) hoặc file nhạc.")
+
+
+async def process_music(job: Job, tmp: str, inp: str, title: str, desc: str) -> str:
+    """Chế độ 🎵: thay nhạc khớp beat (tốc độ video theo nhịp nhạc mới), hoặc nhạc nền (music_mix="bg": giữ tiếng gốc,
+    lấy đoạn hay nhất của bài). Dựng trên Kaggle nếu được, không thì Botkeep."""
+    job.step = "Tải nhạc mới"
+    music = await _get_music(job, tmp)
+    if job.music_mix == "bg":
+        # nhạc nền: giữ tiếng gốc, không đổi tốc độ; lấy đoạn hay nhất (điệp khúc) của bài làm nền
+        job.step = "Chọn đoạn nhạc hay làm nhạc nền"
+        vid = await core_video.probe_duration(inp)
+        try:
+            info = await asyncio.to_thread(slideshow.analyze_music, music)
+            start = slideshow.choose_window(info, min(vid, max(4.0, info["duration"] - 0.5)))[0]
+        except Exception as e:
+            logging.warning("Không phân tích được nhạc (%s), dùng từ đầu bài", str(e)[:100])
+            start = 0.0
+        job.script = f"Nhạc nền lấy từ giây {start:.0f} của bài, giữ tiếng gốc (nhạc tự nhỏ lại khi tiếng gốc to)."
+        job.step = "Render nhạc nền (FFmpeg)"
+        args = {"speed": 1.0, "trim": start, "keep_orig": True}
+        out, _ = await backends.kaggle_render(job, tmp, lambda: kaggle_worker.music_spec(job, inp, music, args),
+                                              "Nhạc nền")
+        if not out:
+            out = os.path.join(tmp, "output.mp4")
+            await core_video.render_music(inp, music, out, job.duration, **args)
+    else:
+        job.step = "Dò beat & khớp nhịp"
+        try:
+            bpm_v, beat_v = await beat.analyze(inp)
+            bpm_m, beat_m = await beat.analyze(music)
+            sync = beat.compute_sync(bpm_v, beat_v, bpm_m, beat_m)
+            job.script = (f"Khớp beat: nhảy {bpm_v:.0f} BPM ↔ nhạc {bpm_m:.0f} BPM "
+                          f"→ tốc độ video x{sync['speed']:.2f}")
+        except Exception as e:
+            sync = {"speed": 1.0, "trim": 0.0, "delay": 0.0}
+            job.script = f"Không dò được beat ({e}) — thay nhạc với tốc độ gốc."
+        job.step = "Render khớp nhạc (FFmpeg)"
+        out, _ = await backends.kaggle_render(job, tmp, lambda: kaggle_worker.music_spec(job, inp, music, sync),
+                                              "Thay nhạc")
+        if not out:
+            out = os.path.join(tmp, "output.mp4")
+            await core_video.render_music(inp, music, out, job.duration, **sync)
+    pack = await prompt_engine.generate(title, desc, "music", "", job.duration)
+    job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], common.credit_line(job))
+    return out
