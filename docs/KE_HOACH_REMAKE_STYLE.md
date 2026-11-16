@@ -1,8 +1,30 @@
-# Kế hoạch: remake theo phong cách của kênh (bản 42) — CHƯA CODE
+# Kế hoạch: remake theo phong cách của kênh (bản 42)
 
 Mục tiêu: video làm lại nhìn vào là biết của kênh bạn, nhịp dựng khác hẳn video gốc, video nấu ăn chỉ đảo thứ tự ở
 chỗ hợp lý, bài đăng có công thức và mẹo, mọi định lượng đều đối chiếu được với video gốc. Nguồn: nhiều kênh Facebook
 và TikTok.
+
+## Trạng thái thực hiện (16/11/2026)
+
+Đã làm S0-S6 (mỗi giai đoạn một commit trên nhánh). Giọng văn mặc định đổi sang miền Nam theo yêu cầu.
+
+| Giai đoạn | Mã | Ghi chú lệch so với kế hoạch |
+| --- | --- | --- |
+| S0 | `rmvideo/app/settings.py` (nhóm ✨ style, 🎨 brand), `Job.edit` / `Job.recipe` | thêm `AUTO_SKIP_ADS` để tắt được bộ lọc quảng cáo |
+| S1 | `rmvideo/domain/recipe.py`, `rmvideo/app/flow/dish.py`, `prompt_engine.recipe_facts` | câu "cách làm" có số lạ được MÃ thay "vừa đủ" / "một lúc" (không tốn thêm lượt AI viết lại); AI đọc công thức chung một lượt với nhãn bước + mẹo |
+| S2 | `filtergraph.LOOKS`, `subs.style_line`, `renderer` (màn kết, âm hiệu, thẻ), `cover` (mẫu kênh), `rmvideo/app/brand.py` | màn kết giữ nền tối + tên + tagline (chưa dừng hình cảnh món) |
+| S3 | `rmvideo/media/edl.py`, `rmvideo/app/flow/style.py`, `Remake.restyle` | dải che chữ in cứng: che hợp của mọi cỡ khung sau khi nối (một lớp, không che từng khúc) |
+| S4 | `rmvideo/app/flow/style_b.py` | B7 / B8 (thẻ giá, kết luận cho review) chưa làm vì chưa có bước hiểu nội dung cho review: review `strong` = `light` |
+| S5 | `rmvideo/app/flow/dedupe.py`, lọc `AUTO_MIN_HEIGHT` / quảng cáo trong `autopost` | chế độ theo từng nguồn hoãn (hiện một nguồn nấu ăn) |
+| S6 | thẻ «MẸO» (`Remake.tip_card`, `renderer.overlay_filter`), README, CHANGELOG | mẹo chưa chen vào lời đọc (chỉ thẻ + bài đăng) |
+| S7 | — | hoãn đúng kế hoạch (chưa dùng nguồn nước ngoài) |
+
+Chạy thử trên video thật của nguồn: cánh gà chiên nước mắm, 277 giây, có phụ đề tiếng Việt của TikTok làm mốc lời.
+- Đo chuyển động: ~8 giây trên 4 lõi.
+- Lớp A: 42 khúc, đổi cỡ khung 38 lần, tua 2 đoạn chờ (13s → 4s), 277s → 266s.
+- Dựng thật 60 giây đầu (720p, tông tươi sáng, màu kênh, thẻ nguyên liệu + mẹo, màn kết + tagline): 22 giây trên 4 lõi.
+- Đầu bếp nói gần như liên tục nên lớp A rút ngắn ít; khác biệt chính là khung hình và thẻ. Lớp B (bỏ lời tán gẫu,
+  điểm danh, tóm tắt) cần AI đọc công thức nên chưa chạy thật được ở đây (không có key Gemini trong môi trường này).
 
 ## 0. Đã chốt với chủ dự án (16/11/2026)
 

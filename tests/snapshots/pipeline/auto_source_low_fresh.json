@@ -44,6 +44,11 @@
     "Món ngon mỗi ngày"
    ]
   ],
+  "dedupe.fingerprint": [
+   [
+    8.0
+   ]
+  ],
   "download": [
    [
     "https://www.facebook.com/reel/1234567890/",
@@ -205,6 +210,16 @@
     "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
     "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2",
     "source_meta": {
+     "fp": [
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff"
+     ],
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"
     },

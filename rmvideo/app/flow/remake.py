@@ -42,7 +42,7 @@ from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import brand, job_factory
 from rmvideo.app.assemble import _edit_kw, assemble
-from rmvideo.app.flow import analysis, backends, common, dish, style, style_b, teaser
+from rmvideo.app.flow import analysis, backends, common, dedupe, dish, style, style_b, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
@@ -121,6 +121,7 @@ class Remake:
         self.ass = os.path.join(tmp, "subs.ass")
         self.facts: recipe.Facts | None = None   # món + định lượng đã đối chiếu (bản 42)
         self.edit: edl.EditPlan | None = None    # kế hoạch dựng (REMAKE_STYLE, bản 42)
+        self.cards: list = []                    # thẻ chữ ngoài kế hoạch dựng (mẹo trên video), mốc chưa cộng mở đầu
 
     # ---------------- các bước ----------------
 
@@ -140,6 +141,7 @@ class Remake:
                                                 self.local_only, self.start_cover, self.finish_cover)
         await self.understand()
         await self.restyle()
+        self.tip_card()
         await self.decide_teaser(silent)
         self.apply_teaser()
         self.choose_backend()
@@ -165,6 +167,7 @@ class Remake:
     async def measure(self):
         job = self.job
         self.src_dur = src_dur = await ff.probe_duration(self.inp)
+        await self.check_duplicate()
         if common.auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
             job.long_mode = LongMode.FULL.value
             job.note(f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
@@ -184,6 +187,25 @@ class Remake:
         self.is_long = self.out_dur > 100                 # video dài: 720p
         if vid_dur > self.limit + 0.5 and not job.duration:
             job.note(f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {self.limit}s đầu (chọn chế độ video dài để làm hết). ")
+
+    async def check_duplicate(self):
+        """Dấu vân hình (bản 42): tự đăng gặp video đã làm (trang khác đăng lại, cùng video ở Facebook lẫn TikTok)
+        thì dừng ngay; video bạn tự gửi chỉ ghi chú. Bản đã duyệt / phần cắt từ video dài không kiểm."""
+        job = self.job
+        if job.approved or job.remote_src or job.mode not in (Mode.COOK, Mode.REVIEW):
+            return
+        known = dedupe.known_fingerprints()
+        if not known and job.source != Source.AUTO:
+            return
+        fp = await dedupe.fingerprint(self.inp, self.src_dur)
+        if not fp:
+            return
+        job.source_meta = {**(job.source_meta or {}), "fp": fp}
+        dup = dedupe.duplicate(fp, known)
+        if dup and job.source == Source.AUTO:
+            raise RuntimeError(f"{dedupe.DUP_MARK}: giống video {dup}, tự đăng chọn video khác")
+        if dup:
+            job.note(f"⚠️ Video này giống video đã làm trước đó ({dup}). ")
 
     async def analyze(self):
         job, inp = self.job, self.inp
@@ -315,6 +337,21 @@ class Remake:
             self.render_dur = min(self.render_dur, out)
         self.out_dur = job.out_dur = out
 
+    def tip_card(self):
+        """TIPS=video: một thẻ «MẸO: ...» 3 giây theo màu kênh, đúng lúc người gốc nói mẹo đó (mẹo AI viết: ở khoảng
+        60% video). Chỉ mẹo đã qua luật (rmvideo/domain/recipe._tips)."""
+        if config.TIPS != "video" or not self.facts or not self.facts.tips:
+            return
+        tip = self.facts.tips[0]
+        at = float(tip.get("at", -1.0))
+        if at >= 0:
+            t = self.edit.to_out(at) if self.edit else at * self.stretch
+        else:
+            t = self.out_dur * 0.6
+        t = max(0.5, min(t, self.out_dur - 3.5))
+        if self.out_dur > 8:
+            self.cards = [{"t": round(t, 2), "dur": 3.0, "kind": "tip", "text": f"MẸO: {tip['text']}"}]
+
     async def decide_teaser(self, silent: bool):
         """Đoạn mở đầu: cảnh MÓN ĐÃ XONG chiếu trước 3 giây kèm câu hook (chỉ video nấu ăn có lời)."""
         job = self.job
@@ -439,7 +476,7 @@ class Remake:
                 job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, post_title, self.bands,
                 self.pos_y, sep_r, self.speech, config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
                 local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
-                teaser=self.tz, edit=self.edit.to_dict() if self.edit else None)
+                teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
         except Exception as e:
             job.note(f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. ")
             return None
@@ -485,7 +522,7 @@ class Remake:
             shorten=lambda idx, durs: self.shorten(segs_t, idx, durs), on_step=lambda st: setattr(job, "step", st),
             tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep.ok else ""),
             wait_step="Chờ tách giọng gốc xong" if sep.ok else "Render (FFmpeg)", before_render=cover_now,
-            edit=self.edit.to_dict() if self.edit else None)
+            edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None)
         if res.srt:
             job.srt = res.srt
         if res.notes:
@@ -539,7 +576,7 @@ class Remake:
         await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
                                 self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
-                                notes=notes, teaser=self.tz, **_edit_kw(self.edit.to_dict() if self.edit else None))
+                                notes=notes, teaser=self.tz, **_edit_kw(self.edit.to_dict() if self.edit else None, self.cards or None))
         if notes:
             job.note("".join(notes))
         await self.finish_cover(cover_task)

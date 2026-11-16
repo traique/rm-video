@@ -188,7 +188,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
                              subs=bool(spec.get("subs")), pos_y=spec.get("pos_y"), sub_style=config.SUB_STYLE,
                              bands=spec.get("bands") or None, allow_hd=bool(spec.get("allow_hd", True)),
                              title=spec.get("title") or "", stretch=float(spec.get("stretch") or 1.0),
-                             teaser=spec.get("teaser"), edit=spec.get("edit"))
+                             teaser=spec.get("teaser"), edit=spec.get("edit"), overlays=spec.get("overlays"))
     finally:
         if sep_task and not sep_task.done():          # lỗi giữa chừng: không để tiến trình tách giọng chạy mồ côi
             sep_task.cancel()

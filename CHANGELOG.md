@@ -13,6 +13,28 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 42 — phong cách remake, công thức đã đối chiếu, nhận diện kênh (chi tiết: docs/KE_HOACH_REMAKE_STYLE.md)
+
+Mọi khoá mới mặc định = hành vi cũ, trừ: giọng văn mặc định đổi sang **miền Nam** (`SPEECH_STYLE=mien_nam`), tự đăng
+**bỏ video quảng cáo của nguồn** (`AUTO_SKIP_ADS=1`) và **lọc nguồn dưới 540p** (`AUTO_MIN_HEIGHT=540`). Kiểm tra: ruff,
+mypy sạch; pytest toàn bộ xanh (thêm test đối chiếu định lượng, kế hoạch dựng với dữ liệu ngẫu nhiên, luật R1-R7,
+dựng thật bằng FFmpeg, dấu vân hình); snapshot cũ chỉ đổi ở khối giọng văn + khoá cài đặt gửi Kaggle.
+
+**Cần làm khi cập nhật lên Botkeep**: không bắt buộc. Muốn dùng: nhóm ✨ (REMAKE_STYLE, POST_RECIPE, TIPS) và 🎨 (màu,
+tông, tagline, câu chốt, âm hiệu, mẫu ảnh bìa) trên web. Đã đặt `SPEECH_STYLE=mien_tay` trên web trước đây thì đổi tay.
+
+| Giai đoạn | Nội dung |
+| --- | --- |
+| S0 | Giọng văn miền Nam mặc định; khoá cài đặt mới (nhóm ✨, 🎨); Job lưu `edit`, `recipe` (bản duyệt dùng lại) |
+| S1 | `rmvideo/domain/recipe.py` + `flow/dish.py`: đọc số tiếng Việt, quy đơn vị chuẩn VN, kiểm từng định lượng với lời gốc / mô tả, cộng dồn, công thức + mẹo trong bài đăng, bảng đối chiếu ở màn duyệt, lọc video quảng cáo |
+| S2 | Bộ nhận diện kênh: bộ màu, hạt phim, màu kênh (phụ đề, khung hook, thẻ, ảnh bìa), màn kết + tagline, âm hiệu (web + Kaggle), câu chốt, mẫu ảnh bìa + số tập |
+| S3 | `rmvideo/media/edl.py` (kế hoạch dựng, dùng chung Kaggle) + `flow/style.py` lớp A: cỡ khung luân phiên, bỏ khoảng chết, tua nhanh + thẻ, đẩy cận; khúc lặp / đảo dựng bằng clip phụ |
+| S4 | `flow/style_b.py` lớp B: điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế độc lập, bỏ lời tán gẫu; luật R1-R7, lùi về lớp A |
+| S5-S6 | Dấu vân hình chống trùng (`flow/dedupe.py`), thẻ «MẸO» trên video, tài liệu, chạy thử trên video thật của nguồn |
+
+Hoãn có chủ đích: đọc số tiếng Trung / Anh + đổi cup / oz / °F, đọc chéo chữ định lượng trên hình (S7 — khi dùng nguồn
+nước ngoài); chế độ riêng cho từng kênh nguồn (hiện chỉ một nguồn nấu ăn); bản ngắn ≤ 90 giây cho Reels (chờ quyết).
+
 ## Bản 41 — tái cấu trúc kiến trúc (chi tiết: docs/KE_HOACH_REFACTOR.md)
 
 Không đổi chức năng người dùng thấy; giữ nguyên prompt AI từng byte và quyết định dựng (chụp bằng 25 kịch bản

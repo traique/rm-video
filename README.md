@@ -336,9 +336,9 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
   **keep** giữ tiếng gốc to, nhạc nằm dưới.
 - Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
 
-## Giọng văn miền Tây + giọng bớt chất AI
+## Giọng văn miền Nam + giọng bớt chất AI
 
-- `SPEECH_STYLE` (Cài đặt): `mien_tay` (mặc định: xưng tui, gọi bà con, từ miền Nam chén/muỗng/heo/trái, tiếng đệm nè/nha/hen vừa phải), `mien_nam`, `pho_thong`. Đổi từ địa phương không bao giờ đổi số liệu.
+- `SPEECH_STYLE` (Cài đặt): `mien_nam` (mặc định từ bản 42: xưng mình, gọi mọi người / cả nhà, từ miền Nam chén/muỗng/heo/trái, tiếng đệm nha/nè/á vừa phải, không dùng giọng miền Tây đậm), `mien_tay` (xưng tui, gọi bà con, nè/nghen), `pho_thong`. Đổi từ địa phương không bao giờ đổi số liệu. Đã đặt `mien_tay` trên web trước đây thì vẫn giữ: đổi ở nhóm 🗣️ Giọng đọc.
 - `VOICE_HUMANIZE=1` (mặc định): xử lý giọng TTS cho giống thu micro thật trong bếp: ấm hơn, bớt chói, khử xì, nén nhẹ, phản xạ phòng ngắn.
 - Chất giọng vùng miền phụ thuộc giọng CapCut bạn chọn; nghe thử rồi đặt `CAPCUT_VOICE_FEMALE`/`MALE` trong Cài đặt.
 
@@ -399,10 +399,44 @@ Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khu
 - 720x1280, fps 30, crf 23, unsharp nhẹ cho nét, `+faststart` xem ngay trên web.
 - Âm thanh: **chuẩn hoá hai lượt** về đúng -14 LUFS (lượt 1 đo độ to cả bản trộn, lượt 2 nhân một hệ số cố định + chặn đỉnh -1.4 dBFS; `LOUDNESS_2PASS=0` để về cách cũ). Khác loudnorm một lượt: tiếng nền không bị kéo lên lúc không có giọng (đo: nền giữa hai câu -17.9 / cuối video -24 dB → -21.0 / -20.7), cả bài đúng -14.0–14.1 LUFS; chế độ Nấu ăn giữ tiếng xèo xèo (highpass 3kHz) và **tự hạ tiếng nền khi giọng đọc vang lên** (sidechain ducking) như video dựng tay.
 - Kịch bản AI diễn đạt lại bằng lời riêng (không chép câu gốc), giọng nói chuyện câu ngắn có ngắt hơi, nhưng giữ đủ bước, đúng thứ tự, nguyên văn định lượng. Số từ bám theo thời lượng thật (~2.8 từ/giây).
-- Hạt phim rất nhẹ (noise) để hình bớt vẻ render sạch, giống quay máy hơn.
+- Hạt phim rất nhẹ: bật bằng `BRAND_GRAIN=1` (bản 42, chỉ áp ở 1080p); mặc định tắt.
 - **Phụ đề tự động burn-in**: khớp chính xác từng từ theo mốc thời gian edge-tts trả về, chữ to đậm viền đen kiểu video ngắn, font DejaVu đóng kèm (assets/) nên không cần font hệ thống. Tắt được bằng checkbox trên web.
 - **Content đăng luôn**: AI trả trọn gói tiêu đề + caption + hashtag; Telegram gắn thẳng vào caption video, web có nút "Copy content".
 - **Luật cứng trong prompt**: định lượng công thức, giá, địa chỉ, tên quán/thương hiệu trong lời thoại gốc phải giữ nguyên văn, cấm bịa/làm tròn.
+
+## ✨ Phong cách remake + công thức trong bài + nhận diện kênh (bản 42)
+
+Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. Mọi khoá mới mặc định = hành vi cũ; bật ở web.
+
+- **Đối chiếu định lượng** (`POST_RECIPE=1` hoặc `TIPS`): một lượt Gemini đọc lời gốc + ảnh ra nguyên liệu, định lượng
+  kèm chỗ nghe thấy, các bước có nhãn, mẹo. MÃ kiểm từng con số: phải có trong lời gốc đúng đoạn đó (± 1 đoạn) cùng
+  tên nguyên liệu, hoặc trong mô tả bài gốc. Đơn vị quy về chuẩn Việt Nam, mã tính lại số (nửa ký → 500 g, 3 lạng →
+  300 g, 1500 gam → 1,5 kg, thìa → muỗng, quả → trái); cùng nguyên liệu ở nhiều bước thì cộng dồn ở phần nguyên liệu.
+  Không đối chiếu được: `QTY_CHECK=strict` (mặc định) ghi "vừa đủ", `soft` ghi "(ước lượng)". Lời gốc và mô tả cho
+  hai số khác nhau: không in số, không tự đăng. Bảng đối chiếu hiện ở màn duyệt (web + Telegram).
+- **Bài đăng**: phần Facebook / YouTube có 🧾 NGUYÊN LIỆU, 👩‍🍳 CÁCH LÀM (câu AI viết; số không có trong lời gốc bị thay
+  "vừa đủ" / "một lúc", câu có nguyên liệu lạ bị bỏ), 💡 MẸO (ưu tiên mẹo người gốc nói; tối đa 1 mẹo AI viết, cấm
+  chuyện sức khoẻ / chữa bệnh). TikTok thêm một dòng nguyên liệu. `TIPS=video`: thẻ «MẸO» 3 giây trên video.
+- **Nhịp dựng** (`REMAKE_STYLE`): kế hoạch dựng chốt TRƯỚC khi AI viết lời, lời viết theo trục thời gian mới.
+  - `light`: đổi cỡ khung 1.0 / 1.12 / 1.18 ở chỗ chuyển cảnh / ngắt câu (máy quay đứng yên trông như quay nhiều máy),
+    bỏ khoảng chết, tua 2-4 lần đoạn chờ không lời + chớp sáng + thẻ "»» 30 PHÚT SAU" (chỉ khi lời gốc có nói thời
+    gian, `TIME_SKIP_LABEL`), đẩy cận chậm cảnh cuối. Không cắt giữa câu, không mất lời gốc nào.
+  - `strong` (video nấu ăn, cần AI đọc công thức): thêm điểm danh nguyên liệu kèm thẻ số đã đối chiếu, bỏ phần chào
+    hỏi, dời một đoạn cảm thán về cuối, tóm tắt các bước trước cảnh cuối, đổi chỗ tối đa một cặp bước sơ chế độc lập,
+    bỏ lời tán gẫu lúc chờ. Luật cứng R1-R7 (các bước nấu luôn đúng thứ tự, không mất câu có số liệu...) do mã kiểm;
+    vi phạm thì tự lùi về `light` và ghi lý do. Chế độ review: `strong` = `light`.
+  - Thử trên video thật của nguồn (cánh gà chiên nước mắm, 277 giây, đầu bếp nói liên tục): 42 khúc, đổi cỡ khung 38
+    lần, tua 2 đoạn chờ, 277s → 266s; đo chuyển động ~8 giây (4 lõi).
+- **Nhận diện kênh** (nhóm 🎨): `BRAND_COLOR` (chữ đang đọc của phụ đề, khung chữ hook, thẻ, ảnh bìa), `BRAND_LOOK`
+  (ấm mộc / tươi sáng / điện ảnh; `goc` = công thức màu cũ), `BRAND_GRAIN`, `BRAND_TAGLINE` (dưới tên kênh ở màn kết),
+  `BRAND_CLOSE` (câu chốt đọc cuối video; bỏ nếu là kêu gọi đăng ký), âm hiệu màn kết (tải ở cuối trang cài đặt,
+  tự cắt 1,5 giây), `COVER_TEMPLATE=kenh` + `BRAND_SERIES` (ảnh bìa có vạch màu kênh + tên loạt + số tập theo video
+  nguồn).
+- **Nguồn** (tự động đăng): bỏ video quảng cáo của nguồn (`AUTO_SKIP_ADS`: tiêu đề khóa học / tiệc / tuyển dụng, video
+  ngắn không tiêu đề, AI thấy không phải công thức — dừng sớm, không tính lỗi liên tiếp), lọc nguồn dưới
+  `AUTO_MIN_HEIGHT`, chống trùng bằng dấu vân hình (cùng video đăng lại ở trang khác / cả Facebook lẫn TikTok, kể cả
+  lật ngang). Video bạn tự gửi trùng thì chỉ ghi chú. Thêm cụm "khóa học / học viên / đặt tiệc / zalo" vào dấu hiệu
+  cắt quảng cáo cuối video.
 
 ## Bộ video mẫu (kiểm tra chất lượng sau mỗi lần sửa)
 

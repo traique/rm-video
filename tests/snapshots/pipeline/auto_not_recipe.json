@@ -18,6 +18,11 @@
     "Món ngon mỗi ngày"
    ]
   ],
+  "dedupe.fingerprint": [
+   [
+    8.0
+   ]
+  ],
   "download": [
    [
     "https://www.facebook.com/reel/1234567890/",
@@ -80,6 +85,16 @@
     },
     "script": "",
     "source_meta": {
+     "fp": [
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff",
+      "0000000000000000:ffffffffffffffff"
+     ],
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"
     },

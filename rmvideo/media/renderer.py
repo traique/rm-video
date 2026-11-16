@@ -261,7 +261,7 @@ def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
     for i, o in enumerate(overlays):
         p = os.path.join(tmp, f"ov_{i}.txt")
         with open(p, "w", encoding="utf-8") as f:
-            f.write(o.text.strip())
+            f.write(_wrap(o.text.strip(), 26) if o.kind == "tip" else o.text.strip())   # mẹo dài: xuống dòng
         t0, t1 = o.t + offset, o.t + offset + o.dur
         box = brand_hex(0.9) or "0xFFE100@0.9"
         big = o.kind in ("skip", "ingredient")
@@ -311,7 +311,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  duration: float = 0, ass_path: str | None = None, cover_bands=None,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
-                 music_bed: bool = False, teaser: dict | None = None, edit: dict | None = None):
+                 music_bed: bool = False, teaser: dict | None = None, edit: dict | None = None,
+                 overlays: list | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -382,8 +383,9 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                       side_audio=side_audio)
     brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None,
                           tagline_file=tagline_file)
-    if plan and plan.overlays:
-        brand = overlay_filter(plan.overlays, W, H, T, tmp) + brand
+    cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
+    if cards:
+        brand = overlay_filter(cards, W, H, T, tmp) + brand
     # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
     fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)

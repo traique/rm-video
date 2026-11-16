@@ -256,7 +256,7 @@ def _common(spec: dict) -> dict:
 def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str,
                bands, pos_y, sep: dict, speech: list, max_duration: int, local_path: str | None = None,
                src: dict | None = None, amb_token: str = "", teaser: dict | None = None,
-               edit: dict | None = None) -> dict:
+               edit: dict | None = None, overlays: list | None = None) -> dict:
     """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep."""
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
@@ -273,6 +273,8 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["teaser"] = {k: teaser[k] for k in ("a", "dur", "still")}
     if edit:                                     # kế hoạch dựng (REMAKE_STYLE): Kaggle dựng y hệt Botkeep
         spec["edit"] = edit
+    if overlays:                                 # thẻ chữ ngoài kế hoạch dựng (mẹo trên video, TIPS=video)
+        spec["overlays"] = overlays
     if voice_name(job.voice) == CLONE:
         spec["ref_b64"] = base64.b64encode(open(VOICE_REF, "rb").read()).decode()
         spec["ref_ext"] = ".mp3"

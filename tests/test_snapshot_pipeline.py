@@ -31,7 +31,7 @@ import metrics
 import offline
 import pipeline
 import prompt_engine
-from rmvideo.app.flow import style
+from rmvideo.app.flow import dedupe, style
 import review
 import scenes
 import slideshow
@@ -290,6 +290,12 @@ def env(monkeypatch, tmp_path):
         rec.add("style.motion", round(end, 2))
         return [0.0004 if 13 <= k <= 24 else 0.03 for k in range(int(end * 2) + 2)]
     monkeypatch.setattr(style, "motion", motion)
+
+    async def fingerprint(path, dur=None):              # dấu vân hình: cố định, không đọc autopost.json của máy chạy test
+        rec.add("dedupe.fingerprint", round(dur or 0, 2))
+        return ["0" * 16 + ":" + "f" * 16] * 8
+    monkeypatch.setattr(dedupe, "fingerprint", fingerprint)
+    monkeypatch.setattr(dedupe, "known_fingerprints", lambda: {})
 
     async def choose(title, desc, dur, segs, cuts, sil, images, img_t):
         rec.add("ai.highlights", title, dur, len(segs), list(cuts), len(images))

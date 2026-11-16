@@ -34,6 +34,7 @@ import aiohttp
 
 import config
 import url_guard
+from rmvideo.app.flow import dedupe
 from rmvideo.domain import recipe
 from rmvideo.domain.sources import PLATFORMS, detect_platform, normalize_source, normalize_tiktok  # noqa: F401
 
@@ -54,6 +55,9 @@ EXPLORE = 0.25                 # xác suất thử một khung giờ khác thay 
 CANDIDATES = ["07:00", "09:30", "11:30", "12:30", "17:30", "19:00", "20:30", "21:30"]
 DEFAULT_ORDER = ["20:30", "11:30", "17:30", "21:30", "07:00", "12:30", "19:00", "09:30"]
 VIEW_METRICS = ("fb_reels_total_plays", "blue_reels_play_count", "total_video_views", "post_video_views")
+
+
+SKIP_MARKS = (recipe.NOT_RECIPE, dedupe.DUP_MARK)   # job dừng sớm vì lý do của VIDEO NGUỒN: bỏ video, không tính lỗi
 
 
 class FBError(RuntimeError):
@@ -846,12 +850,19 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         return await _job_failed(st, p, now, "job tự động không còn trong danh sách")
     if job.status in ("queued", "processing", "approved"):
         return f"đang làm job #{job.id}"
-    if recipe.NOT_RECIPE in (job.error or "") + str(getattr(job, "no_autopost", "")) and job.status in ("done", "error"):
-        # video quảng cáo / không phải công thức (AI đọc lời gốc, job dừng sớm): bỏ hẳn video nguồn, KHÔNG tính là lỗi
-        # liên tiếp (3 video quảng cáo liền nhau không được làm dừng tự đăng)
-        _fail(st, p["vid"], p["source"], now, recipe.NOT_RECIPE, hard=True)
+    why_skip = next((m for m in SKIP_MARKS if m in (job.error or "") + str(getattr(job, "no_autopost", ""))), "")
+    if why_skip and job.status in ("done", "error"):
+        # video quảng cáo / không phải công thức / trùng video đã làm (job dừng sớm): bỏ hẳn video nguồn, KHÔNG tính
+        # là lỗi liên tiếp (3 video quảng cáo liền nhau không được làm dừng tự đăng)
+        _fail(st, p["vid"], p["source"], now, why_skip, hard=True)
         st["pending"] = None
-        return f"job #{job.id}: {recipe.NOT_RECIPE}, chọn video khác"
+        return f"job #{job.id}: {why_skip}, chọn video khác"
+    fp = (getattr(job, "source_meta", None) or {}).get("fp")
+    if fp and job.status == "done":                 # dấu vân hình của video đã làm (chống trùng lần sau)
+        fps = st.setdefault("fps", {})
+        fps[p["vid"]] = fp
+        for k in list(fps)[:-dedupe.KEEP]:
+            del fps[k]
     if job.status != "done":
         return await _job_failed(st, p, now, f"job #{job.id} {job.status}: {(job.error or '')[:100]}")
     if str(getattr(job, "no_autopost", "")).startswith(recipe.NOT_RECIPE):

@@ -67,6 +67,8 @@ async def understand(job: Job, inp: str, title: str, desc: str, raw_segs: list, 
     # chỉ số đoạn của AI là trên danh sách đã lọc -> mốc giây trên video gốc để kế hoạch dựng dùng được
     for st in facts.steps:
         st.t0, st.t1 = round(segs[st.a][0], 2), round(segs[st.b][1], 2)
+    for tip in facts.tips:                           # mẹo người gốc nói: mốc giây để đặt thẻ «MẸO» đúng bước
+        tip["at"] = round(segs[tip["seg"]][0], 2) if 0 <= tip.get("seg", -1) < len(segs) else -1.0
     return facts
 
 
