@@ -9,12 +9,16 @@ và TikTok.
 | # | Nội dung | Chốt |
 |---|---|---|
 | 1 | Lớp A (đổi nhịp, khung hình, màu) và lớp B (đảo thứ tự có kiểm soát) | Làm cả hai |
-| 2 | Tông màu, kiểu chuyển cảnh | **Cố định theo kênh** (bộ nhận diện kênh). Chỉ nhịp dựng thay đổi theo từng video |
-| 3 | Chữ "15 phút sau" ở đoạn tua nhanh | Chưa trả lời. Mặc định đề xuất ở §3.4 |
+| 2 | Tông màu, kiểu chuyển cảnh | **Cố định theo kênh** (bộ nhận diện kênh). Chỉ nhịp dựng thay đổi theo từng video. Kênh MỚI xây từ đầu, tên / màu / tông chưa chốt (gợi ý ở §11) |
+| 3 | Chữ "15 phút sau" ở đoạn tua nhanh | `auto`: có thời gian thật thì "⏩ 30 PHÚT SAU", không thì chỉ ⏩ (§3.4) |
 | 4 | `ALLOWED_SOURCES` | Không dùng. Để trống là nhận mọi kênh (mã hiện tại đã vậy, `rmvideo/app/flow/common.py:32`), không cần sửa |
 | 5 | Mẹo hay, công thức trong bài đăng | Có |
 | 6 | Đối chiếu định lượng với lời gốc | Có, là bước bắt buộc trước khi in số lên video hoặc bài đăng |
 | 7 | Nguồn | Nhiều kênh Facebook và TikTok |
+| 8 | Định lượng không đối chiếu được | Bỏ số, ghi "vừa đủ" (`QTY_CHECK=chặt`) |
+| 9 | Nguồn nước ngoài | Đổi HẲN sang đơn vị chuẩn Việt Nam, mã tính lại số (§3.2) |
+| 10 | Nhạc nền của video gốc | Giữ như hiện tại: không làm phần thay nhạc |
+| 11 | Link video nguồn thật cho bộ video vàng | Chưa có. Cần trước khi duyệt video mẫu (không chặn S1) |
 
 ## 1. Hiện trạng liên quan (đọc từ mã bản 41)
 
@@ -54,7 +58,8 @@ và TikTok.
 **Lưu ý tiếng nền:**
 - Model tách giọng Kim_Vocal_2 chỉ chia "giọng người" và "phần còn lại".
 - Vì vậy **nhạc nền của video gốc vẫn nằm trong lớp tiếng nền** được trộn vào video mới.
-- Video FB/TikTok rất hay lót nhạc thịnh hành. Nhạc đó vừa làm video giống bản gốc, vừa là thứ Facebook hay đối chiếu bản quyền. Xử lý ở §3.10.
+- Video FB/TikTok rất hay lót nhạc thịnh hành. Nhạc đó vừa làm video giống bản gốc, vừa là thứ Facebook hay đối chiếu bản quyền.
+- Đã chốt giữ như hiện tại (§3.10). Nếu sau này Facebook hay tắt tiếng hoặc chặn video vì nhạc thì xem lại.
 
 ## 2. Luồng mới
 
@@ -124,10 +129,44 @@ Video vẫn ra như lớp A.
   - **斤 = 500 g, 两 = 50 g. Bẫy:** "两勺" là "2 muỗng", nhưng "二两" là 100 g.
   - Đơn vị: 毫升 = ml; 汤匙 / 大勺 = muỗng canh; 茶匙 / 小勺 = muỗng cà phê; 碗 = chén; 杯 = ly; 个 / 颗 / 根 / 片 / 瓣; 分钟 = phút; 小时 = giờ; 度 = độ.
   - 适量 = "vừa đủ"; 少许 = "một chút".
-- **Tiếng Anh:**
-  - g, grams, ml, minutes, °C / °F (°F đổi sang °C, làm tròn 5 độ);
-  - cup = 240 ml, tbsp = muỗng canh, tsp = muỗng cà phê, oz = 28 g, lb = 454 g.
-  - **Đổi đơn vị do MÃ làm, ghi kèm đơn vị gốc:** "1 cup (~240 ml)".
+- **Tiếng Anh:** g, grams, ml, minutes, °C / °F, cup, tbsp, tsp, oz, fl oz, lb, inch, pinch, "to taste".
+
+**Đổi sang đơn vị chuẩn Việt Nam (đã chốt).** MÃ tính lại số, AI không tự đổi.
+
+- **Chỉ dùng các đơn vị:** g, kg, ml, lít, muỗng canh, muỗng cà phê, °C, phút, giờ, cm, và đơn vị đếm (quả, củ, tép, nhánh, lát…).
+- **Bảng đổi:**
+
+| Gốc | Thành | Ví dụ |
+|---|---|---|
+| cup (chất lỏng) | × 240 ml | 2 cups sữa → 480 ml |
+| cup (đồ khô) | gam theo bảng khối lượng riêng từng nguyên liệu: bột mì 125 g, đường cát 200 g, đường nâu 220 g, gạo 190 g, bột năng 130 g, bơ 225 g… | 1/2 cup đường → 100 g. Không có trong bảng thì đổi ra ml |
+| tbsp / 汤匙 / 大勺 / 勺 | muỗng canh, GIỮ số (cùng ~15 ml) | 2 tbsp → 2 muỗng canh |
+| tsp / 茶匙 / 小勺 | muỗng cà phê, giữ số | |
+| oz (khối lượng) / fl oz (chất lỏng) | × 28,35 g / × 30 ml | 8 oz thịt → 230 g |
+| lb | × 454 g | 1 lb → 450 g |
+| 斤 / 两 (đơn vị) | × 500 g / × 50 g | 1 斤 thịt → 500 g; 二两 → 100 g; nhưng 两勺 = 2 muỗng canh |
+| 公斤 / 千克, 克, 毫升, 升 | kg, g, ml, lít | |
+| lạng, cân / ký (lời gốc tiếng Việt) | × 100 g, kg | 3 lạng → 300 g |
+| °F | (F − 32) × 5/9, làm tròn 5 | 350°F → 175°C |
+| inch | × 2,54 cm, làm tròn 0,5 | 1 inch → 2,5 cm |
+| pinch / dash / 少许 | "1 chút" | không số |
+| to taste / 适量 | "vừa đủ" | |
+
+- **Làm tròn cho dễ đọc:**
+  - < 10: giữ 1 chữ số lẻ khi cần (0,5);
+  - 10–50: tới 1;
+  - 50–200: tới 5;
+  - ≥ 200: tới 10;
+  - ≥ 1000 và chẵn thì ra kg / lít (1500 g → 1,5 kg).
+  - Mã kiểm sai số làm tròn ≤ 5%.
+- **Dùng số đã đổi ở mọi nơi:** lời đọc, thẻ trên video, bài đăng.
+  - Đơn vị gốc chỉ hiện trong bảng đối chiếu lúc duyệt ("2 cups → 480 ml"), để bạn soát.
+  - Lời đọc của nguồn nước ngoài được kiểm: số phải đúng số đã đổi.
+  - Kiểm thêm giọng đọc đọc đúng "1,5 kg".
+- **Cộng dồn ở phần Nguyên liệu:**
+  - Cùng một nguyên liệu dùng ở nhiều bước (2 tép tỏi phi + 3 tép tỏi trộn sốt) → phần Nguyên liệu ghi tổng "5 tép tỏi"; phần Cách làm giữ số từng bước.
+  - Chỉ cộng khi cùng đơn vị sau khi đổi. Khác đơn vị (1 muỗng canh + 50 g) thì ghi hai dòng.
+  - Có phần ⚠️ / ❌ thì không cộng, ghi "vừa đủ".
 
 **Trạng thái từng định lượng:**
 
@@ -216,7 +255,7 @@ class EditPlan:
 | Hạt phim nhẹ | `BRAND_GRAIN=1`: `noise` rất nhẹ trên kênh sáng. Bitrate thấp làm hạt thành khối, nên chỉ bật ở 1080p | +3–5% |
 | Không lật gương | Video nấu ăn: không bao giờ (tay thuận, chữ bao bì) | — |
 
-**Chữ ở đoạn tua nhanh** (câu 3 chưa chốt). Đề xuất `TIME_SKIP_LABEL=auto`:
+**Chữ ở đoạn tua nhanh** (đã chốt `TIME_SKIP_LABEL=auto`):
 - **Hiện số thật:** chỉ khi lời gốc hoặc chữ trên hình có thời gian của đúng bước đó, ví dụ "hầm 30 phút" → thẻ "⏩ 30 PHÚT SAU". Số này cũng qua §3.2.
 - **Không có số:** chỉ hiện biểu tượng ⏩, không bịa thời gian.
 - Có thể chọn `icon` (luôn chỉ biểu tượng) hoặc `tắt`.
@@ -340,13 +379,7 @@ Mẹo AI viết hiện rõ trong màn duyệt. Tự động đăng chỉ dùng m
   - dài hơn mức cắt được về ≤ 90 giây mà vẫn giữ đủ bước.
 - **Chế độ theo từng nguồn:** dòng nguồn ghi `link | review` thì nguồn đó làm chế độ review. Mặc định theo `AUTO_MODE`.
 - **Nguồn nói tiếng Trung / Anh:** đối chiếu định lượng và đổi đơn vị theo §3.2; mẹo và công thức viết tiếng Việt.
-- **Nhạc nền của video gốc** (`SOURCE_MUSIC`):
-  - **`giữ`:** như hiện tại.
-  - **`thay`:** khi phát hiện có nhạc trong lớp tiếng nền:
-    - **Cách phát hiện:** trên Kaggle sau khi tách giọng, đo nhịp đều bằng `beat.py` đã có, cộng độ "có cao độ" của phổ.
-    - **Xử lý:** chỉ giữ dải cao của tiếng nền (tiếng xèo, dao thớt, như cổng 3 kHz đang dùng), mức thấp; lót nhạc của kênh từ thư viện `BGM_LINKS` dưới giọng đọc, có ducking.
-    - Nhạc kênh cố định cũng là một phần nhận diện.
-  - **Thử nghiệm thêm** (không hứa trước): model tách 3 lớp lời / nhạc / hiệu ứng trên GPU Kaggle. Chỉ dùng nếu giấy phép cho phép và nghe thử đạt.
+- **Nhạc nền của video gốc:** giữ như hiện tại (đã chốt). Không làm phần phát hiện / thay nhạc.
 
 ## 4. Cài đặt mới
 
@@ -361,10 +394,11 @@ Kaggle qua `snapshot` (không thuộc tiền tố bị loại).
 | `POST_RECIPE` | 0/1 | 0 |
 | `QTY_CHECK` | `chặt` (không đối chiếu được thì không in số; mâu thuẫn thì không tự đăng) / `mềm` (in kèm "(ước lượng)") | `chặt` |
 | `TIME_SKIP_LABEL` | `auto` / `icon` / `tắt` | `auto` |
-| `SOURCE_MUSIC` | `giữ` / `thay` | `giữ` |
 | `AUTO_MIN_HEIGHT` | 540 | 540 |
 
 Mặc định giữ hành vi cũ để snapshot không đổi. Bạn bật trong Cài đặt sau khi duyệt video mẫu.
+
+Các khoá nhận diện kênh để trống được. Bạn điền trên web khi đã chốt kênh mới, không cần sửa mã.
 
 ## 5. Thay đổi theo module
 
@@ -428,36 +462,53 @@ Mặc định giữ hành vi cũ để snapshot không đổi. Bạn bật trong
 | Mẹo AI sai / nhạy cảm | Mẹo người gốc ưu tiên; mẹo AI tối đa 1, có luật cấm, hiện rõ khi duyệt |
 | Botkeep hết RAM | Clip phụ thay nhiều đầu vào; đo RAM trong test |
 | Botkeep và Kaggle ra khác nhau | Chung `assemble` + `EditPlan` gửi kèm; test bundle |
-| Nhạc gốc bị đối chiếu bản quyền | `SOURCE_MUSIC=thay` |
+| Nhạc gốc bị đối chiếu bản quyền | Đã chốt giữ như hiện tại. Theo dõi số video bị Facebook tắt tiếng / chặn; nhiều thì làm lại phần thay nhạc |
+| Đổi đơn vị sai số | Bảng đổi + bảng khối lượng riêng do mã giữ, test từng dòng; sai số làm tròn ≤ 5%; bảng đối chiếu hiện đơn vị gốc khi duyệt |
 
 **Lưu ý về nguồn:** đổi phong cách, thêm công thức, mẹo, lời bình giúp video có phần đóng góp riêng (Facebook ưu tiên kiểu nội dung này hơn đăng lại nguyên). Nhưng việc này không thay đổi quyền với video gốc. Nên bật `SOURCE_CREDIT`, và gỡ ngay khi chủ video yêu cầu. Kế hoạch này không có bước xoá logo hoặc watermark của người gốc.
 
-## 9. Lộ trình (~14–19 ngày công)
+## 9. Lộ trình (~14–18 ngày công)
 
 | Giai đoạn | Nội dung | Công | Ra gì để bạn duyệt |
 |---|---|---|---|
 | S0 | Lưới an toàn: snapshot cho kiểu mới, bộ video vàng | 0,5 ngày | danh sách video vàng |
-| S1 | Hiểu món + đối chiếu định lượng + công thức và mẹo trong bài đăng (chưa đổi hình) | 2–3 ngày | bài đăng mẫu + bảng định lượng của 6–8 video |
+| S1 | Hiểu món + đối chiếu định lượng + đổi đơn vị, cộng dồn + công thức và mẹo trong bài đăng (chưa đổi hình) | 3 ngày | bài đăng mẫu + bảng định lượng của 6–8 video |
 | S2 | Bộ nhận diện kênh (màu, bộ màu, hạt, phụ đề, khung hook, màn kết, ảnh bìa, âm hiệu, câu chốt) | 2–3 ngày | 2–3 video + ảnh bìa theo kênh |
 | S3 | `EditPlan` + lớp A (dựng theo khúc, map lời, cỡ khung, bỏ thời gian chết, tua nhanh, ⏩, chuyển cảnh) | 3–4 ngày | video kiểu `nhẹ` |
 | S4 | Lớp B (nhãn bước, điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế, luật R1–R7, lùi bậc) | 3–4 ngày | video kiểu `mạnh` |
-| S5 | Nhiều nguồn: dấu vân hình, lọc nguồn, chế độ theo nguồn, `SOURCE_MUSIC` | 2–3 ngày | báo cáo trùng / lọc trên các nguồn thật |
+| S5 | Nhiều nguồn: dấu vân hình, lọc nguồn, chế độ theo nguồn | 1,5–2 ngày | báo cáo trùng / lọc trên các nguồn thật |
 | S6 | Mẹo trên video (thẻ + lời), tinh chỉnh theo góp ý, tài liệu | 1–2 ngày | bản hoàn chỉnh |
 
 **Lý do làm S1 trước:** không đụng phần dựng, rủi ro thấp, có ích ngay cho bài đăng. Bảng định lượng cũng là đầu vào của thẻ nguyên liệu ở S4.
 
-## 10. Cần bạn cung cấp hoặc chốt
+## 10. Còn cần bạn
 
-1. **Chữ ở đoạn tua nhanh:** đồng ý mặc định `auto` không? (Có thời gian thật thì ghi "⏩ 30 PHÚT SAU", không thì chỉ ⏩.)
-2. **Nhận diện kênh:**
-   - tên kênh, màu chủ đạo (mã màu hoặc ảnh logo để mình lấy màu);
-   - tông màu: ấm mộc / tươi sáng / điện ảnh;
-   - tagline, câu chốt cuối video;
-   - có âm hiệu riêng không (bạn gửi tệp);
-   - có tên loạt không.
-3. **Định lượng không đối chiếu được:**
-   - bỏ số, ghi "vừa đủ" (đề xuất, `QTY_CHECK=chặt`);
-   - hay in kèm "(ước lượng)".
-4. **Nguồn nước ngoài:** đổi cup / oz / °F sang ml / g / °C, ghi kèm đơn vị gốc (đề xuất).
-5. **Link 6–8 video nguồn thật** (FB + TikTok, có ít nhất 1 video tiếng Trung và 1 video có chữ định lượng trên hình) làm bộ video vàng.
-6. **Nhạc nền gốc:** muốn `SOURCE_MUSIC=thay` (dùng nhạc trong thư viện của bạn) hay giữ như hiện tại.
+1. **Chốt kênh mới:** tên, màu, tông, tagline, câu chốt, âm hiệu, tên loạt. Xem gợi ý ở §11.
+   - Không chặn S1. S2 vẫn làm được với khoá trống; bạn điền trên web khi đã chốt.
+2. **Link 6–8 video nguồn thật** (FB + TikTok, ít nhất 1 video tiếng Trung, 1 video có chữ định lượng trên hình).
+   - Cần trước khi duyệt video mẫu của S1.
+3. **Lệnh bắt đầu code S1.**
+
+## 11. Gợi ý định vị cho kênh mới
+
+**Với kênh xây từ đầu, cái người xem nhớ trước tiên là LỜI HỨA của kênh, rồi mới đến màu và logo.**
+- Chọn một lời hứa hẹp và lấy nguồn (`AUTO_SOURCES`, `AUTO_TIKTOK_SOURCES`) đúng chủ đề đó. Như vậy thuật toán và người xem đều hiểu kênh nhanh hơn.
+- Ba hướng hợp với những gì bot làm tốt:
+
+| | A. Bếp miền Tây thân tình | B. Công thức chuẩn, làm theo được (đề xuất) | C. Bếp điện ảnh / ASMR |
+|---|---|---|---|
+| Lời hứa | Món dân dã, kể như người nhà | Định lượng chính xác, xem xong nấu được ngay | Xem cho đã mắt, đã tai |
+| Giọng văn | `mien_tay` (mặc định hiện tại) | `mien_nam` hoặc `pho_thong`, gọn, rõ | ít lời, nhiều đoạn giữ tiếng xèo (`OST_AUTO=1`) |
+| Tông màu | `ấm mộc` | `tươi sáng` | `điện ảnh` |
+| Màu kênh (ví dụ) | cam đất `#E07A2E` | xanh lá `#2BB673` | vàng đồng `#C9A227` |
+| Điểm nhận diện | câu chốt thân tình cuối video | thẻ nguyên liệu kèm số đầu video + tóm tắt cuối + công thức đầy đủ trong bài | khung hình chậm, đẩy cận, chữ ít |
+| Tên loạt (ví dụ) | "MÓN NGON BÀ CON" | "CÔNG THỨC CHUẨN #12" | "BẾP ĐÊM" |
+| Nguồn hợp | kênh Việt nói nhiều | mọi nguồn, kể cả tiếng Trung / Anh (bot đã đổi đơn vị) | ASMR, Douyin |
+
+**Vì sao đề xuất B:**
+- Nó biến điểm mạnh riêng của bot thành lời hứa của kênh: đối chiếu định lượng, đổi đơn vị, công thức trong bài, điểm danh nguyên liệu, tóm tắt.
+- Các trang đăng lại thông thường không có những thứ này.
+
+**Lưu ý khi đặt tên:**
+- Kiểm tên còn trống trên cả Facebook lẫn TikTok trước khi chốt.
+- Không đặt gần giống tên kênh lớn đã có.
