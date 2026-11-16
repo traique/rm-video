@@ -177,7 +177,21 @@ def warm_filter(kelvin: float = 6000, mix: float = 0.35) -> str:
     return ("lutrgb=" + ":".join(parts) + ",") if parts else ""
 
 
-def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0) -> str:
+# Bộ màu theo kênh (BRAND_LOOK, bản 42). "goc" = công thức đã duyệt ở dưới, giữ y nguyên.
+LOOKS = {
+    # ấm mộc: ấm hơn, bớt xanh ở vùng tối, tương phản vừa
+    "am_moc": ("hqdn3d=1.2:1.2:3:3,eq=contrast=1.06:brightness=0.008:saturation=1.02,vibrance=intensity=0.16,"
+               "colorbalance=rs=0.03:bs=-0.03:rm=0.025:bm=-0.025," + "{warm}"),
+    # tươi sáng: sáng + màu tươi, trắng sạch (không ám vàng)
+    "tuoi_sang": "hqdn3d=1.2:1.2:3:3,eq=contrast=1.04:brightness=0.03:saturation=1.08:gamma=1.03,vibrance=intensity=0.25,",
+    # điện ảnh: tối xanh lơ, sáng cam, tương phản cao, viền tối nhẹ
+    "dien_anh": ("hqdn3d=1.2:1.2:3:3,eq=contrast=1.10:brightness=-0.008:saturation=0.94,"
+                 "colorbalance=rs=-0.03:bs=0.035:rh=0.045:bh=-0.04,vignette=angle=PI/5,"),
+}
+GRAIN = "noise=c0s=5:c0f=t+u"            # hạt phim rất nhẹ, chỉ kênh sáng; chỉ ở 1080p (720p bị nén thành khối)
+
+
+def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True) -> str:
     """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
     phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
     tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
@@ -188,13 +202,17 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0) -> str
             f"eq=contrast=1.05:brightness=0.012:saturation={'1.06' if cook else '1.03'},"
             f"vibrance=intensity={'0.2' if cook else '0.1'},"
             + (warm_filter(6000, 0.35) if cook else ""))
+    preset = LOOKS.get(config.BRAND_LOOK or "goc")
+    if preset:
+        look = preset.replace("{warm}", warm_filter(5400, 0.4) if cook else "")
     size = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},"
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
     upscale = bool(src_w and src_h) and max(W / (src_w * 0.96), H / (src_h * 0.96)) > 1.05
     sharpen = "cas=strength=0.5" if config.QUALITY == "high" else "unsharp=3:3:0.6:3:3:0"
     # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
-    return "crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look) + sharpen
+    tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
+    return "crop=in_w*0.96:in_h*0.96," + (look + size if upscale else size + look) + sharpen + tail
 
 
 TEASER_DUR = 3.0          # đoạn mở đầu: cảnh món đã xong chiếu trước 3 giây, kèm câu hook (bản 29)

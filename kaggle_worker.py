@@ -245,6 +245,9 @@ def _common(spec: dict) -> dict:
         else:                                   # trước đây: notebook quá 1MB -> MỌI việc Kaggle lỗi, âm thầm đổ về Botkeep
             logging.warning("Logo %dKB quá cỡ cho notebook Kaggle (tối đa %dKB): việc này dựng không logo, hãy tải logo nhỏ hơn",
                             os.path.getsize(logo) >> 10, config.LOGO_MAX_BYTES >> 10)
+    sting = os.path.join(BASE, "assets", "sting.mp3")
+    if config.BRAND_STING != "0" and os.path.exists(sting) and os.path.getsize(sting) <= 100 * 1024:
+        spec["sting_b64"] = base64.b64encode(open(sting, "rb").read()).decode()
     spec["settings"] = settings_snapshot()
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
@@ -452,7 +455,7 @@ async def produce(spec: dict, tmp: str, on_step=None) -> dict:
 async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
     """Nhiều việc trong MỘT phiên (nạp model + tải nguồn một lần). Trả danh sách: kết quả hoặc KaggleError từng việc."""
     on_step = on_step or (lambda s: None)
-    shared = ("settings", "logo_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
+    shared = ("settings", "logo_b64", "sting_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
     spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in shared} for s in specs],
             **{k: specs[0].get(k) for k in shared if specs[0].get(k)}}
     try:

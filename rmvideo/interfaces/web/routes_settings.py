@@ -12,6 +12,9 @@ from rmvideo.interfaces.web.http import REAUTH_FIELD, VOICE_REF_MAX, _json_dict,
 from rmvideo.media import proc
 
 
+
+STING_MAX = 100 * 1024        # âm hiệu đi kèm mỗi việc gửi Kaggle (notebook tối đa 1MB)
+
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     async def list_voices(request):
         _check(request)
@@ -75,6 +78,36 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
             f.write(data)
         return web.json_response({"ok": True})
 
+    async def upload_sting(request):
+        """Âm hiệu màn kết (BRAND_STING): chuẩn hoá thành mp3 mono 44.1kHz, cắt còn 1,5 giây (gửi kèm mỗi việc Kaggle
+        như logo nên phải nhỏ). File gốc không giữ."""
+        _check(request)
+        reader = await _multipart(request)
+        part = await reader.next()
+        if not part:
+            raise web.HTTPBadRequest(text="Chưa chọn file âm hiệu")
+        data = await _read_capped(part, 5 << 20, "Âm hiệu tối đa 5MB trước khi cắt")
+        from rmvideo.media import ff, proc
+        tag = secrets.token_hex(6)
+        tmp, out = ff.STING_PATH + f".{tag}.in", ff.STING_PATH + f".{tag}.mp3"
+        try:
+            with open(tmp, "wb") as f:
+                f.write(data)
+            try:
+                await proc.run(["ffmpeg", "-v", "error", "-y", "-i", tmp, "-vn", "-t", "1.5", "-ac", "1", "-ar", "44100",
+                                "-af", "afade=t=out:st=1.2:d=0.3", "-b:a", "96k", out], timeout=60)
+            except Exception as e:
+                raise web.HTTPBadRequest(text=f"Không đọc được file âm hiệu: {str(e)[-150:]}") from None
+            if os.path.getsize(out) > STING_MAX:
+                raise web.HTTPBadRequest(text="Âm hiệu sau khi cắt vẫn quá lớn")
+            os.makedirs(os.path.dirname(ff.STING_PATH), exist_ok=True)
+            os.replace(out, ff.STING_PATH)
+        finally:
+            for leftover in (tmp, out):
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+        return web.json_response({"ok": True})
+
     async def upload_voice_ref(request):
         """Đoạn giọng mẫu cho giọng nhân bản VieNeu (3-15 giây, giọng bạn có quyền dùng). Chuẩn hoá thành mp3 mono
         24kHz, cắt còn 10 giây; file gốc không giữ."""
@@ -112,6 +145,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         return web.json_response({"ok": True, "seconds": round(dur, 1)})
 
     app.router.add_post("/api/logo", upload_logo)
+    app.router.add_post("/api/sting", upload_sting)
     app.router.add_post("/api/voice_ref", upload_voice_ref)
     app.router.add_get("/api/voices", list_voices)
     app.router.add_get("/api/settings", get_settings)

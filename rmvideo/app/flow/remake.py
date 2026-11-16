@@ -40,7 +40,7 @@ import transcribe
 import vocal_sep
 from queue_manager import Job
 from review import spoken_script
-from rmvideo.app import job_factory
+from rmvideo.app import brand, job_factory
 from rmvideo.app.assemble import assemble
 from rmvideo.app.flow import analysis, backends, common, dish, teaser
 from rmvideo.app.flow import music as music_flow
@@ -333,6 +333,8 @@ class Remake:
 
     def apply_script(self, timed: dict):
         job = self.job
+        if not job.approved and brand.add_close(timed["segments"]):   # câu chốt của kênh (BRAND_CLOSE)
+            timed["script"] = spoken_script(timed["segments"])
         job.script = spoken_script(timed["segments"]) or timed["script"]
         if timed.get("hook") and not job.approved:
             job.hook = timed["hook"]                      # chữ hook in màn hình 3 giây đầu + ảnh bìa
@@ -554,7 +556,7 @@ class Remake:
         t = asyncio.create_task(cover_mod.make_cover(
             self.inp, self.tmp, self.job.mode, post_title, self.src_dur, cuts=self.cover_cuts, end=self.cover_end,
             bands=self.bands, thumbs_dir=a["dir"] if a else None, thumb_times=a.get("times") if a else None,
-            at=self.cover_at))
+            at=self.cover_at, **({"series": s} if (s := brand.series_label(self.src_hash)) else {})))
         self.tasks.append(t)
         return t
 

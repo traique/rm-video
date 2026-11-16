@@ -207,8 +207,17 @@ def drawtext_lines(files: list, fontsize: int, y_top: str, line_h: int, style: s
                    f"x=(w-text_w)/2:y={y_top}+{i * line_h}" for i, p in enumerate(files))
 
 
+def brand_hex(alpha: float | None = None) -> str:
+    """Màu kênh cho drawtext/drawbox ("0xRRGGBB[@a]"), "" nếu chưa đặt BRAND_COLOR."""
+    c = (config.BRAND_COLOR or "").lstrip("#")
+    return (f"0x{c.upper()}" + (f"@{alpha:g}" if alpha is not None else "")) if len(c) == 6 else ""
+
+
+OUTRO_DUR = 2.2
+
+
 def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outro_file: str | None,
-                  logo_idx: int | None, title_end: float | None = None) -> str:
+                  logo_idx: int | None, title_end: float | None = None, tagline_file: str | None = None) -> str:
     """Chuỗi filter gắn lên [v]: logo góc phải trên, tiêu đề (câu hook) 3s đầu, màn kết 2.2s cuối (chỉ tên kênh).
     title_end: có đoạn mở đầu thì chữ hook hiện NGAY khung đầu (khung đầu thường thành ảnh bìa) tới hết đoạn đó."""
     k = H / 1280
@@ -221,16 +230,21 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
             when = f"enable='lte(t,{e})':alpha='if(gt(t,{e}-0.4),({e}-t)/0.4,1)'"
         else:
             when = "enable='between(t,0.3,3.3)':alpha='if(lt(t,0.7),(t-0.3)/0.4,if(gt(t,2.9),(3.3-t)/0.4,1))'"
+        box = brand_hex(0.88) or "black@0.45"          # màu kênh: khung chữ hook theo màu kênh
         f += drawtext_lines(
             title_files, fs, f"h*0.36-{len(title_files) * lh // 2}", lh,
-            f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor=black@0.45:boxborderw={pad}:"
+            f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor={box}:boxborderw={pad}:"
             + when)
     if outro_file and out_dur > 6:
-        st = out_dur - 2.2
+        st = out_dur - OUTRO_DUR
         f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
               f",drawtext=fontfile={ff.FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={int(62 * k)}:fontcolor=white:"
               f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
               f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'")
+        if tagline_file:                               # câu dưới tên kênh (BRAND_TAGLINE), màu kênh
+            f += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={tagline_file}:expansion=none:fontsize={int(34 * k)}:"
+                  f"fontcolor={brand_hex() or '0xFFE100'}:borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:"
+                  f"y=(h-text_h)/2+{int(48 * k)}:enable='gte(t,{st + 0.25:.2f})':alpha='min(1,(t-{st + 0.25:.2f})/0.4)'")
         # bỏ dòng "Theo dõi để xem thêm": không kêu gọi đăng ký/theo dõi kênh ở cuối video (yêu cầu 13/11/2026)
     if logo_idx is not None:
         f += (f"[vb];[{logo_idx}:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
@@ -268,13 +282,21 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     title_files, outro_file = [], None
     if title and config.BRAND_INTRO != "0":
         title_files = write_lines(_wrap(title.strip(), 22), tmp, "title")
+    tagline_file = None
     if config.BRAND_NAME.strip():
         outro_file = os.path.join(tmp, "outro.txt")
         open(outro_file, "w", encoding="utf-8").write(config.BRAND_NAME.strip())
+        if config.BRAND_TAGLINE.strip():
+            tagline_file = os.path.join(tmp, "tagline.txt")
+            open(tagline_file, "w", encoding="utf-8").write(config.BRAND_TAGLINE.strip())
     use_logo = config.BRAND_LOGO != "0" and os.path.exists(ff.LOGO_PATH)
-    # đầu vào: 0 video, 1 giọng, [tiếng nền], [tiếng nền đoạn mở đầu], [logo], [hình đoạn mở đầu]. Các đầu vào TIẾNG
-    # đứng trước để lượt đo âm lượng (two_pass_loudness, chỉ có các đầu vào tiếng) đánh số giống hệt.
+    # đầu vào: 0 video, 1 giọng, [tiếng nền], [âm hiệu], [tiếng nền đoạn mở đầu], [logo], [hình đoạn mở đầu]. Các đầu
+    # vào TIẾNG đứng trước để lượt đo âm lượng (two_pass_loudness, chỉ có các đầu vào tiếng) đánh số giống hệt.
     audio_in = ["-i", input_mp4, "-i", voice_mp3, *(["-i", ambient_wav] if ambient_wav else [])]
+    sting_idx = None
+    if config.BRAND_STING != "0" and os.path.exists(ff.STING_PATH) and out_dur > 6 and not music_bed:
+        sting_idx = audio_in.count("-i")
+        audio_in += ["-i", ff.STING_PATH]
     tz, extra_in = None, []
     if T:
         a0 = max(0.0, float(teaser.get("a") or 0.0))
@@ -289,10 +311,18 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
                       bed=bool(music_bed and ambient_wav), teaser=tz)
-    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None)
+    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None,
+                          tagline_file=tagline_file)
     # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
     fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
+    if sting_idx is not None:
+        # âm hiệu kênh vang lúc màn kết hiện (hoặc 1,6 giây cuối nếu không có màn kết), trộn trên giọng + tiếng nền
+        at = max(0.0, out_dur - (OUTRO_DUR if outro_file else 1.6))
+        ms = int(at * 1000)
+        fc = fc.replace("[a]", "[a0]", 1)
+        fc += (f";[{sting_idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:1.8,"
+               f"adelay={ms}|{ms},volume=0.7[sting];[a0][sting]amix=inputs=2:duration=first:normalize=0[a]")
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
     fc = await two_pass_loudness(fc, audio_in, out_dur)
     await ff._run_ffmpeg(

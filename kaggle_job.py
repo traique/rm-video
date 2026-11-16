@@ -30,11 +30,12 @@ def prepare_env(spec: dict, app: str = APP):
                  ("RECENT_LOOKS", "/tmp/rm_looks.json"), ("SEP_BUDGET", "1500"), ("SEP_PASSES", "2"),
                  ("SEP_THREADS", str(os.cpu_count() or 4))):      # mặc định 2 luồng là cho Botkeep 1.5 vCPU
         os.environ.setdefault(k, v)
-    if spec.get("logo_b64"):
-        import base64
-        os.makedirs(os.path.join(app, "assets"), exist_ok=True)
-        with open(os.path.join(app, "assets", "logo.png"), "wb") as f:
-            f.write(base64.b64decode(spec["logo_b64"]))
+    import base64
+    for key, name in (("logo_b64", "logo.png"), ("sting_b64", "sting.mp3")):     # logo, âm hiệu màn kết
+        if spec.get(key):
+            os.makedirs(os.path.join(app, "assets"), exist_ok=True)
+            with open(os.path.join(app, "assets", name), "wb") as f:
+                f.write(base64.b64decode(spec[key]))
 
 
 def _http_get(url: str, dst: str):

@@ -175,6 +175,8 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
     <div id="set_fields" aria-live="polite"></div>
     <label for="logo_file">Logo kênh (PNG nền trong suốt, góc phải trên video)</label>
     <input id="logo_file" name="logo" type="file" accept="image/png">
+    <label for="sting_file">Âm hiệu kênh cho màn kết (≤1,5 giây, tự cắt; bật/tắt ở nhóm 🎨 Nhận diện kênh)</label>
+    <input id="sting_file" name="sting" type="file" accept="audio/*">
     <label for="vref_file">Giọng mẫu cho giọng nhân bản VieNeu (3–15 giây, ít tạp âm, giọng bạn được phép dùng); chọn «clone» ở mục Giọng đọc</label>
     <input id="vref_file" name="ref" type="file" accept="audio/*,video/*">
     <button type="submit" id="save_set" class="btn btn-full">Lưu cài đặt</button>
@@ -359,6 +361,9 @@ $('settings_form').onsubmit=async e=>{
 const hasUnsavedSettings=()=>[...document.querySelectorAll('[data-k]')].some(el=>el.value.trim());
 window.addEventListener('beforeunload',e=>{if(hasUnsavedSettings())e.preventDefault();});
 async function saveSettings(){
+  if($('sting_file').files.length){const sf=new FormData();sf.append('sting',$('sting_file').files[0]);
+    const sr=await fetch('/api/sting',{method:'POST',body:sf});
+    $('msg').textContent=sr.ok?'✅ Đã lưu âm hiệu':'❌ '+await sr.text();if(!sr.ok)return;$('sting_file').value='';}
   if($('logo_file').files.length){const lf=new FormData();lf.append('logo',$('logo_file').files[0]);
     const lr=await fetch('/api/logo',{method:'POST',body:lf});
     $('msg').textContent=lr.ok?'✅ Đã lưu logo':'❌ '+await lr.text();if(!lr.ok)return;$('logo_file').value='';}

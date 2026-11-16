@@ -33,6 +33,7 @@ ASSETS_DIR = os.path.join(ROOT, "assets")
 
 
 LOGO_PATH = os.path.join(ASSETS_DIR, "logo.png")
+STING_PATH = os.path.join(ASSETS_DIR, "sting.mp3")      # âm hiệu màn kết (BRAND_STING), tải lên ở trang cài đặt
 
 
 FONT_PATH = os.path.join(ASSETS_DIR, "BeVietnamPro-ExtraBold.ttf")
