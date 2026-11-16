@@ -1,13 +1,15 @@
 # Bộ nhận diện kênh «Bếp Đong Đủ»
 
-Tạo bằng `python brand/brand_kit.py "Bếp Đong Đủ" "Đong đủ, nấu là ngon" "#F28C28" brand/bep_dong_du`
+Tạo bằng `python brand/brand_kit.py "Bếp Đong Đủ" "Đong đủ, nấu là ngon" "#F28C28" brand/bep_dong_du "Hôm nay nấu gì?"`
 (chữ Be Vietnam Pro ExtraBold đã kèm trong `assets/`, âm hiệu là hai nốt tự tổng hợp — không vướng bản quyền).
 
 | Tệp | Dùng làm gì |
 | --- | --- |
 | `logo.png` | Logo tròn nền trong suốt 512px: tải lên ở cuối trang ⚙️ Cài đặt («Logo kênh»), hiện góc phải trên video + ảnh bìa |
 | `sting.mp3` | Âm hiệu "đinh - đong" 1,3 giây: tải lên ở «Âm hiệu kênh cho màn kết» |
-| `avatar.jpg` | Ảnh đại diện 1080x1080 cho Fanpage / TikTok (không tải lên bot) |
+| `fb_avatar.jpg` | **Ảnh đại diện Fanpage / TikTok** 1080x1080: chỉ có tên, chữ to (Facebook cắt tròn, thu nhỏ còn ~40px) |
+| `fb_cover.jpg` | **Ảnh bìa Fanpage** 1640x924: nội dung ở giữa (máy tính cắt trên dưới, điện thoại cắt hai bên, góc dưới trái bị ảnh đại diện đè) |
+| `avatar.jpg` | Bản ảnh vuông có câu dưới tên (dùng cho bài đăng / ảnh chia sẻ) |
 
 Điền trên web (⚙️ Cài đặt → nhóm 🎨 Nhận diện kênh, ✨ Phong cách remake & bài đăng):
 
