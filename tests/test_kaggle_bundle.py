@@ -20,8 +20,9 @@ import kaggle_worker
 from rmvideo.services import kaggle_bundle
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# queue_manager.py đã cố ý bỏ: metrics lấy đường dẫn jobs.db từ rmvideo/app/db.py, không kéo hàng đợi lên Kaggle
 OLD_MANUAL = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
-              "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
+              "url_guard.py", "potoken_setup.py", "vocal_sep.py", "vi_text.py", "tts_capcut.py",
               "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
               "assets/BeVietnamPro-ExtraBold.ttf"]
 
