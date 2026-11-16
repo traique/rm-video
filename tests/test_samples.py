@@ -1,5 +1,6 @@
-"""Code mẫu production trong samples/ (Phần 4 tài liệu đánh giá kiến trúc) phải tự chạy đúng như đã hứa."""
+"""Code mẫu production trong samples/ (mẫu cài đặt đã thành rmvideo/app/settings.py, xem test_settings_schema.py) (Phần 4 tài liệu đánh giá kiến trúc) phải tự chạy đúng như đã hứa."""
 import asyncio
+import importlib.util
 import os
 import subprocess
 import sys
@@ -7,11 +8,21 @@ import time
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "samples"))
+_SAMPLES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "samples", "rmvideo")
 
-from rmvideo.app.settings import SCHEMA, Settings            # noqa: E402
-from rmvideo.media import proc                               # noqa: E402
-from rmvideo.services.router import Provider, ServiceError, complete, loads_lenient   # noqa: E402
+
+def _load(name, rel):
+    """Nạp mẫu theo đường dẫn tệp (gói rmvideo/ thật đã có ở gốc repo, không được trùng tên)."""
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_SAMPLES, rel))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+proc = _load("sample_proc", "media/proc.py")
+_router = _load("sample_router", "services/router.py")
+Provider, ServiceError, complete, loads_lenient = _router.Provider, _router.ServiceError, _router.complete, _router.loads_lenient
 
 
 def test_proc_runs_reports_errors_and_kills_whole_group():
@@ -29,24 +40,6 @@ def test_proc_runs_reports_errors_and_kills_whole_group():
     ps = subprocess.run(["ps", "-eo", "stat,args"], capture_output=True, text=True).stdout.splitlines()
     alive = [l for l in ps if l.split(None, 1)[-1].startswith("sleep 30") and not l.strip().startswith("Z")]
     assert not alive                                   # chỉ còn xác (Z) chờ init dọn, không còn sleep chạy thật
-
-
-def test_settings_schema_validates_masks_and_saves_0600(tmp_path):
-    s = Settings(SCHEMA, str(tmp_path / "settings.json"), env={"KAGGLE_ASR": "phowhisper"})
-    assert s.get("KAGGLE_ASR") == "phowhisper"
-    for bad in ({"KAGGLE_ASR": "medium"}, {"TTS_RATE": "fast"}, {"AUTO_PLATFORMS": "youtube"}):
-        with pytest.raises(ValueError):
-            s.save(bad)
-    s.save({"KAGGLE_ASR": "large-v3", "GEMINI_API_KEY": "AIzaSy-abcdefghijklmnop",
-            "AUTO_PLATFORMS": "tiktok, facebook, tiktok"})
-    assert oct(os.stat(s.path).st_mode)[-3:] == "600" and s.get("AUTO_PLATFORMS") == "tiktok,facebook"
-    d = s.describe()
-    assert d["GEMINI_API_KEY"]["value"].startswith("AIza") and "•••" in d["GEMINI_API_KEY"]["value"]
-    snap = s.snapshot(exclude_prefixes=("AUTO_",))
-    assert "GEMINI_API_KEY" not in snap and "KAGGLE_API_TOKEN" not in snap and "AUTO_PLATFORMS" not in snap
-    s.save({"KAGGLE_ASR": "-"})                        # "-" = bỏ giá trị đè, quay về env
-    assert s.get("KAGGLE_ASR") == "phowhisper"
-    assert Settings(SCHEMA, s.path, env={}).get("AUTO_PLATFORMS") == "tiktok,facebook"   # đọc lại từ đĩa
 
 
 def test_router_retries_then_falls_back():

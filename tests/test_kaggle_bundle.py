@@ -1,10 +1,11 @@
-"""Phase 0: bộ mã gửi lên Kaggle phải TỰ ĐỦ.
+"""Bộ mã gửi lên Kaggle phải TỰ ĐỦ (rmvideo/services/kaggle_bundle.py tính tự động từ import thật).
 
-`kaggle_worker.BUNDLE` hiện là danh sách tệp viết tay: thêm một `import` vào mã lõi mà quên thêm tệp thì chỉ hỏng
-TRÊN KAGGLE, lúc chạy, rồi job lặng lẽ lùi về Botkeep (chậm ~10 lần). Hai lớp kiểm:
-1. Tĩnh: mọi module nội bộ mà mã trong bundle import (kể cả import đặt trong thân hàm) phải có trong bundle, trừ các
-   cạnh ĐÃ BIẾT không bao giờ chạy trên Kaggle (KNOWN_UNREACHABLE — Phase 1 sẽ cắt hết các cạnh này).
-2. Chạy thật: giải nén bundle vào thư mục trống, import từng module trong tiến trình Python cô lập (không thấy mã của
+Trước đây `kaggle_worker.BUNDLE` là danh sách tệp viết tay: thêm một `import` vào mã lõi mà quên thêm tệp thì chỉ hỏng
+TRÊN KAGGLE, lúc chạy, rồi job lặng lẽ lùi về Botkeep (chậm ~10 lần). Ba lớp kiểm:
+1. Tĩnh: mọi module nội bộ mà mã trong bundle import (kể cả import trong thân hàm) đều có trong bundle; module cố ý không
+   gửi (kaggle_bundle.OPTIONAL) chỉ được import trong `try ... except ImportError`.
+2. Không hụt so với danh sách viết tay cũ (đã chạy thật trên Kaggle tới bản 40).
+3. Chạy thật: giải nén bundle vào thư mục trống, import từng module trong tiến trình Python cô lập (không thấy mã của
    repo, không có aiogram hay mã web/Telegram; edge-tts trên Kaggle tự kéo aiohttp nên được phép).
 """
 import ast
@@ -16,14 +17,13 @@ import sys
 import zipfile
 
 import kaggle_worker
+from rmvideo.services import kaggle_bundle
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# cạnh import (module trong bundle -> module ngoài bundle) không chạy trên Kaggle; mỗi cạnh ghi rõ vì sao
-KNOWN_UNREACHABLE = {
-    ("config", "autopost"),          # config.save_settings kiểm link kênh: Kaggle không lưu cài đặt
-    ("core_video", "kaggle_worker"),  # _vieneu_male: giọng VieNeu trên Kaggle không đi qua synth_clip_ex
-    ("core_video", "offline"),       # giọng Piper: gói offline không có trên Kaggle (TTS_OFFLINE mặc định tắt)
-}
+OLD_MANUAL = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
+              "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
+              "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
+              "assets/BeVietnamPro-ExtraBold.ttf"]
 
 
 def _bundle_dir(tmp_path):
@@ -33,29 +33,39 @@ def _bundle_dir(tmp_path):
     return d, z.namelist()
 
 
-def _internal_imports(path, internal):
-    out = set()
-    for n in ast.walk(ast.parse(open(path, encoding="utf-8").read())):
+def _imports_with_guard(path):
+    """[(tên module gốc, có nằm trong try bắt ImportError không)] cho mọi import trong tệp."""
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    guarded = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Try) and any(
+                h.type is not None and "ImportError" in ast.unparse(h.type) for h in n.handlers):
+            for m in n.body:
+                guarded |= {id(x) for x in ast.walk(m)}
+    out = []
+    for n in ast.walk(tree):
         if isinstance(n, ast.Import):
-            names = [a.name.split(".")[0] for a in n.names]
+            out += [(a.name.split(".")[0], id(n) in guarded) for a in n.names]
         elif isinstance(n, ast.ImportFrom) and n.level == 0 and n.module:
-            names = [n.module.split(".")[0]]
-        else:
-            continue
-        out |= {x for x in names if x in internal}
+            out.append((n.module.split(".")[0], id(n) in guarded))
     return out
 
 
 def test_bundle_is_import_closed(tmp_path):
     d, names = _bundle_dir(tmp_path)
     bundled = {n[:-3] for n in names if n.endswith(".py") and "/" not in n} | {n.split("/")[0] for n in names if "/" in n}
-    internal = {f[:-3] for f in os.listdir(ROOT) if f.endswith(".py")} | {"capcut_tts_api"}
-    missing = set()
-    for mod in sorted(m for m in bundled if os.path.exists(os.path.join(d, m + ".py"))):
-        for dep in _internal_imports(os.path.join(d, mod + ".py"), internal):
-            if dep not in bundled and (mod, dep) not in KNOWN_UNREACHABLE:
-                missing.add((mod, dep))
-    assert not missing, f"module trong bundle Kaggle import module không được gửi kèm: {sorted(missing)}"
+    internal = {f[:-3] for f in os.listdir(ROOT) if f.endswith(".py")} | {"capcut_tts_api", "rmvideo"}
+    problems = []
+    for rel in [n for n in names if n.endswith(".py") and not n.startswith("capcut_tts_api/")]:
+        for dep, guarded in _imports_with_guard(os.path.join(d, rel)):
+            if dep not in internal or dep in bundled:
+                continue
+            if dep in kaggle_bundle.OPTIONAL and guarded:
+                continue
+            problems.append((rel, dep))
+    assert not problems, f"mã trong bundle Kaggle import module không được gửi kèm: {sorted(problems)}"
+    assert set(OLD_MANUAL) <= set(names), set(OLD_MANUAL) - set(names)
+    assert kaggle_worker.BUNDLE == list(kaggle_bundle.files())
 
 
 ISOLATED = r"""

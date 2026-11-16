@@ -8,7 +8,6 @@ Lỗi ở bất kỳ bước nào -> ném KaggleError, pipeline làm tiếp trê
 import asyncio
 import base64
 import contextvars
-import io
 import json
 import logging
 import os
@@ -17,21 +16,18 @@ import secrets
 import subprocess
 import time
 import urllib.parse
-import zipfile
 
 import config
 import kaggle_api
 from kaggle_api import KaggleError
+from rmvideo.services import kaggle_bundle
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
 SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
 SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
-BUNDLE = ["kaggle_job.py", "core_video.py", "config.py", "subs.py", "align.py", "cache.py", "metrics.py",
-          "url_guard.py", "potoken_setup.py", "vocal_sep.py", "queue_manager.py", "vi_text.py", "tts_capcut.py",
-          "slideshow.py", "trendfx.py", "beat.py", "scenes.py", "textzone.py", "asr_local.py",
-          "assets/BeVietnamPro-ExtraBold.ttf"]
-BUNDLE_DIRS = ["capcut_tts_api"]
+# mã gửi kèm notebook: tính tự động từ import thật của kaggle_job.py (rmvideo/services/kaggle_bundle.py)
+BUNDLE = list(kaggle_bundle.files())
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
        "'transformers==4.57.6' safetensors yt-dlp edge-tts")
 PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu: khỏi cài model giọng
@@ -90,22 +86,9 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20):
     finally:
         _unwatch(run)
 
-# Giọng VieNeu v3 Turbo miền Nam (nhãn của model) và tốc độ đọc đo thật (chữ/giây, chỉ phần tiếng nói, 12/11/2026)
-SOUTH_FEMALE = ["Mỹ Duyên", "Thục Đoan", "Thùy Dung", "Kim Thanh"]
-SOUTH_MALE = ["Adam", "Thái Sơn", "Minh Triết", "Đức Trí"]
-RATE = {"Mỹ Duyên": 3.08, "Adam": 4.15, "Thùy Dung": 4.5}
-RATE_EDGE = 3.6                  # edge Hoài My/Nam Minh +8%: 3.9 chữ/giây phần tiếng nói, chừa biên
-RATE_CAPCUT = 3.8
-CLONE = "clone"
-
-
-def voice_name(voice: str) -> str:
-    """'vieneu:Mỹ Duyên' -> 'Mỹ Duyên'; giọng khác -> ''."""
-    return voice.split(":", 1)[1] if (voice or "").startswith("vieneu:") else ""
-
-
-def is_male(voice: str) -> bool:
-    return voice_name(voice) in SOUTH_MALE
+# danh mục giọng VieNeu + tốc độ đọc: rmvideo/domain/voices.py (giữ tên cũ ở đây cho mã/test đang dùng)
+from rmvideo.domain.voices import (CLONE, RATE, RATE_CAPCUT, RATE_EDGE, SOUTH_FEMALE, SOUTH_MALE,  # noqa: E402,F401
+                                   is_male, vieneu_rate, voice_name)
 
 
 def voice_engine(voice: str) -> str:
@@ -119,7 +102,7 @@ def voice_engine(voice: str) -> str:
 def words_per_sec(voice: str) -> float:
     name = voice_name(voice)
     if name:
-        return RATE.get(name, 3.6 if name != CLONE else 3.4)
+        return vieneu_rate(name)
     return RATE_CAPCUT if voice_engine(voice) == "capcut" else RATE_EDGE
 
 
@@ -202,18 +185,7 @@ def usable(job, local_path: str | None = None) -> str:
 # ---------------- notebook ----------------
 
 def bundle_b64() -> str:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in BUNDLE:
-            z.write(os.path.join(BASE, rel), rel)
-        for d in BUNDLE_DIRS:
-            for root, _, files in os.walk(os.path.join(BASE, d)):
-                if "__pycache__" in root:
-                    continue
-                for f in files:
-                    p = os.path.join(root, f)
-                    z.write(p, os.path.relpath(p, BASE))
-    return base64.b64encode(buf.getvalue()).decode()
+    return kaggle_bundle.build_b64()
 
 
 def _jobs(spec: dict) -> list:
@@ -254,8 +226,9 @@ kaggle_job.main(json.loads(base64.b64decode("{spec_b64}").decode()))
 
 
 def settings_snapshot() -> dict:
-    return {k: getattr(config, k) for k in config.EDITABLE if k not in config.SECRET_KEYS
-            and not k.startswith(("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_"))}
+    """Cài đặt gửi kèm notebook: không bí mật, không tài khoản (rmvideo/app/settings.py quyết khoá nào được đi)."""
+    from rmvideo.app import settings as schema
+    return schema.snapshot({k: getattr(config, k) for k in config.EDITABLE})
 
 
 def _common(spec: dict) -> dict:

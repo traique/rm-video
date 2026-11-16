@@ -114,6 +114,10 @@ td .link{margin:2px 0}
 code{font:.8125rem ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut)}
 footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-size:.875rem}
 [hidden]{display:none}
+dialog.reauth{border:1px solid var(--edge);border-radius:var(--radius);background:var(--card);color:var(--text);
+  padding:16px;width:min(92vw,380px)}
+dialog.reauth::backdrop{background:rgb(0 0 0 / .45)}
+dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 </style>
 </head>
 <body>
@@ -244,6 +248,15 @@ footer{max-width:720px;margin:0 auto;padding:0 16px 24px;color:var(--mut);font-s
 </section>
 </main>
 <footer>Video Bot · trang riêng của chủ bot, không lập chỉ mục.</footer>
+<dialog id="reauth_dlg" class="reauth" aria-labelledby="reauth_title">
+  <form method="dialog">
+    <h3 id="reauth_title">🔒 Nhập lại mật khẩu web</h3>
+    <p id="reauth_msg" class="mut"></p>
+    <label for="reauth_pw">Mật khẩu</label>
+    <input id="reauth_pw" name="reauth_pw" type="password" autocomplete="current-password">
+    <div class="inline" style="margin-top:12px"><button value="ok" class="btn">Xác nhận</button><button value="cancel" class="btn btn-2" formnovalidate>Huỷ</button></div>
+  </form>
+</dialog>
 <script>
 const $=id=>document.getElementById(id);
 const esc=t=>String(t??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -323,7 +336,9 @@ async function loadSettings(){
       }else f='<input id="'+id+'" data-k="'+k+'" autocomplete="off" spellcheck="false" placeholder="'+esc(v.value||'chưa đặt')+'">';
       const state=v.group=='api'?(v.set?' <span class="st-done">✅ đã điền</span>':' <span class="'+(v.need=='must'?'st-error':'mut')+'">'+(v.need=='must'?'⚠️ chưa điền':'chưa điền')+'</span>'):'';
       return '<label for="'+id+'"><b>'+esc(v.label||k)+'</b>'+(v.need?' <i>('+NEED[v.need]+')</i>':'')+state+
-        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+'<br><span>'+esc(v.help||'')+
+        (v.overridden?' <span class="mut">· đang đè từ web</span>':'')+
+        (v.pending?' <span class="mut">· áp dụng khi job đang chạy xong</span>':'')+
+        (v.reauth?' <span class="mut" title="Đổi mục này phải nhập lại mật khẩu web">· 🔒</span>':'')+'<br><span>'+esc(v.help||'')+
         (v.link?' <a href="'+esc(v.link)+'" target="_blank" rel="noopener">Lấy ở đây ↗</a>':'')+' <code translate="no">'+esc(k)+'</code></span></label>'+f;
     };
     $('set_fields').innerHTML=groups.map(g=>{
@@ -351,9 +366,24 @@ async function saveSettings(){
     $('msg').textContent=vr.ok?'✅ Đã lưu giọng mẫu ('+(await vr.json()).seconds+' giây)':'❌ '+await vr.text();if(!vr.ok)return;
     $('vref_file').value='';loadVoices();}
   const body={};document.querySelectorAll('[data-k]').forEach(el=>{if(el.value.trim())body[el.dataset.k]=el.value});
-  const r=await fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
-  $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng ngay cho job kế tiếp':'❌ '+await r.text();
+  const post=()=>fetch('/api/settings',{method:'POST',headers:hdr(),body:JSON.stringify(body)});
+  let r=await post();
+  if(r.status==403){
+    const j=await r.clone().json().catch(()=>null);
+    if(j&&j.need_password){
+      const pw=await askPassword(j.error);
+      if(!pw){$('msg').textContent='Chưa lưu: cần nhập lại mật khẩu để đổi '+j.keys.join(', ');return;}
+      body._password=pw;r=await post();
+      if(r.status==403){const j2=await r.json().catch(()=>({}));$('msg').textContent='❌ '+(j2.error||'Sai mật khẩu');return;}
+    }
+  }
+  $('msg').textContent=r.ok?'✅ Đã lưu cài đặt, áp dụng cho job kế tiếp':'❌ '+await r.text();
   if(r.ok){document.querySelectorAll('[data-k]').forEach(el=>el.value='');loadSettings();}
+}
+function askPassword(msg){
+  const d=$('reauth_dlg');$('reauth_msg').textContent=msg||'';$('reauth_pw').value='';d.returnValue='';
+  return new Promise(res=>{d.onclose=()=>{const pw=d.returnValue=='ok'?$('reauth_pw').value:'';$('reauth_pw').value='';res(pw);};
+    d.showModal();$('reauth_pw').focus();});
 }
 async function autoCall(act){
   try{

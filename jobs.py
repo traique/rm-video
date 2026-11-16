@@ -48,6 +48,13 @@ class _OverBudget(Exception):
     """Job chạy quá ngân sách thời gian (jobs.job_budget): huỷ và báo người dùng."""
 
 async def _run_one(job: Job):
+    """Chạy một job. Cài đặt ảnh hưởng tới cách dựng không đổi giữa chừng job (config.hold): lưu từ web trong lúc này
+    thì áp dụng cho job kế tiếp."""
+    with config.hold():
+        await _run_one_held(job)
+
+
+async def _run_one_held(job: Job):
     tg = job.source == "tg"
     if job.cancel:
         job.status, job.error = "cancelled", "Đã hủy trước khi chạy."

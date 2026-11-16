@@ -1,7 +1,8 @@
-import json
+import contextlib
 import logging
 import os
 import re
+import sys
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,157 +32,21 @@ def _load_dotenv():
 
 
 _load_dotenv()
+if _DIR not in sys.path:                     # gói rmvideo/ nằm cạnh: notebook Kaggle chạy từ thư mục khác
+    sys.path.insert(0, _DIR)
+from rmvideo.app import settings as _schema  # noqa: E402
+
 SETTINGS_FILE = os.path.join(_DIR, "settings.json")
 UPLOAD_DIR = os.path.join(_DIR, "uploads_in")
 
 # ===== Cài đặt SỬA ĐƯỢC TỪ WEB (mặc định lấy từ biến môi trường, lưu đè vào settings.json) =====
-EDITABLE = {
-    "GEMINI_API_KEY": "",
-    "GEMINI_MODEL": "gemini-3.5-flash-lite",
-    "OPENROUTER_API_KEY": "",
-    "OPENROUTER_MODEL": "auto",          # auto = tự dò model free đang hoạt động
-    "GROQ_API_KEY": "",
-    "GROQ_WHISPER_MODEL": "whisper-large-v3-turbo",
-    "GEMINI_ASR_MODEL": "gemini-3.5-transcribe",   # bóc lời bằng Gemini (mốc từng từ), dùng chung GEMINI_API_KEY
-    "ASR_ORDER": "groq,gemini,capcut",             # thứ tự nguồn bóc lời; nguồn thiếu key tự bỏ qua
-    "ASR_VOCAB": "",                   # từ điển: tên món, nguyên liệu, tên riêng của kênh (cách nhau dấu phẩy) để bóc lời viết đúng
-    "YTDLP_COOKIES": "",
-    "YTDLP_PROXY": "",                 # proxy cho yt-dlp, vd http://user:pass@ip:port hoặc socks5://...
-    "TTS_RATE": "+8%",
-    "TTS_PITCH": "+0Hz",
-    "TTS_PROVIDER": "vieneu",          # vieneu (giọng miền Nam đọc trên Kaggle; chưa có Kaggle/lỗi -> edge) | edge | capcut
-    "VIENEU_VOICE_FEMALE": "Mỹ Duyên", # giọng nữ VieNeu (miền Nam: Mỹ Duyên, Thục Đoan, Thùy Dung, Kim Thanh; clone = giọng mẫu)
-    "VIENEU_VOICE_MALE": "Adam",       # giọng nam VieNeu (miền Nam: Adam, Thái Sơn, Minh Triết, Đức Trí)
-    "KAGGLE_USE": "1",                 # 1 = phần nặng (đọc giọng, tách giọng, dựng) chạy trên Kaggle khi đã điền tài khoản
-    "KAGGLE_ANALYZE": "1",             # 1 = bóc lời (Whisper trên giọng đã tách) + phân tích hình cũng chạy trên Kaggle
-    "KAGGLE_ASR": "large-v3",          # model bóc lời trên Kaggle: large-v3 (đa ngôn ngữ) | phowhisper (VinAI, tinh chỉnh tiếng Việt)
-    "KAGGLE_USERNAME": "",             # tên tài khoản Kaggle (kaggle.com/<tên>)
-    "KAGGLE_API_TOKEN": "",            # Kaggle -> Settings -> API Tokens -> Generate New Token
-    "CAPCUT_VOICE_FEMALE": "multi_female_yangguangnv_uranus_bigtts",
-    "CAPCUT_VOICE_MALE": "multi_male_felipe_uranus_bigtts",
-    "VOICE_SEPARATION": "1",           # 1 = tách giọng gốc bằng AI (chế độ nấu ăn); 0 = chỉ tắt tiếng nền lúc người gốc nói
-    "VOICE_HUMANIZE": "1",             # 1 = xử lý giọng cho bớt chất AI (ấm, bớt chói, có không gian phòng)
-    "SPEECH_STYLE": "mien_tay",        # mien_tay | mien_nam | pho_thong: giọng văn lời thoại
-    "PUBLIC_URL": "",                  # link web Botkeep (vd https://okx.bot-keep.xyz) để Telegram gửi link tải file lớn
-    "BRAND_NAME": "",                  # tên kênh cho màn kết (để trống = không có màn kết)
-    "BRAND_LOGO": "1",                 # 1 = gắn logo assets/logo.png (upload trong Cài đặt) nếu có
-    "BRAND_INTRO": "1",                # 1 = hiện tiêu đề video 3 giây đầu
-    "SUB_STYLE": "karaoke",            # karaoke | box | outline | plain
-    "COVER": "1",                      # 1 = tự tạo ảnh bìa (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)
-    "TEXT_DETECT": "heuristic",        # heuristic | ocr (model PP-OCRv6 tiny, cần lệnh setup_offline): dò phụ đề in cứng
-    "SCENE_ANALYSIS": "light",         # light | fast | full: phân tích hình (chữ in cứng, ảnh bìa, ảnh cho AI, chuyển cảnh)
-    "TTS_OFFLINE": "0",                # 1 = khi CapCut và edge-tts đều lỗi thì đọc bằng giọng offline Piper (setup_offline)
-    "TEASER": "1",                     # 1 = video nấu ăn có lời mở đầu bằng 3 giây cảnh món đã xong + câu hook (AI chọn cảnh)
-    "NO_SPEECH": "music",              # video KHÔNG LỜI: music = chèn nhạc nền, không thêm lời; narrate = AI xem hình viết lời
-    "BGM_LINKS": "",                   # thư viện nhạc nền: link TikTok / YouTube / mp3, cách nhau dấu phẩy
-    "BGM_ORIG": "off",                 # tiếng gốc khi chèn nhạc: off = chỉ nhạc mới | low = giữ nhỏ dưới nhạc | keep = giữ to, nhạc nằm dưới
-    "OST_AUTO": "0",                   # 1 = AI được đề xuất đoạn giữ nguyên tiếng gốc (tiếng xèo, câu cảm thán...)
-    "SUB_TIMING": "spread",            # spread = rải chữ trên khoảng có tiếng của giọng (lệch ~70ms); stt = nghe lại bằng STT CapCut
-    "REVIEW_SCRIPT": "0",              # 1 = luôn dừng cho duyệt kịch bản trước khi render
-    "CUT_PROMO": "1",                  # 1 = cắt bỏ đoạn quảng cáo sản phẩm của người gốc ở cuối video
-    "QUALITY": "balanced",             # fast (720p) | balanced (1080p, máy chậm tự 720p) | high (chuẩn TVC, chậm ~2x)
-    "SOURCE_CREDIT": "0",              # 1 = thêm dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI" vào nội dung đăng (mặc định tắt)
-    "ALLOWED_SOURCES": "",             # kênh nguồn được phép (tên kênh/uploader, cách nhau dấu phẩy); trống = mọi kênh
-    "ALLOWED_USERS": "",               # chat_id/user_id Telegram được dùng bot, cách nhau dấu phẩy
-    "ADMIN_CHAT_ID": "",               # nơi nhận cảnh báo (dịch vụ ngoài hỏng); trống = người đầu tiên trong ALLOWED_USERS
-    # 🤖 Tự động đăng (autopost.py): lấy video ngẫu nhiên không trùng từ kênh nguồn -> làm lại -> đăng Fanpage giờ vàng
-    "AUTO_POST": "0",                  # 1 = bật
-    "AUTO_SOURCES": "",                # kênh Facebook nguồn (link kênh hoặc tên kênh), cách nhau dấu phẩy
-    "AUTO_TIKTOK_SOURCES": "",         # kênh TikTok nguồn (@tên hoặc link tiktok.com/@tên), cách nhau dấu phẩy
-    "AUTO_PLATFORMS": "facebook,tiktok",   # ô tick nguồn: facebook, tiktok hoặc cả hai (xen kẽ)
-    "AUTO_PER_DAY": "2",               # số video đăng mỗi ngày (1-4)
-    "AUTO_TIMES": "",                  # trống = bot tự chọn giờ vàng theo lượt xem; hoặc cố định "11:30,20:30"
-    "AUTO_MODE": "cook",               # chế độ làm lại: cook | review
-    "FB_PAGE_ID": "",                  # id Fanpage đăng lên
-    "FB_PAGE_TOKEN": "",               # Page access token (quyền pages_manage_posts, pages_read_engagement, pages_show_list)
-}
-SECRET_KEYS = {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY", "YTDLP_COOKIES", "FB_PAGE_TOKEN",
-               "KAGGLE_API_TOKEN"}
-
-# Nhóm hiển thị trên web (thứ tự này): mã nhóm -> tiêu đề. Nhóm "api" mở sẵn, các nhóm khác thu gọn.
-GROUPS = [
-    ("api", "🔑 Tài khoản & API", "Điền key một lần. Bắt buộc: Gemini. Nên có: Kaggle (GPU miễn phí). Chỉ khi cần: Groq, "
-            "OpenRouter, Fanpage, cookies."),
-    ("voice", "🗣️ Giọng đọc", "Giọng, tốc độ, cách nói."),
-    ("video", "🎬 Video & lời", "Chất lượng, đoạn mở đầu, phụ đề, thương hiệu, tiếng gốc."),
-    ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
-    ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
-    ("telegram", "💬 Telegram", "Ai được dùng bot qua Telegram."),
-    ("advanced", "🔧 Nâng cao", "Tên model, thứ tự bóc lời, từ điển… thường không cần đổi."),
-]
+# Một nguồn sự thật: rmvideo/app/settings.py (mặc định, nhãn, lựa chọn, kiểm hợp lệ, bí mật, nhập lại mật khẩu,
+# áp dụng ngay hay chờ job xong). Các bảng dưới đây giữ tên cũ cho mã/test đang dùng.
+EDITABLE = {s.key: s.default for s in _schema.SCHEMA}
+SECRET_KEYS = set(_schema.SECRET_KEYS)
+GROUPS = list(_schema.GROUPS)
 # Mỗi khoá: (nhóm, nhãn, giải thích ngắn, link lấy/hướng dẫn, mức cần: must | should | optional)
-META = {
-    "GEMINI_API_KEY": ("api", "Key Gemini (Google AI Studio)", "AI viết lời, chọn ảnh bìa, kiểm nguyên liệu. Không có key thì "
-                       "bot chỉ tải/cắt video, không viết lời được.", "https://aistudio.google.com/apikey", "must"),
-    "KAGGLE_USERNAME": ("api", "Tên tài khoản Kaggle", "Dán link kaggle.com/<tên> hoặc gõ tên. Dùng cùng token bên dưới.",
-                        "https://www.kaggle.com/settings", "should"),
-    "KAGGLE_API_TOKEN": ("api", "Token Kaggle", "Kaggle → Settings → API → Generate New Token. Cho phép tách giọng, bóc lời, "
-                         "đọc giọng VieNeu và dựng trên GPU miễn phí (30 giờ/tuần). Thiếu thì mọi thứ chạy trên Botkeep "
-                         "(chậm hơn nhiều).", "https://www.kaggle.com/settings", "should"),
-    "PUBLIC_URL": ("api", "Link web của bot", "Ví dụ https://ten-may.bot-keep.xyz. Cần để Kaggle tải file bạn upload, "
-                   "Telegram gửi link tải video lớn.", "", "should"),
-    "FB_PAGE_ID": ("api", "ID Fanpage", "Dãy số id của Fanpage (Trang → Giới thiệu → ID trang). Chỉ cần khi tự động đăng.",
-                   "https://www.facebook.com/help/1503421039731588", "optional"),
-    "FB_PAGE_TOKEN": ("api", "Token Fanpage", "Page access token dài hạn, quyền pages_manage_posts + pages_read_engagement + "
-                      "pages_show_list. Bấm «Thử token Fanpage» ở mục Tự động đăng để kiểm.",
-                      "https://developers.facebook.com/tools/explorer/", "optional"),
-    "GROQ_API_KEY": ("api", "Key Groq", "Bóc lời (Whisper) khi KHÔNG dùng Kaggle hoặc Kaggle lỗi. Miễn phí.",
-                     "https://console.groq.com/keys", "optional"),
-    "OPENROUTER_API_KEY": ("api", "Key OpenRouter", "Dự phòng viết lời khi Gemini lỗi/hết hạn mức (model miễn phí).",
-                           "https://openrouter.ai/settings/keys", "optional"),
-    "YTDLP_COOKIES": ("api", "Cookies tải video", "Chỉ khi tải lỗi «cần đăng nhập». Dán nội dung cookies.txt (tiện ích "
-                      "Get cookies.txt LOCALLY) của tài khoản PHỤ.", "", "optional"),
-    "YTDLP_PROXY": ("api", "Proxy tải video", "http://user:pass@ip:port hoặc socks5://… Chỉ khi bị chặn IP.", "", "optional"),
-    "TTS_PROVIDER": ("voice", "Nguồn giọng đọc", "", "", ""),
-    "VIENEU_VOICE_FEMALE": ("voice", "Giọng nữ VieNeu", "", "", ""),
-    "VIENEU_VOICE_MALE": ("voice", "Giọng nam VieNeu", "", "", ""),
-    "CAPCUT_VOICE_FEMALE": ("voice", "Giọng nữ CapCut", "", "", ""),
-    "CAPCUT_VOICE_MALE": ("voice", "Giọng nam CapCut", "", "", ""),
-    "TTS_RATE": ("voice", "Tốc độ đọc (edge)", "Dạng +8% / -5%.", "", ""),
-    "TTS_PITCH": ("voice", "Cao độ (edge)", "Dạng +2Hz / -3Hz.", "", ""),
-    "SPEECH_STYLE": ("voice", "Giọng văn", "Miền Tây, miền Nam hay phổ thông.", "", ""),
-    "VOICE_HUMANIZE": ("voice", "Làm giọng bớt chất AI", "Ấm hơn, bớt chói, có không gian phòng.", "", ""),
-    "TTS_OFFLINE": ("voice", "Giọng offline dự phòng (Piper)", "Khi CapCut và edge-tts đều lỗi (cần lệnh setup_offline).", "", ""),
-    "QUALITY": ("video", "Chất lượng dựng", "", "", ""),
-    "TEASER": ("video", "Đoạn mở đầu 3 giây cảnh món + câu hook", "Chỉ video nấu ăn có lời.", "", ""),
-    "COVER": ("video", "Tự tạo ảnh bìa", "", "", ""),
-    "SUB_STYLE": ("video", "Kiểu phụ đề", "", "", ""),
-    "SUB_TIMING": ("video", "Canh thời gian phụ đề", "", "", ""),
-    "BRAND_NAME": ("video", "Tên kênh (màn kết)", "Để trống = không có màn kết.", "", ""),
-    "BRAND_LOGO": ("video", "Gắn logo", "Logo tải lên ở cuối trang cài đặt.", "", ""),
-    "BRAND_INTRO": ("video", "Hiện tiêu đề 3 giây đầu", "", "", ""),
-    "VOICE_SEPARATION": ("video", "Tách giọng gốc bằng AI", "Tắt = chỉ hạ tiếng nền lúc người gốc nói.", "", ""),
-    "OST_AUTO": ("video", "AI đề xuất đoạn giữ tiếng gốc", "Tiếng xèo, câu cảm thán…", "", ""),
-    "CUT_PROMO": ("video", "Cắt quảng cáo cuối video gốc", "", "", ""),
-    "REVIEW_SCRIPT": ("video", "Luôn dừng cho duyệt kịch bản", "", "", ""),
-    "NO_SPEECH": ("video", "Video không lời", "Chèn nhạc nền (mặc định) hay để AI viết lời.", "", ""),
-    "BGM_ORIG": ("video", "Tiếng gốc khi chèn nhạc", "", "", ""),
-    "BGM_LINKS": ("video", "Thư viện nhạc nền (link)", "Quản lý dễ hơn ở mục 🎵 Nhạc nền.", "", ""),
-    "SCENE_ANALYSIS": ("video", "Mức phân tích hình", "light nhanh nhất; full kỹ nhất (chậm trên Botkeep).", "", ""),
-    "TEXT_DETECT": ("video", "Dò chữ in cứng trên video", "", "", ""),
-    "SOURCE_CREDIT": ("video", "Ghi nguồn vào nội dung đăng", "", "", ""),
-    "KAGGLE_USE": ("kaggle", "Dùng Kaggle cho phần nặng", "", "", ""),
-    "KAGGLE_ANALYZE": ("kaggle", "Bóc lời + phân tích hình trên Kaggle", "", "", ""),
-    "KAGGLE_ASR": ("kaggle", "Model bóc lời trên Kaggle", "", "", ""),
-    "AUTO_POST": ("auto", "Tự động đăng", "", "", ""),
-    "AUTO_MODE": ("auto", "Chế độ làm lại", "", "", ""),
-    "AUTO_PER_DAY": ("auto", "Số video mỗi ngày", "1-4.", "", ""),
-    "AUTO_TIMES": ("auto", "Giờ đăng cố định", "Trống = bot tự chọn giờ vàng theo lượt xem; hoặc 11:30,20:30.", "", ""),
-    "AUTO_PLATFORMS": ("auto", "Nguồn đang tick", "Sửa bằng ô tick ở mục Tự động đăng.", "", ""),
-    "AUTO_SOURCES": ("auto", "Kênh Facebook nguồn", "Thêm/bỏ ở mục Tự động đăng.", "", ""),
-    "AUTO_TIKTOK_SOURCES": ("auto", "Kênh TikTok nguồn", "Thêm/bỏ ở mục Tự động đăng.", "", ""),
-    "ALLOWED_USERS": ("telegram", "Người được dùng bot Telegram", "chat_id cách nhau dấu phẩy (nhắn bot để biết id). "
-                      "Trống = bot từ chối tất cả.", "", "should"),
-    "ADMIN_CHAT_ID": ("telegram", "Chat nhận cảnh báo", "Trống = người đầu tiên trong danh sách trên.", "", ""),
-    "ALLOWED_SOURCES": ("telegram", "Kênh gốc được phép", "Tên kênh/uploader; trống = mọi kênh.", "", ""),
-    "GEMINI_MODEL": ("advanced", "Model Gemini viết lời", "", "", ""),
-    "GEMINI_ASR_MODEL": ("advanced", "Model Gemini bóc lời", "", "", ""),
-    "OPENROUTER_MODEL": ("advanced", "Model OpenRouter", "auto = tự dò model miễn phí đang hoạt động.", "", ""),
-    "GROQ_WHISPER_MODEL": ("advanced", "Model Whisper của Groq", "", "", ""),
-    "ASR_ORDER": ("advanced", "Thứ tự nguồn bóc lời", "groq, gemini, capcut; nguồn thiếu key tự bỏ qua.", "", ""),
-    "ASR_VOCAB": ("advanced", "Từ điển món / tên riêng", "Cách nhau dấu phẩy, để bóc lời viết đúng.", "", ""),
-}
-_ID_LIST = re.compile(r"\s*-?\d+(\s*,\s*-?\d+)*\s*")
+META = {k: _schema.BY_KEY[k].meta() for k in _schema.DISPLAY_ORDER}
 _ENV = {k: os.environ.get(k, d) for k, d in EDITABLE.items()}
 
 # ===== Chỉ đặt qua biến môi trường =====
@@ -216,128 +81,72 @@ MAX_QUEUE = 5
 OUTPUT_HD = os.environ.get("OUTPUT_HD", "1") != "0"   # 1080p khi nguồn đủ nét; đặt 0 nếu Botkeep thiếu RAM
 
 
-def _apply():
-    over = {}
+# Cài đặt ảnh hưởng tới CÁCH DỰNG (không "live") không đổi giữa chừng một job (C9): trước đây lưu QUALITY/TTS_PROVIDER
+# từ web trong lúc job chạy làm job quyết 720p theo giá trị cũ rồi render bằng preset mới, cache giọng lẫn nhà cung
+# cấp. Worker bọc mỗi job trong hold(); lưu lúc đó thì giá trị mới chờ trong _DEFERRED, áp dụng khi job xong.
+_HOLD = {"depth": 0}
+_DEFERRED: dict = {}
+
+
+def _read_overrides(quiet: bool = False) -> dict:
     try:
-        with open(SETTINGS_FILE, encoding="utf-8") as f:
-            over = json.load(f)
-    except FileNotFoundError:
-        pass
+        return _schema.read_overrides(SETTINGS_FILE)
     except Exception:
-        logging.exception("settings.json hỏng, dùng biến môi trường")
-    for k in EDITABLE:
-        globals()[k] = str(over.get(k) or _ENV[k])
+        if not quiet:
+            logging.exception("settings.json hỏng, dùng biến môi trường")
+        return {}
+
+
+def _desired(over: dict) -> dict:
+    return {k: str(over.get(k) or _ENV[k]) for k in EDITABLE}
+
+
+def _apply():
+    g = globals()
+    for k, v in _desired(_read_overrides()).items():
+        if _HOLD["depth"] and not _schema.BY_KEY[k].live and v != g.get(k):
+            _DEFERRED[k] = v                          # đang có job: chờ job xong
+            continue
+        _DEFERRED.pop(k, None)
+        g[k] = v
+
+
+@contextlib.contextmanager
+def hold():
+    """Bọc một job: cài đặt không "live" lưu trong lúc này chỉ áp dụng khi job xong (cho job kế tiếp)."""
+    _HOLD["depth"] += 1
+    try:
+        yield
+    finally:
+        _HOLD["depth"] -= 1
+        if not _HOLD["depth"] and _DEFERRED:
+            globals().update(_DEFERRED)               # chỉ các khoá đã lưu trong lúc job chạy
+            _DEFERRED.clear()
 
 
 def save_settings(updates: dict):
-    """Lưu từ web. Giá trị rỗng = không đổi; giá trị '-' = xóa, quay về biến môi trường."""
+    """Lưu từ web. Giá trị rỗng = không đổi; giá trị '-' = xóa, quay về biến môi trường. Sai giá trị: ValueError
+    (không ghi gì). Kiểm hợp lệ theo schema rmvideo/app/settings.py."""
     try:
-        with open(SETTINGS_FILE, encoding="utf-8") as f:
-            cur = json.load(f)
+        cur = _schema.read_overrides(SETTINGS_FILE)
     except Exception:
         cur = {}
-    for k, v in (updates or {}).items():
-        if k not in EDITABLE:
-            continue
-        v = str(v).strip()
-        if v == "-":
-            cur.pop(k, None)
-        elif v:
-            if k == "TTS_RATE" and not re.fullmatch(r"[+-]\d{1,3}%", v):
-                raise ValueError("TTS_RATE phải dạng +8% hoặc -5%")
-            if k == "QUALITY" and v not in ("fast", "balanced", "high"):
-                raise ValueError("QUALITY chỉ nhận: fast, balanced, high")
-            if k == "SUB_STYLE" and v not in ("karaoke", "box", "outline", "plain"):
-                raise ValueError("SUB_STYLE chỉ nhận: karaoke, box, outline, plain")
-            if k == "SPEECH_STYLE" and v not in ("mien_tay", "mien_nam", "pho_thong"):
-                raise ValueError("SPEECH_STYLE chỉ nhận: mien_tay, mien_nam, pho_thong")
-            if k == "TTS_PITCH" and not re.fullmatch(r"[+-]\d{1,3}Hz", v):
-                raise ValueError("TTS_PITCH phải dạng +2Hz hoặc -3Hz")
-            if k == "ASR_ORDER" and (not v or any(x.strip() not in ("groq", "gemini", "capcut") for x in v.split(","))):
-                raise ValueError("ASR_ORDER là danh sách groq, gemini, capcut cách nhau dấu phẩy")
-            if k == "TEXT_DETECT" and v not in ("heuristic", "ocr"):
-                raise ValueError("TEXT_DETECT chỉ nhận: heuristic, ocr")
-            if k == "SCENE_ANALYSIS" and v not in ("light", "fast", "full"):
-                raise ValueError("SCENE_ANALYSIS chỉ nhận: light, fast, full")
-            if k == "TEASER" and v not in ("0", "1"):
-                raise ValueError("TEASER chỉ nhận: 0, 1")
-            if k == "NO_SPEECH" and v not in ("music", "narrate"):
-                raise ValueError("NO_SPEECH chỉ nhận: music, narrate")
-            if k == "BGM_ORIG" and v not in ("off", "low", "keep"):
-                raise ValueError("BGM_ORIG chỉ nhận: off, low, keep")
-            if k == "BGM_LINKS":
-                links = [x for x in re.split(r"[\s,]+", v) if x]
-                bad = [x for x in links if not re.match(r"https?://[^\s/]+\.[^\s/]+", x)]
-                if bad:
-                    raise ValueError(f"BGM_LINKS: không phải link: {bad[0][:60]}")
-                v = ",".join(dict.fromkeys(links))
-            if k == "SUB_TIMING" and v not in ("spread", "stt"):
-                raise ValueError("SUB_TIMING chỉ nhận: spread, stt")
-            if k in ("ALLOWED_USERS", "ADMIN_CHAT_ID") and not _ID_LIST.fullmatch(v):
-                raise ValueError(f"{k} phải là các số chat_id cách nhau dấu phẩy")
-            if k in ("TTS_PROVIDER",) and v not in ("capcut", "edge", "vieneu"):
-                raise ValueError("TTS_PROVIDER chỉ nhận: vieneu, edge, capcut")
-            if k == "KAGGLE_ASR" and v not in ("large-v3", "phowhisper"):
-                raise ValueError("KAGGLE_ASR chỉ nhận: large-v3, phowhisper")
-            if k == "KAGGLE_ANALYZE" and v not in ("0", "1"):
-                raise ValueError("KAGGLE_ANALYZE chỉ nhận: 0, 1")
-            if k == "KAGGLE_USE" and v not in ("0", "1"):
-                raise ValueError("KAGGLE_USE chỉ nhận: 0, 1")
-            if k == "KAGGLE_USERNAME":     # nhận cả dạng dán link: https://www.kaggle.com/<tên>
-                v = re.sub(r"(?i)^(https?://)?(www\.)?kaggle\.com/", "", v).strip("/@ ").split("/")[0].lower()
-            if k == "KAGGLE_USERNAME" and not re.fullmatch(r"[A-Za-z0-9_-]{2,40}", v):
-                raise ValueError("KAGGLE_USERNAME là tên tài khoản Kaggle (chữ, số, gạch dưới)")
-            if k == "AUTO_POST" and v not in ("0", "1"):
-                raise ValueError("AUTO_POST chỉ nhận: 0, 1")
-            if k == "AUTO_PER_DAY" and not (v.isdigit() and 1 <= int(v) <= 4):
-                raise ValueError("AUTO_PER_DAY là số 1-4 (các khung giờ cách nhau ít nhất 3 tiếng)")
-            if k == "AUTO_TIMES" and not re.fullmatch(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*", v):
-                raise ValueError("AUTO_TIMES dạng 11:30,20:30 (giờ Việt Nam)")
-            if k == "AUTO_MODE" and v not in ("cook", "review"):
-                raise ValueError("AUTO_MODE chỉ nhận: cook, review")
-            if k == "FB_PAGE_ID" and not v.isdigit():
-                raise ValueError("FB_PAGE_ID là dãy số id của Fanpage")
-            if k == "AUTO_SOURCES":
-                import autopost
-                for s in re.split(r"[,\s]+", v):
-                    autopost.normalize_source(s)        # ném ValueError nếu không phải kênh Facebook
-            if k == "AUTO_TIKTOK_SOURCES":
-                import autopost
-                for s in re.split(r"[,\s]+", v):
-                    autopost.normalize_tiktok(s)        # ném ValueError nếu không phải kênh TikTok
-            if k == "AUTO_PLATFORMS":
-                got = [p for p in re.split(r"[,\s]+", v.lower()) if p]
-                if not got or any(p not in ("facebook", "tiktok") for p in got):
-                    raise ValueError("AUTO_PLATFORMS: tick ít nhất một nguồn (facebook, tiktok)")
-                v = ",".join(p for p in ("facebook", "tiktok") if p in got)
-            cur[k] = v
-    tmp = SETTINGS_FILE + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)   # chứa key API: tạo ra đã là 0600, không có lúc 0644
-    with os.fdopen(fd, "w", encoding="utf-8") as f:      # ghi tệp tạm rồi đổi tên: không bao giờ để settings.json dở dang
-        json.dump(cur, f, ensure_ascii=False, indent=1)
-        f.flush()
-        os.fsync(f.fileno())
-    os.chmod(tmp, 0o600)                                  # tệp tạm còn sót từ trước mang quyền cũ: ép lại
-    os.replace(tmp, SETTINGS_FILE)
+    _schema.write_overrides(SETTINGS_FILE, _schema.merge_updates(cur, updates))
     _apply()
 
 
+def reauth_keys(updates: dict) -> list:
+    """Các khoá trong `updates` đổi được nơi dữ liệu/quyền đi tới (proxy, link web, token Kaggle/Fanpage, người dùng
+    Telegram): web bắt nhập lại mật khẩu trước khi lưu (lộ phiên đăng nhập không đủ để đổi)."""
+    over = _read_overrides()
+    return _schema.changed_reauth_keys(_desired(over), over, updates)
+
+
 def describe_settings() -> dict:
-    try:
-        over = set(json.load(open(SETTINGS_FILE, encoding="utf-8")))
-    except Exception:
-        over = set()
-    out = {}
-    for k in [k for k in META if k in EDITABLE] + [k for k in EDITABLE if k not in META]:   # thứ tự hiện trên web = META
-        v = globals()[k]
-        if k in SECRET_KEYS:
-            shown = (v[:4] + "•••" + v[-3:]) if len(v) > 10 else ("(đã đặt)" if v else "")
-        else:
-            shown = v
-        group, label, help_, link, need = META.get(k, ("advanced", k, "", "", ""))
-        out[k] = {"value": shown, "set": bool(v), "overridden": k in over, "group": group, "label": label,
-                  "help": help_, "link": link, "need": need}
-    return out
+    g = globals()
+    over = set(_read_overrides(quiet=True))
+    shown = {k: str(_DEFERRED.get(k, g[k])) for k in EDITABLE}
+    return _schema.describe(shown, over, _DEFERRED)
 
 
 def setting_groups() -> list:

@@ -23,6 +23,7 @@ import config
 import metrics
 import subs as subs_mod
 import url_guard
+from rmvideo.domain import voices
 
 
 def _ensure_ffmpeg():
@@ -590,10 +591,7 @@ _EDGE_VOICES = {config.VOICE_FEMALE, config.VOICE_MALE}
 
 
 def _vieneu_male(voice: str) -> bool:
-    if not (voice or "").startswith("vieneu:"):
-        return False
-    import kaggle_worker
-    return kaggle_worker.is_male(voice)
+    return voices.is_male(voice)
 
 
 def _capcut_fallback_voice(voice: str) -> str:
@@ -716,7 +714,10 @@ async def synth_clip_ex(text: str, voice: str, path: str) -> tuple:
             logging.warning("CapCut dự phòng cũng lỗi (%s)", str(e2)[:100])
     if config.TTS_OFFLINE != "1":
         raise err
-    import offline                             # cả hai dịch vụ ngoài đều lỗi: giọng offline Piper (nếu đã cài)
+    try:                                       # cả hai dịch vụ ngoài đều lỗi: giọng offline Piper (nếu đã cài)
+        import offline                         # không gửi lên Kaggle (kaggle_bundle.OPTIONAL)
+    except ImportError:
+        raise err from None
     try:
         await offline.speak(text, path)
         metrics.record("tts", "piper", fallback=True)

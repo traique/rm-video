@@ -65,6 +65,7 @@ JSON_MAX = 1 << 20              # body JSON (cài đặt, duyệt kịch bản) 
 LOGIN_BODY_MAX = 4096           # /api/login là đường công khai: không đọc body lớn trước khi biết mật khẩu đúng
 VOICE_REF_MAX = 5 * 1024 * 1024
 FIELD_MAX = 4000
+REAUTH_FIELD = "_password"          # mật khẩu nhập lại khi đổi khoá nhạy cảm (config.reauth_keys)
 
 
 def _server_salt() -> bytes:
@@ -207,58 +208,6 @@ def _is_https(request: web.Request) -> bool:
     return request.secure or request.headers.get("X-Forwarded-Proto", "").lower() == "https"
 
 
-_ONOFF = [["1", "Bật"], ["0", "Tắt"]]
-_SETTING_OPTIONS = {
-    "TTS_PROVIDER": [["vieneu", "VieNeu giọng miền Nam, đọc trên Kaggle (mặc định; chưa có Kaggle / lỗi -> Edge)"],
-                     ["edge", "Edge TTS (Hoài My; lỗi thì đoạn đó đọc bằng CapCut)"],
-                     ["capcut", "CapCut (lỗi thì đọc bằng edge-tts)"]],
-    "VIENEU_VOICE_FEMALE": [["Mỹ Duyên", "Mỹ Duyên (đọc truyện)"], ["Thục Đoan", "Thục Đoan (kể chuyện)"],
-                            ["Thùy Dung", "Thùy Dung (tin tức, đọc nhanh)"], ["Kim Thanh", "Kim Thanh (đọc truyện)"],
-                            ["clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)"]],
-    "VIENEU_VOICE_MALE": [["Adam", "Adam (tự nhiên)"], ["Thái Sơn", "Thái Sơn (kể chuyện)"],
-                          ["Minh Triết", "Minh Triết (tin tức)"], ["Đức Trí", "Đức Trí (đọc truyện)"],
-                          ["clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)"]],
-    "AUTO_POST": [["0", "Tắt"], ["1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage"]],
-    "KAGGLE_USE": [["1", "Bật: đọc giọng + tách giọng + dựng chạy trên Kaggle (lỗi thì chạy trên Botkeep)"],
-                   ["0", "Tắt: mọi thứ chạy trên Botkeep"]],
-    "KAGGLE_ASR": [["large-v3", "Whisper large-v3 (mặc định, mọi ngôn ngữ)"],
-                   ["phowhisper", "PhoWhisper-large (VinAI, tinh chỉnh tiếng Việt; cần notebook rmvideo-phowhisper đã chạy)"]],
-    "KAGGLE_ANALYZE": [["1", "Bật: bóc lời (Whisper nghe giọng đã tách khỏi nhạc) + phân tích hình trên Kaggle"],
-                       ["0", "Tắt: bóc lời bằng Groq/Gemini + phân tích hình trên Botkeep"]],
-    "AUTO_MODE": [["cook", "Nấu ăn"], ["review", "Review"]],
-    "SPEECH_STYLE": [["mien_tay", "Miền Tây (tui, bà con, nè, nghen)"], ["mien_nam", "Miền Nam"], ["pho_thong", "Phổ thông"]],
-    "SUB_STYLE": [["karaoke", "Karaoke (sáng dần theo giọng)"], ["box", "Hộp nền đen"], ["outline", "Chữ trắng viền đen"], ["plain", "Vàng gọn"]],
-    "QUALITY": [["fast", "Nhanh: luôn 720p, superfast (nhanh ~2.3 lần)"],
-                ["balanced", "Cân bằng (mặc định): 1080p, máy chậm thì tự ra 720p"],
-                ["high", "Chuẩn TVC: luôn 1080p, preset medium (chậm ~2x)"]],
-    "OPENROUTER_MODEL": [["auto", "auto (tự dò model miễn phí)"]],
-    "VOICE_SEPARATION": [["1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"], ["0", "Tắt"]],
-    "VOICE_HUMANIZE": _ONOFF, "BRAND_LOGO": _ONOFF, "BRAND_INTRO": _ONOFF,
-    "COVER": [["1", "Bật (khung đẹp nhất + tiêu đề; AI chọn ảnh nếu có key Gemini)"], ["0", "Tắt"]],
-    "REVIEW_SCRIPT": [["0", "Tắt"], ["1", "Luôn dừng cho duyệt kịch bản"]],
-    "TEXT_DETECT": [["heuristic", "Heuristic (mặc định, không cần cài)"], ["ocr", "Model OCR (bắt chữ màu, cần setup_offline)"]],
-    "TEASER": [["1", "Bật: video nấu ăn có lời mở đầu bằng 3 giây cảnh món đã xong + câu hook (cần key Gemini)"],
-               ["0", "Tắt: mở đầu như video gốc"]],
-    "NO_SPEECH": [["music", "Chèn nhạc nền (mặc định): không thêm lời, tránh nói sai sự thật của video gốc"],
-                  ["narrate", "AI xem hình rồi viết lời đọc (cách cũ)"]],
-    "BGM_ORIG": [["off", "Chỉ nhạc mới (mặc định): bỏ tiếng gốc, tránh hai bản nhạc chồng nhau"],
-                 ["low", "Giữ tiếng gốc nhỏ dưới nhạc (video ASMR: tiếng xèo, tiếng dao)"],
-                 ["keep", "Giữ tiếng gốc to, nhạc mới nằm dưới và tự nhỏ lại khi tiếng gốc to"]],
-    "SCENE_ANALYSIS": [["light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn "
-                                 "câu theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"],
-                       ["fast", "Vừa: thêm dò chuyển cảnh để câu mới bắt đầu đúng lúc đổi cảnh (~200 giây)"],
-                       ["full", "Kỹ: giải mã mọi khung như bản cũ (~380 giây)"]],
-    "TTS_OFFLINE": [["0", "Tắt"], ["1", "Bật giọng Piper khi CapCut + edge đều lỗi (xem lưu ý giấy phép)"]],
-    "OST_AUTO": [["0", "Tắt (chỉ khi bạn chọn trong màn duyệt)"], ["1", "AI được đề xuất đoạn giữ tiếng gốc"]],
-    "ASR_ORDER": [["groq,gemini,capcut", "Groq → Gemini → CapCut"], ["gemini,groq,capcut", "Gemini → Groq → CapCut"],
-                  ["gemini,capcut", "Gemini → CapCut"], ["groq,capcut", "Groq → CapCut"]],
-    "SUB_TIMING": [["spread", "Theo khoảng có tiếng của giọng (mặc định, lệch ~70ms, không gọi mạng)"],
-                   ["stt", "Nghe lại bằng STT CapCut (lệch ~85ms, chậm thêm 7-11 giây)"]],
-    "SOURCE_CREDIT": [["0", "Tắt (mặc định)"], ["1", "Bật (ghi nguồn + Giọng đọc AI)"]],
-    "CUT_PROMO": [["1", "Bật (cắt quảng cáo sản phẩm của người gốc ở cuối)"], ["0", "Tắt"]],
-}
-
-
 def _voice_options() -> list:
     try:
         import json as _json
@@ -274,13 +223,11 @@ def _voice_options() -> list:
 
 
 def _with_options(d: dict) -> dict:
-    """Thêm 'options' cho khóa có giá trị cố định để web hiện ô xổ xuống."""
+    """Lựa chọn cố định đã có sẵn từ schema cài đặt; thêm danh sách giọng CapCut (đọc từ Voice.json)."""
     voices = _voice_options()
-    for k, v in d.items():
-        if k in _SETTING_OPTIONS:
-            v["options"] = _SETTING_OPTIONS[k]
-        elif k in ("CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE") and voices:
-            v["options"] = voices
+    for k in ("CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE"):
+        if k in d and voices:
+            d[k]["options"] = voices
     return d
 
 
@@ -689,8 +636,25 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
 
     async def set_settings(request):
         _check(request)
+        body = await _json_dict(request)
+        pw = str(body.pop(REAUTH_FIELD, "") or "")
+        need = config.reauth_keys(body)
+        # A5: proxy tải video, link web, token Kaggle / Fanpage, người dùng Telegram đổi được nơi dữ liệu và quyền đi
+        # tới -> phiên đăng nhập (cookie có thể bị lộ) là chưa đủ, phải nhập lại mật khẩu. X-Auth đã là mật khẩu.
+        if need and request.headers.get("X-Auth") is None:
+            key = _client_key(request)
+            wait = login_locked(key)
+            if wait:
+                raise web.HTTPTooManyRequests(text=f"Sai mật khẩu quá nhiều lần, thử lại sau {wait} giây.")
+            if not _password_ok(pw):
+                if pw:
+                    record_fail(key)
+                    await asyncio.sleep(0.5)
+                return web.json_response(
+                    {"need_password": True, "keys": need,
+                     "error": "Sai mật khẩu" if pw else "Nhập lại mật khẩu web để đổi: " + ", ".join(need)}, status=403)
         try:
-            config.save_settings(await _json_dict(request))
+            config.save_settings(body)
         except ValueError as e:
             raise web.HTTPBadRequest(text=str(e)) from None
         return web.json_response({"fields": _with_options(config.describe_settings()), "groups": config.setting_groups()})
