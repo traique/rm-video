@@ -133,6 +133,13 @@ def _digits(key: str, msg: str) -> Validator:
     return check
 
 
+def _brand_color(v: str) -> str:
+    v = v.strip()
+    if v and not re.fullmatch(r"#?[0-9A-Fa-f]{6}", v):
+        raise ValueError("BRAND_COLOR là mã màu dạng #FF8A00")
+    return ("#" + v.lstrip("#").upper()) if v else ""
+
+
 _PUBLIC_URL = _regex(r"https?://[^\s/?#]+(/[^\s]*)?", "PUBLIC_URL phải là link http(s)://tên-miền của web bot")
 _PROXY = _regex(r"(https?|socks4a?|socks5h?)://\S+", "YTDLP_PROXY dạng http://user:pass@ip:port hoặc socks5://ip:port")
 
@@ -213,17 +220,18 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("1", "Bật (tách giọng AI các đoạn có lời, tối đa 45s lời)"), ("0", "Tắt")), choices=ON_OFF),
     S("VOICE_HUMANIZE", "1", "voice", "Làm giọng bớt chất AI", help="Ấm hơn, bớt chói, có không gian phòng.",
       options=_ONOFF_OPTS, choices=ON_OFF),
-    S("SPEECH_STYLE", "mien_tay", "voice", "Giọng văn", help="Miền Tây, miền Nam hay phổ thông.",
-      options=(("mien_tay", "Miền Tây (tui, bà con, nè, nghen)"), ("mien_nam", "Miền Nam"), ("pho_thong", "Phổ thông")),
+    S("SPEECH_STYLE", "mien_nam", "voice", "Giọng văn", help="Miền Nam, miền Tây hay phổ thông.",
+      options=(("mien_nam", "Miền Nam (mình, mọi người, nha, nè) — mặc định"), ("mien_tay", "Miền Tây (tui, bà con, nè, nghen)"),
+               ("pho_thong", "Phổ thông")),
       choices=("mien_tay", "mien_nam", "pho_thong")),
     S("PUBLIC_URL", "", "api", "Link web của bot",
       help="Ví dụ https://ten-may.bot-keep.xyz. Cần để Kaggle tải file bạn upload, Telegram gửi link tải video lớn.",
       need="should", validate=_PUBLIC_URL, reauth=True, live=True),
-    S("BRAND_NAME", "", "video", "Tên kênh (màn kết)", help="Để trống = không có màn kết.",
+    S("BRAND_NAME", "", "brand", "Tên kênh (màn kết)", help="Để trống = không có màn kết.",
       validate=_max_len("BRAND_NAME", 60)),
-    S("BRAND_LOGO", "1", "video", "Gắn logo", help="Logo tải lên ở cuối trang cài đặt.", options=_ONOFF_OPTS,
+    S("BRAND_LOGO", "1", "brand", "Gắn logo", help="Logo tải lên ở cuối trang cài đặt.", options=_ONOFF_OPTS,
       choices=ON_OFF),
-    S("BRAND_INTRO", "1", "video", "Hiện tiêu đề 3 giây đầu", options=_ONOFF_OPTS, choices=ON_OFF),
+    S("BRAND_INTRO", "1", "brand", "Hiện tiêu đề 3 giây đầu", options=_ONOFF_OPTS, choices=ON_OFF),
     S("SUB_STYLE", "karaoke", "video", "Kiểu phụ đề",
       options=(("karaoke", "Karaoke (sáng dần theo giọng)"), ("box", "Hộp nền đen"), ("outline", "Chữ trắng viền đen"),
                ("plain", "Vàng gọn")), choices=("karaoke", "box", "outline", "plain")),
@@ -268,6 +276,41 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("fast", "Nhanh: luôn 720p, superfast (nhanh ~2.3 lần)"),
                ("balanced", "Cân bằng (mặc định): 1080p, máy chậm thì tự ra 720p"),
                ("high", "Chuẩn TVC: luôn 1080p, preset medium (chậm ~2x)")), choices=("fast", "balanced", "high")),
+    # ---- bản 42: phong cách remake, bài đăng có công thức, nhận diện kênh (mặc định = hành vi cũ) ----
+    S("REMAKE_STYLE", "off", "style", "Phong cách dựng lại",
+      help="Nhẹ: đổi cỡ khung, bỏ thời gian chết, tua nhanh đoạn chờ, màu kênh. Mạnh: thêm điểm danh nguyên liệu, "
+           "tóm tắt cuối, đảo thứ tự có luật (các bước nấu luôn đúng thứ tự).",
+      options=(("off", "Tắt (dựng như bản gốc, như trước)"), ("light", "Nhẹ: đổi nhịp, khung hình, giữ thứ tự"),
+               ("strong", "Mạnh: thêm đảo thứ tự có kiểm soát (nấu ăn / review)")), choices=("off", "light", "strong")),
+    S("POST_RECIPE", "0", "style", "Công thức trong bài đăng",
+      help="Nguyên liệu + cách làm; chỉ in định lượng đối chiếu được với lời gốc (cần key Gemini).",
+      options=(("0", "Tắt"), ("1", "Bật (video nấu ăn)")), choices=ON_OFF),
+    S("TIPS", "off", "style", "Mẹo hay",
+      options=(("off", "Tắt"), ("post", "Trong bài đăng"), ("video", "Bài đăng + thẻ «💡 MẸO» trên video")),
+      choices=("off", "post", "video")),
+    S("QTY_CHECK", "strict", "style", "Định lượng không đối chiếu được",
+      options=(("strict", "Chặt: bỏ số, ghi «vừa đủ»; số mâu thuẫn thì không tự đăng"),
+               ("soft", "Mềm: in kèm «(ước lượng)», chỉ ghi chú")), choices=("strict", "soft")),
+    S("TIME_SKIP_LABEL", "auto", "style", "Chữ ở đoạn tua nhanh",
+      options=(("auto", "Tự động: «⏩ 30 PHÚT SAU» khi lời gốc có thời gian, không thì chỉ ⏩"),
+               ("icon", "Chỉ biểu tượng ⏩"), ("off", "Tắt")), choices=("auto", "icon", "off")),
+    S("BRAND_COLOR", "", "brand", "Màu kênh", help="Mã màu #RRGGBB: chữ đang đọc của phụ đề, khung chữ, thẻ, ảnh bìa. "
+      "Trống = vàng như cũ.", validate=_brand_color),
+    S("BRAND_LOOK", "goc", "brand", "Tông màu video",
+      options=(("goc", "Gốc (công thức màu hiện tại)"), ("am_moc", "Ấm mộc"), ("tuoi_sang", "Tươi sáng"),
+               ("dien_anh", "Điện ảnh")), choices=("goc", "am_moc", "tuoi_sang", "dien_anh")),
+    S("BRAND_GRAIN", "0", "brand", "Hạt phim nhẹ", help="Chỉ ở bản 1080p (720p hạt bị nén thành khối).",
+      options=_ONOFF_OPTS, choices=ON_OFF),
+    S("BRAND_TAGLINE", "", "brand", "Câu dưới tên kênh (màn kết)", validate=_max_len("BRAND_TAGLINE", 60)),
+    S("BRAND_CLOSE", "", "brand", "Câu chốt đọc cuối video",
+      help="Ví dụ «Chúc cả nhà nấu ngon nha». Không kêu gọi đăng ký/theo dõi (bị bỏ qua nếu có).",
+      validate=_max_len("BRAND_CLOSE", 120)),
+    S("BRAND_SERIES", "", "brand", "Tên loạt video (ảnh bìa)", help="Ví dụ «CÔNG THỨC CHUẨN»: ảnh bìa ghi kèm số tập.",
+      validate=_max_len("BRAND_SERIES", 40)),
+    S("BRAND_STING", "1", "brand", "Âm hiệu màn kết", help="Tệp âm thanh ≤1,5 giây tải lên ở cuối trang cài đặt.",
+      options=_ONOFF_OPTS, choices=ON_OFF),
+    S("COVER_TEMPLATE", "goc", "brand", "Mẫu ảnh bìa",
+      options=(("goc", "Gốc"), ("kenh", "Theo kênh: vạch màu kênh, logo, tên loạt + số tập")), choices=("goc", "kenh")),
     S("SOURCE_CREDIT", "0", "video", "Ghi nguồn vào nội dung đăng",
       options=(("0", "Tắt (mặc định)"), ("1", "Bật (ghi nguồn + Giọng đọc AI)")), choices=ON_OFF),
     S("ALLOWED_SOURCES", "", "telegram", "Kênh gốc được phép", help="Tên kênh/uploader; trống = mọi kênh.",
@@ -290,6 +333,11 @@ SCHEMA: tuple[Setting, ...] = (
       help="Trống = bot tự chọn giờ vàng theo lượt xem; hoặc 11:30,20:30.",
       validate=_regex(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*",
                       "AUTO_TIMES dạng 11:30,20:30 (giờ Việt Nam)"), live=True),
+    S("AUTO_SKIP_ADS", "1", "auto", "Bỏ video quảng cáo của nguồn",
+      help="Khóa học, tiệc, tuyển dụng… (theo tiêu đề) và video AI xác định không phải công thức.",
+      options=(("1", "Bật"), ("0", "Tắt")), choices=ON_OFF),
+    S("AUTO_MIN_HEIGHT", "540", "auto", "Độ nét tối thiểu của nguồn", help="Chiều cao (px); 0 = không lọc.",
+      validate=_digits("AUTO_MIN_HEIGHT", "AUTO_MIN_HEIGHT là số điểm ảnh, vd 540")),
     S("AUTO_MODE", "cook", "auto", "Chế độ làm lại", options=(("cook", "Nấu ăn"), ("review", "Review")),
       choices=("cook", "review"), live=True),
     S("FB_PAGE_ID", "", "api", "ID Fanpage",
@@ -310,7 +358,10 @@ GROUPS: list[tuple[str, str, str]] = [
     ("api", "🔑 Tài khoản & API", "Điền key một lần. Bắt buộc: Gemini. Nên có: Kaggle (GPU miễn phí). Chỉ khi cần: Groq, "
             "OpenRouter, Fanpage, cookies."),
     ("voice", "🗣️ Giọng đọc", "Giọng, tốc độ, cách nói."),
-    ("video", "🎬 Video & lời", "Chất lượng, đoạn mở đầu, phụ đề, thương hiệu, tiếng gốc."),
+    ("video", "🎬 Video & lời", "Chất lượng, đoạn mở đầu, phụ đề, tiếng gốc."),
+    ("style", "✨ Phong cách remake & bài đăng", "Nhịp dựng khác bản gốc, công thức và mẹo trong bài đăng, đối chiếu "
+              "định lượng."),
+    ("brand", "🎨 Nhận diện kênh", "Màu, tông, màn kết, âm hiệu, ảnh bìa: cố định để người xem nhận ra kênh."),
     ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
     ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
     ("telegram", "💬 Telegram", "Ai được dùng bot qua Telegram."),
@@ -322,9 +373,12 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
-    "QUALITY", "TEASER", "COVER", "SUB_STYLE", "SUB_TIMING", "BRAND_NAME", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
+    "QUALITY", "TEASER", "COVER", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "POST_RECIPE", "TIPS", "QTY_CHECK",
+    "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
+    "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
     "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "SCENE_ANALYSIS", "TEXT_DETECT",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
+    "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "ALLOWED_SOURCES",
     "GEMINI_MODEL", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER", "ASR_VOCAB",
 )

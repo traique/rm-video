@@ -61,6 +61,9 @@ SCENE_ANALYSIS: str; TTS_OFFLINE: str; TEASER: str; NO_SPEECH: str; BGM_LINKS: s
 SUB_TIMING: str; REVIEW_SCRIPT: str; CUT_PROMO: str; QUALITY: str; SOURCE_CREDIT: str; ALLOWED_SOURCES: str
 ALLOWED_USERS: str; ADMIN_CHAT_ID: str; AUTO_POST: str; AUTO_SOURCES: str; AUTO_TIKTOK_SOURCES: str
 AUTO_PLATFORMS: str; AUTO_PER_DAY: str; AUTO_TIMES: str; AUTO_MODE: str; FB_PAGE_ID: str; FB_PAGE_TOKEN: str
+REMAKE_STYLE: str; POST_RECIPE: str; TIPS: str; QTY_CHECK: str; TIME_SKIP_LABEL: str; BRAND_COLOR: str
+BRAND_LOOK: str; BRAND_GRAIN: str; BRAND_TAGLINE: str; BRAND_CLOSE: str; BRAND_SERIES: str; BRAND_STING: str
+COVER_TEMPLATE: str; AUTO_SKIP_ADS: str; AUTO_MIN_HEIGHT: str
 
 # ===== Chỉ đặt qua biến môi trường =====
 # (BOT_TOKEN đổi là phải restart polling; WEB_PASSWORD không cho sửa từ web để kẻ lạ không tự đổi khóa)

@@ -75,6 +75,8 @@ class Job:
     post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
     hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
     teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t"} (bản duyệt dùng lại)
+    edit: dict = field(default_factory=dict)     # kế hoạch dựng đã quyết (REMAKE_STYLE, rmvideo/media/edl.py; bản duyệt dùng lại)
+    recipe: dict = field(default_factory=dict)   # món + định lượng đã đối chiếu với lời gốc (rmvideo/domain/recipe.py)
 
     def __setattr__(self, name, value):
         old = self.__dict__.get(name, _MISSING)

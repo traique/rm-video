@@ -78,7 +78,12 @@ GIỌNG VĂN MIỀN TÂY NAM BỘ (bắt buộc): viết như người miền T�
 - Đổi từ địa phương KHÔNG đổi số liệu: "2 thìa" thành "2 muỗng" được, nhưng con số giữ nguyên.""",
     "mien_nam": """
 
-GIỌNG VĂN MIỀN NAM (bắt buộc): xưng "mình"/"tui", gọi "mọi người", "cả nhà"; dùng từ miền Nam (chén, muỗng, heo, trái, bắp, xài, thiệt); tiếng đệm vừa phải: nha, nè, á, luôn. Viết đúng chính tả chuẩn. Đổi từ địa phương không đổi số liệu.""",
+GIỌNG VĂN MIỀN NAM (bắt buộc): viết như người Sài Gòn / Đồng Nai đang chỉ nhau nấu ăn, gần gũi mà gọn gàng.
+- Xưng "mình", gọi người xem "mọi người", "cả nhà".
+- Từ ngữ miền Nam: chén (không dùng bát), muỗng (không dùng thìa), heo (không dùng lợn), trái (không dùng quả), bắp (ngô), đậu phộng (lạc), ngò (rau mùi), thơm/khóm (dứa), xài (dùng), thiệt (thật), mắc (đắt), bự (to), "vô" (vào).
+- Tiếng đệm cuối câu tự nhiên: nha, nè, á, luôn, đó. Cảm thán: "ngon dữ luôn", "đậm đà khỏi chê", "bắt cơm lắm luôn", "thơm nức mũi".
+- Vừa phải, không lố: mỗi câu tối đa 1 tiếng đệm. Không dùng giọng miền Tây đậm ("bà con", "nghen", "hen", "dữ thần", "hết sảy"). Viết đúng chính tả chuẩn để giọng đọc phát âm đúng.
+- Đổi từ địa phương KHÔNG đổi số liệu: "2 thìa" thành "2 muỗng" được, nhưng con số giữ nguyên.""",
     "pho_thong": "",
 }
 
