@@ -33,6 +33,17 @@ from rmvideo.interfaces.web.http import (
 )
 
 
+
+def _recipe_view(j) -> dict:
+    """Bảng định lượng đã đối chiếu + tóm tắt kế hoạch dựng cho màn duyệt (rỗng nếu job không có)."""
+    from rmvideo.domain import recipe
+    f = recipe.Facts.from_dict(getattr(j, "recipe", None) or {})
+    out = {"report": recipe.report(f), "table": recipe.table(f)} if f else {}
+    plan = (getattr(j, "edit", None) or {}).get("summary")
+    if plan:
+        out["plan"] = plan
+    return out
+
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     def jobs_payload() -> dict:
         jobs = sorted(queue.jobs.values(), key=lambda j: -j.id)
@@ -54,6 +65,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
                 "eta": (max(0, int(j.out_dur * hooks.get("speed", lambda m: 18.0)(j.long_mode)
                                    - (time.time() - j.started_at))) if (j.status == "processing" and j.out_dur) else None),
                 "approved": j.approved if j.status == "review" else [],
+                "recipe": _recipe_view(j),
                 "timeline": f"/api/jobs/{j.id}/timeline.json" if j.final_segments else "",
                 "srt": f"/api/jobs/{j.id}/subs.srt" if j.srt else "",
                 "age": int(time.time() - j.created),

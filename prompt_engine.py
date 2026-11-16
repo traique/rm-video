@@ -64,8 +64,36 @@ try:
         caption: str
         hashtags: str
         hook: str = ""
+    class IngOut(BaseModel):
+        name: str
+        qty: str = ""
+        unit: str = ""
+        seg: int = -1
+        quote: str = ""
+        first_img: int = -1
+
+    class StepOut(BaseModel):
+        kind: str
+        text: str = ""
+        ingredients: list[str] = []
+        independent: bool = False
+        # "from"/"to" là từ khoá Python: schema dùng a/b, prompt ghi rõ
+        a: int
+        b: int
+
+    class TipOut(BaseModel):
+        text: str
+        seg: int = -1
+
+    class RecipeOut(BaseModel):
+        is_recipe: bool
+        dish: str
+        servings: str = ""
+        ingredients: list[IngOut]
+        steps: list[StepOut]
+        tips: list[TipOut] = []
 except Exception:                       # pydantic đi kèm google-genai; thiếu thì chỉ dùng JSON mode
-    TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = None
+    TimedOut = ShortOut = ScriptOut = TimedOstOut = PostOut = RecipeOut = None
 
 _STYLE = {
     "mien_tay": """
@@ -932,10 +960,75 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
 _PROMO_STRONG = re.compile(
     r"giỏ hàng|giỏ hàn|chào hàng|góc (trái|phải)|độc quyền|chính tay (em|mình|tui|tôi)|bấm vào|nhấn vào|link|mã giảm|"
     r"khuyến mãi|(đặt|chốt) mua|mua (bột|gói|hũ|sản phẩm|hàng|ngay|giúp|ủng)|sản phẩm (của|bên) (em|mình|shop)|"
-    r"inbox|nhắn tin|freeship|đặt hàng|shop (em|mình)", re.IGNORECASE)
+    r"inbox|nhắn tin|freeship|đặt hàng|shop (em|mình)|khóa học|khoá học|đăng ký học|học viên|lớp (dạy|học) nấu|"
+    r"nhận (dạy|đặt tiệc|nấu tiệc)|đặt tiệc|tiệc (trọn gói|cưới)|hotline|zalo|số điện thoại", re.IGNORECASE)
 _PROMO_WEAK = re.compile(r"màn hình|ủng hộ (em|mình|shop|kênh)|giá (đang|rất|chỉ|cực|siêu|ưu)|(có|nhớ) mua|mua (ở|tại)",
                          re.IGNORECASE)
 _PROMO_RE = re.compile(_PROMO_STRONG.pattern + "|" + _PROMO_WEAK.pattern, re.IGNORECASE)
+
+
+RECIPE_PROMPT = """Bạn là đầu bếp kiêm biên tập viên công thức. Dưới đây là lời thoại gốc của một video nấu ăn (máy nghe chép, có thể sai chính tả), chia thành các ĐOẠN có số thứ tự{img_note}. Hãy đọc kỹ và trả về:
+
+1. "is_recipe": video có hướng dẫn nấu một món không (false nếu là quảng cáo khóa học, tiệc, quán, vlog...).
+2. "dish": tên món ngắn gọn.
+3. "servings": khẩu phần CHỈ KHI lời gốc / mô tả nói rõ (vd "4 người ăn"), không thì để "".
+4. "ingredients": MỌI nguyên liệu và gia vị được nhắc, theo thứ tự xuất hiện. Mỗi nguyên liệu:
+   - "name": tên tiếng Việt chuẩn, chính tả đúng (sửa lỗi máy nghe: "nạt vai" -> "nạc vai").
+   - "qty", "unit": định lượng ĐÚNG như người trong video nói (vd "500" + "gam", "2" + "muỗng canh", "1/2" + "muỗng cà phê"). Không nói số thì để "" (vừa đủ). TUYỆT ĐỐI không đoán, không tự quy đổi, không làm tròn.
+   - "seg": số thứ tự ĐOẠN nơi nghe thấy định lượng đó (-1 nếu lấy từ mô tả); "quote": trích nguyên văn mấy chữ trong đoạn đó.
+   - Cùng một nguyên liệu dùng ở hai bước với hai lượng khác nhau thì ghi HAI dòng.
+   - "first_img": số thứ tự ẢNH đầu tiên thấy rõ nguyên liệu đó (-1 nếu không có ảnh / không thấy).
+5. "steps": chia TOÀN BỘ các đoạn thành các bước theo đúng thứ tự, mỗi đoạn thuộc đúng một bước; "a", "b" là số đoạn đầu và cuối của bước.
+   - "kind": intro (chào hỏi, giới thiệu) | ingredients (bày / giới thiệu nguyên liệu) | prep (sơ chế, ướp) | cook (nấu trên lửa) | wait (chờ chín, tán gẫu trong lúc chờ) | plate (bày ra đĩa) | taste (nếm, ăn thử) | reaction (khen, cảm thán, không có thao tác) | promo (quảng cáo quán, khóa học, sản phẩm, kêu gọi) | other.
+   - "text": câu hướng dẫn ngắn (≤ 25 chữ) cho phần CÁCH LÀM của bài đăng, viết lại bằng lời của bạn{style}, chỉ dùng nguyên liệu và con số có trong lời gốc; để "" cho intro / reaction / promo / other.
+   - "ingredients": tên nguyên liệu dùng ở bước đó.
+   - "independent": true nếu đây là bước SƠ CHẾ không phụ thuộc bước sơ chế liền trước (vd băm tỏi và thái hành).
+6. "tips": tối đa 3 mẹo hay. Ưu tiên mẹo chính người trong video nói (ghi "seg" của đoạn đó). Được thêm TỐI ĐA 1 mẹo kỹ thuật của bạn ("seg": -1) gắn với một bước có trong video: không có con số, không nói về sức khỏe / chữa bệnh / giảm cân, không thêm nguyên liệu mới.
+
+Không kêu gọi đăng ký / theo dõi kênh. Không lời quảng cáo của quán, khóa học.
+
+Tiêu đề gốc: {title}
+Mô tả gốc: {desc}
+
+CÁC ĐOẠN (số thứ tự | lời gốc):
+{segments}
+
+Trả về DUY NHẤT JSON hợp lệ, không markdown:
+{{"is_recipe": true, "dish": "...", "servings": "", "ingredients": [{{"name": "...", "qty": "...", "unit": "...", "seg": 0, "quote": "...", "first_img": -1}}], "steps": [{{"kind": "prep", "a": 0, "b": 2, "text": "...", "ingredients": ["..."], "independent": false}}], "tips": [{{"text": "...", "seg": 3}}]}}"""
+
+RECIPE_SEG_MAX = 160          # đoạn lời gốc tối đa gửi AI (video 5 phút ~ 80-120 đoạn)
+
+
+async def recipe_facts(title: str, desc: str, texts: list[str], images: list | None = None,
+                       times: list | None = None) -> dict | None:
+    """AI đọc lời gốc (và ảnh theo mốc giây) -> nguyên liệu + định lượng kèm chỗ nghe thấy, các bước có nhãn, mẹo.
+    CHỈ là đề xuất: rmvideo/domain/recipe.verify kiểm từng con số với lời gốc. Lỗi / không có AI: None."""
+    texts = [str(t or "").strip() for t in texts][:RECIPE_SEG_MAX]
+    if not texts:
+        return None
+    img_note = ""
+    if images and times:
+        img_note = ("; kèm " + str(len(images)) + " ảnh chụp theo thời gian ("
+                    + ", ".join(f"Ảnh {k}: giây {t:.0f}" for k, t in enumerate(times)) + ")")
+    style = {"mien_nam": " (giọng miền Nam, gọn)", "mien_tay": " (giọng miền Tây, gọn)"}.get(config.SPEECH_STYLE, "")
+    prompt = RECIPE_PROMPT.format(img_note=img_note, style=style, title=title or "(không có)",
+                                  desc=(desc or "(không có)")[:800],
+                                  segments="\n".join(f"{k} | {t}" for k, t in enumerate(texts)))
+
+    def norm(d: dict) -> dict:
+        for st in d.get("steps") or []:                  # schema dùng a/b; JSON mode tự do có thể ghi from/to
+            st.setdefault("from", st.get("a", 0))
+            st.setdefault("to", st.get("b", st.get("from", 0)))
+        if not isinstance(d.get("ingredients"), list) or not isinstance(d.get("steps"), list):
+            raise ValueError("thiếu ingredients/steps")
+        return d
+
+    async def attempt(p):
+        return norm(loads_lenient(await p.call(prompt)))
+    return await llm.first_success(
+        _chain(lambda pr: _call_gemini(pr, images=images or None, schema=RecipeOut, label="Ảnh", timeout=90)),
+        attempt, record=metrics.record,
+        on_error=lambda p, e: logging.warning("AI đọc công thức bằng %s lỗi (%s)", p.name, str(e)[:120]))
 
 
 def find_promo_tail(segs: list, dur: float) -> float | None:
@@ -989,7 +1082,8 @@ def same_sentence(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, w(a), w(b)).ratio()
 
 
-def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> str:
+def platform_post(title: str, caption: str, hashtags: str, credit: str = "", recipe: str = "",
+                  recipe_line: str = "") -> str:
     """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag. credit: dòng ghi nguồn + nhãn giọng AI
     (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại)."""
     tags = ["#" + t.lstrip("#") for t in hashtags.replace(",", " ").split() if t.strip("#")]   # AI đôi khi quên dấu #
@@ -1001,6 +1095,11 @@ def platform_post(title: str, caption: str, hashtags: str, credit: str = "") -> 
         tiktok = (cap + " " + " ".join(tags[:4])).strip()
     facebook = f"{caption.strip()}\n\n{' '.join(tags[:3])}"
     youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:8])}"
+    if recipe:                                 # công thức đã đối chiếu (POST_RECIPE / TIPS): nằm giữa caption và hashtag
+        facebook = f"{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:3])}"
+        youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:8])}"
+    if recipe_line:
+        tiktok = f"{tiktok}\n{recipe_line.strip()}"
     if credit:
         tiktok, facebook, youtube = f"{tiktok}\n{credit}", f"{facebook}\n\n{credit}", f"{youtube}\n\n{credit}"
     return (f"📌 {title.strip()}\n\n▶ TikTok:\n{tiktok}\n\n▶ Facebook:\n{facebook}\n\n▶ YouTube Shorts:\n{youtube}")

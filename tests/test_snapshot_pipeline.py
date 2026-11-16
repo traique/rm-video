@@ -131,6 +131,9 @@ JOB_FIELDS = ("status", "step", "error", "script", "post", "hook", "out_dur", "c
 def _job_view(job):
     d = {k: getattr(job, k) for k in JOB_FIELDS}
     d["parts"] = [{"label": p["label"], "file": os.path.basename(p["path"])} for p in job.parts]
+    for k in ("edit", "recipe"):                     # bản 42: chỉ ghi khi có (snapshot cũ giữ nguyên)
+        if getattr(job, k, None):
+            d[k] = getattr(job, k)
     return d
 
 
@@ -168,6 +171,7 @@ class Env:
         self.kaggle_fail = False
         self.batch_fail: set = set()
         self.legacy_fallback = False         # prompt_engine.generate trả kịch bản mẫu
+        self.recipe_ai: dict | None = None   # prompt_engine.recipe_facts trả gì (None = AI lỗi / không có key)
         self.src = _video(os.path.join(tmp, "src", "src.mp4"))
         self.roots = [(tmp, "<TMP>")]
 
@@ -275,6 +279,11 @@ def env(monkeypatch, tmp_path):
         rec.add("ai.shorten", [list(x) for x in items])
         return {i: " ".join(t.split()[:max(2, n // 2)]) for i, t, n in items}
     monkeypatch.setattr(prompt_engine, "shorten", shorten)
+
+    async def recipe_facts(title, desc, texts, images=None, times=None):
+        rec.add("ai.recipe", title, list(texts), len(images or []))
+        return json.loads(json.dumps(E.recipe_ai)) if E.recipe_ai is not None else None
+    monkeypatch.setattr(prompt_engine, "recipe_facts", recipe_facts)
 
     async def choose(title, desc, dur, segs, cuts, sil, images, img_t):
         rec.add("ai.highlights", title, dur, len(segs), list(cuts), len(images))
@@ -461,6 +470,33 @@ def test_review_gate_then_approved(env):
 def test_auto_source_low_fresh(env):
     env.fresh = 0.5
     snap("auto_source_low_fresh", env, run(env, _job(env, 106, source="auto", review=True)))
+
+
+RECIPE_AI = {"is_recipe": True, "dish": "Thịt xào", "servings": "",
+             "ingredients": [{"name": "thịt", "qty": "", "unit": "", "seg": 0},
+                             {"name": "muối", "qty": "1", "unit": "muỗng", "seg": 2}],
+             "steps": [{"kind": "cook", "from": 0, "to": 1, "text": "Cho thịt vào chảo, đảo đều tay 5 phút."},
+                       {"kind": "cook", "from": 2, "to": 2, "text": "Nêm muối vừa ăn."}],
+             "tips": [{"text": "Đảo nhanh tay cho thịt không dính chảo.", "seg": -1},
+                      {"text": "Ăn món này giúp giảm cân.", "seg": -1}]}
+
+
+def test_recipe_in_post(env, monkeypatch):
+    """Bản 42: công thức + mẹo trong bài đăng. Số không có trong lời gốc bị bỏ ("5 phút" -> "một lúc"); "1 muỗng" muối
+    AI nghe nhầm (lời gốc không có số) -> "vừa đủ"; mẹo nói chuyện giảm cân bị loại."""
+    monkeypatch.setattr(config, "POST_RECIPE", "1")
+    monkeypatch.setattr(config, "TIPS", "post")
+    env.recipe_ai = RECIPE_AI
+    snap("recipe_in_post", env, run(env, _job(env, 121)))
+
+
+def test_auto_not_recipe_stops_early(env):
+    """Tự đăng + AI thấy không phải công thức (video quảng cáo khóa học): dừng trước khi đọc giọng / dựng."""
+    env.recipe_ai = {"is_recipe": False, "dish": "", "ingredients": [], "steps": [], "tips": []}
+    job = _job(env, 122, source="auto")
+    with pytest.raises(RuntimeError, match="không phải video công thức"):
+        run(env, job)
+    snap("auto_not_recipe", env, {"result": "RuntimeError", "job": _job_view(job)})
 
 
 def test_stretch(env):

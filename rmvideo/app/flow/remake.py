@@ -42,8 +42,9 @@ from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import job_factory
 from rmvideo.app.assemble import assemble
-from rmvideo.app.flow import analysis, backends, common, teaser
+from rmvideo.app.flow import analysis, backends, common, dish, teaser
 from rmvideo.app.flow import music as music_flow
+from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
 from rmvideo.media import ff, filtergraph, renderer, tts_engine, voiceplan
 
@@ -118,6 +119,7 @@ class Remake:
         self.pre_cover: asyncio.Task | None = None       # ảnh bìa bắt đầu trong lúc chờ Kaggle
         self.target = 0
         self.ass = os.path.join(tmp, "subs.ass")
+        self.facts: recipe.Facts | None = None   # món + định lượng đã đối chiếu (bản 42)
 
     # ---------------- các bước ----------------
 
@@ -135,6 +137,7 @@ class Remake:
             return await music_flow._music_only(job, self.inp, self.tmp, self.title, self.desc, self.out_dur,
                                                 self.render_dur, self.stretch, self.is_long, self.bands,
                                                 self.local_only, self.start_cover, self.finish_cover)
+        await self.understand()
         await self.decide_teaser(silent)
         self.apply_teaser()
         self.choose_backend()
@@ -248,6 +251,19 @@ class Remake:
         self.sep = Separation(ok=self.job.mode == Mode.COOK and not why, windows=win, secs=secs, why=why,
                               engines=(["kim"] if kim else []) + (["fast"] if fast else []))
 
+    async def understand(self):
+        """Hiểu món + đối chiếu định lượng với lời gốc (POST_RECIPE / TIPS / REMAKE_STYLE=strong / tự đăng lọc quảng cáo)."""
+        job = self.job
+        if not self.raw_segs or not dish.wanted(job):
+            return
+        self.facts = await dish.understand(job, self.inp, self.title, self.desc, self.raw_segs,
+                                           self.out_dur / self.stretch, self.src_hash)
+        if not job.approved:
+            dish.apply(job, self.facts)
+        if self.facts is not None and not self.facts.is_recipe and job.source == Source.AUTO \
+                and config.AUTO_SKIP_ADS == "1":
+            raise RuntimeError(f"{recipe.NOT_RECIPE}: dừng sớm, tự đăng chọn video khác")   # khỏi tốn giọng + dựng
+
     async def decide_teaser(self, silent: bool):
         """Đoạn mở đầu: cảnh MÓN ĐÃ XONG chiếu trước 3 giây kèm câu hook (chỉ video nấu ăn có lời)."""
         job = self.job
@@ -323,8 +339,9 @@ class Remake:
         if timed.get("fresh", 1.0) < AUTO_MIN_FRESH:     # AI lỗi một phần -> nhiều đoạn giữ nguyên lời gốc
             job.no_autopost = f"lời mới chỉ {timed['fresh'] * 100:.0f}% khác lời gốc"
         if not job.approved:
+            block, line = dish.post_parts(job)              # công thức + mẹo đã đối chiếu (POST_RECIPE / TIPS)
             job.post = prompt_engine.platform_post(timed["title"], timed["caption"], timed["hashtags"],
-                                                   common.credit_line(job))
+                                                   common.credit_line(job), block, line)
 
     async def stop_for_review(self, timed: dict) -> str:
         """Dừng chờ duyệt: tách giọng làm sau (lúc render bản đã duyệt); nguồn từ link/Telegram giữ lại để render

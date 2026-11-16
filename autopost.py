@@ -34,6 +34,7 @@ import aiohttp
 
 import config
 import url_guard
+from rmvideo.domain import recipe
 from rmvideo.domain.sources import PLATFORMS, detect_platform, normalize_source, normalize_tiktok  # noqa: F401
 
 VN = timezone(timedelta(hours=7))           # Việt Nam không đổi giờ mùa hè
@@ -793,7 +794,12 @@ async def _pick_from(st, plat, srcs, slot, now, rnd, core_video, Job, QueueFull,
                 continue
             dur = info.get("duration") or 0
             dup = duplicate_of(st, vid, info)
+            ad = recipe.looks_like_ad(info.get("title") or "", dur) if config.AUTO_SKIP_ADS == "1" else ""
+            min_h = int(config.AUTO_MIN_HEIGHT or 0)
+            short = int(info.get("max_short") or 0)
             why = ("khác kênh" if _owner_mismatch(plat, lst, info) else
+                   ad if ad else
+                   f"nguồn chỉ {short}p < {min_h}p" if min_h and 0 < short < min_h else
                    f"dài {dur}s > {config.LONG_MAX}s" if dur > config.LONG_MAX else
                    "quá ngắn" if 0 < dur < 5 else
                    f"trùng video đã làm ({dup})" if dup else "")
@@ -840,8 +846,19 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         return await _job_failed(st, p, now, "job tự động không còn trong danh sách")
     if job.status in ("queued", "processing", "approved"):
         return f"đang làm job #{job.id}"
+    if recipe.NOT_RECIPE in (job.error or "") + str(getattr(job, "no_autopost", "")) and job.status in ("done", "error"):
+        # video quảng cáo / không phải công thức (AI đọc lời gốc, job dừng sớm): bỏ hẳn video nguồn, KHÔNG tính là lỗi
+        # liên tiếp (3 video quảng cáo liền nhau không được làm dừng tự đăng)
+        _fail(st, p["vid"], p["source"], now, recipe.NOT_RECIPE, hard=True)
+        st["pending"] = None
+        return f"job #{job.id}: {recipe.NOT_RECIPE}, chọn video khác"
     if job.status != "done":
         return await _job_failed(st, p, now, f"job #{job.id} {job.status}: {(job.error or '')[:100]}")
+    if str(getattr(job, "no_autopost", "")).startswith(recipe.NOT_RECIPE):
+        # video quảng cáo / không phải công thức (AI đọc lời gốc): bỏ hẳn video nguồn, KHÔNG tính là lỗi liên tiếp
+        _fail(st, p["vid"], p["source"], now, job.no_autopost, hard=True)
+        st["pending"] = None
+        return f"job #{job.id}: {job.no_autopost}, chọn video khác"
     if getattr(job, "no_autopost", ""):         # AI lỗi / lời mới gần như chép lời gốc: không đăng công khai
         return await _job_failed(st, p, now, f"job #{job.id}: {job.no_autopost}")
     video, thumb = _output_files(job)

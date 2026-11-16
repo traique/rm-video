@@ -234,6 +234,7 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 </section>
 <section class="card" id="review_card" hidden aria-labelledby="h-review">
   <h2 id="h-review">📝 Duyệt kịch bản <span class="mut" id="review_info"></span></h2>
+  <div id="review_recipe" class="mut" hidden></div>
   <div id="review_rows"></div>
   <button type="button" id="approve_btn" class="btn btn-full">Render với kịch bản này</button>
 </section>
@@ -502,6 +503,9 @@ window._jobs={};
 async function cancelJob(id){if(!confirm('Hủy job #'+id+'?'))return;const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
 function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').hidden=false;$('review_card').dataset.id=id;
   $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
+  const rc=j.recipe||{};$('review_recipe').hidden=!rc.report;
+  $('review_recipe').innerHTML=rc.report?'<p>🧾 '+esc(rc.report)+(rc.plan?'<br>🎬 '+esc(rc.plan):'')+'</p>'+((rc.table||[]).length?'<table><thead><tr><th scope="col">Nguyên liệu</th><th scope="col">Lời gốc</th><th scope="col">In ra</th><th scope="col">Đối chiếu</th></tr></thead><tbody>'+
+    rc.table.map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+esc(r.raw||'—')+'</td><td>'+esc(r.std)+'</td><td>'+esc(r.status)+'</td></tr>').join('')+'</tbody></table>':''):'';
   $('review_rows').innerHTML=j.approved.map(s=>'<div class="review-seg"><label for="seg_'+s.i+'">'+s.start.toFixed(1)+'s · gốc: '+esc(s.orig||'')+'</label><textarea id="seg_'+s.i+'" data-i="'+s.i+'" rows="2">'+esc(s.text)+'</textarea>'+
     '<select data-ost="'+s.i+'" aria-label="Tiếng gốc của đoạn '+s.i+'">'+OST.map(o=>'<option value="'+o[0]+'"'+((s.ost||'new')==o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+'</select></div>').join('');
   $('review_card').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});}

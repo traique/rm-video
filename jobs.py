@@ -117,7 +117,9 @@ async def _run_one_held(job: Job):
         if keep_source:
             if tg and job.status == "review":
                 lines = "\n".join(f"{s['i']}: {OST_TAG.get(s.get('ost', 'new'), '')}{s['text']}" for s in job.approved)
-                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3500]}\n\n"
+                extra = "".join(f"\n{x}" for x in (f"🧾 {(job.recipe or {}).get('report', '')}",
+                                                    f"🎬 {(job.edit or {}).get('summary', '')}") if len(x) > 3)
+                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3300]}\n{extra[:600]}\n\n"
                                            + REVIEW_HELP))
         else:
             job.status, job.step = "done", ""
