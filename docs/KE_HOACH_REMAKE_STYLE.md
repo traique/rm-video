@@ -18,7 +18,8 @@ và TikTok.
 | 8 | Định lượng không đối chiếu được | Bỏ số, ghi "vừa đủ" (`QTY_CHECK=chặt`) |
 | 9 | Nguồn nước ngoài | Đổi HẲN sang đơn vị chuẩn Việt Nam, mã tính lại số (§3.2) |
 | 10 | Nhạc nền của video gốc | Giữ như hiện tại: không làm phần thay nhạc |
-| 11 | Link video nguồn thật cho bộ video vàng | Chưa có. Cần trước khi duyệt video mẫu (không chặn S1) |
+| 11 | Nguồn đang dùng | Bảy Cua Quán Biên Hòa: facebook.com/bay.cua.quan, tiktok.com/@baycuaquanbienhoa. Chưa dùng video nước ngoài (§1b) |
+| 12 | Bộ video vàng | Lấy từ chính kênh này (§1b), bạn không cần gửi thêm link |
 
 ## 1. Hiện trạng liên quan (đọc từ mã bản 41)
 
@@ -60,6 +61,49 @@ và TikTok.
 - Vì vậy **nhạc nền của video gốc vẫn nằm trong lớp tiếng nền** được trộn vào video mới.
 - Video FB/TikTok rất hay lót nhạc thịnh hành. Nhạc đó vừa làm video giống bản gốc, vừa là thứ Facebook hay đối chiếu bản quyền.
 - Đã chốt giữ như hiện tại (§3.10). Nếu sau này Facebook hay tắt tiếng hoặc chặn video vì nhạc thì xem lại.
+
+## 1b. Nguồn thực tế: Bảy Cua Quán Biên Hòa (xem 30 video TikTok mới nhất, 16/11/2026)
+
+**Đặc điểm nguồn:**
+- **22/30 là video công thức**, phần lớn dài 2–5 phút (126–277 giây), một video 463 giây. Đầu bếp nói tiếng Việt suốt video ("âm thanh gốc"), nguồn 1080x1920.
+- **8/30 là video quảng cáo hoặc không có tiêu đề**, dài 16–123 giây: "Khóa tiệc cưới tháng 12", "Khóa bếp ốc lẩu nướng hải sản", "Tiệc trọn gói tại tư gia 120 khách", "học viên ra trường".
+  - Tự động đăng hiện chỉ lọc độ dài 5–300 giây, nên có thể bốc trúng các video này rồi làm thành một video quảng cáo khóa học có giọng đọc mới.
+- **Mô tả bài gốc KHÔNG có định lượng**, chỉ có tên món và câu khen.
+- **Xem thử khung hình một video** (mực nhúng giấm, 130 giây):
+  - không có chữ định lượng in trên hình;
+  - máy quay đặt cố định trên mặt bếp inox, cùng một góc ở mọi video.
+- **Độ dài video ra:** video 90–300 giây hiện được làm NGUYÊN video (`long_mode=full`, ≤ 5 phút) và đăng dạng video thường (`/videos`, không phải Reels). Video > 300 giây bị bỏ qua.
+
+**Hệ quả cho kế hoạch:**
+1. **Bằng chứng định lượng gần như chỉ có lời đầu bếp nói.**
+   - S1 làm đường `speech` (và `desc` cho đủ).
+   - **Hoãn:** đọc chéo chữ trên hình, bộ đọc số tiếng Trung / Anh, và các đơn vị cup / oz / °F. Chuyển sang S7, chỉ làm khi bắt đầu dùng nguồn nước ngoài hoặc nguồn có chữ định lượng trên hình.
+   - Vẫn làm phần quy về đơn vị chuẩn trong tiếng Việt (lạng → g, ký / cân → kg) và cộng dồn.
+2. **Lọc video quảng cáo đưa lên S1**, vì đang ảnh hưởng tự động đăng ngay bây giờ. Bỏ qua (đánh dấu không dùng nữa) khi:
+   - tiêu đề có các cụm "khóa học", "khóa bếp", "học viên", "tiệc trọn gói", "đặt tiệc", "tuyển";
+   - hoặc dưới 60 giây mà tiêu đề trống;
+   - hoặc AI hiểu món trả `is_recipe=false`.
+3. **Lời quảng cáo chen giữa video công thức** ("khóa học", "học viên", "liên hệ quán", số điện thoại, "nhận đặt tiệc"):
+   - thêm các cụm này vào bộ nhận lời quảng cáo hiện có (`_PROMO_STRONG` / `_PROMO_WEAK`);
+   - kiểm bằng lời bóc thật của kênh.
+4. **Lớp A có giá trị lớn với nguồn này:** máy quay cố định một góc, nên đổi cỡ khung luân phiên tạo cảm giác quay nhiều máy, khác hẳn bản gốc.
+   - Bỏ thời gian chết ít tác dụng hơn vì đầu bếp nói gần như liên tục.
+   - Phần rút gọn chính đến từ B9 (bỏ lời tán gẫu lúc chờ, §3.5) và cắt quảng cáo.
+5. **Lớp B hợp:** đầu video thường bày sẵn nguyên liệu trên dĩa (mực, ớt, hành), nên điểm danh nguyên liệu (B2) làm được.
+6. **Chống trùng:** cùng một kênh đăng cùng video lên cả Facebook lẫn TikTok, chú thích giống nhau, nên cách so độ dài + chú thích hiện có đã bắt được. Dấu vân hình (S5) hạ ưu tiên.
+7. **Bộ video vàng** chọn sẵn từ kênh:
+   - cánh gà chiên nước mắm (277 giây);
+   - cua đồng chiên nước mắm (152 giây);
+   - mực nhúng giấm (126 giây);
+   - bò lúc lắc khoai tây (225 giây);
+   - luộc gà (148 giây);
+   - súp cua (249 giây);
+   - và 1 video quảng cáo ("Khóa tiệc cưới tháng 12", 17 giây) để kiểm bộ lọc.
+
+**Lưu ý quyền với nguồn:**
+- Toàn bộ video của kênh mới sẽ làm lại từ MỘT kênh. Kênh này là doanh nghiệp (quán, lớp dạy nấu ăn), có trang hoạt động thường xuyên.
+- Vì vậy nếu bạn không phải người của Bảy Cua Quán, khả năng bị khiếu nại dồn vào một chỗ.
+- **Cách gọn nhất là xin phép hoặc hợp tác.** Nhiều quán đồng ý nếu bài đăng ghi "Công thức: Bảy Cua Quán Biên Hòa" kèm link, vì có lợi cho lớp học của họ. Khi đó bật `SOURCE_CREDIT`.
 
 ## 2. Luồng mới
 
@@ -118,11 +162,11 @@ Video vẫn ra như lớp A.
   - `quote` phải nằm trong lời gốc đoạn `seg`, so lỏng (bỏ dấu, gộp phụ âm hay nghe nhầm như `ingredients._loose`), độ giống ≥ 0,9;
   - VÀ con số + đơn vị đọc từ `quote` bằng bộ đọc số của MÃ phải bằng `qty unit`.
 - **`desc`:** như trên, so với mô tả bài gốc.
-- **`screen`:**
+- **`screen`** (hoãn sang S7: nguồn hiện tại không có chữ định lượng trên hình):
   - **Đọc chéo:** một lượt Gemini riêng gửi các ảnh được trích (gộp một lần), chỉ hỏi "chép nguyên văn chữ trên ảnh". Không nói trước số mong đợi, để AI không xác nhận theo.
   - Mã đọc số từ bản chép đó; phải trùng với số đã trích.
 
-**Bộ đọc số đa ngôn ngữ** (mở rộng `ingredients.numbers` / `_norm_num`, viết dạng bảng, có test từng dòng):
+**Bộ đọc số** (S1 làm tiếng Việt; tiếng Trung / Anh hoãn sang S7; mở rộng `ingredients.numbers` / `_norm_num`, viết dạng bảng, có test từng dòng):
 - **Tiếng Việt:** "nửa muỗng", "1/2 muỗng", "hai trăm gam", "1 lạng" = 100 g (miền Bắc), "nửa ký".
 - **Tiếng Trung:**
   - Số: 一 二 两 三… 半; 克 = g; 千克 / 公斤 = kg.
@@ -220,7 +264,10 @@ class EditPlan:
 - **Không cắt giữa câu:** mép khúc chỉ nằm ở khoảng lặng ≥ 0,25 giây giữa hai đoạn lời gốc, hoặc ở điểm chuyển cảnh không có lời.
 - **Khúc tua nhanh:** không có lời gốc, không có đoạn giữ tiếng gốc.
 - **Khúc ngắn nhất:** 0,5 giây.
-- **Độ dài:** trong ngân sách. Tự động đăng Reels ≤ 90 giây (`REEL_MAX`).
+- **Độ dài:** trong ngân sách.
+  - Nguồn ≤ 90 giây: ra ≤ 90 giây (Reels).
+  - Nguồn 90–300 giây: ra ≤ 300 giây như hiện nay (đăng video thường).
+  - Bản ngắn ≤ 90 giây cho Reels từ nguồn dài là phần riêng, chưa chốt (§10).
 - **Gom gọn:**
   - đoạn mở đầu, cắt quảng cáo cuối và `stretch` đều thành trường hợp riêng của EditPlan;
   - **khi bật kiểu**, chỉ còn một đường dựng. Khi tắt, giữ đường cũ.
@@ -274,9 +321,10 @@ class EditPlan:
 | B6 Đổi chỗ hai bước sơ chế | Tối đa 1 lần/video. Hai bước `prep` liền nhau, trước lần bắc chảo đầu, AI đánh dấu độc lập VÀ mã thấy không chung nguyên liệu | ✓ | — |
 | B7 Thẻ giá / địa chỉ | Số đã đối chiếu (§3.2) | — | ✓ |
 | B8 Kết luận về cuối | Đoạn chấm điểm / nhận xét cuối | — | ✓ |
+| B9 Bỏ lời tán gẫu lúc chờ | Đoạn lời gốc AI dán nhãn `wait` / `other` VÀ mã thấy không có nguyên liệu, con số, động từ thao tác (`ingredients.find` / `numbers` rỗng) thì được bỏ lời. Khúc hình đó được tua nhanh như lớp A | ✓ | ✓ |
 
 **Luật cứng** (mã kiểm, không tin AI). Vi phạm bất kỳ luật nào thì bỏ toàn bộ phép B, chỉ áp A, và ghi lý do:
-- **R1 Đủ bước:** mỗi bước `prep` / `cook` / `plate` còn ≥ 60% thời lượng không phải thời gian chết, và ĐỦ mọi đoạn lời gốc của bước đó.
+- **R1 Đủ bước:** mỗi bước `prep` / `cook` / `plate` còn ≥ 60% thời lượng không phải thời gian chết, và ĐỦ mọi đoạn lời gốc của bước đó, trừ đoạn tán gẫu đã qua kiểm của B9.
 - **R2 Đúng thứ tự:** lần xuất hiện chính (không tính montage, recap) của các bước `cook` / `plate` tăng dần đúng theo video gốc.
 - **R3 Sơ chế trước nấu:** bước `prep` chỉ được hoán đổi với nhau, và phải xong trước bước `cook` đầu tiên dùng nguyên liệu của nó.
 - **R4 Không mất số liệu:** mọi đoạn lời gốc có nguyên liệu hoặc con số đều còn, cùng thứ tự tương đối với nhau.
@@ -441,7 +489,8 @@ Các khoá nhận diện kênh để trống được. Bạn điền trên web k
   - đo RAM tối đa khi dựng 60 giây 1080p có montage + recap.
   - **Ngưỡng:** ffmpeg ≤ 700 MB trên Botkeep.
 - **Bundle Kaggle:** test tự đủ / Python 3.10 hiện có tự bắt module mới.
-- **Bộ video vàng:** 6–8 video thật từ chính các nguồn FB / TikTok bạn định dùng, gồm nói tiếng Việt, ASMR không lời, tiếng Trung, có chữ định lượng trên hình. Mỗi giai đoạn xuất video mẫu để bạn duyệt trước khi sang giai đoạn sau.
+- **Bộ video vàng:** 6 video công thức + 1 video quảng cáo của Bảy Cua Quán (§1b). Mỗi giai đoạn xuất video mẫu để bạn duyệt trước khi sang giai đoạn sau.
+  - Khi thêm nguồn nước ngoài thì bổ sung video tiếng Trung / có chữ định lượng (S7).
 
 ## 7. Chi phí chạy
 
@@ -467,26 +516,28 @@ Các khoá nhận diện kênh để trống được. Bạn điền trên web k
 
 **Lưu ý về nguồn:** đổi phong cách, thêm công thức, mẹo, lời bình giúp video có phần đóng góp riêng (Facebook ưu tiên kiểu nội dung này hơn đăng lại nguyên). Nhưng việc này không thay đổi quyền với video gốc. Nên bật `SOURCE_CREDIT`, và gỡ ngay khi chủ video yêu cầu. Kế hoạch này không có bước xoá logo hoặc watermark của người gốc.
 
-## 9. Lộ trình (~14–18 ngày công)
+## 9. Lộ trình (~12–15 ngày công, chưa tính S7)
 
 | Giai đoạn | Nội dung | Công | Ra gì để bạn duyệt |
 |---|---|---|---|
-| S0 | Lưới an toàn: snapshot cho kiểu mới, bộ video vàng | 0,5 ngày | danh sách video vàng |
-| S1 | Hiểu món + đối chiếu định lượng + đổi đơn vị, cộng dồn + công thức và mẹo trong bài đăng (chưa đổi hình) | 3 ngày | bài đăng mẫu + bảng định lượng của 6–8 video |
+| S0 | Lưới an toàn: snapshot cho kiểu mới, bộ video vàng từ Bảy Cua Quán (tải, bóc lời, lưu cache) | 0,5 ngày | — |
+| S1 | Hiểu món + đối chiếu định lượng (lời nói, mô tả; tiếng Việt) + quy đơn vị, cộng dồn + công thức và mẹo trong bài đăng + lọc video quảng cáo khi tự động + bổ sung cụm quảng cáo khóa học / quán (chưa đổi hình) | 2–2,5 ngày | bài đăng mẫu + bảng định lượng của 6 video vàng |
 | S2 | Bộ nhận diện kênh (màu, bộ màu, hạt, phụ đề, khung hook, màn kết, ảnh bìa, âm hiệu, câu chốt) | 2–3 ngày | 2–3 video + ảnh bìa theo kênh |
 | S3 | `EditPlan` + lớp A (dựng theo khúc, map lời, cỡ khung, bỏ thời gian chết, tua nhanh, ⏩, chuyển cảnh) | 3–4 ngày | video kiểu `nhẹ` |
-| S4 | Lớp B (nhãn bước, điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế, luật R1–R7, lùi bậc) | 3–4 ngày | video kiểu `mạnh` |
-| S5 | Nhiều nguồn: dấu vân hình, lọc nguồn, chế độ theo nguồn | 1,5–2 ngày | báo cáo trùng / lọc trên các nguồn thật |
+| S4 | Lớp B (nhãn bước, điểm danh nguyên liệu, tóm tắt, dời cảm thán, đổi chỗ sơ chế, bỏ lời tán gẫu, luật R1–R7, lùi bậc) | 3–4 ngày | video kiểu `mạnh` |
+| S5 | Khi thêm nguồn: dấu vân hình, lọc nguồn theo chất lượng, chế độ theo nguồn | 1 ngày | báo cáo trùng / lọc |
 | S6 | Mẹo trên video (thẻ + lời), tinh chỉnh theo góp ý, tài liệu | 1–2 ngày | bản hoàn chỉnh |
+| S7 (hoãn) | Nguồn nước ngoài / có chữ trên hình: đọc số tiếng Trung, Anh, đổi cup / oz / °F, đọc chéo chữ trên hình | 1–1,5 ngày | khi bắt đầu dùng nguồn đó |
 
 **Lý do làm S1 trước:** không đụng phần dựng, rủi ro thấp, có ích ngay cho bài đăng. Bảng định lượng cũng là đầu vào của thẻ nguyên liệu ở S4.
 
 ## 10. Còn cần bạn
 
-1. **Chốt kênh mới:** tên, màu, tông, tagline, câu chốt, âm hiệu, tên loạt. Xem gợi ý ở §11.
-   - Không chặn S1. S2 vẫn làm được với khoá trống; bạn điền trên web khi đã chốt.
-2. **Link 6–8 video nguồn thật** (FB + TikTok, ít nhất 1 video tiếng Trung, 1 video có chữ định lượng trên hình).
-   - Cần trước khi duyệt video mẫu của S1.
+1. **Chốt kênh mới:** tên, màu, tông, tagline, câu chốt, âm hiệu, tên loạt (gợi ý ở §11).
+   - Không chặn S1–S4: các khoá để trống, bạn điền trên web khi chốt.
+2. **Bản ngắn cho Reels:** nguồn của bạn dài 2–5 phút nên video ra hiện cũng dài 2–5 phút, đăng dạng video thường.
+   - Có muốn mỗi video nguồn ra THÊM một bản ≤ 90 giây cho Reels không? Bản này chọn các bước chính, thẻ nguyên liệu kèm số, công thức đủ trong bài đăng.
+   - Làm được sau S4 vì dùng chung `EditPlan` và lớp B. Ước thêm 2–3 ngày.
 3. **Lệnh bắt đầu code S1.**
 
 ## 11. Gợi ý định vị cho kênh mới
@@ -508,6 +559,10 @@ Các khoá nhận diện kênh để trống được. Bạn điền trên web k
 **Vì sao đề xuất B:**
 - Nó biến điểm mạnh riêng của bot thành lời hứa của kênh: đối chiếu định lượng, đổi đơn vị, công thức trong bài, điểm danh nguyên liệu, tóm tắt.
 - Các trang đăng lại thông thường không có những thứ này.
+
+**Với nguồn Bảy Cua Quán:**
+- Đầu bếp quán miền Nam, nhiều công thức ghi "kinh doanh" (món bán được). Nếu muốn ngách hẹp hơn nữa, hướng B có thể thành **"công thức bán quán"**: định lượng chuẩn, mẹo giữ món ngon khi bán, chi phí nguyên liệu nếu nguồn có nói.
+- Giọng văn `mien_nam` hợp vùng của nguồn (Biên Hòa) hơn `mien_tay` đang để mặc định.
 
 **Lưu ý khi đặt tên:**
 - Kiểm tên còn trống trên cả Facebook lẫn TikTok trước khi chốt.
