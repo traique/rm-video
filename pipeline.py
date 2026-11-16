@@ -29,6 +29,7 @@ import subs as subs_mod
 import trendfx
 import vocal_sep
 from queue_manager import Job
+from rmvideo.app import events
 from review import spoken_script
 from state import OUT_DIR, notify, queue
 from storage import _cleanup_outputs
@@ -106,7 +107,7 @@ def auto_full(job: Job) -> bool:
     lỗi "vượt giới hạn 90s" (log 12/11/2026: gửi lại link 3 lần mới chạy). Giới hạn 90s là vì Botkeep dựng chậm; không có
     Kaggle thì giữ như cũ (5 phút dựng trên Botkeep mất cả tiếng)."""
     return (not job.long_mode and not job.duration and job.source != "auto" and job.mode in ("cook", "review")
-            and not kaggle_worker.enabled())
+            and kaggle_worker.is_enabled())
 
 
 def check_source_allowed(job: Job):
@@ -144,7 +145,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
     làm lại phần đó trên Botkeep. Không có Kaggle: xong phần nào giao phần đó như cũ. Trả (số phần xong, [lỗi])."""
     ok, fails = 0, []
     delivered = {p["label"] for p in job.parts}
-    batch = job.mode != "download" and not kaggle_worker.enabled()
+    batch = job.mode != "download" and kaggle_worker.is_enabled()
     # Kaggle lấy từng phần: có PUBLIC_URL thì tải đúng file phần Botkeep đã cắt (nhỏ, khớp từng khung); không có thì
     # tự tải video gốc theo link (một lần cho cả lô) rồi cắt y như Botkeep
     parent_ref = None
@@ -187,12 +188,11 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                   remote_src={"cut": [a, b, copy], "of": parent_ref} if parent_ref else {})
         sub.id = job.id
 
-        async def _mirror(s=sub, lb=label):           # hiện tiến độ của phần đang làm lên job cha
-            while True:
-                if s.step:
-                    job.step = f"{lb}: {s.step}"
-                await asyncio.sleep(2)
-        mirror = asyncio.create_task(_mirror())
+        def _mirror(step, lb=label):                  # hiện tiến độ của phần đang làm lên job cha (ngay lúc đổi)
+            if step:
+                job.step = f"{lb}: {step}"
+        mirror = events.watch_steps(sub, _mirror)
+        mirror.__enter__()
         deferred = False
         try:
             if job.mode == "download":
@@ -212,7 +212,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
             if job.source == "tg":
                 await notify(job.chat_id, f"❌ {label} lỗi: {e}")
         finally:
-            mirror.cancel()
+            mirror.__exit__(None, None, None)
             if not deferred:
                 _cleanup(part_dir)
 
@@ -278,7 +278,7 @@ async def process_split(job: Job, tmp: str):
 async def _highlight_images(src: str, tmp: str, dur: float) -> tuple:
     """Một lượt giải mã: điểm chuyển cảnh + ảnh thu nhỏ; lấy ~1 ảnh mỗi max(8s, dur/60) cho AI xem. (cuts, ảnh, giây)."""
     cuts, _ = await scenes.analyze(src, tmp, dur, False, scenes.cut_mode())   # cần điểm chuyển cảnh + ảnh 2/giây
-    a = scenes._ANALYZED.get(src)
+    a = scenes.analyzed(src)
     if not a or not a["n"] or not config.GEMINI_API_KEY:
         return cuts, [], []
     step = max(8.0, dur / 60)
@@ -423,7 +423,7 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
         except Exception as e:
             logging.warning("Bóc lời trên Kaggle lỗi, làm trên Botkeep: %s", e)
             metrics.record("kaggle", "analyze", ok=False, detail=str(e))
-            job.error = (job.error or "") + f"ℹ️ Bóc lời trên Kaggle lỗi ({str(e)[:140]}): bóc lời trên Botkeep. "
+            job.note(f"ℹ️ Bóc lời trên Kaggle lỗi ({str(e)[:140]}): bóc lời trên Botkeep. ")
             return None
         metrics.record("kaggle", "analyze")
         fresh = True
@@ -444,7 +444,7 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
             names = [n for n in z.namelist() if re.fullmatch(r"\d{5}\.jpg", n)]
             for n in names:
                 z.extract(n, d)
-        scenes._ANALYZED[inp] = {"dir": d, "n": len(names)}
+        scenes.remember_analysis(inp, {"dir": d, "n": len(names)})
     w = res.get("whisper") or {}
     logging.info("Kaggle bóc lời: %d đoạn (%s, %s), %d điểm chuyển cảnh, %d dải chữ | %s", len(segs),
                  w.get("language"), w.get("device"), len(res.get("cuts") or []), len(res.get("bands") or []),
@@ -464,7 +464,7 @@ async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: lis
     XONG và video gốc chưa tự mở đầu bằng món -> chiếu trước 3 giây cảnh đó (cùng cảnh, không vắt qua chuyển cảnh;
     cảnh quá ngắn thì đứng hình). Thời gian theo video gốc; end: hết phần sẽ render (đã bỏ đoạn quảng cáo cuối).
     Trả (đoạn mở đầu {"a", "dur", "still", "t"} | None, khung đẹp nhất | None, lý do không làm)."""
-    a = scenes._ANALYZED.get(inp)
+    a = scenes.analyzed(inp)
     m = await cover_mod.best_moment(inp, mode, title, src_dur, cuts, end, a["dir"] if a else None,
                                     a.get("times") if a else None, opening=True)
     if not m:
@@ -532,22 +532,22 @@ async def process(job: Job, tmp: str, allow_review: bool = True, local_only: boo
 async def _kaggle_render(job: Job, tmp: str, make_spec, what: str):
     """Dựng trên Kaggle (CPU 4 lõi, không tốn giờ GPU) cho chế độ 🎵 / 📸. Trả (video, kết quả) hoặc (None, None) nếu
     không dùng được / lỗi (ghi chú lý do, caller dựng trên Botkeep như cũ)."""
-    if kaggle_worker.enabled():
+    if not kaggle_worker.is_enabled():
         return None, None
     try:
         spec = make_spec()
     except Exception as e:
-        job.error = (job.error or "") + f"ℹ️ {what} chưa dựng được trên Kaggle ({str(e)[:140]}): dựng trên Botkeep. "
+        job.note(f"ℹ️ {what} chưa dựng được trên Kaggle ({str(e)[:140]}): dựng trên Botkeep. ")
         return None, None
     try:
         res = await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
     except Exception as e:
         logging.warning("Kaggle lỗi (%s), dựng trên Botkeep: %s", what, e)
         metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
-        job.error = (job.error or "") + f"ℹ️ Kaggle lỗi ({str(e)[:140]}): dựng trên Botkeep. "
+        job.note(f"ℹ️ Kaggle lỗi ({str(e)[:140]}): dựng trên Botkeep. ")
         return None, None
     metrics.record("kaggle", "kaggle")
-    job.error = (job.error or "") + f"ℹ️ Dựng trên Kaggle (CPU) {(res.get('timings') or {}).get('render', 0):.0f}s. "
+    job.note(f"ℹ️ Dựng trên Kaggle (CPU) {(res.get('timings') or {}).get('render', 0):.0f}s. ")
     return res["video"], res
 
 
@@ -577,7 +577,7 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
     video gốc: đoán sai món, sai nguyên liệu, bịa bước). Vẫn dựng như remake: tiêu đề + hook, logo, che chữ gốc, ảnh
     bìa. Có Kaggle thì dựng trên Kaggle (CPU, không đọc giọng, không tách giọng)."""
     job.step = "Video không lời: chọn nhạc nền"
-    on_kaggle = not local_only and not kaggle_worker.enabled()
+    on_kaggle = not local_only and kaggle_worker.is_enabled()
     item, music, trim, why = await _pick_bgm(tmp, on_kaggle and not (config.PUBLIC_URL or "").strip(), out_dur)
     orig = config.BGM_ORIG if music else "keep"
     if music:
@@ -604,12 +604,12 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
     def _done():
         if music:
             bgm.remember(item)
-        job.error = (job.error or "") + info
+        job.note(info)
 
     async def _finish_remote(res, cover="start"):
         metrics.record("kaggle", "kaggle")
-        job.error = (job.error or "") + "".join(res.get("notes") or []) + \
-            f"ℹ️ Dựng trên Kaggle (CPU) {(res.get('timings') or {}).get('render', 0):.0f}s. "
+        job.note("".join(res.get("notes") or [])
+                 + f"ℹ️ Dựng trên Kaggle (CPU) {(res.get('timings') or {}).get('render', 0):.0f}s. ")
         await finish_cover(start_cover(post_title) if cover == "start" else cover)
         _done()
         return res["video"]
@@ -622,7 +622,7 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
                                           music, (item or {}).get("url", "") if music else "", trim, orig,
                                           local_path=inp, src=job.remote_src or None)
         except Exception as e:
-            job.error = (job.error or "") + f"ℹ️ Chưa dựng được trên Kaggle ({str(e)[:140]}): dựng trên Botkeep. "
+            job.note(f"ℹ️ Chưa dựng được trên Kaggle ({str(e)[:140]}): dựng trên Botkeep. ")
         if spec is not None and kaggle_worker.collecting():
             return kaggle_worker.Deferred(spec, _finish_remote, [])     # phần của video dài: chạy chung một phiên
         if spec is not None:
@@ -633,7 +633,7 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
             except Exception as e:
                 logging.warning("Kaggle lỗi (video không lời), dựng trên Botkeep: %s", e)
                 metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
-                job.error = (job.error or "") + f"ℹ️ Kaggle lỗi ({str(e)[:140]}): dựng trên Botkeep. "
+                job.note(f"ℹ️ Kaggle lỗi ({str(e)[:140]}): dựng trên Botkeep. ")
             else:
                 return await _finish_remote(res, pre_cover)
     job.step = "Trộn nhạc nền"
@@ -645,7 +645,7 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
     notes: list = []
     await core_video.render(inp, bed, out, job.mode, render_dur, None, bands, bed, None, allow_hd=not is_long,
                             title=post_title, tmp=tmp, stretch=stretch, notes=notes, music_bed=True)
-    job.error = (job.error or "") + "".join(notes)
+    job.note("".join(notes))
     await finish_cover(cover_task)
     _done()
     return out
@@ -787,8 +787,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     src_dur = await core_video.probe_duration(inp)
     if auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
         job.long_mode = "full"
-        job.error = (job.error or "") + (f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
-                                         f"(≤{config.LONG_MAX // 60} phút, dựng trên Kaggle). ")
+        job.note((f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
+                                         f"(≤{config.LONG_MAX // 60} phút, dựng trên Kaggle). "))
     stretch = 1.0
     if job.duration and job.duration > src_dur + 1:
         # làm chậm NGAY TRONG lần render cuối thay vì mã hoá riêng cả video một lần (lỗi #7: thêm một thế hệ nén
@@ -796,8 +796,8 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         stretch = min(job.duration / src_dur, 1.4)
         job.step = f"Kéo dài video gốc {src_dur:.0f}s -> {src_dur * stretch:.0f}s (chậm {1 / stretch:.2f}x)"
         if stretch < job.duration / src_dur:
-            job.error = (f"ℹ️ Video gốc chỉ {src_dur:.0f}s; kéo chậm tối đa 1.4x được {src_dur * stretch:.0f}s "
-                         f"(chậm hơn sẽ lộ). ")
+            job.note(f"ℹ️ Video gốc chỉ {src_dur:.0f}s; kéo chậm tối đa 1.4x được {src_dur * stretch:.0f}s "
+                     f"(chậm hơn sẽ lộ). ")
 
     vid_dur = src_dur * stretch
     limit = config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION
@@ -806,7 +806,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     render_dur = job.duration or (int(limit) if vid_dur > limit + 0.5 else 0)
     is_long = out_dur > 100                             # video dài: 720p
     if vid_dur > limit + 0.5 and not job.duration:
-        job.error = (job.error or "") + f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {limit}s đầu (chọn chế độ video dài để làm hết). "
+        job.note(f"ℹ️ Video {vid_dur:.0f}s, chỉ làm {limit}s đầu (chọn chế độ video dài để làm hết). ")
     target = job.duration or int(vid_dur)
 
     src_hash = await asyncio.to_thread(cache.file_hash, inp)
@@ -821,9 +821,9 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         text, raw_segs, cuts, bands = an["text"], an["segs"], an["cuts"], an["bands"]
         tm = an["timings"]
         if tm:
-            job.error = (job.error or "") + (
+            job.note((
                 f"ℹ️ Bóc lời + phân tích hình trên Kaggle (tách giọng {tm.get('sep', 0):.0f}s, Whisper "
-                f"{tm.get('asr', 0):.0f}s, dò cảnh {tm.get('scenes', 0):.0f}s). ")
+                f"{tm.get('asr', 0):.0f}s, dò cảnh {tm.get('scenes', 0):.0f}s). "))
     else:
         job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
                     else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
@@ -905,7 +905,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         """Ảnh bìa chạy song song với render (chấm điểm khung + AI chọn ảnh: nhẹ CPU, chủ yếu chờ mạng)."""
         if config.COVER == "0":
             return None
-        a = scenes._ANALYZED.get(inp)
+        a = scenes.analyzed(inp)
         t = asyncio.create_task(cover_mod.make_cover(
             inp, tmp, job.mode, post_title, src_dur, cuts=cover_src["cuts"], end=cover_src["end"], bands=bands,
             thumbs_dir=a["dir"] if a else None, thumb_times=a.get("times") if a else None, at=cover_src["at"]))
@@ -929,7 +929,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
     if cut and cut < out_dur:
         logging.info("Cắt bỏ đoạn quảng cáo của người gốc: %.1fs -> %.1fs", cut, out_dur)
         job.cut_at = cut
-        job.error = (job.error or "") + f"ℹ️ Đã cắt bỏ {out_dur - cut:.0f}s quảng cáo sản phẩm của người gốc ở cuối. "
+        job.note(f"ℹ️ Đã cắt bỏ {out_dur - cut:.0f}s quảng cáo sản phẩm của người gốc ở cuối. ")
         out_dur = render_dur = cut
         job.out_dur = out_dur
     _plan_separation()
@@ -949,7 +949,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
             cover_src["at"] = moment["t"]               # ảnh bìa = đúng khung đó, khỏi hỏi AI lần nữa
         job.teaser = tz or {}
         if why_tz:
-            job.error = (job.error or "") + f"ℹ️ Không chiếu trước cảnh món ({why_tz}). "
+            job.note(f"ℹ️ Không chiếu trước cảnh món ({why_tz}). ")
     if tz:
         cover_src["at"] = tz["t"]
         T = float(tz["dur"])
@@ -961,15 +961,15 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
         speech = [(a + T, b + T) for a, b in speech]
         render_dur = total if (render_dur or total < full - 0.01) else 0
         out_dur = job.out_dur = total
-        job.error = (job.error or "") + (
+        job.note((
             f"ℹ️ Mở đầu bằng {T:.0f} giây cảnh món đã xong (giây {tz['t']:.0f} video gốc"
             + (", cảnh ngắn nên đứng hình" if tz.get("still") else "") + ") kèm câu hook"
-            + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". ")
+            + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". "))
     why_local = "chạy trên Botkeep theo yêu cầu" if local_only else kaggle_worker.usable(job, inp)
     remote = not why_local
     prompt_engine.set_voice_rate(kaggle_worker.words_per_sec(job.voice) if remote else None)
     if kaggle_worker.voice_name(job.voice) and why_local:
-        job.error = (job.error or "") + f"ℹ️ Giọng VieNeu chưa dùng được ({why_local}): đọc bằng giọng edge. "
+        job.note(f"ℹ️ Giọng VieNeu chưa dùng được ({why_local}): đọc bằng giọng edge. ")
     # Tách giọng gốc (nặng CPU) bắt đầu NGAY, chạy trong lúc chờ AI viết kịch bản và đọc giọng (việc mạng, CPU
     # rảnh). Trước đây chỉ bắt đầu cùng lúc đọc giọng nên thời gian chờ AI bị phí. Chạy trên Kaggle thì Kaggle tách.
     amb_task = None if remote else asyncio.create_task(_ambient())
@@ -1085,23 +1085,23 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                     config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION, local_path=inp,
                     src=job.remote_src or None, amb_token=an["token"] if an else "", teaser=tz)
             except Exception as e:
-                job.error = (job.error or "") + f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. "
+                job.note(f"ℹ️ Không gửi được sang Kaggle ({str(e)[:160]}): làm trên Botkeep. ")
 
             async def _finish_remote(res, cover="start"):
                 metrics.record("kaggle", "kaggle")
                 job.srt = res.get("srt") or ""
-                job.error = (job.error or "") + "".join(res.get("notes") or [])
+                job.note("".join(res.get("notes") or []))
                 await _finish_cover(_start_cover(post_title) if cover == "start" else cover)
                 job.final_segments = final_timeline(segs_t, res["plan"], out_dur)
                 tm = res.get("timings") or {}
                 eng = kaggle_worker.voice_engine(job.voice)
-                job.error = (job.error or "") + (
+                job.note((
                     f"ℹ️ Kaggle ({'GPU' if res.get('gpu') else 'CPU'}) đọc giọng "
                     + (f"VieNeu {kaggle_worker.voice_name(job.voice)}" if eng == "vieneu" else eng)
                     + f" {tm.get('tts', 0):.0f}s, dựng {tm.get('render', 0):.0f}s"
                     + ("; đã tách bỏ giọng gốc bằng AI" if res.get("amb") else "")
                     + (f"; {len(res['too_long'])} đoạn vẫn hơi dài (đọc nhanh hơn)" if res.get("too_long") else "")
-                    + ". ")
+                    + ". "))
                 return res["video"]
             if spec is not None and kaggle_worker.collecting():
                 # video dài: chạy chung một phiên với các phần khác; kèm lời đã chốt để nếu Kaggle lỗi thì làm lại
@@ -1117,7 +1117,7 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                 except Exception as e:
                     logging.warning("Kaggle lỗi, làm tiếp trên Botkeep: %s", e)
                     metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
-                    job.error = (job.error or "") + f"ℹ️ Kaggle lỗi ({str(e)[:160]}): đọc giọng + dựng trên Botkeep. "
+                    job.note(f"ℹ️ Kaggle lỗi ({str(e)[:160]}): đọc giọng + dựng trên Botkeep. ")
                 else:
                     return await _finish_remote(res, pre_cover)
         _local_ambient()
@@ -1156,30 +1156,30 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                                 title=post_title, tmp=tmp,
                                 stretch=stretch, ost=core_video.ost_windows(segs_t, out_dur), notes=notes, teaser=tz)
         if notes:
-            job.error = (job.error or "") + "".join(notes)
+            job.note("".join(notes))
         await _finish_cover(cover_task)
         job.final_segments = final_timeline(segs_t, plan, out_dur)
         if job.mode == "cook":
-            job.error = (job.error or "") + (
+            job.note((
                 "ℹ️ Đã tách bỏ giọng gốc bằng AI. " if amb_wav else
                 f"ℹ️ Không tách giọng AI ({sep['why']}): tắt tiếng nền lúc người gốc nói. " if sep["why"] else
-                "ℹ️ Tách giọng AI không chạy được (máy chậm/thiếu RAM): tắt tiếng nền lúc người gốc nói. ")
+                "ℹ️ Tách giọng AI không chạy được (máy chậm/thiếu RAM): tắt tiếng nền lúc người gốc nói. "))
         fast = sum(1 for p in plan if p["factor"] > 1.12)
         drift = max(abs(p["start"] - s["start"]) for p, s in zip(plan, segs_t))
-        job.error = (job.error or "") + (
+        job.note((
             (f"ℹ️ Lời mới {timed['fresh'] * 100:.0f}% khác lời gốc; " if "fresh" in timed else "ℹ️ ")
             + f"{len(clips)} đoạn giọng" + (f", {len(cuts)} điểm chuyển cảnh" if cuts else "") + f"; lệch tối đa {drift:.1f}s"
             + (f"; {fast} đoạn nói nhanh" if fast else "")
             + (f"; {len(too_long)} đoạn vẫn hơi dài" if too_long else "")
-            + (f"; đã che {len(bands)} dải chữ gốc" if bands else "") + ".")
+            + (f"; đã che {len(bands)} dải chữ gốc" if bands else "") + "."))
         return out
 
     # ----- Đường cũ: không có mốc thời gian -> đọc một mạch -----
     job.step = "Viết kịch bản + content (AI)"
     pack = await prompt_engine.generate(title, desc, job.mode, text, target)
     if pack.get("fallback"):
-        job.error = (job.error or "") + ("⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. "
-                                         "Kiểm tra key/model trong Cài đặt. ")
+        job.note(("⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. "
+                                         "Kiểm tra key/model trong Cài đặt. "))
         job.no_autopost = "AI viết kịch bản lỗi, video dùng kịch bản mẫu"
     job.script = pack["script"]
     job.post = prompt_engine.platform_post(pack["title"], pack["caption"], pack["hashtags"], credit_line(job))
@@ -1210,10 +1210,10 @@ async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_on
                             ass if (job.subs and got_subs) else None, bands, amb_wav, gate, allow_hd=not is_long,
                             title=post_title, tmp=tmp, stretch=stretch, notes=notes, teaser=tz)
     if notes:
-        job.error = (job.error or "") + "".join(notes)
+        job.note("".join(notes))
     await _finish_cover(cover_task)
     if bands:
-        job.error = (job.error or "") + f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó."
+        job.note(f"ℹ️ Đã che {len(bands)} dải chữ gốc và đặt phụ đề mới lên đó.")
     return out
 
 

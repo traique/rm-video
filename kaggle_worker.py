@@ -163,11 +163,17 @@ def can_ref(path: str | None, url: str = "") -> bool:
 
 
 def enabled() -> str:
+    """LÝ DO Kaggle chưa dùng được ("" = dùng được). Hỏi có/không thì gọi is_enabled() cho rõ nghĩa."""
     if config.KAGGLE_USE == "0":
         return "KAGGLE_USE=0"
     if not kaggle_api.configured():
         return "chưa điền KAGGLE_API_TOKEN trong Cài đặt"
     return ""
+
+
+def is_enabled() -> bool:
+    """Kaggle đã bật và đã có token (enabled() trả lý do khi không)."""
+    return not enabled()
 
 
 def usable(job, local_path: str | None = None) -> str:

@@ -287,7 +287,7 @@ async def analyze(spec: dict, tmp: str) -> dict:
             scene_task.cancel()
             await asyncio.gather(scene_task, return_exceptions=True)
     files = {}
-    a = scenes._ANALYZED.get(inp)
+    a = scenes.analyzed(inp)
     if a and a.get("n"):
         zp = os.path.join(tmp, "thumbs.zip")
         with zipfile.ZipFile(zp, "w", zipfile.ZIP_STORED) as z:     # JPEG đã nén: chỉ gói lại

@@ -4,10 +4,24 @@ Dùng để: (1) căn câu thoại mới bắt đầu đúng lúc chuyển cản
 import asyncio
 import re
 import subprocess
+
+from rmvideo.app.context import ScopedDict
 from rmvideo.media import proc
 
 
-_ANALYZED: dict = {}      # path -> {"dir": thư mục ảnh thu nhỏ, "n": số ảnh, "times": mốc từng ảnh (chế độ nhẹ)}
+# path -> {"dir": thư mục ảnh thu nhỏ, "n": số ảnh, "times": mốc từng ảnh (chế độ nhẹ)}; riêng từng job (job_scope)
+_ANALYZED = ScopedDict("scenes.analyzed")
+
+
+def analyzed(path: str) -> dict | None:
+    """Ảnh thu nhỏ đã trích của video `path` trong job hiện tại (None nếu chưa phân tích)."""
+    return _ANALYZED.get(path)
+
+
+def remember_analysis(path: str, info: dict) -> None:
+    """Ghi ảnh thu nhỏ trích được ở nơi khác (vd phân tích trên Kaggle) cho ảnh bìa / AI dùng lại."""
+    _ANALYZED[path] = info
+    _ANALYZED.trim(4)
 THUMB_FPS = 2
 
 
@@ -61,8 +75,7 @@ def _light_sync(path: str, tmpdir: str, dur: float, want_gray: bool):
     if n < max(4, min(12, dur / 10)) or len(times) < n:
         return None
     _ANALYZED[path] = {"dir": tdir, "n": n, "times": times[:n]}
-    while len(_ANALYZED) > 4:
-        _ANALYZED.pop(next(iter(_ANALYZED)))
+    _ANALYZED.trim(4)                             # ngoài job: giữ 4 video gần nhất như cũ
     bands = []
     if want_gray and os.path.exists(gray):
         bands = textzone.bands_from_raw(open(gray, "rb").read())
@@ -97,8 +110,7 @@ def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold
                     + outs, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True) as p:   # Hủy / quá hạn: dừng ngay
         err = p.communicate()[1]
     _ANALYZED[path] = {"dir": tdir, "n": len(os.listdir(tdir))}
-    while len(_ANALYZED) > 4:
-        _ANALYZED.pop(next(iter(_ANALYZED)))
+    _ANALYZED.trim(4)                             # ngoài job: giữ 4 video gần nhất như cũ
     bands = []
     if want_gray and os.path.exists(gray):
         bands = textzone.bands_from_raw(open(gray, "rb").read())

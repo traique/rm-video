@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 import config
+from rmvideo.app import events
 from rmvideo.media import proc
 import slideshow
 import url_guard
@@ -99,6 +100,7 @@ def revoke_sessions():
     fd = os.open(_KEY_FILE + ".epoch", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(secrets.token_hex(16).encode())
+    events.changed()                       # đánh thức các luồng SSE để chúng kiểm lại phiên và tự đóng
 
 
 def _session_key() -> bytes:
@@ -376,10 +378,19 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
         return web.json_response(jobs_payload())
 
     sse = {"clients": 0}
+    cache = {"v": None, "t": 0.0, "data": None}
 
-    async def events(request):
-        """Server-Sent Events: đẩy danh sách job khi có thay đổi (thay cho trình duyệt hỏi lại mỗi vài giây).
-        Gửi khi nội dung đổi, hoặc 10 giây một lần để cập nhật thời gian chạy; tối đa SSE_MAX kết nối."""
+    def payload_cached() -> tuple:
+        """Danh sách job dựng MỘT lần cho mọi khách SSE: khi có job đổi (bus sự kiện) hoặc đã cũ quá 1 giây (thời
+        gian chạy / ETA). Trước đây mỗi khách tự dựng lại mỗi giây (tối đa 8 khách x stat mọi file kết quả)."""
+        v, now = events.version(), time.time()
+        if cache["v"] != v or now - cache["t"] >= 1.0:
+            cache.update(v=v, t=now, data=jobs_payload())
+        return v, cache["data"]
+
+    async def events_stream(request):
+        """Server-Sent Events: đẩy danh sách job khi có thay đổi (chờ bus sự kiện, không hỏi lại theo giờ). Gửi khi
+        nội dung đổi, hoặc 10 giây một lần để cập nhật thời gian chạy; tối đa SSE_MAX kết nối."""
         _check(request)
         if sse["clients"] >= SSE_MAX:
             raise web.HTTPTooManyRequests(text="Quá nhiều kết nối theo dõi")
@@ -394,15 +405,15 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
                     _check(request)              # đăng xuất / đổi mật khẩu thì luồng cũ cũng dừng
                 except web.HTTPException:
                     break
-                data = jobs_payload()
-                key = json.dumps([{k: v for k, v in j.items() if k not in ("elapsed", "eta", "age", "phases")}
+                v, data = payload_cached()
+                key = json.dumps([{k: val for k, val in j.items() if k not in ("elapsed", "eta", "age", "phases")}
                                   for j in data["jobs"]] + [data["pending"]], ensure_ascii=False)
                 now = time.time()
                 if key != last_key or now - last_sent >= 10:
                     # client ngừng đọc thì write treo: tối đa 10s rồi đóng, trả chỗ cho người khác
                     await asyncio.wait_for(resp.write(f"data: {json.dumps(data, ensure_ascii=False)}\n\n".encode()), 10)
                     last_key, last_sent = key, now
-                await asyncio.sleep(1)
+                await events.wait_change(v, max(0.5, 10 - (time.time() - last_sent)))
         except (ConnectionResetError, ConnectionError, RuntimeError, asyncio.TimeoutError):
             pass
         finally:
@@ -876,7 +887,7 @@ def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/jobs", list_jobs)
-    app.router.add_get("/api/events", events)
+    app.router.add_get("/api/events", events_stream)
     app.router.add_get("/api/jobs/{id}/timeline.json", timeline_json)
     app.router.add_get("/api/jobs/{id}/subs.srt", subs_srt)
     app.router.add_post("/api/jobs", add_job)
