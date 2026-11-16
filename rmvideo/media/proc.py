@@ -159,16 +159,22 @@ async def run(cmd: Sequence[str], *, timeout: float = DEFAULT_TIMEOUT, stdout: b
         stdout=asyncio.subprocess.PIPE if stdout else asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE, start_new_session=True)
     rid = _register(p.pid, p.kill)
+
+    async def _collect() -> tuple:
+        out_t = asyncio.ensure_future(_drain(p.stdout, None)) if stdout else None
+        try:
+            err_b = await _drain(p.stderr, stderr_keep)
+            out_b = await out_t if out_t else b""
+        finally:
+            if out_t and not out_t.done():
+                out_t.cancel()
+        return out_b, err_b, await p.wait()
     try:
-        async with asyncio.timeout(timeout):
-            out_t = asyncio.ensure_future(_drain(p.stdout, None)) if stdout else None
-            try:
-                err = await _drain(p.stderr, stderr_keep)
-                out = await out_t if out_t else b""
-            finally:
-                if out_t and not out_t.done():
-                    out_t.cancel()
-            code = await p.wait()
+        try:
+            # wait_for (không dùng asyncio.timeout của 3.11): mã này cũng chạy trong notebook Kaggle
+            out, err, code = await asyncio.wait_for(_collect(), timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"{os.path.basename(str(cmd[0]))} quá {timeout:.0f}s") from None
     except BaseException:
         kill = _unregister(rid)
         if kill and p.returncode is None:

@@ -92,3 +92,17 @@ def test_bundle_imports_in_clean_interpreter(tmp_path):
     r = subprocess.run([sys.executable, "-I", "-c", ISOLATED, str(d), ROOT, ",".join(mods)], cwd=str(d),
                        capture_output=True, text=True, env=env, timeout=180)
     assert r.returncode == 0 and r.stdout.strip().endswith("ok"), r.stderr[-2000:]
+
+
+PY311_ONLY = ("asyncio.timeout(", "StrEnum", "TaskGroup(", "tomllib", "typing.Self", "datetime.UTC", "except*")
+
+
+def test_bundle_runs_on_python_310():
+    """Notebook Kaggle chạy Python của Kaggle (có thể còn 3.10): mã gửi đi không được dùng cú pháp / API chỉ có từ 3.11
+    (lỗi là MỌI việc Kaggle hỏng rồi lặng lẽ lùi về Botkeep)."""
+    bad = []
+    for rel in kaggle_bundle.files():
+        src = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        ast.parse(src, rel, feature_version=(3, 10))
+        bad += [(rel, tok) for tok in PY311_ONLY if tok in src]
+    assert not bad, bad
