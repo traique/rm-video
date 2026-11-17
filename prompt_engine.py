@@ -518,8 +518,8 @@ LUẬT BẮT BUỘC:
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
 - Mỗi đoạn có KHOẢNG SỐ TỪ ghi kèm (vd "10-13 từ"; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết TRONG khoảng đó: ít hơn thì giọng hết sớm, video bị lặng dài; nhiều hơn thì tràn sang đoạn sau và phải cắt bớt. Khe dài thì diễn đạt đầy đủ hơn (tả độ vàng, tiếng xèo đang thấy trên hình), KHÔNG thêm thao tác, nguyên liệu hay số liệu mới.
-- Giọng nói chuyện tự nhiên: câu ngắn, có dấu câu ngắt hơi.
-- ĐỘNG TỪ ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) phải MỞ ĐẦU bằng chính hành động đang diễn ra trên hình, vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Lật mặt nào, khi thịt đã vàng đều." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Áp chảo với lửa vừa." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
+- Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây, nè, nha) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô luôn nha." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền."
+- HÀNH ĐỘNG ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) nói NGAY hành động đang diễn ra trên hình ở đầu câu (được mở bằng 1-3 chữ dẫn như "Giờ mình", "Rồi", "Tới đây mình"), vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Giờ mình lật mặt nè, thịt vàng đều rồi." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Rồi mình áp chảo với lửa vừa thôi." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
 - KHÔNG KÊU GỌI ĐĂNG KÝ / THEO DÕI KÊNH ở BẤT KỲ đoạn nào, kể cả đoạn cuối: không viết "đăng ký kênh", "theo dõi", "follow", "like share", "bấm chuông", "ủng hộ kênh", "hẹn gặp lại ở video sau". Lời gốc có câu đó thì bỏ ý đó: viết lời chốt về món ("Vậy là có dĩa cá kèo giòn rụm rồi nè.") hoặc để "text" rỗng.
@@ -848,6 +848,12 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     def _hook_bad(k, text):
         return intro and k == 0 and bool(_GREET_RE.search(text or ""))
 
+    def _thin(got, osts):
+        """Đoạn viết quá ít chữ so với khe (dưới 60% mức tối thiểu): giọng hết sớm, video lặng 5-7 giây giữa các câu
+        (bản 43, video mực: AI viết ~nửa số chữ, nghe như đọc tít rời rạc). Khe ngắn (< 8 chữ) không tính."""
+        return [k for k, st, slot, mx, tx, span in slots
+                if osts.get(k) != "orig" and k in got and mx >= 8 and spoken_words(got[k]) < 0.6 * round(mx * 0.8)]
+
     orig_all = " ".join(s[4] for s in slots)
     async def attempt(p):
         name, call = p.name, p.call
@@ -862,6 +868,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             return _bad(g, osts), miss + mn, _not_in_glossary(added) + an
 
         bad, miss, added = _score(got, d["_ost"])
+        thin = _thin(got, d["_ost"])
         for attempt in range(2):                    # tối đa 2 lần bắt viết lại
             txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
             severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
@@ -870,10 +877,11 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
-            if not (too_copy or miss or added):
+            too_thin = len(thin) >= max(2, len(slots) // 4)
+            if not (too_copy or miss or added or too_thin):
                 break
-            logging.warning("AI %s lần %d: %d đoạn chép/thiếu; nguyên liệu thiếu %s; bịa/đổi %s -> viết lại",
-                            name, attempt + 1, len(bad), miss, added)
+            logging.warning("AI %s lần %d: %d đoạn chép/thiếu; %d đoạn quá ngắn; nguyên liệu thiếu %s; bịa/đổi %s -> "
+                            "viết lại", name, attempt + 1, len(bad), len(thin), miss, added)
             why = []
             ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
             subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
@@ -895,22 +903,40 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
             if added:
                 why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
-                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng)")
+                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng;"
+                           " gốc nghe không rõ số thì bỏ số, KHÔNG tự điền)")
+            if too_thin:
+                need = {k: (max(2, round(mx * 0.8)), mx) for k, st, slot, mx, tx, span in slots}
+                why.append("các đoạn sau QUÁ NGẮN, giọng hết sớm làm video lặng dài; viết lại thành câu nói chuyện đủ "
+                           "ý trong đúng khoảng số từ (tả thêm điều đang thấy trên hình, không thêm thao tác hay số "
+                           "liệu mới): " + ", ".join(f"{k} («{got.get(k, '')}», cần {need[k][0]}-{need[k][1]} từ)"
+                                                      for k in thin[:10]))
             fix = prompt + "\n\nBẢN TRƯỚC BỊ LOẠI vì " + "; ".join(why) + \
                 ". Viết lại TOÀN BỘ: dùng từ ngữ khác lời gốc, nhưng giữ ĐỦ và ĐÚNG mọi nguyên liệu, con số."
             try:
                 d2, got2 = _parse(await call(fix))
                 b2, m2, a2 = _score(got2, d2["_ost"])
-                old_err = len(bad) + 3 * (len(miss) + len(added))
-                new_err = len(b2) + 3 * (len(m2) + len(a2))
+                t2 = _thin(got2, d2["_ost"])
+                old_err = len(bad) + 3 * (len(miss) + len(added)) + 0.5 * len(thin)
+                new_err = len(b2) + 3 * (len(m2) + len(a2)) + 0.5 * len(t2)
                 if new_err < old_err:
-                    d, got, bad, miss, added = d2, got2, b2, m2, a2
+                    d, got, bad, miss, added, thin = d2, got2, b2, m2, a2, t2
             except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback
                 logging.warning("AI viết lại lỗi (%s: %s), dùng bản tốt nhất hiện có", type(e).__name__,
                                 str(e)[:120])
                 break
         if miss or added:
             logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
+        bad_nums = {x.split(" ")[0] for x in ingredients.check_numbers(orig_all, " ".join(got.values()))[1]}
+        if bad_nums:
+            # vẫn còn số AI tự điền (bản 43: gốc "nửa muỗng" nghe thành "nổ muỗng", AI viết "1 muỗng" x3): bỏ con số
+            # khỏi câu, đọc sai định lượng tệ hơn không đọc số
+            for k in list(got):
+                fixed = ingredients.drop_numbers(got[k], bad_nums)
+                if fixed != got[k]:
+                    logging.warning("Đoạn %d: bỏ số AI tự điền (%s): %s -> %s", k, ", ".join(sorted(bad_nums)), got[k],
+                                    fixed)
+                    got[k] = fixed
         d["_issues"] = (miss, added)
         out = []
         for k, st, slot, mx, tx, span in slots:

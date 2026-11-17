@@ -106,6 +106,10 @@ _ASR_FIXES = {
     "nồi lỗ": "nồi lẩu", "nước lỗ": "nước lẩu", "nấu lỗ": "nấu lẩu", "đậu cá": "đầu cá",
     "gau": "rau", "đất sừng": "ớt sừng", "cỏ phi": "tỏi phi",
     "dừa điều": "dầu điều", "mờ dừa điều": "màu dầu điều", "mờ dầu điều": "màu dầu điều",
+    # log 16-17/11 (mực hấp gừng: Kaggle large-v3 nghe "nửa muỗng" thành "nổ muỗng", AI đọc thành "1 muỗng")
+    "bột mọt": "bột ngọt", "mật hấp gừng": "mực hấp gừng", "mật hấp gần": "mực hấp gừng", "mực hấp gần": "mực hấp gừng",
+    "sóc nhiệt": "sốc nhiệt", "sốc nghiệt": "sốc nhiệt", "sóc nghiệt": "sốc nhiệt", "cằn tàu": "cần tàu",
+    "cằn tào": "cần tàu",
 }
 _ASR_FIX_RE = re.compile(r"(?<![\w])(" + "|".join(re.escape(k) for k in sorted(_ASR_FIXES, key=len, reverse=True))
                          + r")(?![\w])", re.IGNORECASE)
@@ -121,6 +125,9 @@ def fix_common(text: str) -> str:
         fixed = _ASR_FIXES[m.group(1).lower()]
         return fixed[:1].upper() + fixed[1:] if m.group(1)[:1].isupper() else fixed
     text = _ASR_FIX_RE.sub(_one, text)
+    # "nổ / nữa muỗng" là "nửa muỗng" (giọng miền Nam): "nổ" không bao giờ đứng trước đơn vị đo
+    text = re.sub(r"(?<![\w])(nổ|Nổ)\s+(?=(muỗng|thìa|chén|bát|ký|kg|lạng|trái|quả|củ|ly|lít|gói|hộp|lon|chai|tô)(?![\w]))",
+                  lambda m: ("Nửa" if m.group(1)[0] == "N" else "nửa") + " ", text)
     return re.sub(r"(?<![\w])(niêm)(?![\w])(?!\s+(?:yết|phong|mạc|luật))", lambda m: "Nêm" if m.group(1)[0] == "N" else "nêm",
                   text, flags=re.IGNORECASE)
 

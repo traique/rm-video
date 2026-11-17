@@ -31,6 +31,8 @@ MONTAGE_MAX = 5
 MONTAGE_LEN = 1.2
 RECAP_MAX = 5
 RECAP_LEN = 0.7
+HOOK_KEEP = 2.0          # câu đầu tiên dài ít nhất chừng này giây luôn giữ làm câu mở đầu (thường là món thành phẩm)
+HOOK_MAX = 6.0
 CHAT_KINDS = ("wait", "other", "reaction", "intro", "promo")
 CORE_KINDS = ("prep", "cook", "plate")
 
@@ -66,6 +68,33 @@ def _cut_out(pieces: list, a: float, b: float) -> list:
     return out
 
 
+def _hook_end(segs: list, intro_end: float) -> float:
+    """Hết câu mở đầu: cuối câu đầu tiên kết thúc sau HOOK_KEEP giây (không quá HOOK_MAX / hết phần chào). Bản 43
+    (video mực): bỏ cả phần chào từ giây 0 làm mất cảnh đầu bếp nhấc mực thành phẩm, video mở bằng thẻ "1/2 muỗng bột
+    ngọt"; giờ giữ câu đầu làm câu hook rồi mới tới điểm danh nguyên liệu."""
+    import prompt_engine
+    for a, b, t in segs:
+        if prompt_engine._GREET_RE.search(t or ""):         # câu chào ("xin chào cả nhà"): không đáng giữ làm hook
+            return 0.0
+        if b >= HOOK_KEEP:
+            return round(b, 3) if b <= min(HOOK_MAX, intro_end + 0.05) else 0.0
+    return 0.0
+
+
+def _split_at(pieces: list, t: float) -> int:
+    """Chỉ số chèn khúc phụ ngay tại giây gốc t (tách khúc main chứa t làm đôi nếu cần)."""
+    for k, p in enumerate(pieces):
+        if p.role != "main":
+            continue
+        if abs(p.a - t) < 0.05:
+            return k
+        if p.a < t < p.b and t - p.a >= edl.MIN_PIECE and p.b - t >= edl.MIN_PIECE:
+            pieces[k:k + 1] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
+                               edl.Piece(round(t, 3), p.b, p.speed, p.zoom, p.push, "", p.role, p.tag)]
+            return k + 1
+    return 0
+
+
 def _gap_bounds(segs: list, keep: list[bool], a: float, b: float) -> tuple[float, float]:
     """Mở [a, b] ra tới giữa khoảng lặng với câu được giữ hai bên (không cắt vào câu khác)."""
     before = [s[1] for s, k in zip(segs, keep) if k and s[1] <= a + 0.01]
@@ -89,6 +118,24 @@ def montage_times(items: list, end: float, length: float) -> list[tuple]:
         used.append(t)
         out.append((it, t))
     return out
+
+
+def _kept_at(pieces: list, t0: float, t1: float, length: float) -> float | None:
+    """Giây bắt đầu một khúc dài `length` trong [t0, t1] mà phần gốc VẪN CÒN trong video chính, chạy tốc độ thường (khúc
+    lặp chỉ được lặp lại cảnh người xem đã thấy — luật R5). Lấy giữa phần còn lại dài nhất; không có thì None.
+    Bản 43 (video mực): tóm tắt lấy giữa bước "bắc nước sôi" (giây 29,7) đúng quãng lớp A đã tua -> vi phạm R5, cả lớp B
+    bị bỏ (mất điểm danh nguyên liệu + tóm tắt)."""
+    best: tuple | None = None
+    for q in pieces:
+        if not (q.role == "main" or q.tag == "moved") or q.speed > 1.01:     # khúc đổi chỗ vẫn là cảnh người xem thấy
+            continue
+        a, b = max(t0, q.a), min(t1, q.b)
+        if b - a >= min(length, q.b - q.a) - 1e-6 and (best is None or b - a > best[1] - best[0]):
+            best = (a, b)
+    if best is None:
+        return None
+    a, b = best
+    return round(max(a, min((a + b) / 2 - length / 2, b - length)), 3)
 
 
 _TAIL_STOP = {"thành", "và", "với", "trong", "khoảng", "tầm", "chừng", "cho", "để", "rồi", "là", "của", "vào", "ra",
@@ -129,13 +176,17 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
               if it.seen_at >= 0 or it.said_at >= 0]
     # B3: phần chào hỏi ở đầu (không bỏ nếu nguyên liệu được bày ra đúng lúc đó: điểm danh chỉ được LẶP, không thay)
     intro = [s for s in steps if s.kind == "intro" and s.t0 < 2.0]
+    hook_end = 0.0
     if intro and not any(t <= intro[0].t1 + 0.5 for t in roll_t):
         s = intro[0]
         in_segs = [k for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05]
-        if in_segs and all(chat[k] for k in in_segs) and s.t1 - s.t0 >= 1.5:
-            lo, hi = _gap_bounds(segs, keep, 0.0, s.t1)
-            pieces = _cut_out(pieces, 0.0, hi)
-            did.append(f"bỏ {hi:.0f}s chào hỏi đầu video")
+        hook_end = _hook_end(segs, s.t1)                   # câu đầu giữ làm câu mở đầu, chỉ bỏ phần chào sau nó
+        if in_segs and all(chat[k] for k in in_segs) and s.t1 - max(hook_end, s.t0) >= 1.5:
+            lo, hi = _gap_bounds(segs, keep, hook_end, s.t1)
+            pieces = _cut_out(pieces, max(hook_end, lo) if hook_end else 0.0, hi)
+            did.append(f"bỏ {hi - hook_end:.0f}s chào hỏi đầu video")
+    elif intro or (segs and segs[0][0] < 1.0):
+        hook_end = _hook_end(segs, intro[0].t1 if intro else HOOK_MAX)
     # B6: đổi chỗ hai bước sơ chế độc lập (tối đa 1)
     first_cook = min((s.t0 for s in steps if s.kind == "cook"), default=end)
     moved: tuple | None = None
@@ -170,10 +221,15 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         if len(roll) >= MONTAGE_MAX:
             break
     roll.sort(key=lambda it: it.seen_at if it.seen_at >= 0 else it.said_at)
-    montage = [(edl.Piece(a, round(a + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"), _label(it))
-               for it, a in montage_times(roll, end, MONTAGE_LEN)]
+    montage: list[tuple] = []
+    for it, a in montage_times(roll, end, MONTAGE_LEN):
+        ka = _kept_at(pieces, a - 1.5, a + MONTAGE_LEN + 1.5, MONTAGE_LEN)     # cảnh đã bị tua / cắt: lấy sát bên
+        if ka is not None and all(abs(ka - p.a) >= MONTAGE_LEN for p, _ in montage):
+            montage.append((edl.Piece(ka, round(ka + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"),
+                            _label(it)))
     if len(montage) >= 3:
-        pieces = [p for p, _ in montage] + pieces
+        at = _split_at(pieces, hook_end) if hook_end else 0       # sau câu mở đầu, không thay nó
+        pieces[at:at] = [p for p, _ in montage]
         did.append(f"điểm danh {len(montage)} nguyên liệu")
     else:
         montage = []
@@ -190,13 +246,13 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         said = " ".join(t for a, b, t in segs if lo <= a and b <= hi).strip()
         tail_text.append(said if said[-1:] in ".!?…" else said + ".")
         did.append("dời đoạn cảm thán về cuối")
-    core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0]
+    core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0
+            and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]
     if len(core) >= 3:
         pick = core[:: max(1, len(core) // RECAP_MAX)][:RECAP_MAX]
         for s in pick:
-            m = (s.t0 + s.t1) / 2
-            tail.append(edl.Piece(round(max(0.0, m - RECAP_LEN / 2), 3), round(min(end, m + RECAP_LEN / 2), 3),
-                                  zoom=1.18, role="side", tag="recap"))
+            a = _kept_at(pieces, s.t0, s.t1, RECAP_LEN) or 0.0
+            tail.append(edl.Piece(a, round(min(end, a + RECAP_LEN), 3), zoom=1.18, role="side", tag="recap"))
         tail_text.append("Tóm lại: " + ", ".join(_short_step(s.text, s.kind) for s in pick) + ".")
         did.append(f"tóm tắt {len(pick)} bước trước khi kết")
     if tail:
@@ -208,11 +264,12 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
     starts = out.starts()
     if montage:
         names = [lab for _, lab in montage]
-        t0 = starts[0]
+        k_m = next(k for k, q in enumerate(pieces) if q is montage[0][0])
+        t0 = starts[k_m]
         out.texts.append({"t": round(t0, 2), "dur": round(sum(p.length for p, _ in montage) * stretch, 2),
                           "text": "Nguyên liệu gồm: " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
         out.overlays = [edl.Overlay(round(s + 0.1, 2), round(p.length * stretch - 0.2, 2), "ingredient", lab)
-                        for (p, lab), s in zip(montage, starts[: len(montage)])]
+                        for (p, lab), s in zip(montage, starts[k_m: k_m + len(montage)])]
     if moved:
         mk = next(i for i, q in enumerate(pieces) if q.tag == "moved" and not any(q is x for x in tail))
         mp = pieces[mk]
