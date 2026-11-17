@@ -1,9 +1,10 @@
 """Duyệt kịch bản: cờ tiếng gốc từng đoạn, cú pháp trả lời trên Telegram, tạo job render từ bản đã duyệt."""
+import logging
 import re
 import unicodedata
 
 from queue_manager import Job
-from rmvideo.app import job_factory
+from rmvideo.app import job_factory, voice_book
 from state import queue
 
 
@@ -60,6 +61,10 @@ def approve_job(src: Job, edits: dict | None = None) -> Job:
         raise ValueError("Kịch bản trống: cần ít nhất một đoạn có lời.")
     job = job_factory.approved(src, segs)
     job.script = spoken_script(segs)
+    try:                                       # kho mẫu của sổ giọng: đoạn bạn sửa tay được ưu tiên ở video sau
+        voice_book.remember(src.approved, segs)
+    except Exception as e:
+        logging.warning("Không lưu được lời đã duyệt vào sổ giọng: %s", str(e)[:120])
     # put() TRƯỚC, đổi trạng thái job cũ SAU: lỗi gì thì kịch bản vẫn còn ở job cũ để duyệt lại (lỗi #4).
     # Job đã duyệt được vượt giới hạn hàng đợi vì người dùng đã chờ và đã sửa tay.
     queue.put(job, force=True)

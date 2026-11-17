@@ -136,7 +136,7 @@
    "job": {
     "approved": [],
     "cut_at": 0.0,
-    "error": "ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ 4 đoạn giọng, 3 điểm chuyển cảnh; lệch tối đa 0.1s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ Lời đọc: 16 chữ, giọng phủ 65% video, 0/4 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ 4 đoạn giọng, 3 điểm chuyển cảnh; lệch tối đa 0.1s; đã che 1 dải chữ gốc.",
     "final_segments": [
      {
       "end": 1.5,

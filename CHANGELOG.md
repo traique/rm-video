@@ -25,6 +25,15 @@ giọng và phụ đề dứt trước màn kết, câu chốt đủ.
 | Cuối video hai lời mời liền nhau: «…cả nhà tranh thủ làm thử nha. Dễ làm nha. Đong đủ là ngon, cả nhà nấu thử nha.» | Câu chốt của kênh có mời nấu thử thì bỏ lời mời AI tự viết ở hai đoạn cuối |
 | Đỉnh âm +0,1 dBTP (bộ chặn -1,4 dBFS, nén AAC đẩy đỉnh lên 0,5-1 dB) | Bộ chặn -1,9 dBFS |
 
+Thêm (theo ý tưởng của bạn: mô hình học theo ví dụ tốt hơn theo luật):
+
+| Phần | Làm gì |
+| --- | --- |
+| Sổ giọng Bếp Đong Đủ | `brand/bep_dong_du/voice_examples.json`: 13 cặp «lời gốc → lời kênh» (câu mở đầu, thao tác có định lượng, lúc chờ, mẹo, bày món, cảm thán, tóm tắt, chào kết) ở nhiều món; mỗi lần viết lời đưa 6 cặp (luôn có câu mở đầu + thao tác có định lượng, còn lại xoay vòng theo video); chép gần nguyên câu mẫu thì bắt viết lại |
+| Kho lời đã duyệt | Duyệt kịch bản thì lưu các đoạn đã chốt (`voice_bank.json`); đoạn sửa tay được đưa vào mẫu ở video sau (tối đa 2, ưu tiên cùng nguyên liệu) |
+| Đổi từ miền Bắc | Sau khi AI viết (lời, tiêu đề, caption, rút gọn), trước bước kiểm: thìa → muỗng, bát → chén, đĩa → dĩa, rán → chiên, lợn → heo, vừng → mè, ngô → bắp, mì chính → bột ngọt, trần qua → trụng qua, quả chanh / 2 quả → trái…; theo ngữ cảnh («trần nhà», «kết quả», «lá dứa», «Ninh Bình», «bát ngát» giữ nguyên) |
+| Chỉ số lời đọc | Mỗi job thêm dòng «Lời đọc: N chữ, giọng phủ X% video, K quãng lặng trên 4 giây, a/b câu kết «nha»» |
+
 Còn lại (chưa sửa): thẻ điểm danh đi trước lời đọc ~1 giây (câu hook dài sát khe 2,6 giây); đoạn giải thích mực đông /
 mực tươi lần này lại bị coi là tán gẫu, tua nhanh (thẻ mẹo vẫn có ý chính) — tuỳ kết quả AI đọc công thức từng lần.
 

@@ -366,7 +366,7 @@
      "texts": [],
      "v": 1
     },
-    "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "error": "ℹ️ Nhịp dựng nhẹ: 5 khúc, đổi cỡ khung 2 lần, tua nhanh 1 đoạn chờ (6s còn 2s); video 20s -> 16s. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 16 chữ, giọng phủ 25% video, 0/4 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
     "final_segments": [
      {
       "end": 3.3,

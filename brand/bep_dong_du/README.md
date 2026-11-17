@@ -10,6 +10,22 @@ Tạo bằng `python brand/brand_kit.py "Bếp Đong Đủ" "Đong đủ, nấu 
 | `fb_avatar.jpg` | **Ảnh đại diện Fanpage / TikTok** 1080x1080: chỉ có tên, chữ to (Facebook cắt tròn, thu nhỏ còn ~40px) |
 | `fb_cover.jpg` | **Ảnh bìa Fanpage** 1640x924: nội dung ở giữa (máy tính cắt trên dưới, điện thoại cắt hai bên, góc dưới trái bị ảnh đại diện đè) |
 | `avatar.jpg` | Bản ảnh vuông có câu dưới tên (dùng cho bài đăng / ảnh chia sẻ) |
+| `voice_examples.json` | **Sổ giọng** (bản 48): cặp «lời gốc → lời kênh» để AI học cách viết lời đọc |
+
+## Sổ giọng (bản 48)
+
+Mỗi lần viết lời, AI nhận 6 cặp mẫu từ `voice_examples.json`: luôn có một câu mở đầu và một câu thao tác có định
+lượng, còn lại xoay vòng theo video (video khác nhau thấy mẫu khác nhau). AI được dặn học cách viết (độ dài, từ nối,
+nhịp, kết câu đổi qua lại), không chép câu, không lấy nguyên liệu / con số của mẫu; viết gần như chép câu mẫu thì bị
+bắt viết lại.
+
+- Sửa / thêm cặp: mở `voice_examples.json`, mỗi cặp có `kind` (hook, action, wait, tip, plate, react, recap, close),
+  `orig` (lời gốc kiểu người nấu nói) và `new` (lời kênh, 10-20 chữ, từ miền Nam). Nên giữ các cặp ở nhiều món khác
+  nhau để AI không nghiêng về một món.
+- Kho tự lớn: mỗi lần bạn duyệt kịch bản, các đoạn đã chốt được lưu ở `voice_bank.json` (cạnh `brand_state.json`).
+  Đoạn bạn **sửa tay** được ưu tiên đưa vào mẫu ở video sau (tối đa 2 cặp, chọn cặp có chung nguyên liệu).
+- Sau khi AI viết, mã tự đổi từ miền Bắc sang miền Nam theo ngữ cảnh (thìa → muỗng, bát → chén, đĩa → dĩa, rán →
+  chiên, trần qua → trụng qua, quả chanh → trái chanh…; «trần nhà», «kết quả», «lá dứa» giữ nguyên).
 
 **Từ bản 43 đây là bộ mặc định của bot**: không cần điền gì. Logo và âm hiệu trong thư mục này được dùng khi chưa tải
 file riêng lên trang cài đặt; các giá trị dưới đây là mặc định (đổi ở ⚙️ Cài đặt → nhóm 🎨 Nhận diện kênh, ✨ Phong cách

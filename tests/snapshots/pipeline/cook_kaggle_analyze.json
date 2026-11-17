@@ -269,7 +269,7 @@
    "job": {
     "approved": [],
     "cut_at": 0.0,
-    "error": "ℹ️ Bóc lời + phân tích hình trên Kaggle (tách giọng 34s, Whisper 55s, dò cảnh 59s). ℹ️ ghi chú Kaggle. ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "error": "ℹ️ Bóc lời + phân tích hình trên Kaggle (tách giọng 34s, Whisper 55s, dò cảnh 59s). ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 12 chữ, giọng phủ 37% video, 0/3 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
     "final_segments": [
      {
       "end": 2.1,

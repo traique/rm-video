@@ -15,6 +15,7 @@ import aiohttp
 import config
 import ingredients
 import metrics
+from rmvideo.domain import dialect
 from rmvideo.services import llm
 import vocab
 
@@ -141,6 +142,21 @@ def _not_in_glossary(added: list) -> list:
     # "tỏi phi" là dạng của "tỏi" trong danh sách: không tính là bịa
     return [x for x in added if not ingredients.find(x) & ok
             and not any(n and f" {n} " in ingredients._loose(x) for n in loose)]
+
+
+_KIND_VI = {"hook": "câu mở đầu", "action": "thao tác", "wait": "lúc chờ", "tip": "mẹo", "plate": "bày món",
+            "react": "cảm thán", "recap": "tóm tắt", "close": "chào kết", "bank": "đã duyệt"}
+
+
+def voice_block(examples: list | None) -> str:
+    """Cặp mẫu «lời gốc -> lời kênh» (rmvideo/app/voice_book): AI học cách viết theo ví dụ, không chép."""
+    if not examples:
+        return ""
+    lines = "\n".join(f"- [{_KIND_VI.get(x.get('kind', ''), 'mẫu')}] Gốc: «{x['orig']}» -> Viết: «{x['new']}»"
+                       for x in examples)
+    return ("\n\nGIỌNG KÊNH — học theo CÁCH VIẾT của các cặp mẫu dưới đây (độ dài câu, từ nối, nhịp nói, kết câu đổi "
+            "qua lại, không lạm dụng \"nha\"). Mẫu là món KHÁC: KHÔNG chép câu mẫu, KHÔNG lấy nguyên liệu / con số / "
+            "thao tác trong mẫu; chỉ viết về đúng video này.\n" + lines)
 
 
 def style_block() -> str:
@@ -450,7 +466,7 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
 
     async def attempt(p):
         pack = parse_pack(await p.call(prompt), title)
-        pack["script"] = strip_sub_cta(pack.get("script") or "")      # không kêu gọi đăng ký kênh
+        pack["script"] = dialect.south(strip_sub_cta(pack.get("script") or ""))   # không kêu gọi đăng ký kênh
         return pack
     pack = await llm.first_success(
         _chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt, record=metrics.record,
@@ -785,7 +801,7 @@ INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (
 
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
                          images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True,
-                         teaser: float = 0.0) -> dict:
+                         teaser: float = 0.0, examples: list | None = None) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
     intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
@@ -815,6 +831,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            for k, st, slot, mx, tx, _ in slots)
     prompt = TIMED_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
                                  desc=(desc or "(không có)")[:400], segments=desc_lines) + style_block() + extra
+    prompt += voice_block(examples)
+    # câu mẫu của sổ giọng cũng không được chép (như câu đã viết ở lô trước)
+    avoid = list(avoid or []) + [x["new"] for x in (examples or [])]
     if intro:
         prompt += HOOK_RULE
         if teaser and not slots[0][4]:
@@ -848,7 +867,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             try:
                 k = int(x["i"])
                 if (x.get("text") or "").strip():
-                    got[k] = x["text"].strip()
+                    got[k] = dialect.south(x["text"].strip())          # từ miền Bắc -> miền Nam, TRƯỚC khi kiểm
                 if ost_auto and x.get("ost") in ("orig", "both"):
                     osts[k] = x["ost"]
             except Exception:
@@ -998,8 +1017,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
                 "hook": clean_hook(d.get("hook") or "", " ".join([title, script, *(x["orig"] for x in out),
                                                                    *_GLOSSARY.get()])) if intro else "",
-                "title": (d.get("title") or title or script[:80]).strip(),
-                "caption": (d.get("caption") or script).strip(),
+                "title": dialect.south(d.get("title") or title or script[:80]).strip(),
+                "caption": dialect.south(d.get("caption") or script).strip(),
                 "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
     return await llm.first_success(chain, attempt, record=metrics.record,
                                    on_error=lambda p, e: logging.error("generate_timed: provider %s lỗi", p.name, exc_info=e))
@@ -1018,7 +1037,8 @@ async def shorten(items: list) -> dict:
 
     async def attempt(p):
         d = loads_lenient(await p.call(prompt))
-        return {int(x["i"]): strip_sub_cta(x["text"].strip()) for x in d.get("segments", []) if x.get("text")}
+        return {int(x["i"]): dialect.south(strip_sub_cta(x["text"].strip())) for x in d.get("segments", [])
+                if x.get("text")}
     out = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ShortOut)), attempt,
                                   on_error=lambda p, e: logging.error("shorten lỗi", exc_info=e))
     return out if out is not None else {}
@@ -1032,7 +1052,8 @@ Mô tả gốc: {desc}
 Trả về DUY NHẤT JSON: {{"segments": [{{"i": 0, "text": "..."}}, ...], "title": "...", "caption": "... (được dùng emoji)", "hashtags": "...", "hook": "3-7 chữ hiện trên màn hình 3 giây đầu, viết chữ thường có dấu đầy đủ (máy tự in hoa)"}}"""
 
 
-async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: list, out_dur: float):
+async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: list, out_dur: float,
+                          examples: list | None = None):
     """Video không lời: AI (Gemini, nhìn ảnh) viết lời cho từng cảnh. Trả về pack như generate_timed hoặc None."""
     if not (genai and config.GEMINI_API_KEY) or not segs:
         return None
@@ -1040,11 +1061,12 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
     for k, (st, en, _) in enumerate(segs):
         lines.append(f"Cảnh {k} | {st:.1f}s-{en:.1f}s | tối đa {max(3, int((en - st) * _rate() * 0.85))} từ")
     prompt = SCENE_PROMPT.format(mode=_MODE_VI.get(mode, mode), title=title or "(không có)",
-                                 desc=(desc or "(không có)")[:400], scenes="\n".join(lines)) + style_block()
+                                 desc=(desc or "(không có)")[:400], scenes="\n".join(lines)) + style_block() \
+        + voice_block(examples)
     try:
         raw = await _call_gemini(prompt, images, schema=TimedOut, label="Ảnh cảnh", timeout=90)
         d = loads_lenient(raw)
-        got = {int(x["i"]): strip_sub_cta((x.get("text") or "").strip()) for x in d.get("segments", [])}
+        got = {int(x["i"]): dialect.south(strip_sub_cta((x.get("text") or "").strip())) for x in d.get("segments", [])}
         out = []
         for k, (st, en, _) in enumerate(segs):
             if got.get(k):
@@ -1069,15 +1091,16 @@ BATCH_PARALLEL = 2
 
 
 async def generate_timed_any(title: str, desc: str, mode: str, segments: list, out_dur: float,
-                             images_for=None, teaser: float = 0.0):
+                             images_for=None, teaser: float = 0.0, examples: list | None = None):
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
     lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại.
     teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó."""
     segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)],
                                out_dur)                                        # gộp TRƯỚC khi chia lô
     tkw = {"teaser": teaser} if teaser else {}           # chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)
+    ekw = {"examples": examples} if examples else {}       # sổ giọng: mọi lô cùng một bộ mẫu
     if len(segments) <= BATCH + 6:
-        return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw)
+        return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw, **ekw)
     starts = list(range(0, len(segments), BATCH))
 
     async def _one(b):
@@ -1090,7 +1113,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
             "câu đó; đoạn 0 của phần này phải nói đúng lời gốc của chính đoạn 0. Đoạn cuối của phần này "
             "chưa phải kết video" + (".\n" if b + BATCH < len(segments) else ", trừ khi đây là phần cuối.\n"))
         return await generate_timed(title, desc, mode, part, end, images_for, extra, intro=b == 0,
-                                    **(tkw if b == 0 else {}))
+                                    **(tkw if b == 0 else {}), **ekw)
 
     # các lô chạy song song TỐI ĐA 2 (ngữ cảnh lấy từ lời gốc, không phải chờ lô trước viết xong); nhiều hơn
     # dễ chạm hạn mức Gemini miễn phí. Lô nào lỗi thì gọi lại riêng lô đó một lần, không bỏ cả kịch bản.

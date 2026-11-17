@@ -2,6 +2,7 @@
 
 Tách từ pipeline.py (Phase 4); pipeline.py còn là mặt tiền tương thích."""
 import asyncio
+import re
 
 import config
 import kaggle_worker
@@ -53,6 +54,29 @@ def final_timeline(segs: list, plan: list, out_dur: float) -> list:
                     "ost": sg.get("ost", "new"), "orig": sg.get("orig", ""), "text": sg.get("text", ""),
                     "voice": ({"start": p["start"], "end": p["end"], "speed": p["factor"]} if spoken else None)})
     return out
+
+
+def voice_report(segs: list, plan: list, end: float) -> str:
+    """Một dòng chỉ số lời đọc cho ghi chú job (trước đây phải tự đo tay mỗi lượt soát video): số chữ, phần trăm thời
+    lượng có giọng, quãng lặng > 4 giây (không tính đoạn giữ tiếng gốc), số câu kết bằng "nha"."""
+    import prompt_engine
+    spoken = [(sg, p) for sg, p in zip(segs, plan) if sg.get("ost") != "orig" and (sg.get("text") or "").strip()]
+    if not spoken or end <= 0:
+        return ""
+    words = sum(prompt_engine.spoken_words(sg["text"]) for sg, _ in spoken)
+    voiced = sum(max(0.0, min(p["end"], end) - p["start"]) for _, p in spoken)
+    keep = [(sg["start"], segs[k + 1]["start"] if k + 1 < len(segs) else end)
+            for k, sg in enumerate(segs) if sg.get("ost") == "orig"]
+    marks = sorted([(p["start"], p["end"]) for _, p in spoken] + keep)
+    gaps, prev = 0, 0.0
+    for a, b in marks + [(end, end)]:
+        if a - prev > 4.0:
+            gaps += 1
+        prev = max(prev, b)
+    sents = [x for sg, _ in spoken for x in re.split(r"(?<=[.!?…])\s+", sg["text"].strip()) if x]
+    nha = sum(1 for x in sents if re.search(r"\bnha[.!?…]*$", x.strip(), re.IGNORECASE))
+    return (f"ℹ️ Lời đọc: {words} chữ, giọng phủ {voiced / end:.0%} video"
+            + (f", {gaps} quãng lặng trên 4 giây" if gaps else "") + f", {nha}/{len(sents)} câu kết «nha». ")
 
 
 def credit_line(job: Job, narrated: bool = True) -> str:
