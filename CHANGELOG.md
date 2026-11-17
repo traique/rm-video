@@ -13,6 +13,22 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 45 — dựng mạnh vẫn bị bỏ trên job thật (17/11/2026, lần 3)
+
+Dựng lại đúng dữ liệu phiên Kaggle (tách giọng Kim_Vocal_2 → Whisper large-v3 cùng tham số `asr_local` trên giọng đã
+tách → 58 đoạn như log; điểm chuyển cảnh `scenes._analyze_sync` mức full) + 5 lần AI đọc công thức thật: cả 5 lần
+«lớp B vi phạm luật (R1 mất câu ở giây 8.6)». Lỗi nằm ở BỘ KIỂM, không ở AI:
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời Kaggle gộp câu dài (8,56-14,28s) vắt qua điểm chuyển cảnh 8,67s → câu nằm ở hai khúc liền nhau; luật R1 đòi câu nằm trọn MỘT khúc → báo «mất câu», bỏ cả lớp B | R1 tính trên dãy khúc liền nhau cùng tốc độ thường |
+| Một phép phạm luật là bỏ cả lớp B | Bỏ đúng phép bị nghi theo luật hỏng rồi dựng lại; bỏ hết vẫn phạm mới lùi về lớp A. Ghi chú nêu phép đã bỏ |
+| Câu mở đầu hết 2,58s, chuyển cảnh 2,7s: không tách được khúc → điểm danh nguyên liệu chèn lên đầu video | Sát cuối khúc thì chèn sau khúc |
+| «sôi vừa vừa» nghe thành «sâu dừa dừa»: bộ kiểm tưởng thiếu nguyên liệu «dừa», bắt AI viết lại 2 lần | Thêm vào bảng sửa nghe nhầm |
+
+Sau sửa: 10/10 kết quả AI (5 trên lời như Kaggle, 5 trên lời large-v3 thường) đạt dựng mạnh, mở bằng cảnh món rồi điểm
+danh 4-5 nguyên liệu, tóm tắt 4-5 bước. Dữ liệu: `tests/data/muc_hap_gung_kaggle.json`.
+
 ## Bản 44 — soát lần 2 video «mực hấp gừng» (17/11/2026, Kaggle bóc lời + dựng)
 
 Bản 43 chạy đúng trên máy thật (chữ hook vừa khung, đúng dấu, logo, màu kênh, thẻ mẹo, màn kết; lời khớp hình — đo bằng

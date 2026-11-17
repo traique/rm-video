@@ -110,6 +110,8 @@ _ASR_FIXES = {
     "bột mọt": "bột ngọt", "mật hấp gừng": "mực hấp gừng", "mật hấp gần": "mực hấp gừng", "mực hấp gần": "mực hấp gừng",
     "sóc nhiệt": "sốc nhiệt", "sốc nghiệt": "sốc nhiệt", "sóc nghiệt": "sốc nhiệt", "cằn tàu": "cần tàu",
     "cằn tào": "cần tàu",
+    # "sôi vừa vừa" nghe thành "sâu dừa dừa": bộ kiểm tưởng thiếu nguyên liệu "dừa", bắt AI viết lại 2 lần (log 17/11)
+    "dừa dừa": "vừa vừa", "sâu dừa dừa": "sôi vừa vừa", "sâu vừa vừa": "sôi vừa vừa",
 }
 _ASR_FIX_RE = re.compile(r"(?<![\w])(" + "|".join(re.escape(k) for k in sorted(_ASR_FIXES, key=len, reverse=True))
                          + r")(?![\w])", re.IGNORECASE)
