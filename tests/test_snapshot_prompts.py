@@ -88,13 +88,15 @@ def _cases(ai):
     asyncio.run(prompt_engine.post_only("Cá kho", "Mô tả", "cook"))
     out["post_only"] = f.calls
 
-    good = ["Mở màn món thịt kho tộ đậm đà nè", "Thả 500g thịt ba chỉ vô nồi liền",
-            "Rưới 2 muỗng nước mắm với chút đường cho thấm", "Hạ lửa liu riu kho chừng 30 phút", "Vậy là xong rồi"]
+    # khớp 4 đoạn SAU KHI gộp câu (merge_sentences gộp 2 đoạn đầu): lệch một đoạn thì bản 49 bắt là kể lại bước đã làm
+    good = ["Thịt kho tộ đậm đà nè, thả 500g thịt ba chỉ vô nồi liền", "Rưới 2 muỗng nước mắm với chút đường cho thấm",
+            "Hạ lửa liu riu kho chừng 30 phút", "Vậy là xong rồi"]
     f = ai([_timed_reply(good)])
     asyncio.run(prompt_engine.generate_timed_any("Thịt kho tộ", "Mô tả", "cook", SEGS, 16.0, images_for=_images))
     out["timed"] = f.calls
 
-    copied = [t for *_, t in SEGS]                         # chép nguyên lời gốc -> bắt viết lại (prompt "BẢN TRƯỚC BỊ LOẠI")
+    # chép nguyên lời gốc từng đoạn (sau khi gộp câu) -> bắt viết lại (prompt "BẢN TRƯỚC BỊ LOẠI")
+    copied = [f"{SEGS[0][2]} {SEGS[1][2]}"] + [t for *_, t in SEGS[2:]]
     f = ai([_timed_reply(copied), _timed_reply(good)])
     asyncio.run(prompt_engine.generate_timed_any("Thịt kho tộ", "", "cook", SEGS, 16.0, images_for=_images,
                                                  teaser=3.0))

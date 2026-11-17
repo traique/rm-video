@@ -192,7 +192,7 @@ GRAIN = "noise=c0s=5:c0f=t+u"            # hạt phim rất nhẹ, chỉ kênh s
 
 
 def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True,
-               zoom: float = 1.0) -> str:
+               zoom: float = 1.0, part: str = "all") -> str:
     """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
     phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
     tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
@@ -215,7 +215,22 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
     tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
     crop = "crop=in_w*0.96:in_h*0.96," if abs(zoom - 1.0) < 1e-6 else f"crop=in_w*{keep:.4f}:in_h*{keep:.4f},"
+    if part == "geo":                          # chỉ cắt khung + đổi cỡ (màu chạy chung sau khi ghép khúc: shared_look)
+        return (crop + size).rstrip(",")
+    if part == "color":                        # khử nhiễu + màu + làm nét, trên hình đã đúng cỡ
+        return look + sharpen + tail
     return crop + (look + size if upscale else size + look) + sharpen + tail
+
+
+def shared_look(plan, W: int, H: int, src_w: int, src_h: int) -> bool:
+    """Kế hoạch dựng nhiều khúc + nguồn đủ lớn (không phải phóng to ở khúc nào): mỗi khúc chỉ cắt khung + đổi cỡ, khử
+    nhiễu / màu / làm nét chạy MỘT lần sau khi ghép. Bản 49: mỗi khúc một chuỗi màu (hqdn3d giữ khung trước, unsharp...)
+    ở 1080x1920 -> 36 khúc ffmpeg ngốn ~1,1 GB RAM (bản thường 0,34 GB); máy Botkeep 2 GB giết ffmpeg giữa chừng.
+    Nguồn nhỏ (phải phóng to) giữ cách cũ: chỉnh màu trên điểm ảnh thật rồi mới phóng, ít điểm ảnh nên tốn ít RAM."""
+    if plan is None or not (src_w and src_h) or not plan.pieces:
+        return False
+    keep = 0.96 / max(1.0, max(p.zoom for p in plan.pieces))
+    return max(W / (src_w * keep), H / (src_h * keep)) <= 1.05
 
 
 TEASER_DUR = 3.0          # đoạn mở đầu: cảnh món đã xong chiếu trước 3 giây, kèm câu hook (bản 29)
@@ -249,6 +264,10 @@ def subtitle_texts(segs: list, teaser: dict | None = None) -> list:
 
 
 def _plan_video(plan, mode: str, W: int, H: int, src_w: int, src_h: int, fps: float, side_inputs, lead) -> str:
+    if shared_look(plan, W, H, src_w, src_h):
+        return (edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z, part="geo"), fps, W, H,
+                                side_inputs=side_inputs, lead=lead)
+                + "," + look_chain(mode, W, H, src_w, src_h, part="color"))
     return edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z), fps, W, H,
                            side_inputs=side_inputs, lead=lead)
 
@@ -295,9 +314,11 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
         # cảnh món đã xong chiếu trước: cùng chuỗi màu với video, đẩy cận nhẹ cho có nhịp (ảnh tĩnh đẩy mạnh hơn),
         # rồi nối thẳng vào video chính. Đầu vào riêng đã tua sẵn: không bắt FFmpeg giữ hàng nghìn khung chờ nối.
         z = TEASER_ZOOM * (TEASER_STILL_ZOOM if tz.get("still") else 1.0)
+        # màu chạy chung sau khi ghép (shared_look): đoạn mở đầu chỉ cắt khung + đổi cỡ, khỏi chỉnh màu hai lần
+        tz_look = look_chain(mode, W, H, src_w, src_h, part="geo") if shared_look(plan, W, H, src_w, src_h) else look
         v = (f"[{tz['iv']}:v]"
              + (f"trim=end_frame=1,tpad=stop_mode=clone:stop_duration={T + 0.2:.2f}," if tz.get("still") else "")
-             + f"setpts=PTS-STARTPTS,fps={fps:g},{look},"
+             + f"setpts=PTS-STARTPTS,fps={fps:g},{tz_look},"
              f"scale=w='trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2':h=-2:eval=frame,"
              f"crop={W}:{H}:x='(trunc({W}*(1+{z:.3f}*t/{T:.2f})/2)*2-{W})/2'"
              f":y='(trunc({H}*(1+{z:.3f}*t/{T:.2f})/2)*2-{H})/2',setsar=1,"

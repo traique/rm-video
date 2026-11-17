@@ -4,6 +4,7 @@ Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương 
 import logging
 import math
 import os
+from collections.abc import Sequence
 import re
 import shutil
 import subprocess
@@ -58,9 +59,28 @@ def kill_running():
     proc.kill_all()
 
 
+def cap_input_threads(args: Sequence[str], n: int | None = None) -> list:
+    """Mỗi đầu vào (-i) chưa đặt -threads thì đặt bằng số lõi container. -threads là tuỳ chọn RIÊNG từng đầu vào: trước
+    đây chỉ đầu vào đầu tiên có, đầu vào phụ (đoạn mở đầu, clip phụ, các khúc của clip phụ) giải mã theo số lõi MÁY CHỦ
+    — HEVC 1080x1920 ngốn 120 MB với 2 luồng nhưng 277 MB với 16 luồng (đo 17/11/2026); bản 48 dựng mạnh trên Botkeep
+    (2 GB RAM) bị giết giữa chừng."""
+    n = n or ffmpeg_threads()
+    out: list = []
+    since = 0                                   # vị trí bắt đầu nhóm tuỳ chọn của đầu vào đang xét
+    for a in args:
+        if a == "-i" and "-threads" not in out[since:]:
+            out += ["-threads", str(n)]
+        out.append(a)
+        if len(out) >= 2 and out[-2] == "-i":
+            since = len(out)
+    return out
+
+
 async def _run_ffmpeg_full(*args: str, tool: str = "ffmpeg", stderr_keep: int | None = None) -> tuple:
     """Chạy ffmpeg/ffprobe (huỷ job là giết được ngay, cả nhóm). Trả (stdout, stderr). stderr_keep=None: giữ trọn
-    stderr cho caller phân tích log (vd ebur128)."""
+    stderr cho caller phân tích log (vd ebur128). ffmpeg: mọi đầu vào giải mã theo số lõi container (cap_input_threads)."""
+    if tool == "ffmpeg":
+        args = tuple(cap_input_threads(args))
     r = await proc.run([tool, *args], stdout=True, stderr_keep=stderr_keep)
     return r.stdout.decode(errors="ignore"), r.stderr
 

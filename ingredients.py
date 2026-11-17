@@ -240,6 +240,9 @@ _RANGE_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)" + _RANGE_SEP + r"(\d+(?:[.,]\d+)?)
 
 def _clean_num(n: str) -> str:
     n = n.replace(",", ".")
+    f = re.fullmatch(r"(\d+)/([24])", n)          # "1/2 muỗng" = "nửa muỗng" = 0.5 (bản 49: thẻ điểm danh ghi 1/2,
+    if f:                                          # AI đọc "nửa" -> bị coi là đổi số, bỏ mất định lượng)
+        n = str(int(f.group(1)) / int(f.group(2)))
     return n.rstrip("0").rstrip(".") if "." in n else n
 
 
@@ -262,7 +265,14 @@ def numbers(text: str) -> list:
     return out
 
 
-_QTY_RE = re.compile(r"(?<![\w])((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+(?:[.,]\d+)?|"
+# chữ ước lượng đứng trước con số ("độ chừng 3-4 muỗng"): bỏ số thì bỏ luôn, không để câu treo "rưới dầu mè, độ chừng cho
+# dậy mùi" (bản 48, job 6)
+_APPROX = r"(?:(?:khoảng chừng|khoảng tầm|tầm khoảng|độ chừng|chừng độ|khoảng|chừng|tầm|cỡ|độ)\s+)?"
+# "độ" / "cỡ" đứng sau các chữ này là một phần của từ ghép ("nhiệt độ 170 độ", "kích cỡ 2 cm"), không phải chữ ước lượng:
+# bỏ số thì giữ lại (soát độc lập PR #8: trước đây ra "chiên mực ở nhiệt cho tới khi...")
+_APPROX_COMPOUND = {"nhiệt", "mức", "tốc", "nồng", "cấp", "góc", "chế", "kích", "trình", "thái"}
+# "1/2 muỗng" là MỘT số (trước đây khớp "2 muỗng" bên trong -> bỏ số thành "Thêm 1/ đường")
+_QTY_RE = re.compile(r"(?<![\w/])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+/\d+|\d+(?:[.,]\d+)?|"
                      + "|".join(_WORDNUM) + r"))\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
 
@@ -275,7 +285,13 @@ def drop_numbers(text: str, bad: set) -> str:
         parts = [x for x in re.split(r"\s*(?:-|–|\bđến\b|\btới\b|\bhoặc\b)\s*", m.group(1).lower()) if x]
         n = "-".join(_clean_num(_WORDNUM.get(x, x)) for x in parts)
         u = _norm_num(f"{n} {m.group(2).lower()}").split(" ", 1)[1]
-        return "" if n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad} else m.group(0)
+        if not (n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad}):
+            return m.group(0)
+        pre = m.group(0)[:m.start(1) - m.start(0)]           # chữ ước lượng đứng trước số (có thể rỗng)
+        prev = m.string[:m.start()].split()[-1:]
+        if pre.strip().lower() in ("độ", "cỡ") and prev and prev[0].lower().strip(",.;:") in _APPROX_COMPOUND:
+            return pre
+        return ""
     out = _QTY_RE.sub(one, text or "")
     out = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"\s{2,}", " ", out)).strip()
     return out[:1].upper() + out[1:] if out and (text or "")[:1].isupper() else out

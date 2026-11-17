@@ -13,6 +13,62 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 49 — job 6 lỗi khi dựng trên Botkeep (17/11/2026)
+
+Job 6: Kaggle chờ máy quá 35 phút (hàng chờ GPU T4 hôm đó 12-45 phút) → lùi về Botkeep → ffmpeg dựng mạnh chết ở giây
+68 / 188, log chỉ có dòng tiến độ («ffmpeg lỗi: frame= 2062 fps=6.6 …»). Đây là lần đầu bản dựng mạnh phải dựng trên
+Botkeep (job 3-5 dựng trên Kaggle, 31 GB RAM).
+
+Đo lại bằng đúng lệnh dựng của bot trên video mực 1080×1920, kế hoạch dựng mạnh 46 khúc: ffmpeg ngốn **1,08 GB** (bản
+thường 0,34 GB); ở 2 luồng như Botkeep là 0,97 GB, cộng bot trên máy 2 GB RAM → bị hệ thống giết.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Mỗi khúc chính (36 khúc) chạy riêng cả chuỗi màu: khử nhiễu hqdn3d (giữ khung trước), chỉnh màu, làm ấm, làm nét | Nguồn đủ lớn (không phải phóng to): mỗi khúc chỉ cắt khung + đổi cỡ, khử nhiễu / màu / làm nét chạy MỘT lần sau khi ghép (cả đoạn mở đầu và clip phụ); nguồn nhỏ giữ cách cũ |
+| `-threads` chỉ đặt cho đầu vào đầu tiên; đầu vào phụ (đoạn mở đầu, clip phụ, các khúc của clip phụ) giải mã theo số lõi MÁY CHỦ — HEVC 1080×1920 ngốn 120 MB với 2 luồng, 277 MB với 16 luồng | Mọi đầu vào của mọi lệnh ffmpeg giải mã theo số lõi container |
+| Lỗi ffmpeg bị giết không nói gì | Báo mã thoát; bị giết bằng tín hiệu thì ghi «bị hệ thống dừng (tín hiệu 9, thường do máy hết RAM)» |
+
+Sau khi sửa, cùng lệnh dựng ở 2 luồng: **0,57 GB** (giảm 41%; trên máy chủ nhiều lõi bản cũ còn tốn hơn).
+
+Lỗi nội dung thấy trong log job 6:
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời «Tóm lại: dùng mực đông lạnh, đun sôi nước, cho hành tây, vớt mực ra đĩa» bị AI viết thành «Nấu kiểu này đơn giản lắm, ai làm cũng ngon» → thẻ TÓM TẮT chiếu với lời khen chung chung | Lệnh cho AI có luật riêng cho đoạn «Nguyên liệu gồm:» / «Tóm lại:» (đọc đủ ý, đúng thứ tự); mất quá nửa ý thì bắt viết lại; vẫn mất thì đọc đúng lời máy soạn («Tóm lại là …», «Chuẩn bị …») |
+| Bỏ số bịa «3-4 muỗng» để lại câu treo «rưới thêm dầu mè, độ chừng cho dậy mùi» | Bỏ luôn chữ ước lượng đứng trước (khoảng, chừng, độ chừng, tầm, cỡ…) |
+| «1/2 muỗng hạt nêm, 1/2 muỗng hạt nêm» (Whisper nghe lặp, AI chép theo) | Bỏ mục lặp liền nhau trong câu liệt kê |
+
+Dọn Kaggle theo yêu cầu: xoá dự án Qwen (rmvideo-bench-qwen, rmvideo-bench-probe, rmvideo-lab-llm) và 4 notebook thử
+nghiệm cũ (rmvideo-lab, rmvideo-lab-an, rmvideo-lab-mount, rm-video-poc); còn rmvideo-worker, rmvideo-analyze,
+rmvideo-phowhisper. Bỏ hướng Qwen offline (đo thử: Qwen3.6 lệch ý / bịa nguyên liệu, Qwen3-30B lệch đoạn hình).
+
+### Soát video job 7 (chạy bản 48)
+
+Hình đúng thứ tự từ đầu tới cuối (so từng khung với video gốc). Chỗ «phút 1:51 như bị sai thứ tự» là do LỜI:
+
+| Lỗi | Sửa |
+| --- | --- |
+| 1:47-1:57 hình là mực đã bung trong nồi (gốc: «sau khi mình luộc khoảng tầm 4 phút, lúc này cái mực bung ra»), AI đọc «giờ mình thả mực vô nồi nước đang sôi, đun chừng 4 phút…» — bước thả mực đã làm ở 0:26 → nghe như video quay ngược | Lệnh cho AI thêm luật «không kể lại bước đã làm». Máy tự bắt: đoạn có «cho nguyên liệu X vào» (thả / bỏ / đổ / nêm / rắc / rưới / thêm…) mà lời gốc của chính đoạn không có thao tác cho vào, và X đã được cho vào ở đoạn trước → bắt viết lại; vẫn còn thì bỏ vế câu đó (không có con số). Chạy lại trên cả kịch bản job 7: chỉ đúng đoạn 1:51 bị bắt |
+| Lời tóm tắt «Dùng mực đông lạnh, trụng hành tây rồi vớt mực» bỏ hẳn bước «đun sôi nước» (còn 58% chữ nên lọt kiểm bản 49) | Kiểm thêm TỪNG Ý: ý nào không còn chữ riêng nào (vd «đun / sôi / nước») là mất ý → viết lại / đọc lời máy soạn. Lời máy soạn cũng đổi từ miền Bắc («ra dĩa») |
+| Lời điểm danh trễ thẻ chữ ~1 giây (thẻ «1/2 muỗng đường» hiện cùng phụ đề «nửa muỗng bột ngọt»): câu hook lấn 0,46s sang khúc điểm danh + AI mở bằng «Rồi mình chuẩn bị…» | Câu ngay trước khúc điểm danh / tóm tắt không được lấn sang khúc đó (mượn khoảng lặng phía trước, hoặc rút gọn); bỏ chữ dẫn «Rồi mình / Giờ mình…» trước «chuẩn bị»; lệnh cho AI: vào thẳng món đầu. Kaggle nhận kèm lời gốc của khúc điểm danh để xếp giọng giống Botkeep |
+| (thấy khi viết test) Thẻ điểm danh ghi «1/2 muỗng», AI đọc «nửa muỗng» → bị coi là đổi số; bỏ số thì «1/2 muỗng đường» thành «1/ đường» | «1/2», «1/4», «3/4» so như 0,5 / 0,25 / 0,75; bỏ số coi «1/2» là một số |
+
+Còn thấy, chưa sửa bằng máy: 2:28 «Dĩa mực nóng hổi» khi hình là mực trong vợt; 3:01 AI viết «thơm lừng rảnh rỗi nè» (chữ
+lạc nghĩa, sửa tay lúc duyệt); 3 quãng lặng 4-5 giây (1:35, 2:10, 2:24); câu cuối dứt sát màn kết (~0,1s). Số «3 phút»
+(1:33) và «4 phút» (1:25, 1:54) đều đúng lời gốc (người làm video nói cả hai).
+
+### Soát lại trước khi gộp (PR #8: Codex + một lượt soát độc lập)
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời gốc có cho BẤT KỲ thứ gì vào là bỏ qua kiểm «kể lại bước» (gốc «cho hành tây vô» thì AI viết lại «thả mực vô» vẫn lọt) | Chỉ bỏ qua khi gốc nêu đúng nguyên liệu đó, hoặc có thao tác cho vào mà không nói cho gì («bỏ trực tiếp vô luôn») |
+| Món nhiều công đoạn bị bắt nhầm là kể lại: «ướp mực» rồi «thả mực vô chảo chiên», «luộc trong nồi» rồi «trút mực ra dĩa» → vế câu đúng hình bị xoá | Chỉ coi là kể lại khi cho CÙNG nguyên liệu vô ĐÚNG chỗ cũ (cùng nồi / chảo / tô…); «ướp» và «trút / đổ … ra» không phải cho vào |
+| Bỏ số bịa cắt luôn chữ của từ ghép: «chiên ở nhiệt độ 170 độ» → «chiên ở nhiệt», «kích cỡ 2 cm» → «kích» | «độ» / «cỡ» đứng sau nhiệt, mức, tốc, kích… được giữ lại; thêm chữ ước lượng «khoảng tầm» |
+
+Chạy lại trên 160 đoạn lời thật của các job trước: không bắt nhầm đoạn nào; job 7 vẫn bắt đúng đoạn 1:51. Codex còn nêu: khử
+nhiễu hqdn3d chạy sau khi ghép khúc thì «trộn» qua điểm cắt. Đo thật trên video mực: khung đầu sau điểm cắt lệch tối đa
+2/255, PSNR 53-56 dB (mắt không phân biệt), nên giữ (tách lại từng khúc là quay về lỗi hết RAM của job 6).
+
 ## Bản 48 — soát video job 5 (17/11/2026, chạy bản 47)
 
 Bản 47 đã có hiệu lực: lời tóm tắt đọc khớp thẻ TÓM TẮT, «3 đến 4 giọt dầu» đúng đơn vị, chỉ một thẻ «»» 4 PHÚT SAU»,

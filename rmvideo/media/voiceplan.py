@@ -44,6 +44,21 @@ def _next_start(segs: list, i: int, total_dur: float) -> float:
     return segs[i + 1]["start"] if i + 1 < len(segs) else total_dur
 
 
+# lời "gốc" của khúc điểm danh / tóm tắt (style_b.MONTAGE_MARK / RECAP_MARK = prompt_engine.SIDE_MARKS)
+SIDE_MARKS = ("Nguyên liệu gồm:", "Tóm lại:")
+
+
+def _side_next(segs: list, i: int) -> bool:
+    """Đoạn sau là khúc điểm danh / tóm tắt: thẻ chữ của khúc đó hiện đúng mốc theo hình, câu trước lấn vào thì lời
+    điểm danh trễ thẻ (bản 49, job 7: câu hook lấn 0.46s + "Rồi mình chuẩn bị" -> đọc "mực" khi thẻ đã sang "1/2 muỗng
+    bột ngọt"). Không cho lấn, nhưng cũng không ép nói nhanh như mốc cứng (không đè tiếng ai)."""
+    return i + 1 < len(segs) and side_orig(segs[i + 1].get("orig"))
+
+
+def side_orig(orig) -> bool:
+    return str(orig or "").lstrip().startswith(SIDE_MARKS)
+
+
 def voice_base_factor(durs: list, segs: list, total_dur: float) -> float:
     """MỘT tốc độ đọc cho cả video: phân vị 80% của tốc độ từng đoạn cần để vừa khe (cho lấn nhẹ 0.35s), kẹp trong
     [1.0, VOICE_MAX_BASE]. Trước đây mỗi đoạn co giãn riêng 0.92x-1.35x -> nghe lúc nhanh lúc chậm (Botkeep 11/2026)."""
@@ -52,7 +67,7 @@ def voice_base_factor(durs: list, segs: list, total_dur: float) -> float:
         if s.get("ost") == "orig" or d <= 0:
             continue
         nxt = _next_start(segs, i, total_dur)
-        hard = i + 1 >= len(segs) or segs[i + 1].get("ost") == "orig"
+        hard = i + 1 >= len(segs) or segs[i + 1].get("ost") == "orig" or _side_next(segs, i)
         need.append(d / max(0.5, nxt - s["start"] + (0.0 if hard else 0.35)))
     if not need:
         return 1.0
@@ -91,11 +106,12 @@ def plan_voice(durs: list, segs: list, total_dur: float):
             continue
         last = i + 1 >= len(segs)
         hard = last or segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc / quá hết video
+        pin = _side_next(segs, i)                          # ... hay khúc điểm danh / tóm tắt
         start = max(s["start"], prev_end + 0.12)
         f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
-        limit = total_dur - 0.05 if last else nxt + (0.0 if hard else _spill(durs, segs, i, base, total_dur))
+        limit = total_dur - 0.05 if last else nxt + (0.0 if hard or pin else _spill(durs, segs, i, base, total_dur))
         if start + d / f > limit:                   # (2) đã lấn hết phần cho phép -> (3) nhanh hơn tốc độ chung chút
             f = max(base, min(d / max(0.3, limit - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung
         if start + d / f > limit:                   # (4) vẫn tràn quá giới hạn lấn

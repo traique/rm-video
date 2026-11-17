@@ -340,7 +340,7 @@ def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
 
 
 async def side_clip(src: str, pieces: list, out: str, mode: str, W: int, H: int, fps: float, src_w: int, src_h: int,
-                    ambient_wav: str | None, stretch: float = 1.0) -> bool:
+                    ambient_wav: str | None, stretch: float = 1.0, color: bool = True) -> bool:
     """Dãy khúc lặp / đảo chỗ -> một clip ngắn đã chỉnh màu, đúng cỡ khung (mỗi khúc một đầu vào tua sẵn bằng -ss:
     chỉ giải mã vài giây quanh khúc, không giải mã cả video). Kèm tiếng nền đã tách giọng nếu có. Trả có tiếng không."""
     ins, vparts, aparts = [], [], []
@@ -353,7 +353,7 @@ async def side_clip(src: str, pieces: list, out: str, mode: str, W: int, H: int,
     for i, p in enumerate(pieces):
         L = p.length * stretch
         ch = (f"[{i}:v]trim=duration={p.b - p.a:.3f},setpts=(PTS-STARTPTS)*{stretch / p.speed:.5f},fps={fps:g},"
-              + filtergraph.look_chain(mode, W, H, src_w, src_h, zoom=p.zoom))
+              + filtergraph.look_chain(mode, W, H, src_w, src_h, zoom=p.zoom, part="all" if color else "geo"))
         if p.push > 0:
             ch += "," + edl.push_filter(W, H, p.push, L).rstrip(",")
         if p.fx == "flash":
@@ -435,7 +435,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
         for r, ks in enumerate(plan.side_runs()):
             clip = os.path.join(tmp, f"side_{r}.mkv")      # mkv: chứa được tiếng PCM
             has_a = await side_clip(input_mp4, [plan.pieces[k] for k in ks], clip, mode, W, H, fps, src_w, src_h,
-                                    ambient_wav, plan.stretch)
+                                    ambient_wav, plan.stretch,
+                                    color=not filtergraph.shared_look(plan, W, H, src_w, src_h))
             side_inputs[r] = audio_in.count("-i")
             if has_a:
                 side_audio[r] = f"[{side_inputs[r]}:a]"

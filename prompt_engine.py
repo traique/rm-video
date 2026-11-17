@@ -8,6 +8,7 @@ import logging
 import re
 import time
 import unicodedata
+from collections import Counter
 from typing import Literal
 
 import aiohttp
@@ -533,10 +534,12 @@ LUẬT BẮT BUỘC:
   Ví dụ — gốc: "trước tiên cắt thành dải dài sau đó cắt thành miếng vừa ăn" → mới: "Đầu tiên mình xẻ thịt thành từng dải, rồi thái nhỏ cỡ vừa miệng."
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
+- KHÔNG KỂ LẠI BƯỚC ĐÃ LÀM: lời gốc kiểu «sau khi luộc khoảng 4 phút, lúc này mực bung ra» là NHÌN LẠI kết quả của bước trước (mực đã nằm trong nồi từ đoạn trước) — viết về kết quả đang thấy («Luộc chừng 4 phút là mực bung đều rồi nè»), KHÔNG viết như đang làm lại («giờ mình thả mực vô nồi»). Mỗi lần cho nguyên liệu vào chỉ kể ở đúng đoạn có thao tác đó.
 - Mỗi đoạn có KHOẢNG SỐ TỪ ghi kèm (vd "10-13 từ"; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết TRONG khoảng đó: ít hơn thì giọng hết sớm, video bị lặng dài; nhiều hơn thì tràn sang đoạn sau và phải cắt bớt. Khe dài thì diễn đạt đầy đủ hơn (tả độ vàng, tiếng xèo đang thấy trên hình), KHÔNG thêm thao tác, nguyên liệu hay số liệu mới.
 - Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền." Từ đệm cuối câu (nha, nè, luôn, ghê) thì đổi qua lại, không hai câu liền nhau cùng kết bằng "nha" (chỉ bớt từ đệm; mỗi đoạn vẫn viết ĐỦ số từ yêu cầu, tả thêm điều đang thấy trên hình).
 - HÀNH ĐỘNG ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) nói NGAY hành động đang diễn ra trên hình ở đầu câu (được mở bằng 1-3 chữ dẫn như "Giờ mình", "Rồi", "Tới đây mình"), vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Giờ mình lật mặt nè, thịt vàng đều rồi." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Rồi mình áp chảo với lửa vừa thôi." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
+- ĐOẠN ĐIỂM DANH / TÓM TẮT: đoạn có lời gốc bắt đầu bằng «Nguyên liệu gồm:» hoặc «Tóm lại:» là máy soạn cho khúc chiếu nguyên liệu / tóm tắt các bước (trên hình có thẻ chữ tương ứng). Đọc lại ĐỦ các ý trong đó, đúng thứ tự, bằng giọng nói chuyện (vd «Chuẩn bị mực, nửa muỗng bột ngọt...», «Tóm lại là để nguyên mực đông, đun sôi nước...»); KHÔNG đổi thành lời khen món hay câu chung chung. Đoạn điểm danh vào THẲNG món đầu tiên (thẻ chữ từng món hiện ngay khi khúc bắt đầu), không mở bằng «Rồi mình...».
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
 - KHÔNG KÊU GỌI ĐĂNG KÝ / THEO DÕI KÊNH ở BẤT KỲ đoạn nào, kể cả đoạn cuối: không viết "đăng ký kênh", "theo dõi", "follow", "like share", "bấm chuông", "ủng hộ kênh", "hẹn gặp lại ở video sau". Lời gốc có câu đó thì bỏ ý đó: viết lời chốt về món ("Vậy là có dĩa cá kèo giòn rụm rồi nè.") hoặc để "text" rỗng.
 - Không emoji trong "text".
@@ -730,6 +733,162 @@ def _side(t: str) -> bool:
     return (t or "").lstrip().startswith(SIDE_MARKS)
 
 
+def side_spoken(orig: str) -> str:
+    """Lời đọc dự phòng của khúc điểm danh / tóm tắt (máy soạn, không phải lời người gốc nên đọc thẳng được)."""
+    body = dialect.south(orig.split(":", 1)[1].strip())
+    return ("Tóm lại là " if orig.lstrip().startswith("Tóm lại") else "Chuẩn bị ") + body
+
+
+# mở đầu khúc điểm danh: thẻ chữ từng món hiện ngay khi khúc bắt đầu, "Rồi mình chuẩn bị" mất ~1 giây -> lời trễ thẻ
+_MONTAGE_LEAD_RE = re.compile(
+    r"^\s*(?:(?:rồi|giờ|bây giờ|đầu tiên|trước tiên|trước hết|xong|nào|ok|okay)\s*,?\s+)?"
+    r"(?:(?:thì\s+)?(?:mình|mọi người|cả nhà|anh chị|tụi mình|chúng ta)\s+)?(?=chuẩn bị\b)",
+    re.IGNORECASE)
+
+
+def montage_lead(text: str) -> str:
+    """"Rồi mình chuẩn bị mực, ..." -> "Chuẩn bị mực, ..." (bản 49, job 7: lời điểm danh trễ thẻ chữ ~1 giây)."""
+    t = _MONTAGE_LEAD_RE.sub("", text or "", count=1)
+    return t[:1].upper() + t[1:] if t != (text or "") and t else (text or "")
+
+
+# ---------- kể lại bước đã làm (bản 49, job 7 phút 1:51) ----------
+# Lời gốc "sau khi mình luộc khoảng tầm 4 phút, lúc này cái mực bung ra" là NHÌN LẠI bước trước; AI viết "giờ mình thả
+# mực vô nồi nước đang sôi, đun chừng 4 phút..." trong khi hình là mực đã bung trong nồi -> người xem tưởng video quay
+# ngược. Bắt: đoạn có "cho nguyên liệu X vô CHỖ C" mà lời gốc của chính đoạn không cho X vào, và X đã được cho vô ĐÚNG
+# chỗ C ở một đoạn trước. Phải cùng chỗ: món nhiều công đoạn cho cùng một thứ vào chỗ mới là bước THẬT (ướp mực rồi
+# thả mực vô chảo chiên; luộc trong nồi rồi cho vô chảo xào) — soát độc lập PR #8.
+_ADD_VERBS = {"thả", "bỏ", "đổ", "trút", "nêm", "rắc", "rưới", "thêm", "cho"}
+_ADD_FILL = {"hết", "cả", "chút", "ít", "xíu", "nguyên", "con", "cái", "mấy", "phần", "nốt", "tiếp", "thẳng", "luôn",
+             "thêm", "đám", "số", "vô", "vào", "lên"}
+# chỗ cho vào (chữ ngay sau "vô / vào"), gộp từ cùng nghĩa
+_PLACES = {"nồi": "nồi", "xoong": "nồi", "chảo": "chảo", "tô": "tô", "chén": "chén", "bát": "chén", "dĩa": "dĩa",
+           "đĩa": "dĩa", "thau": "thau", "khay": "khay", "hộp": "hộp", "lò": "lò", "xửng": "xửng", "nước": "nước",
+           "dầu": "dầu", "hũ": "hũ", "ly": "ly", "cốc": "ly"}
+_NUMWORD_RE = re.compile(r"\d|(?<![\w])(?:một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|nửa|rưỡi)(?![\w])", re.IGNORECASE)
+
+
+def _qty_word(w: str) -> bool:
+    return bool(re.fullmatch(r"[\d.,/-]+", w)) or w in ingredients._WORDNUM or w in ingredients._UNITS
+
+
+def add_steps(text: str) -> set:
+    """Các lần CHO VÀO trong câu: {(nhóm nguyên liệu, chỗ)}. Động từ cho vào + (chữ đệm / định lượng) + tên nguyên liệu
+    ngay sau + "vô / vào" + chỗ. "thả mực vô nồi nước sôi" -> {(mực, "nồi")}; không nói chỗ -> chỗ "". Không tính:
+    "luộc cho mực chín", "thêm nữa là mực...", "trút mực ra dĩa" (lấy ra), "ướp mực" (không cho vào đâu)."""
+    toks = _norm_words(text)
+    out: set = set()
+    for i, w in enumerate(toks):
+        if w not in _ADD_VERBS:
+            continue
+        for p in range(i + 1, min(len(toks), i + 6)):
+            head = toks[p:p + 3]
+            got = ingredients.find(" ".join(head)) - ingredients.find(" ".join(head[1:]))   # tên bắt đầu ĐÚNG ở p
+            if got:
+                n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), len(head))
+                after = toks[p + n:p + n + 4]
+                into = next((j for j, x in enumerate(after) if x in ("vô", "vào")), None)
+                if into is None and (w == "cho" or "ra" in after[:2]):   # "luộc cho mực chín" / "trút mực ra dĩa"
+                    break
+                place = _PLACES.get(after[into + 1], "") if into is not None and into + 1 < len(after) else ""
+                out |= {(g, place) for g in got}
+                break
+            if toks[p] not in _ADD_FILL and not _qty_word(toks[p]):
+                break
+    return out
+
+
+def _steps_vi(steps: set) -> str:
+    """{(nhóm, chỗ)} -> "mực vô nồi, hạt nêm" (cho lời nhắc AI / log)."""
+    return ", ".join(sorted(ingredients.GROUPS[g][0] + (f" vô {c}" if c else "") for g, c in steps))
+
+
+def add_actions(text: str) -> set:
+    """Nhóm nguyên liệu được cho vào trong câu (add_steps, bỏ chỗ)."""
+    return {g for g, _ in add_steps(text)}
+
+
+def replayed_steps(items: list) -> dict:
+    """items: [(k, lời gốc, lời mới)] theo thứ tự video (bỏ câu hook / khúc điểm danh, tóm tắt). Trả {k: {(nhóm, chỗ)}}:
+    đoạn cho nguyên liệu vô một chỗ mà ở đoạn trước nó đã được cho vô đúng chỗ đó, trong khi lời gốc của đoạn không
+    cho nguyên liệu đó vào."""
+    done: set = set()
+    out: dict = {}
+    for k, orig, new in items:
+        mine = add_steps(new)
+        again = {x for x in mine if x[1] and x in done}
+        if again and not _orig_adds(orig or "", {g for g, _ in again}):
+            out[k] = again
+        done |= mine | add_steps(orig)
+    return out
+
+
+def _orig_adds(orig: str, groups: set) -> bool:
+    """Lời gốc của đoạn có cho (một trong) các nguyên liệu `groups` vào -> không coi là kể lại. Tính khi: có động từ cho
+    vào kèm tên nguyên liệu đó trong vài chữ sau ("cho là hành tây, đầu hành" cũng tính), hoặc có động từ cho vào mà
+    KHÔNG nói cho gì ("bỏ trực tiếp vô luôn": rộng tay, không đoán được). Gốc cho vào thứ KHÁC có nêu tên ("cho hành
+    tây vô") thì "thả mực vô" vẫn là kể lại (Codex, PR #8)."""
+    toks = _norm_words(orig)
+    for i, w in enumerate(toks):
+        if w not in _ADD_VERBS or (w == "thêm" and toks[i + 1:i + 2] == ["nữa"]):    # "thêm nữa là..." = ngoài ra
+            continue
+        named = ingredients.find(" ".join(toks[i + 1:i + 9]))
+        if named & groups:
+            return True
+        if w == "cho" and not {"vô", "vào"} & set(toks[i + 1:i + 5]):   # "cho mình", "cho mực chín": không phải cho vào
+            continue
+        if not named:
+            return True
+    return False
+
+
+def drop_replayed(text: str, steps: set) -> str:
+    """Bỏ vế câu kể lại việc cho nguyên liệu vào (steps: {(nhóm, chỗ)} của replayed_steps; vế có con số thì giữ). Còn
+    dưới 4 chữ thì giữ nguyên câu."""
+    parts = re.split(r"(?<=[,.!?;…])\s+", (text or "").strip())
+    keep = [p for p in parts if not (add_steps(p) & steps and not _NUMWORD_RE.search(p))]
+    if len(keep) == len(parts):
+        return text
+    out = " ".join(keep).strip()
+    if len(out.split()) < 4:
+        return text
+    out = out[:1].upper() + out[1:]
+    return out[:-1] + "." if out.endswith((",", ";")) else out if out.endswith((".", "!", "?", "…")) else out + "."
+
+
+_DUP_ITEM_RE = re.compile(r"(?<![\w])([^,.;!?]*?\w\s+\w[^,.;!?]*?)(?:,\s*\1)+(?=[,.;!?]|$)", re.IGNORECASE)
+
+
+def dedupe_items(text: str) -> str:
+    """Bỏ mục lặp liền nhau trong câu liệt kê: "1/2 muỗng hạt nêm, 1/2 muỗng hạt nêm" -> một lần (bản 48, job 6: lời gốc
+    Whisper nghe lặp, AI chép theo, giọng đọc hai lần)."""
+    return _DUP_ITEM_RE.sub(lambda m: m.group(1), text or "")
+
+
+_SIDE_STOP = {"và", "cho", "rồi", "là", "với", "các", "một", "lại", "gồm", "tóm", "nguyên", "liệu", "thêm", "vào", "vô"}
+
+
+def side_lost(new: str, orig: str) -> bool:
+    """Đoạn điểm danh / tóm tắt mà lời mới mất ý: dưới 40% chữ chính của lời gốc, HOẶC bỏ trọn một ý (không còn chữ
+    riêng nào của ý đó). Bản 48, job 6: «Tóm lại: dùng mực đông lạnh, đun sôi nước, cho hành tây, vớt mực ra đĩa» ->
+    AI viết «Nấu kiểu này đơn giản lắm, ai làm cũng ngon». Job 7: «Dùng mực đông lạnh, trụng hành tây rồi vớt mực» —
+    còn 58% chữ nhưng mất hẳn bước «đun sôi nước»."""
+    if not _side(orig):
+        return False
+    body = dialect.south(orig.split(":", 1)[1])
+    keys = {w for w in _norm_words(body) if len(w) > 1} - _SIDE_STOP
+    if len(keys) < 3:
+        return False
+    have = set(_norm_words(dialect.south(new or "")))
+    if len(keys & have) / len(keys) < 0.4:
+        return True
+    items = [x for x in ({w for w in _norm_words(p) if len(w) > 1} - _SIDE_STOP for p in re.split(r"[,;.]", body)) if x]
+    if len(items) < 2:
+        return False
+    seen = Counter(w for x in items for w in x)
+    return any(own and not own & have for own in ({w for w in x if seen[w] == 1} for x in items))
+
+
 def merge_sentences(segments: list, out_dur: float) -> list:
     """Gộp các mẩu lời bị cắt ngang thành câu trọn TRƯỚC khi AI viết lại. Máy nghe cắt theo chỗ ngắt hơi nên ra
     những mẩu cụt ("Sau khi mình" | "luộc ... vớt ra" | "cho mình." | "Rồi"); AI viết từng mẩu thành một câu riêng
@@ -867,7 +1026,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             try:
                 k = int(x["i"])
                 if (x.get("text") or "").strip():
-                    got[k] = dialect.south(x["text"].strip())          # từ miền Bắc -> miền Nam, TRƯỚC khi kiểm
+                    got[k] = dedupe_items(dialect.south(x["text"].strip()))   # từ miền Bắc -> Nam, TRƯỚC khi kiểm
                 if ost_auto and x.get("ost") in ("orig", "both"):
                     osts[k] = x["ost"]
             except Exception:
@@ -877,16 +1036,22 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         d["_ost"] = osts
         return d, got
 
+    def _replays(got, osts):
+        """Đoạn kể lại việc cho nguyên liệu vào đã làm ở đoạn trước (replayed_steps)."""
+        return replayed_steps([(k, tx, "" if osts.get(k) == "orig" else got.get(k, ""))
+                               for k, st, slot, mx, tx, span in slots if tx and not _side(tx)])
+
     def _bad(got, osts):
         """Đoạn thiếu hoặc chép lời gốc (>=45% cụm 2 từ trùng). Đoạn giữ nguyên tiếng gốc không cần lời mới."""
         out = []
+        again = _replays(got, osts)
         for k, st, slot, mx, tx, span in slots:
             if osts.get(k) == "orig":
                 continue
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
                     or _CTA_RE.search(got[k]) or has_sub_cta(got[k]) \
-                    or _hook_bad(k, got[k]):                       # lặp câu lô trước / quảng cáo / kêu gọi đăng ký
+                    or _hook_bad(k, got[k]) or side_lost(got[k], tx) or k in again:   # lặp câu lô trước / quảng cáo
                 out.append(k)
         return out
 
@@ -931,9 +1096,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         thin = _thin(got, d["_ost"])
         for attempt in range(2):                    # tối đa 2 lần bắt viết lại
             txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
+            again = _replays(got, d["_ost"])
             severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
                       or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
-                      or _hook_bad(k, got.get(k, ""))]
+                      or _hook_bad(k, got.get(k, "")) or side_lost(got.get(k, ""), txt_of.get(k, "")) or k in again]
             # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
@@ -946,7 +1112,19 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
             subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
             hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
-            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
+            sides = [k for k in bad if side_lost(got.get(k, ""), txt_of.get(k, ""))]
+            if sides:
+                why.append("đoạn điểm danh / tóm tắt phải đọc ĐỦ các ý của lời gốc theo thứ tự, không đổi thành lời khen "
+                           "chung chung: " + ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}»)"
+                                                       for k in sides[:4]))
+            if again:
+                why.append("các đoạn sau KỂ LẠI bước cho nguyên liệu vào ĐÃ LÀM ở đoạn trước, như thể đang làm lại (hình lúc"
+                           " đó là kết quả của bước ấy, người xem tưởng video quay ngược); viết về điều đang thấy theo lời"
+                           " gốc của chính đoạn đó, không cho lại nguyên liệu vào: " +
+                           ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}», đã cho vào trước đó: "
+                                     f"{_steps_vi(again[k])})" for k in sorted(again)[:4]))
+            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks and k not in sides
+                      and k not in again]
             if subs:
                 why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
                            "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
@@ -999,6 +1177,14 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                     logging.warning("Đoạn %d: bỏ số AI tự điền (%s): %s -> %s", k, ", ".join(sorted(bad_nums)), got[k],
                                     fixed)
                     got[k] = fixed
+        for k, steps in _replays(got, d["_ost"]).items():     # viết lại vẫn kể lại bước cũ: bỏ vế câu đó
+            fixed = drop_replayed(got[k], steps)
+            if fixed != got[k]:
+                logging.warning("Đoạn %d kể lại bước đã làm (%s): %s -> %s", k, _steps_vi(steps), got[k], fixed)
+                got[k] = fixed
+        for k, st, slot, mx, tx, span in slots:               # điểm danh: vào thẳng món đầu, khớp thẻ chữ
+            if (tx or "").lstrip().startswith(SIDE_MARKS[0]) and got.get(k):
+                got[k] = montage_lead(got[k])
         vary_particles(got, [k for k, *_ in slots if d["_ost"].get(k) != "orig"])
         d["_issues"] = (miss, added)
         out = []
@@ -1006,6 +1192,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
             # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
             text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
+            if ost != "orig" and side_lost(text, tx):    # viết lại vẫn mất ý: đọc đúng lời máy soạn cho thẻ chữ
+                text = side_spoken(tx)
             # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
             # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
             out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,
