@@ -755,11 +755,16 @@ def montage_lead(text: str) -> str:
 # ---------- kể lại bước đã làm (bản 49, job 7 phút 1:51) ----------
 # Lời gốc "sau khi mình luộc khoảng tầm 4 phút, lúc này cái mực bung ra" là NHÌN LẠI bước trước; AI viết "giờ mình thả
 # mực vô nồi nước đang sôi, đun chừng 4 phút..." trong khi hình là mực đã bung trong nồi -> người xem tưởng video quay
-# ngược. Bắt: đoạn có "cho nguyên liệu X vào" mà lời gốc của chính đoạn không có thao tác cho vào, và X đã được cho
-# vào ở một đoạn trước.
-_ADD_VERBS = {"thả", "bỏ", "đổ", "trút", "nêm", "rắc", "rưới", "thêm", "ướp", "cho"}
+# ngược. Bắt: đoạn có "cho nguyên liệu X vô CHỖ C" mà lời gốc của chính đoạn không cho X vào, và X đã được cho vô ĐÚNG
+# chỗ C ở một đoạn trước. Phải cùng chỗ: món nhiều công đoạn cho cùng một thứ vào chỗ mới là bước THẬT (ướp mực rồi
+# thả mực vô chảo chiên; luộc trong nồi rồi cho vô chảo xào) — soát độc lập PR #8.
+_ADD_VERBS = {"thả", "bỏ", "đổ", "trút", "nêm", "rắc", "rưới", "thêm", "cho"}
 _ADD_FILL = {"hết", "cả", "chút", "ít", "xíu", "nguyên", "con", "cái", "mấy", "phần", "nốt", "tiếp", "thẳng", "luôn",
              "thêm", "đám", "số", "vô", "vào", "lên"}
+# chỗ cho vào (chữ ngay sau "vô / vào"), gộp từ cùng nghĩa
+_PLACES = {"nồi": "nồi", "xoong": "nồi", "chảo": "chảo", "tô": "tô", "chén": "chén", "bát": "chén", "dĩa": "dĩa",
+           "đĩa": "dĩa", "thau": "thau", "khay": "khay", "hộp": "hộp", "lò": "lò", "xửng": "xửng", "nước": "nước",
+           "dầu": "dầu", "hũ": "hũ", "ly": "ly", "cốc": "ly"}
 _NUMWORD_RE = re.compile(r"\d|(?<![\w])(?:một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|nửa|rưỡi)(?![\w])", re.IGNORECASE)
 
 
@@ -767,10 +772,10 @@ def _qty_word(w: str) -> bool:
     return bool(re.fullmatch(r"[\d.,/-]+", w)) or w in ingredients._WORDNUM or w in ingredients._UNITS
 
 
-def add_actions(text: str) -> set:
-    """Nhóm nguyên liệu được CHO VÀO trong câu: động từ cho vào + (chữ đệm / định lượng) + tên nguyên liệu ngay sau.
-    "thả mực vô nồi" -> {mực}; "thêm nửa muỗng hạt nêm" -> {hạt nêm}; "thêm nữa là mực mua về" / "luộc cho mực chín"
-    -> rỗng."""
+def add_steps(text: str) -> set:
+    """Các lần CHO VÀO trong câu: {(nhóm nguyên liệu, chỗ)}. Động từ cho vào + (chữ đệm / định lượng) + tên nguyên liệu
+    ngay sau + "vô / vào" + chỗ. "thả mực vô nồi nước sôi" -> {(mực, "nồi")}; không nói chỗ -> chỗ "". Không tính:
+    "luộc cho mực chín", "thêm nữa là mực...", "trút mực ra dĩa" (lấy ra), "ướp mực" (không cho vào đâu)."""
     toks = _norm_words(text)
     out: set = set()
     for i, w in enumerate(toks):
@@ -780,25 +785,41 @@ def add_actions(text: str) -> set:
             head = toks[p:p + 3]
             got = ingredients.find(" ".join(head)) - ingredients.find(" ".join(head[1:]))   # tên bắt đầu ĐÚNG ở p
             if got:
-                if w != "cho" or {"vô", "vào"} & set(toks[p + 1:p + 5]):   # "luộc cho mực chín": không phải cho vào
-                    out |= got
+                n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), len(head))
+                after = toks[p + n:p + n + 4]
+                into = next((j for j, x in enumerate(after) if x in ("vô", "vào")), None)
+                if into is None and (w == "cho" or "ra" in after[:2]):   # "luộc cho mực chín" / "trút mực ra dĩa"
+                    break
+                place = _PLACES.get(after[into + 1], "") if into is not None and into + 1 < len(after) else ""
+                out |= {(g, place) for g in got}
                 break
             if toks[p] not in _ADD_FILL and not _qty_word(toks[p]):
                 break
     return out
 
 
+def _steps_vi(steps: set) -> str:
+    """{(nhóm, chỗ)} -> "mực vô nồi, hạt nêm" (cho lời nhắc AI / log)."""
+    return ", ".join(sorted(ingredients.GROUPS[g][0] + (f" vô {c}" if c else "") for g, c in steps))
+
+
+def add_actions(text: str) -> set:
+    """Nhóm nguyên liệu được cho vào trong câu (add_steps, bỏ chỗ)."""
+    return {g for g, _ in add_steps(text)}
+
+
 def replayed_steps(items: list) -> dict:
-    """items: [(k, lời gốc, lời mới)] theo thứ tự video (bỏ câu hook / khúc điểm danh, tóm tắt). Trả {k: {nhóm}}:
-    đoạn kể lại việc cho nguyên liệu vào khi lời gốc của nó không có thao tác cho vào và nguyên liệu đó đã được cho vào
-    ở đoạn trước."""
+    """items: [(k, lời gốc, lời mới)] theo thứ tự video (bỏ câu hook / khúc điểm danh, tóm tắt). Trả {k: {(nhóm, chỗ)}}:
+    đoạn cho nguyên liệu vô một chỗ mà ở đoạn trước nó đã được cho vô đúng chỗ đó, trong khi lời gốc của đoạn không
+    cho nguyên liệu đó vào."""
     done: set = set()
     out: dict = {}
     for k, orig, new in items:
-        mine = add_actions(new)
-        if mine & done and not _orig_adds(orig or "", mine & done):
-            out[k] = mine & done
-        done |= mine | add_actions(orig)
+        mine = add_steps(new)
+        again = {x for x in mine if x[1] and x in done}
+        if again and not _orig_adds(orig or "", {g for g, _ in again}):
+            out[k] = again
+        done |= mine | add_steps(orig)
     return out
 
 
@@ -821,10 +842,11 @@ def _orig_adds(orig: str, groups: set) -> bool:
     return False
 
 
-def drop_replayed(text: str, groups: set) -> str:
-    """Bỏ vế câu kể lại việc cho nguyên liệu vào (không có con số trong vế). Còn dưới 4 chữ thì giữ nguyên câu."""
+def drop_replayed(text: str, steps: set) -> str:
+    """Bỏ vế câu kể lại việc cho nguyên liệu vào (steps: {(nhóm, chỗ)} của replayed_steps; vế có con số thì giữ). Còn
+    dưới 4 chữ thì giữ nguyên câu."""
     parts = re.split(r"(?<=[,.!?;…])\s+", (text or "").strip())
-    keep = [p for p in parts if not (add_actions(p) & groups and not _NUMWORD_RE.search(p))]
+    keep = [p for p in parts if not (add_steps(p) & steps and not _NUMWORD_RE.search(p))]
     if len(keep) == len(parts):
         return text
     out = " ".join(keep).strip()
@@ -1100,8 +1122,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            " đó là kết quả của bước ấy, người xem tưởng video quay ngược); viết về điều đang thấy theo lời"
                            " gốc của chính đoạn đó, không cho lại nguyên liệu vào: " +
                            ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}», đã cho vào trước đó: "
-                                     f"{', '.join(ingredients.GROUPS[g][0] for g in sorted(again[k]))})"
-                                     for k in sorted(again)[:4]))
+                                     f"{_steps_vi(again[k])})" for k in sorted(again)[:4]))
             copies = [k for k in bad if k not in ads and k not in subs and k not in hooks and k not in sides
                       and k not in again]
             if subs:
@@ -1156,11 +1177,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                     logging.warning("Đoạn %d: bỏ số AI tự điền (%s): %s -> %s", k, ", ".join(sorted(bad_nums)), got[k],
                                     fixed)
                     got[k] = fixed
-        for k, groups in _replays(got, d["_ost"]).items():    # viết lại vẫn kể lại bước cũ: bỏ vế câu đó
-            fixed = drop_replayed(got[k], groups)
+        for k, steps in _replays(got, d["_ost"]).items():     # viết lại vẫn kể lại bước cũ: bỏ vế câu đó
+            fixed = drop_replayed(got[k], steps)
             if fixed != got[k]:
-                logging.warning("Đoạn %d kể lại bước đã làm (%s): %s -> %s", k,
-                                ", ".join(ingredients.GROUPS[g][0] for g in sorted(groups)), got[k], fixed)
+                logging.warning("Đoạn %d kể lại bước đã làm (%s): %s -> %s", k, _steps_vi(steps), got[k], fixed)
                 got[k] = fixed
         for k, st, slot, mx, tx, span in slots:               # điểm danh: vào thẳng món đầu, khớp thẻ chữ
             if (tx or "").lstrip().startswith(SIDE_MARKS[0]) and got.get(k):

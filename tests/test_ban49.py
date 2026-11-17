@@ -114,19 +114,44 @@ def test_add_actions():
         assert names(t) == set(), t
 
 
+MUC_NOI = {(next(i for i, g in enumerate(ingredients.GROUPS) if g[0] == "mực"), "nồi")}
+
+
+def test_add_steps_know_where_things_go():
+    assert prompt_engine.add_steps(J7) == MUC_NOI
+    assert prompt_engine._steps_vi(prompt_engine.add_steps("thêm nửa muỗng hạt nêm vào nồi, thả mực vô chảo")) == \
+        "hạt nêm vô nồi, mực vô chảo"
+    for t in ("Ướp mực với chút muối tiêu cho thấm.", "Giờ mình trút mực ra dĩa cho ráo nước.",
+              "Đổ hết mực ra tô nè."):
+        assert prompt_engine.add_steps(t) == set(), t
+
+
+def test_multi_stage_recipe_is_not_a_replay():
+    """Soát độc lập PR #8: cùng nguyên liệu cho vào CHỖ MỚI là bước thật (ướp rồi chiên, luộc rồi xào / bày dĩa)."""
+    uop = (1, "giờ mình rửa sạch mực rồi ướp với chút muối tiêu và gừng",
+           "Giờ mình rửa sạch mực, ướp mực với chút muối tiêu và gừng cho thấm.")
+    chien = (2, "sau đó mình đem đi chiên vàng đều hai mặt",
+             "Rồi mình thả mực vô chảo dầu nóng, chiên cho vàng giòn đều hai mặt.")
+    luoc = (0, "mọi người bỏ mực vô nồi nước sôi", "Giờ mình thả mực vô nồi nước sôi luộc chín.")
+    bay = (2, "rồi mình vớt ra cái dĩa cho ráo", "Mực chín tới rồi nè, giờ mình trút mực ra dĩa cho ráo nước.")
+    xao = (3, "sau đó mình đem đi xào với hành", "Giờ mình cho mực vô chảo xào với hành cho thơm.")
+    for a, b in ((uop, chien), (luoc, bay), (luoc, xao)):
+        assert prompt_engine.replayed_steps([a, b]) == {}, b[2]
+
+
 def test_replayed_step_found_only_when_already_done_and_not_in_source():
     first = (1, "Mọi người bắt nước sôi như thế này. Mọi người bỏ trực tiếp vô luôn.",
              "Bắc nồi nước lên bếp nè, rồi mình thả mực vô nồi nước sôi.")
     later = (3, "đa số người ta giống không à sau khi mình luộc khoảng tầm 4 phút lúc này cái mực mình nó bung ra", J7)
-    assert prompt_engine.replayed_steps([first, later]) == {3: prompt_engine.add_actions(J7)}
+    assert prompt_engine.replayed_steps([first, later]) == {3: MUC_NOI}
     assert prompt_engine.replayed_steps([later]) == {}                                   # lần đầu cho vào: đúng
     again = (3, "rồi xong lúc này thì mình sẽ cho là mực vô luộc tiếp", J7)             # gốc cũng cho vào lần nữa
     assert prompt_engine.replayed_steps([first, again]) == {}
-    assert prompt_engine.drop_replayed(J7, prompt_engine.add_actions(J7)) == \
+    assert prompt_engine.drop_replayed(J7, MUC_NOI) == \
         "Mọi người làm theo cách này nha, mọi người đun chừng 4 phút là mực nở bung ra, nhìn hấp dẫn ghê."
     # Codex PR #8: gốc cho thứ KHÁC vào (hành tây) không che việc AI cho lại mực
     other = (3, "rồi xong lúc này mình cho hành tây vô nồi", "Giờ mình thả mực vô nồi rồi cho hành tây vô luôn.")
-    assert prompt_engine.replayed_steps([first, other]) == {3: prompt_engine.add_actions(J7)}
+    assert prompt_engine.replayed_steps([first, other]) == {3: MUC_NOI}
     named = (3, "rồi xong lúc này thì mình sẽ cho là hành tây, đầu hành, gừng",
              "Giờ mình thêm hành tây, đầu hành với gừng vô.")
     hanh = (2, "đầu tiên mình cho hành tây vô nồi", "Đầu tiên mình thả hành tây vô nồi nè.")
@@ -134,16 +159,16 @@ def test_replayed_step_found_only_when_already_done_and_not_in_source():
     implicit = (3, "rồi mọi người bỏ trực tiếp vô luôn", "Giờ mình thả mực vô nồi nước sôi.")
     assert prompt_engine.replayed_steps([first, implicit]) == {}                       # gốc không nói cho gì: rộng tay
     for o in ("rồi anh chị luộc cho mình là khoảng 4 phút", "thêm nữa là mực mua về để nguyên con"):
-        assert prompt_engine.replayed_steps([first, (3, o, J7)]) == {3: prompt_engine.add_actions(J7)}, o
+        assert prompt_engine.replayed_steps([first, (3, o, J7)]) == {3: MUC_NOI}, o
     short = "Giờ mình thả mực vô, ngon."
-    assert prompt_engine.drop_replayed(short, prompt_engine.add_actions(short)) == short   # còn quá ít chữ: giữ
+    assert prompt_engine.drop_replayed(short, prompt_engine.add_steps(short)) == short   # còn quá ít chữ: giữ
 
 
 _J7_SEGS = [(0.0, 5.6, "Mọi người bắt nước sôi như thế này. Mọi người bỏ trực tiếp vô luôn."),
             (6.0, 11.6, "rồi mọi người bỏ trong này là nửa muỗng bột ngọt cho mình nha"),
             (12.0, 22.0, "đa số người ta giống không à sau khi mình luộc khoảng tầm 4 phút lúc này cái mực mình nó bung "
                          "ra thế này rất là ngon luôn")]
-_J7_HEAD = ["Giờ mình bắc nồi nước lên bếp, đợi sôi lăn tăn rồi thả mực vô luôn nè.",
+_J7_HEAD = ["Giờ mình bắc nồi nước lên bếp, đợi sôi lăn tăn rồi thả mực vô nồi luôn nè.",
             "Tiếp theo mình nêm nửa muỗng bột ngọt vô nồi nước, khuấy nhẹ cho tan đều."]
 
 
@@ -221,6 +246,15 @@ def test_kaggle_spec_carries_side_orig_only():
              "orig": "Nguyên liệu gồm: mực, hành tây."}]
     spec = kaggle_worker.build_spec(job, segs, 9.0, 9.0, 1.0, True, "T", [], None, {}, [], 0)
     assert "orig" not in spec["segments"][0] and spec["segments"][1]["orig"] == "Nguyên liệu gồm: mực, hành tây."
+
+
+def test_dropping_a_number_keeps_compound_words():
+    """Soát độc lập PR #8: "độ" / "cỡ" trong "nhiệt độ", "kích cỡ" không phải chữ ước lượng."""
+    assert ingredients.drop_numbers("Giờ mình chiên mực ở nhiệt độ 170 độ cho tới khi vàng giòn đều nha.",
+                                    {"170 độ"}) == "Giờ mình chiên mực ở nhiệt độ cho tới khi vàng giòn đều nha."
+    assert ingredients.drop_numbers("Cắt mực kích cỡ 2 cm cho vừa ăn.", {"2 cm"}) == "Cắt mực kích cỡ cho vừa ăn."
+    assert ingredients.drop_numbers("Nướng độ 10 phút là được.", {"10 phút"}) == "Nướng là được."
+    assert ingredients.drop_numbers("Luộc khoảng tầm 5 phút là mực bung ra.", {"5 phút"}) == "Luộc là mực bung ra."
 
 
 def test_half_written_as_fraction_or_word_is_the_same_amount():

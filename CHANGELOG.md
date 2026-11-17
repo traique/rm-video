@@ -57,6 +57,18 @@ Còn thấy, chưa sửa bằng máy: 2:28 «Dĩa mực nóng hổi» khi hình 
 lạc nghĩa, sửa tay lúc duyệt); 3 quãng lặng 4-5 giây (1:35, 2:10, 2:24); câu cuối dứt sát màn kết (~0,1s). Số «3 phút»
 (1:33) và «4 phút» (1:25, 1:54) đều đúng lời gốc (người làm video nói cả hai).
 
+### Soát lại trước khi gộp (PR #8: Codex + một lượt soát độc lập)
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời gốc có cho BẤT KỲ thứ gì vào là bỏ qua kiểm «kể lại bước» (gốc «cho hành tây vô» thì AI viết lại «thả mực vô» vẫn lọt) | Chỉ bỏ qua khi gốc nêu đúng nguyên liệu đó, hoặc có thao tác cho vào mà không nói cho gì («bỏ trực tiếp vô luôn») |
+| Món nhiều công đoạn bị bắt nhầm là kể lại: «ướp mực» rồi «thả mực vô chảo chiên», «luộc trong nồi» rồi «trút mực ra dĩa» → vế câu đúng hình bị xoá | Chỉ coi là kể lại khi cho CÙNG nguyên liệu vô ĐÚNG chỗ cũ (cùng nồi / chảo / tô…); «ướp» và «trút / đổ … ra» không phải cho vào |
+| Bỏ số bịa cắt luôn chữ của từ ghép: «chiên ở nhiệt độ 170 độ» → «chiên ở nhiệt», «kích cỡ 2 cm» → «kích» | «độ» / «cỡ» đứng sau nhiệt, mức, tốc, kích… được giữ lại; thêm chữ ước lượng «khoảng tầm» |
+
+Chạy lại trên 160 đoạn lời thật của các job trước: không bắt nhầm đoạn nào; job 7 vẫn bắt đúng đoạn 1:51. Codex còn nêu: khử
+nhiễu hqdn3d chạy sau khi ghép khúc thì «trộn» qua điểm cắt. Đo thật trên video mực: khung đầu sau điểm cắt lệch tối đa
+2/255, PSNR 53-56 dB (mắt không phân biệt), nên giữ (tách lại từng khúc là quay về lỗi hết RAM của job 6).
+
 ## Bản 48 — soát video job 5 (17/11/2026, chạy bản 47)
 
 Bản 47 đã có hiệu lực: lời tóm tắt đọc khớp thẻ TÓM TẮT, «3 đến 4 giọt dầu» đúng đơn vị, chỉ một thẻ «»» 4 PHÚT SAU»,
