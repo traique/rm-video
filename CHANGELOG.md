@@ -42,6 +42,21 @@ Dọn Kaggle theo yêu cầu: xoá dự án Qwen (rmvideo-bench-qwen, rmvideo-be
 nghiệm cũ (rmvideo-lab, rmvideo-lab-an, rmvideo-lab-mount, rm-video-poc); còn rmvideo-worker, rmvideo-analyze,
 rmvideo-phowhisper. Bỏ hướng Qwen offline (đo thử: Qwen3.6 lệch ý / bịa nguyên liệu, Qwen3-30B lệch đoạn hình).
 
+### Soát video job 7 (chạy bản 48)
+
+Hình đúng thứ tự từ đầu tới cuối (so từng khung với video gốc). Chỗ «phút 1:51 như bị sai thứ tự» là do LỜI:
+
+| Lỗi | Sửa |
+| --- | --- |
+| 1:47-1:57 hình là mực đã bung trong nồi (gốc: «sau khi mình luộc khoảng tầm 4 phút, lúc này cái mực bung ra»), AI đọc «giờ mình thả mực vô nồi nước đang sôi, đun chừng 4 phút…» — bước thả mực đã làm ở 0:26 → nghe như video quay ngược | Lệnh cho AI thêm luật «không kể lại bước đã làm». Máy tự bắt: đoạn có «cho nguyên liệu X vào» (thả / bỏ / đổ / nêm / rắc / rưới / thêm…) mà lời gốc của chính đoạn không có thao tác cho vào, và X đã được cho vào ở đoạn trước → bắt viết lại; vẫn còn thì bỏ vế câu đó (không có con số). Chạy lại trên cả kịch bản job 7: chỉ đúng đoạn 1:51 bị bắt |
+| Lời tóm tắt «Dùng mực đông lạnh, trụng hành tây rồi vớt mực» bỏ hẳn bước «đun sôi nước» (còn 58% chữ nên lọt kiểm bản 49) | Kiểm thêm TỪNG Ý: ý nào không còn chữ riêng nào (vd «đun / sôi / nước») là mất ý → viết lại / đọc lời máy soạn. Lời máy soạn cũng đổi từ miền Bắc («ra dĩa») |
+| Lời điểm danh trễ thẻ chữ ~1 giây (thẻ «1/2 muỗng đường» hiện cùng phụ đề «nửa muỗng bột ngọt»): câu hook lấn 0,46s sang khúc điểm danh + AI mở bằng «Rồi mình chuẩn bị…» | Câu ngay trước khúc điểm danh / tóm tắt không được lấn sang khúc đó (mượn khoảng lặng phía trước, hoặc rút gọn); bỏ chữ dẫn «Rồi mình / Giờ mình…» trước «chuẩn bị»; lệnh cho AI: vào thẳng món đầu. Kaggle nhận kèm lời gốc của khúc điểm danh để xếp giọng giống Botkeep |
+| (thấy khi viết test) Thẻ điểm danh ghi «1/2 muỗng», AI đọc «nửa muỗng» → bị coi là đổi số; bỏ số thì «1/2 muỗng đường» thành «1/ đường» | «1/2», «1/4», «3/4» so như 0,5 / 0,25 / 0,75; bỏ số coi «1/2» là một số |
+
+Còn thấy, chưa sửa bằng máy: 2:28 «Dĩa mực nóng hổi» khi hình là mực trong vợt; 3:01 AI viết «thơm lừng rảnh rỗi nè» (chữ
+lạc nghĩa, sửa tay lúc duyệt); 3 quãng lặng 4-5 giây (1:35, 2:10, 2:24); câu cuối dứt sát màn kết (~0,1s). Số «3 phút»
+(1:33) và «4 phút» (1:25, 1:54) đều đúng lời gốc (người làm video nói cả hai).
+
 ## Bản 48 — soát video job 5 (17/11/2026, chạy bản 47)
 
 Bản 47 đã có hiệu lực: lời tóm tắt đọc khớp thẻ TÓM TẮT, «3 đến 4 giọt dầu» đúng đơn vị, chỉ một thẻ «»» 4 PHÚT SAU»,

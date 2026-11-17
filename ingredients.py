@@ -240,6 +240,9 @@ _RANGE_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)" + _RANGE_SEP + r"(\d+(?:[.,]\d+)?)
 
 def _clean_num(n: str) -> str:
     n = n.replace(",", ".")
+    f = re.fullmatch(r"(\d+)/([24])", n)          # "1/2 muỗng" = "nửa muỗng" = 0.5 (bản 49: thẻ điểm danh ghi 1/2,
+    if f:                                          # AI đọc "nửa" -> bị coi là đổi số, bỏ mất định lượng)
+        n = str(int(f.group(1)) / int(f.group(2)))
     return n.rstrip("0").rstrip(".") if "." in n else n
 
 
@@ -265,7 +268,8 @@ def numbers(text: str) -> list:
 # chữ ước lượng đứng trước con số ("độ chừng 3-4 muỗng"): bỏ số thì bỏ luôn, không để câu treo "rưới dầu mè, độ chừng cho
 # dậy mùi" (bản 48, job 6)
 _APPROX = r"(?:(?:khoảng chừng|độ chừng|chừng độ|khoảng|chừng|tầm|cỡ|độ|tầm khoảng)\s+)?"
-_QTY_RE = re.compile(r"(?<![\w])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+(?:[.,]\d+)?|"
+# "1/2 muỗng" là MỘT số (trước đây khớp "2 muỗng" bên trong -> bỏ số thành "Thêm 1/ đường")
+_QTY_RE = re.compile(r"(?<![\w/])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+/\d+|\d+(?:[.,]\d+)?|"
                      + "|".join(_WORDNUM) + r"))\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
 

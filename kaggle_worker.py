@@ -20,7 +20,7 @@ import config
 import kaggle_api
 from kaggle_api import KaggleError
 from rmvideo.services import kaggle_bundle
-from rmvideo.media import proc
+from rmvideo.media import proc, voiceplan
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
@@ -275,7 +275,9 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
             "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
-            "segments": [{k: s.get(k) for k in ("i", "start", "slot", "span", "text", "ost")} for s in segments],
+            # orig chỉ gửi cho khúc điểm danh / tóm tắt: xếp giọng không cho câu trước lấn vào khúc đó (bản 49)
+            "segments": [{**{k: s.get(k) for k in ("i", "start", "slot", "span", "text", "ost")},
+                          **({"orig": s["orig"]} if voiceplan.side_orig(s.get("orig")) else {})} for s in segments],
             "out_dur": out_dur, "render_dur": render_dur, "stretch": stretch, "allow_hd": allow_hd, "title": title,
             "bands": bands or [], "pos_y": pos_y, "subs": bool(job.subs),
             "sep": {"ok": bool(sep.get("ok_remote")), "windows": sep.get("windows")},
