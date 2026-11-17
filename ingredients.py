@@ -262,7 +262,10 @@ def numbers(text: str) -> list:
     return out
 
 
-_QTY_RE = re.compile(r"(?<![\w])((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+(?:[.,]\d+)?|"
+# chữ ước lượng đứng trước con số ("độ chừng 3-4 muỗng"): bỏ số thì bỏ luôn, không để câu treo "rưới dầu mè, độ chừng cho
+# dậy mùi" (bản 48, job 6)
+_APPROX = r"(?:(?:khoảng chừng|độ chừng|chừng độ|khoảng|chừng|tầm|cỡ|độ|tầm khoảng)\s+)?"
+_QTY_RE = re.compile(r"(?<![\w])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+(?:[.,]\d+)?|"
                      + "|".join(_WORDNUM) + r"))\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
 

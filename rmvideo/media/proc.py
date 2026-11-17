@@ -43,7 +43,12 @@ class ProcError(RuntimeError):
     """Tiến trình thoát mã khác 0. `stderr`: đuôi stderr (đã cắt theo trần)."""
 
     def __init__(self, cmd: Sequence[str], code: int | None, stderr: str):
-        super().__init__(f"{os.path.basename(str(cmd[0]))} lỗi: " + stderr[-400:])
+        # bị giết bằng tín hiệu (mã âm / 128+n): ffmpeg không kịp in lỗi, đuôi stderr chỉ còn dòng tiến độ -> nói rõ
+        # (bản 48: "ffmpeg lỗi: frame= 2062 fps=6.6 ..." không biết vì sao; thật ra bị giết vì hết RAM)
+        sig = -code if code is not None and code < 0 else (code - 128 if code is not None and 128 < code < 160 else 0)
+        why = (f"bị hệ thống dừng (tín hiệu {sig}{', thường do máy hết RAM' if sig == 9 else ''}): "
+               if sig else f"lỗi (mã {code}): ")
+        super().__init__(f"{os.path.basename(str(cmd[0]))} {why}" + stderr[-400:])
         self.cmd, self.code, self.stderr = list(cmd), code, stderr
 
 

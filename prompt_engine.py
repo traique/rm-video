@@ -537,6 +537,7 @@ LUẬT BẮT BUỘC:
 - Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền." Từ đệm cuối câu (nha, nè, luôn, ghê) thì đổi qua lại, không hai câu liền nhau cùng kết bằng "nha" (chỉ bớt từ đệm; mỗi đoạn vẫn viết ĐỦ số từ yêu cầu, tả thêm điều đang thấy trên hình).
 - HÀNH ĐỘNG ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) nói NGAY hành động đang diễn ra trên hình ở đầu câu (được mở bằng 1-3 chữ dẫn như "Giờ mình", "Rồi", "Tới đây mình"), vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Giờ mình lật mặt nè, thịt vàng đều rồi." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Rồi mình áp chảo với lửa vừa thôi." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
+- ĐOẠN ĐIỂM DANH / TÓM TẮT: đoạn có lời gốc bắt đầu bằng «Nguyên liệu gồm:» hoặc «Tóm lại:» là máy soạn cho khúc chiếu nguyên liệu / tóm tắt các bước (trên hình có thẻ chữ tương ứng). Đọc lại ĐỦ các ý trong đó, đúng thứ tự, bằng giọng nói chuyện (vd «Chuẩn bị mực, nửa muỗng bột ngọt...», «Tóm lại là để nguyên mực đông, đun sôi nước...»); KHÔNG đổi thành lời khen món hay câu chung chung.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
 - KHÔNG KÊU GỌI ĐĂNG KÝ / THEO DÕI KÊNH ở BẤT KỲ đoạn nào, kể cả đoạn cuối: không viết "đăng ký kênh", "theo dõi", "follow", "like share", "bấm chuông", "ủng hộ kênh", "hẹn gặp lại ở video sau". Lời gốc có câu đó thì bỏ ý đó: viết lời chốt về món ("Vậy là có dĩa cá kèo giòn rụm rồi nè.") hoặc để "text" rỗng.
 - Không emoji trong "text".
@@ -730,6 +731,36 @@ def _side(t: str) -> bool:
     return (t or "").lstrip().startswith(SIDE_MARKS)
 
 
+def side_spoken(orig: str) -> str:
+    """Lời đọc dự phòng của khúc điểm danh / tóm tắt (máy soạn, không phải lời người gốc nên đọc thẳng được)."""
+    body = orig.split(":", 1)[1].strip()
+    return ("Tóm lại là " if orig.lstrip().startswith("Tóm lại") else "Chuẩn bị ") + body
+
+
+_DUP_ITEM_RE = re.compile(r"(?<![\w])([^,.;!?]*?\w\s+\w[^,.;!?]*?)(?:,\s*\1)+(?=[,.;!?]|$)", re.IGNORECASE)
+
+
+def dedupe_items(text: str) -> str:
+    """Bỏ mục lặp liền nhau trong câu liệt kê: "1/2 muỗng hạt nêm, 1/2 muỗng hạt nêm" -> một lần (bản 48, job 6: lời gốc
+    Whisper nghe lặp, AI chép theo, giọng đọc hai lần)."""
+    return _DUP_ITEM_RE.sub(lambda m: m.group(1), text or "")
+
+
+_SIDE_STOP = {"và", "cho", "rồi", "là", "với", "các", "một", "lại", "gồm", "tóm", "nguyên", "liệu", "thêm", "vào", "vô"}
+
+
+def side_lost(new: str, orig: str) -> bool:
+    """Đoạn điểm danh / tóm tắt mà lời mới mất gần hết ý (dưới 40% chữ chính của lời gốc). Bản 48, job 6: «Tóm lại: dùng
+    mực đông lạnh, đun sôi nước, cho hành tây, vớt mực ra đĩa» -> AI viết «Nấu kiểu này đơn giản lắm, ai làm cũng
+    ngon» -> thẻ TÓM TẮT CÁCH LÀM chiếu với lời khen chung chung."""
+    if not _side(orig):
+        return False
+    keys = {w for w in _norm_words(dialect.south(orig.split(":", 1)[1])) if len(w) > 1} - _SIDE_STOP
+    if len(keys) < 3:
+        return False
+    return len(keys & set(_norm_words(dialect.south(new or "")))) / len(keys) < 0.4
+
+
 def merge_sentences(segments: list, out_dur: float) -> list:
     """Gộp các mẩu lời bị cắt ngang thành câu trọn TRƯỚC khi AI viết lại. Máy nghe cắt theo chỗ ngắt hơi nên ra
     những mẩu cụt ("Sau khi mình" | "luộc ... vớt ra" | "cho mình." | "Rồi"); AI viết từng mẩu thành một câu riêng
@@ -867,7 +898,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             try:
                 k = int(x["i"])
                 if (x.get("text") or "").strip():
-                    got[k] = dialect.south(x["text"].strip())          # từ miền Bắc -> miền Nam, TRƯỚC khi kiểm
+                    got[k] = dedupe_items(dialect.south(x["text"].strip()))   # từ miền Bắc -> Nam, TRƯỚC khi kiểm
                 if ost_auto and x.get("ost") in ("orig", "both"):
                     osts[k] = x["ost"]
             except Exception:
@@ -886,7 +917,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
                     or _CTA_RE.search(got[k]) or has_sub_cta(got[k]) \
-                    or _hook_bad(k, got[k]):                       # lặp câu lô trước / quảng cáo / kêu gọi đăng ký
+                    or _hook_bad(k, got[k]) or side_lost(got[k], tx):   # lặp câu lô trước / quảng cáo / đăng ký
                 out.append(k)
         return out
 
@@ -933,7 +964,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
             severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
                       or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
-                      or _hook_bad(k, got.get(k, ""))]
+                      or _hook_bad(k, got.get(k, "")) or side_lost(got.get(k, ""), txt_of.get(k, ""))]
             # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
@@ -946,7 +977,12 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             ads = [k for k in bad if _CTA_RE.search(got.get(k, ""))]
             subs = [k for k in bad if k not in ads and has_sub_cta(got.get(k, ""))]
             hooks = [k for k in bad if _hook_bad(k, got.get(k, ""))]
-            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks]
+            sides = [k for k in bad if side_lost(got.get(k, ""), txt_of.get(k, ""))]
+            if sides:
+                why.append("đoạn điểm danh / tóm tắt phải đọc ĐỦ các ý của lời gốc theo thứ tự, không đổi thành lời khen "
+                           "chung chung: " + ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}»)"
+                                                       for k in sides[:4]))
+            copies = [k for k in bad if k not in ads and k not in subs and k not in hooks and k not in sides]
             if subs:
                 why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
                            "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
@@ -1006,6 +1042,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             ost = d["_ost"].get(k, "new") if tx else "new"     # câu mở đầu: luôn là lời mới
             # chỉ còn thiếu sau khi đã yêu cầu lại mới dùng lời gốc (trừ đoạn giữ nguyên tiếng gốc: không đọc)
             text = got.get(k, "") if ost == "orig" else strip_sub_cta(got.get(k) or tx)
+            if ost != "orig" and side_lost(text, tx):    # viết lại vẫn mất ý: đọc đúng lời máy soạn cho thẻ chữ
+                text = side_spoken(tx)
             # KHÔNG cắt theo số từ (cắt ngang câu -> "vàng đều hai"); đoạn dài để plan_voice
             # xử lý (mượn khoảng lặng/nói nhanh) và nếu vẫn dài thì AI rút gọn NGUYÊN CÂU.
             out.append({"i": k, "start": st, "slot": slot, "span": span, "text": text, "orig": tx, "ost": ost,

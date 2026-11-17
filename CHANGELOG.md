@@ -13,6 +13,35 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 49 — job 6 lỗi khi dựng trên Botkeep (17/11/2026)
+
+Job 6: Kaggle chờ máy quá 35 phút (hàng chờ GPU T4 hôm đó 12-45 phút) → lùi về Botkeep → ffmpeg dựng mạnh chết ở giây
+68 / 188, log chỉ có dòng tiến độ («ffmpeg lỗi: frame= 2062 fps=6.6 …»). Đây là lần đầu bản dựng mạnh phải dựng trên
+Botkeep (job 3-5 dựng trên Kaggle, 31 GB RAM).
+
+Đo lại bằng đúng lệnh dựng của bot trên video mực 1080×1920, kế hoạch dựng mạnh 46 khúc: ffmpeg ngốn **1,08 GB** (bản
+thường 0,34 GB); ở 2 luồng như Botkeep là 0,97 GB, cộng bot trên máy 2 GB RAM → bị hệ thống giết.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Mỗi khúc chính (36 khúc) chạy riêng cả chuỗi màu: khử nhiễu hqdn3d (giữ khung trước), chỉnh màu, làm ấm, làm nét | Nguồn đủ lớn (không phải phóng to): mỗi khúc chỉ cắt khung + đổi cỡ, khử nhiễu / màu / làm nét chạy MỘT lần sau khi ghép (cả đoạn mở đầu và clip phụ); nguồn nhỏ giữ cách cũ |
+| `-threads` chỉ đặt cho đầu vào đầu tiên; đầu vào phụ (đoạn mở đầu, clip phụ, các khúc của clip phụ) giải mã theo số lõi MÁY CHỦ — HEVC 1080×1920 ngốn 120 MB với 2 luồng, 277 MB với 16 luồng | Mọi đầu vào của mọi lệnh ffmpeg giải mã theo số lõi container |
+| Lỗi ffmpeg bị giết không nói gì | Báo mã thoát; bị giết bằng tín hiệu thì ghi «bị hệ thống dừng (tín hiệu 9, thường do máy hết RAM)» |
+
+Sau khi sửa, cùng lệnh dựng ở 2 luồng: **0,57 GB** (giảm 41%; trên máy chủ nhiều lõi bản cũ còn tốn hơn).
+
+Lỗi nội dung thấy trong log job 6:
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời «Tóm lại: dùng mực đông lạnh, đun sôi nước, cho hành tây, vớt mực ra đĩa» bị AI viết thành «Nấu kiểu này đơn giản lắm, ai làm cũng ngon» → thẻ TÓM TẮT chiếu với lời khen chung chung | Lệnh cho AI có luật riêng cho đoạn «Nguyên liệu gồm:» / «Tóm lại:» (đọc đủ ý, đúng thứ tự); mất quá nửa ý thì bắt viết lại; vẫn mất thì đọc đúng lời máy soạn («Tóm lại là …», «Chuẩn bị …») |
+| Bỏ số bịa «3-4 muỗng» để lại câu treo «rưới thêm dầu mè, độ chừng cho dậy mùi» | Bỏ luôn chữ ước lượng đứng trước (khoảng, chừng, độ chừng, tầm, cỡ…) |
+| «1/2 muỗng hạt nêm, 1/2 muỗng hạt nêm» (Whisper nghe lặp, AI chép theo) | Bỏ mục lặp liền nhau trong câu liệt kê |
+
+Dọn Kaggle theo yêu cầu: xoá dự án Qwen (rmvideo-bench-qwen, rmvideo-bench-probe, rmvideo-lab-llm) và 4 notebook thử
+nghiệm cũ (rmvideo-lab, rmvideo-lab-an, rmvideo-lab-mount, rm-video-poc); còn rmvideo-worker, rmvideo-analyze,
+rmvideo-phowhisper. Bỏ hướng Qwen offline (đo thử: Qwen3.6 lệch ý / bịa nguyên liệu, Qwen3-30B lệch đoạn hình).
+
 ## Bản 48 — soát video job 5 (17/11/2026, chạy bản 47)
 
 Bản 47 đã có hiệu lực: lời tóm tắt đọc khớp thẻ TÓM TẮT, «3 đến 4 giọt dầu» đúng đơn vị, chỉ một thẻ «»» 4 PHÚT SAU»,

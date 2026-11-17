@@ -28,7 +28,7 @@ def test_run_reports_errors_caps_stderr_and_kills_whole_group():
         assert r.code == 0 and r.stderr == ""
         with pytest.raises(proc.ProcError) as e:
             await proc.run(["ffmpeg", "-i", "/khong/co.mp4", "-f", "null", "-"], timeout=20)
-        assert e.value.code != 0 and "co.mp4" in e.value.stderr and str(e.value).startswith("ffmpeg lỗi: ")
+        assert e.value.code != 0 and "co.mp4" in e.value.stderr and str(e.value).startswith("ffmpeg lỗi (mã ")
         big = await proc.run(["sh", "-c", "head -c 200000 /dev/zero | tr '\\0' x >&2"], timeout=20, stderr_keep=1000)
         assert len(big.stderr) == 1000                               # log dài không phình RAM
         t = time.time()
