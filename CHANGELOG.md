@@ -13,6 +13,24 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 47 — soát video job 4 (17/11/2026, Kaggle, dựng mạnh + màn kết mặc định)
+
+Soát bằng nhận dạng giọng bản ra, khung 2 giây / lần kèm lời đang đọc, khung nửa giây ở đoạn điểm danh và đoạn kết, so
+khung với video gốc, đo âm thanh từng 0,25 giây ở cuối.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Thẻ TÓM TẮT CÁCH LÀM chiếu 2 giây mà không có lời tóm tắt (lại). AI ghi bước bày món hết 188,9s, nằm GIỮA câu Kaggle gộp «Rất là ngon luôn nè Vậy là đã xong…» (188,2-192,0s) → khúc tóm tắt chen giữa câu, câu đó phủ lên khúc tóm tắt, AI viết một câu «Mực tươi ngon, vậy là xong…» đọc đè | Khúc tóm tắt chèn vào khoảng lặng TRƯỚC câu (lùi qua các câu nối liền); luật mới R8: không khúc phụ nào được cắt đôi một câu (phạm thì bỏ đúng phép đó) |
+| Hai thẻ «»» 4 PHÚT SAU» cho cùng một lần luộc («luộc khoảng 4 phút» … «sau khi luộc khoảng tầm 4 phút») | Mỗi mốc thời gian chỉ ghi một lần, lần sau chỉ «»»» |
+| Gốc «dầu mè khoảng 3-4 giọt», lời đọc «3-4 muỗng dầu mè»: bộ kiểm chỉ so con số («4» có trong «luộc 4 phút») và không biết «giọt» | Thêm đơn vị giọt / nhúm; với đơn vị đo (muỗng, giọt, g, ml, phút…) đổi đơn vị cũng tính là đổi định lượng; còn sót thì chỉ bỏ đúng cụm «3-4 muỗng», giữ «luộc 4 phút» |
+| Câu chốt «… cả nhà nấu thử nha» đọc đè lên màn kết 1 giây, phụ đề hiện xuyên qua màn kết, âm hiệu chen vào chữ «nha» cuối: giọng được xếp tới hết CẢ màn kết | Lời đọc (AI viết, ước lượng, xếp giọng, rút gọn) và phụ đề dứt trước màn kết |
+| 8/26 câu kết bằng «nha» (11 lần trong 3 phút): nghe đều đều như máy (câu mẫu trong lệnh cho AI đều kết bằng «nha») | Lệnh cho AI: từ đệm cuối câu dùng tiết chế, đổi qua lại; hai câu liền nhau cùng kết bằng «nha» / «nè» thì bỏ ở câu sau |
+| Bảng thời gian ghi «Khác 68s» | Tách tên: AI hiểu món, AI chọn cảnh mở đầu, lập kế hoạch dựng |
+
+Đã ổn: chữ hook vừa khung và tắt đúng lúc điểm danh; 5 thẻ nguyên liệu khớp lời đọc (lệch ≤ 0,5s); thẻ mẹo đúng lúc;
+đoạn nêm gia vị không còn bị tua; đoạn giải thích mực đông / mực tươi giờ có lời; âm lượng -14 LUFS; âm hiệu nghe rõ;
+câu chốt kênh đọc đủ.
+
 ## Bản 46 — lời đọc lệch khúc điểm danh / tóm tắt (17/11/2026, job 3: dựng mạnh đã chạy)
 
 Soát bằng nhận dạng giọng + dò thẻ trên từng khung: thẻ nguyên liệu hiện 3,2-8,5s nhưng lời «Các nguyên liệu gồm…» đọc

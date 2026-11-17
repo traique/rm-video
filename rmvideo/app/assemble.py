@@ -94,7 +94,8 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     t["tts"] = round(time.time() - t0, 1)
     clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
     durs = await _durations(clips)
-    plan, too_long = voiceplan.plan_voice(durs, segs, out_dur)
+    speak_end = out_dur - tail                              # lời dứt trước màn kết nối thêm (bản 47)
+    plan, too_long = voiceplan.plan_voice(durs, segs, speak_end)
     if too_long and shorten is not None:                    # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
         on_step(f"Rút gọn {len(too_long)} đoạn quá dài")
         changed = await shorten(too_long, durs)
@@ -104,16 +105,17 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
                 clips[k] = redo.get(k) or {"path": None, "words": []}
             for k, d in zip(changed, await _durations([clips[k] for k in changed])):
                 durs[k] = d
-        plan, too_long = voiceplan.plan_voice(durs, segs, out_dur)
+        plan, too_long = voiceplan.plan_voice(durs, segs, speak_end)
     voice_track = os.path.join(tmp, "voice.wav")
     await voiceplan.compose_voice(clips, plan, voice_track, out_dur)
     srt, ass = "", None
     if subs:
         words = await voiceplan.words_for_track(clips, plan, voice_track, filtergraph.subtitle_texts(segs, teaser))
         if words:
-            srt = subs_mod.to_srt(words)
+            until = speak_end if tail else None
+            srt = subs_mod.to_srt(words, until)
             ass = os.path.join(tmp, "subs.ass")
-            subs_mod.write_ass(words, ass, pos_y, sub_style)
+            subs_mod.write_ass(words, ass, pos_y, sub_style, until)
     if wait_step:
         on_step(wait_step)
     amb, gate = await ambient()

@@ -12,6 +12,17 @@
     12
    ]
   ],
+  "ai.shorten": [
+   [
+    [
+     [
+      3,
+      "Lời mới3 mới3 mới3",
+      3
+     ]
+    ]
+   ]
+  ],
   "ai.timed": [
    [
     "Thịt kho tộ",
@@ -38,7 +49,7 @@
       "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
      ]
     ],
-    10.2,
+    8.0,
     0.0,
     4
    ]
@@ -133,7 +144,7 @@
        "slot": 2.7,
        "span": 2.7,
        "start": 5.1,
-       "text": "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha."
+       "text": "Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha."
       }
      ],
      "sep": {
@@ -364,7 +375,7 @@
       "orig": "bà con bấm vào giỏ hàng góc trái màn hình mua ngay",
       "ost": "new",
       "start": 5.1,
-      "text": "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+      "text": "Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
       "voice": {
        "end": 6.1,
        "speed": 1.0,
@@ -380,7 +391,7 @@
     "parts": [],
     "pieces": [],
     "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
-    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
     "source_meta": {
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"

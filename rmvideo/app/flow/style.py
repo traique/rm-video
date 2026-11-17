@@ -194,9 +194,15 @@ def finalize(plan: edl.EditPlan, segs: list, label_mode: str, end: float, remove
     starts = plan.starts()
     keep = [o for o in plan.overlays if o.kind != "skip"]
     ovs = []
+    used: set = set()
     for p, s in zip(plan.pieces, starts):
         if p.tag == "skip":
             text = skip_label(segs, p.a, label_mode)
+            if text != "»»" and text in used:
+                # cùng một quãng chờ nhắc lại ("luộc khoảng 4 phút" ... "sau khi luộc khoảng tầm 4 phút"): chỉ ghi thời
+                # gian một lần, không thì người xem tưởng chờ gấp đôi (bản 47: hai thẻ »» 4 PHÚT SAU)
+                text = "»»"
+            used.add(text)
             if text:
                 ovs.append(edl.Overlay(round(s + 0.1, 2), round(min(1.6, p.length * plan.stretch - 0.15), 2), "skip",
                                        text))

@@ -34,7 +34,7 @@ def _ts(sec: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
-def group_words(words, max_words=4, max_chars=22):
+def group_words(words, max_words=4, max_chars=22, until: float | None = None):
     """Chia dòng phụ đề CÂN ĐỐI: tách cụm theo câu/dấu phẩy/ngắt hơi/đoạn giọng, rồi chia mỗi cụm
     thành các dòng đều nhau (tránh dòng chỉ còn 1 chữ). words: [(start, end, text[, clip])]."""
     phrases, cur = [], []
@@ -66,7 +66,10 @@ def group_words(words, max_words=4, max_chars=22):
         end = ln[-1][1] + 0.35
         if i + 1 < len(lines):
             end = min(end, lines[i + 1][0][0])
-        out.append((start, max(end, start + 0.3), ln))
+        end = max(end, start + 0.3)
+        if until is not None:                      # không hiện xuyên qua màn kết nối thêm (bản 47)
+            end = max(min(end, until), start + 0.05)
+        out.append((start, end, ln))
     return out
 
 
@@ -84,11 +87,11 @@ def style_line(style: str, brand_color: str = "") -> str:
     return line
 
 
-def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"):
+def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke", until: float | None = None):
     """Phụ đề kiểu CapCut: mỗi dòng 3-4 từ, chữ đang đọc sáng dần sang vàng đúng nhịp giọng (\\kf).
     pos_y: tâm phụ đề theo trục dọc (0-1280) để đè lên dải chữ gốc; None = đáy màn hình."""
     bs = chr(92)
-    lines = group_words(words)
+    lines = group_words(words, until=until)
     pos = ("%san5%spos(360,%d)" % (bs, bs, int(pos_y))) if pos_y else ""
     with open(path, "w", encoding="utf-8") as f:
         import config
@@ -115,9 +118,9 @@ def _srt_ts(sec: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def to_srt(words) -> str:
+def to_srt(words, until: float | None = None) -> str:
     """Phụ đề SRT (cùng cách chia dòng với bản burn-in) để nhập vào CapCut/Premiere sửa tay."""
     out = []
-    for k, (start, end, ln) in enumerate(group_words(words), 1):
+    for k, (start, end, ln) in enumerate(group_words(words, until=until), 1):
         out.append(f"{k}\n{_srt_ts(start)} --> {_srt_ts(end)}\n{' '.join(w[2] for w in ln)}\n")
     return "\n".join(out)
