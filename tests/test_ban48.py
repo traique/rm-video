@@ -133,3 +133,31 @@ def test_voice_report():
     r = common.voice_report(segs, plan, 25.0)
     assert r == "ℹ️ Lời đọc: 12 chữ, giọng phủ 28% video, 1 quãng lặng trên 4 giây, 2/3 câu kết «nha». "
     assert common.voice_report([], [], 10.0) == ""
+
+
+def test_close_replaces_standalone_invitation(monkeypatch):
+    """Codex PR #7: đoạn cuối chỉ có lời mời "Cả nhà làm thử nha." -> trước đây giữ lại, đọc hai lời mời liền nhau."""
+    from rmvideo.app import brand
+    monkeypatch.setattr(config, "BRAND_CLOSE", "Đong đủ là ngon, cả nhà nấu thử nha")
+    segs = [{"text": "Cả nhà làm thử nha."}, {"text": "Mực bung đều rồi."}, {"text": "Cả nhà làm thử nha."}]
+    assert brand.add_close(segs)
+    assert [s["text"] for s in segs] == ["Cả nhà làm thử nha.", "Mực bung đều rồi.",
+                                         "Đong đủ là ngon, cả nhà nấu thử nha."]
+    segs = [{"text": "Mực bung đều rồi."}, {"text": "Cả nhà làm thử nha."}, {"text": "Ngon ghê."}]
+    brand.add_close(segs)
+    assert segs[1]["text"] == "Cả nhà làm thử nha."                    # đoạn áp chót chỉ có lời mời: không để trống
+
+
+def test_scene_metadata_and_hook_localized(monkeypatch):
+    """Codex PR #7: tiêu đề / caption / chữ hook của video không lời cũng đổi từ miền Bắc như lời đọc."""
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(prompt_engine, "genai", object())
+
+    async def fake(prompt, images=None, **kw):
+        return json.dumps({"segments": [{"i": 0, "text": "Đổ nước dùng ra bát."}], "title": "Bát canh ngon",
+                           "caption": "Thêm 2 thìa nước mắm", "hashtags": "#a", "hook": "bát canh ngọt"})
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
+    out = asyncio.run(prompt_engine.generate_scenes("", "", "cook", [(0.0, 4.0, "")], [], 4.0))
+    assert out["segments"][0]["text"] == "Đổ nước dùng ra chén."
+    assert out["title"] == "Chén canh ngon" and out["caption"] == "Thêm 2 muỗng nước mắm"
+    assert out["hook"] == "CHÉN CANH NGỌT"

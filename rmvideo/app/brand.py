@@ -59,8 +59,12 @@ _TRY_RE = re.compile(r"[,;]?\s*(?:(?:cả nhà|mọi người|bà con|các bạn
 
 
 def _drop_try(text: str) -> str:
+    """Bỏ lời mời làm thử. Cả đoạn chỉ là lời mời ("Cả nhà làm thử nha.") -> "" (câu chốt thay chỗ nó); còn lại một
+    chữ lẻ thì giữ nguyên đoạn."""
     out = _TRY_RE.sub("", text or "").strip()
     out = re.sub(r"\s+([.!?…])", r"\1", out).lstrip(",; ")
+    if not re.search(r"\w", out):
+        return ""
     return out if len(out.split()) >= 2 else text
 
 
@@ -77,10 +81,13 @@ def add_close(segs: list) -> bool:
     if re.search(r"\b(làm|nấu)\s+thử\b", line, re.IGNORECASE):
         for sg in spoken[-2:]:
             if line.lower() not in sg["text"].lower():
-                sg["text"] = _drop_try(sg["text"])
+                cut = _drop_try(sg["text"])
+                # đoạn áp chót chỉ có lời mời: giữ (không để đoạn đọc trống); đoạn cuối: câu chốt thay chỗ
+                if cut or sg is spoken[-1]:
+                    sg["text"] = cut
     sg = spoken[-1]
     if line.lower() not in sg["text"].lower():
-        sg["text"] = sg["text"].rstrip() + " " + line
+        sg["text"] = (sg["text"].rstrip() + " " + line).strip()
     return True
 
 

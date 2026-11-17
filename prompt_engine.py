@@ -1015,8 +1015,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         script = " ".join(x["text"] for x in out if x["text"])
         fresh = 1 - sum(x["copy"] for x in out) / max(1, len(out))
         return {"segments": out, "script": script, "fresh": round(fresh, 2), "issues": d.get("_issues", ([], [])),
-                "hook": clean_hook(d.get("hook") or "", " ".join([title, script, *(x["orig"] for x in out),
-                                                                   *_GLOSSARY.get()])) if intro else "",
+                "hook": clean_hook(dialect.south(d.get("hook") or ""),
+                                   " ".join([title, script, *(x["orig"] for x in out), *_GLOSSARY.get()]))
+                if intro else "",
                 "title": dialect.south(d.get("title") or title or script[:80]).strip(),
                 "caption": dialect.south(d.get("caption") or script).strip(),
                 "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
@@ -1076,9 +1077,10 @@ async def generate_scenes(title: str, desc: str, mode: str, segs: list, images: 
             return None
         script = " ".join(x["text"] for x in out)
         metrics.record("llm", "gemini")
-        return {"segments": out, "script": script, "title": (d.get("title") or title or script[:80]).strip(),
-                "caption": (d.get("caption") or script).strip(),
-                "hook": clean_hook(d.get("hook") or "", f"{title} {desc} {script}"),
+        return {"segments": out, "script": script,
+                "title": dialect.south(d.get("title") or title or script[:80]).strip(),
+                "caption": dialect.south(d.get("caption") or script).strip(),
+                "hook": clean_hook(dialect.south(d.get("hook") or ""), f"{title} {desc} {script}"),
                 "hashtags": (d.get("hashtags") or "#viral #fyp").strip()}
     except Exception as e:
         metrics.record("llm", "gemini", ok=False, detail=str(e))
