@@ -12,6 +12,26 @@
     12
    ]
   ],
+  "ai.shorten": [
+   [
+    [
+     [
+      3,
+      "Lời mới3 mới3 mới3",
+      3
+     ]
+    ]
+   ],
+   [
+    [
+     [
+      3,
+      "Lời mới3",
+      3
+     ]
+    ]
+   ]
+  ],
   "ai.timed": [
    [
     "Thịt kho tộ",
@@ -38,7 +58,7 @@
       "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
      ]
     ],
-    10.2,
+    8.0,
     0.0,
     4
    ]
@@ -117,11 +137,11 @@
      "subs": [
       "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
       "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
-      "Dialogue: 0,0:00:03.60,0:00:05.10,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
-      "Dialogue: 0,0:00:05.10,0:00:06.30,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới3 {\\kf30}mới3 {\\kf25}mới3",
-      "Dialogue: 0,0:00:06.30,0:00:07.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Đong {\\kf30}đủ {\\kf30}là {\\kf25}ngon,",
-      "Dialogue: 0,0:00:07.50,0:00:08.40,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}cả {\\kf30}nhà {\\kf25}nấu",
-      "Dialogue: 0,0:00:08.40,0:00:09.30,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}thử {\\kf25}nha."
+      "Dialogue: 0,0:00:03.60,0:00:05.02,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
+      "Dialogue: 0,0:00:05.02,0:00:05.80,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}Lời {\\kf26}mới3 {\\kf22}Đong",
+      "Dialogue: 0,0:00:05.80,0:00:06.57,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}đủ {\\kf26}là {\\kf22}ngon,",
+      "Dialogue: 0,0:00:06.57,0:00:07.35,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}cả {\\kf26}nhà {\\kf22}nấu",
+      "Dialogue: 0,0:00:07.35,0:00:08.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}thử {\\kf22}nha."
      ],
      "teaser": null,
      "title": "THỊT KHO MỀM RỤC",
@@ -193,7 +213,7 @@
     "vi-VN-HoaiMyNeural"
    ],
    [
-    "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+    "Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
     "vi-VN-HoaiMyNeural"
    ]
   ]
@@ -233,7 +253,7 @@
      "texts": [],
      "v": 1
     },
-    "error": "ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s. ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s. ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.1s; 1 đoạn nói nhanh; 1 đoạn vẫn hơi dài; đã che 1 dải chữ gốc.",
     "final_segments": [
      {
       "end": 2.1,
@@ -280,11 +300,11 @@
       "orig": "bà con bấm vào giỏ hàng góc trái màn hình mua ngay",
       "ost": "new",
       "start": 5.1,
-      "text": "Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+      "text": "Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
       "voice": {
-       "end": 9.1,
-       "speed": 1.0,
-       "start": 5.1
+       "end": 7.95,
+       "speed": 1.16,
+       "start": 5.02
       }
      }
     ],
@@ -296,12 +316,12 @@
     "parts": [],
     "pieces": [],
     "post": "📌 Thịt kho mềm\n\n▶ TikTok:\nNgon bá cháy #thitkho\n\n▶ Facebook:\nNgon bá cháy\n\n#thitkho\n\n▶ YouTube Shorts:\nThịt kho mềm #Shorts\n\nNgon bá cháy\n\n#thitkho",
-    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 mới3 mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
+    "script": "Lời mới0 mới0 mới0 Lời mới1 mới1 mới1 Lời mới2 mới2 mới2 Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
     "source_meta": {
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"
     },
-    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,100\nLời mới2 mới2 mới2\n\n4\n00:00:05,100 --> 00:00:06,300\nLời mới3 mới3 mới3\n\n5\n00:00:06,300 --> 00:00:07,500\nĐong đủ là ngon,\n\n6\n00:00:07,500 --> 00:00:08,400\ncả nhà nấu\n\n7\n00:00:08,400 --> 00:00:09,300\nthử nha.\n",
+    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,020\nLời mới2 mới2 mới2\n\n4\n00:00:05,020 --> 00:00:05,796\nLời mới3 Đong\n\n5\n00:00:05,796 --> 00:00:06,571\nđủ là ngon,\n\n6\n00:00:06,571 --> 00:00:07,347\ncả nhà nấu\n\n7\n00:00:07,347 --> 00:00:08,000\nthử nha.\n",
     "status": "queued",
     "step": "Render (FFmpeg)",
     "teaser": {}

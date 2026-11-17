@@ -518,7 +518,7 @@ LUẬT BẮT BUỘC:
 - Lời gốc là bản nhận dạng giọng nói tự động nên có thể nghe nhầm, sai chính tả (ví dụ "nạt vai" là "nạc vai", "1 miếng... 2 miếng" có thể là cách đếm nhịp). Hãy hiểu đúng ý rồi viết chính tả chuẩn; số liệu nào vô lý do nghe nhầm thì bỏ, không bịa số khác.
 - Lời mới của MỖI ĐOẠN chỉ nói đúng những thao tác có trong lời gốc của CHÍNH ĐOẠN ĐÓ, theo đúng thứ tự trong đoạn. TUYỆT ĐỐI không kéo thao tác của đoạn sau lên đoạn trước, không dời thao tác của đoạn trước xuống đoạn sau (vì hình ảnh thao tác đó chỉ xuất hiện đúng lúc đoạn đó). Nếu lời gốc của đoạn dừng giữa chừng (ví dụ kết thúc bằng "cho dứa"), lời mới cũng dừng ở đúng ý đó.
 - Mỗi đoạn có KHOẢNG SỐ TỪ ghi kèm (vd "10-13 từ"; con số cũng tính theo chữ đọc ra: "100g" là 3 từ "một trăm gam", "60%" là 4 từ). Viết TRONG khoảng đó: ít hơn thì giọng hết sớm, video bị lặng dài; nhiều hơn thì tràn sang đoạn sau và phải cắt bớt. Khe dài thì diễn đạt đầy đủ hơn (tả độ vàng, tiếng xèo đang thấy trên hình), KHÔNG thêm thao tác, nguyên liệu hay số liệu mới.
-- Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây, nè, nha) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô luôn nha." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền."
+- Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền." Từ đệm cuối câu (nha, nè, luôn, ghê) dùng TIẾT CHẾ và đổi qua lại: phần lớn câu kết bằng dấu chấm bình thường, không hai câu liền nhau cùng kết bằng "nha".
 - HÀNH ĐỘNG ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) nói NGAY hành động đang diễn ra trên hình ở đầu câu (được mở bằng 1-3 chữ dẫn như "Giờ mình", "Rồi", "Tới đây mình"), vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Giờ mình lật mặt nè, thịt vàng đều rồi." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Rồi mình áp chảo với lửa vừa thôi." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
@@ -686,6 +686,25 @@ _OPEN_END = {"là", "đã", "sẽ", "đang", "của", "và", "với", "thì", "m
 def _open_end(t: str) -> bool:
     w = re.findall(r"\w+", (t or "").lower())
     return bool(w) and w[-1] in _OPEN_END and not (t or "").rstrip().endswith(_SENT_END)
+
+
+_END_PART_RE = re.compile(r"[,\s]+(nha|nè|nhé)\s*([.!?…]*)\s*$", re.IGNORECASE)
+
+
+def vary_particles(got: dict, order: list) -> None:
+    """Hai đoạn đọc liền nhau cùng kết bằng "nha" / "nè": bỏ từ đệm ở đoạn sau ("...4 phút nha." -> "...4 phút.").
+    Bản 47: 8/26 câu kết bằng "nha" (11 lần "nha" trong 3 phút) nghe đều đều như máy dù từng câu vẫn tự nhiên."""
+    prev = ""
+    for k in order:
+        t = (got.get(k) or "").strip()
+        if not t:
+            continue
+        m = _END_PART_RE.search(t)
+        part = m.group(1).lower() if m else ""
+        if part and part == prev and len(t[:m.start()].split()) >= 3:
+            got[k] = t[:m.start()].rstrip(" ,") + (m.group(2) or ".")
+            part = ""
+        prev = part
 
 
 SIDE_MARKS = ("Nguyên liệu gồm:", "Tóm lại:")   # lời "gốc" của khúc điểm danh / tóm tắt (style_b): luôn đứng riêng
@@ -910,7 +929,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            " (phải nhắc lại đủ, đúng đoạn có nó trong lời gốc)")
             if added:
                 why.append("BỊA hoặc ĐỔI nguyên liệu/số liệu không có trong lời gốc: " + ", ".join(added) +
-                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng;"
+                           " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng; gốc"
+                           " 3-4 giọt thì KHÔNG được viết 3-4 muỗng;"
                            " gốc nghe không rõ số thì bỏ số, KHÔNG tự điền)")
             if too_thin:
                 need = {k: (max(2, round(mx * 0.8)), mx) for k, st, slot, mx, tx, span in slots}
@@ -934,7 +954,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 break
         if miss or added:
             logging.warning("Sau khi viết lại vẫn lệch nguyên liệu/số liệu: thiếu %s, bịa %s", miss, added)
-        bad_nums = {x.split(" ")[0] for x in ingredients.check_numbers(orig_all, " ".join(got.values()))[1]}
+        # "số đơn vị" (không chỉ con số): "4 muỗng" tự đổi từ "4 giọt" thì bỏ cụm đó, giữ "luộc 4 phút" (bản 47)
+        bad_nums = set(ingredients.check_numbers(orig_all, " ".join(got.values()))[1])
         if bad_nums:
             # vẫn còn số AI tự điền (bản 43: gốc "nửa muỗng" nghe thành "nổ muỗng", AI viết "1 muỗng" x3): bỏ con số
             # khỏi câu, đọc sai định lượng tệ hơn không đọc số
@@ -944,6 +965,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                     logging.warning("Đoạn %d: bỏ số AI tự điền (%s): %s -> %s", k, ", ".join(sorted(bad_nums)), got[k],
                                     fixed)
                     got[k] = fixed
+        vary_particles(got, [k for k, *_ in slots if d["_ost"].get(k) != "orig"])
         d["_issues"] = (miss, added)
         out = []
         for k, st, slot, mx, tx, span in slots:

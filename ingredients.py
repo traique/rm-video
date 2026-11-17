@@ -218,7 +218,7 @@ def mask(text: str) -> list:
 
 # ---------- Kiểm CON SỐ (chỉ số có đơn vị đo: định lượng, thời gian, nhiệt độ, giá) ----------
 _UNITS = ("g", "gam", "gram", "gr", "kg", "ký", "cân", "lạng", "ml", "lít", "l", "muỗng", "thìa", "muỗng canh",
-          "muỗng cà phê", "thìa canh", "thìa cà phê", "chén", "bát", "ly", "cốc", "tô", "quả", "trái", "củ", "tép",
+          "giọt", "nhúm", "muỗng cà phê", "thìa canh", "thìa cà phê", "chén", "bát", "ly", "cốc", "tô", "quả", "trái", "củ", "tép",
           "nhánh", "cây", "lá", "miếng", "lát", "con", "cái", "gói", "hộp", "lon", "chai", "phút", "giây", "tiếng",
           "giờ", "ngày", "độ", "%", "phần", "k", "nghìn", "ngàn", "triệu", "đồng", "đ", "tuổi", "người", "cm", "mm", "m")
 _NUM_RE = re.compile(r"(\d+/\d+|\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
@@ -248,19 +248,21 @@ def numbers(text: str) -> list:
     return out
 
 
-_QTY_RE = re.compile(r"(?<![\w])(\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")\s+(" +
+_QTY_RE = re.compile(r"(?<![\w])(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|" + "|".join(_WORDNUM) + r")\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
 
 
 def drop_numbers(text: str, bad: set) -> str:
-    """Bỏ các cụm "số + đơn vị" có CON SỐ thuộc `bad` (số AI tự điền, lời gốc không có): "Nêm một muỗng bột ngọt,
-    một muỗng đường" với bad={"1"} -> "Nêm bột ngọt, đường". Giữ nguyên tên nguyên liệu và mọi chữ khác."""
+    """Bỏ các cụm "số + đơn vị" AI tự điền / tự đổi (lời gốc không có). Phần tử của `bad`: CON SỐ ("1": bỏ mọi "1 +
+    đơn vị") hoặc "số đơn vị" ("4 muỗng": chỉ bỏ cụm đó, giữ "4 phút"). "Nêm một muỗng bột ngọt, một muỗng đường" với
+    bad={"1"} -> "Nêm bột ngọt, đường". Khoảng "3-4 muỗng" bỏ trọn. Giữ nguyên tên nguyên liệu và mọi chữ khác."""
     def one(m):
-        n = m.group(1).lower()
+        n = re.split(r"\s*[-–]\s*", m.group(1).lower())[-1]
         n = _WORDNUM.get(n, n).replace(",", ".")
         if "." in n:
             n = n.rstrip("0").rstrip(".")
-        return "" if n in bad else m.group(0)
+        u = _norm_num(f"{n} {m.group(2).lower()}").split(" ", 1)[1]
+        return "" if n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad} else m.group(0)
     out = _QTY_RE.sub(one, text or "")
     out = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"\s{2,}", " ", out)).strip()
     return out[:1].upper() + out[1:] if out and (text or "")[:1].isupper() else out
@@ -279,11 +281,32 @@ def _norm_num(s: str) -> str:
     return f"{n} {u}"
 
 
+# đơn vị ĐO: cùng con số mà đổi đơn vị là đổi định lượng (bản 47: gốc "dầu mè khoảng 3-4 giọt", AI viết "3-4 muỗng
+# dầu mè" mà vẫn qua vì trước đây chỉ so CON SỐ). Đơn vị đếm (cái / quả / con / miếng...) đổi qua lại được.
+_MEASURE = {"g", "kg", "lạng", "ml", "l", "muỗng", "chén", "ly", "tô", "giọt", "nhúm", "chai", "lon", "gói", "hộp",
+            "phút", "giây", "giờ", "ngày", "độ", "%"}
+
+
+def _family(u: str) -> str:
+    return "muỗng" if u.startswith("muỗng") else u          # muỗng canh / muỗng cà phê / muỗng: cùng một loại
+
+
+def _family_key(x: str) -> str:
+    n, _, u = x.partition(" ")
+    return f"{n} {_family(u)}" if u else n
+
+
 def check_numbers(orig: str, new: str) -> tuple:
-    """(số bị mất, số bị bịa/đổi). So theo CON SỐ; đơn vị tương đương Bắc/Nam coi như nhau."""
+    """(số bị mất, số bị bịa/đổi). So theo CON SỐ; đơn vị tương đương Bắc/Nam coi như nhau; với đơn vị ĐO thì đổi
+    đơn vị (giọt -> muỗng, phút -> giờ) cũng tính là đổi định lượng."""
     a = {_norm_num(x) for x in numbers(orig)}
     b = {_norm_num(x) for x in numbers(new)}
     an, bn = {x.split(" ")[0] for x in a}, {x.split(" ")[0] for x in b}
-    missing = sorted(x for x in a if x.split(" ")[0] not in bn)
-    added = sorted(x for x in b if x.split(" ")[0] not in an)
+    ak, bk = {_family_key(x) for x in a}, {_family_key(x) for x in b}
+
+    def lost(x: str, have_n: set, have_k: set) -> bool:
+        n, u = x.split(" ", 1)
+        return n not in have_n or (_family(u) in _MEASURE and _family_key(x) not in have_k)
+    missing = sorted(x for x in a if lost(x, bn, bk))
+    added = sorted(x for x in b if lost(x, an, ak))
     return missing, added

@@ -105,6 +105,23 @@ def _split_at(pieces: list, t: float) -> int:
     return 0
 
 
+def _sentence_start(segs: list, t: float) -> float:
+    """t nằm giữa (hoặc sát đầu) một câu -> chỗ chèn ngay TRƯỚC câu đó, trong khoảng lặng với câu trước (không cắt đôi
+    câu, và câu không bị tính là bắt đầu trước khúc chèn). Bản 47: bước bày món AI ghi hết 188,9s, nằm giữa câu Kaggle
+    gộp "Rất là ngon luôn nè Vậy là đã xong..." (188,2-192,0s): khúc tóm tắt chen vào giữa, câu đó (tính từ đầu tới
+    cuối trên video ra) phủ lên khúc tóm tắt, AI viết một câu đọc đè -> thẻ TÓM TẮT chiếu mà không có lời tóm tắt."""
+    a = next((x for x, y, _ in segs if x - 0.1 <= t < y - 0.1), None)
+    if a is None:
+        return t
+    while True:                                    # câu nối liền câu trước (không có khoảng lặng): lùi tiếp
+        prev = [x for x, y, _ in segs if x < a - 0.01 and abs(y - a) <= 0.05]
+        if not prev:
+            break
+        a = min(prev)
+    pe = max((y for x, y, _ in segs if y <= a + 0.01), default=0.0)
+    return round(max((pe + a) / 2, a - 0.4, 0.0), 3)
+
+
 def _gap_bounds(segs: list, keep: list[bool], a: float, b: float) -> tuple[float, float]:
     """Mở [a, b] ra tới giữa khoảng lặng với câu được giữ hai bên (không cắt vào câu khác)."""
     before = [s[1] for s, k in zip(segs, keep) if k and s[1] <= a + 0.01]
@@ -171,7 +188,8 @@ def _label(it: recipe.Item) -> str:
 OPS = {"B3": "bỏ chào hỏi", "B6": "đổi chỗ bước sơ chế", "B2": "điểm danh nguyên liệu", "B4": "dời cảm thán",
        "B5": "tóm tắt", "B9": "bỏ lời tán gẫu"}
 # phép nào bị nghi khi gặp lỗi của luật nào (thử bỏ lần lượt, phép rủi ro cao trước)
-_SUSPECTS = (("R5 khúc recap", ("B5",)), ("R5 khúc montage", ("B2",)), ("R2 bước nấu", ("B6", "B4")),
+_SUSPECTS = (("R5 khúc recap", ("B5",)), ("R5 khúc montage", ("B2",)), ("R8 khúc recap", ("B5",)),
+             ("R8 khúc montage", ("B2",)), ("R8 khúc moved", ("B4", "B6")), ("R2 bước nấu", ("B6", "B4")),
              ("R3", ("B6",)), ("R7", ("B9",)), ("R1", ("B9", "B3", "B6", "B4")), ("R4", ("B3", "B6", "B4", "B9")),
              ("R2", ("B6", "B4", "B2", "B5")), ("", ("B6", "B4", "B3", "B5", "B2", "B9")))
 
@@ -295,12 +313,14 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         did.append(f"tóm tắt {len(pick)} bước trước khi kết")
     if tail:
         last = max((k for k, p in enumerate(pieces) if p.role == "main"), default=len(pieces) - 1)
-        ins = last if pieces[last].push > 0 else last + 1     # trước cảnh món cuối (đang đẩy cận) nếu có
+        t_in = pieces[last].a if pieces[last].push > 0 else pieces[last].b   # trước cảnh món cuối (đang đẩy cận)
         # có lời chào kết sau bước bày món ("vậy là xong... chúc thành công... mấy điểm"): tóm tắt đứng TRƯỚC lời
         # chào kết, không chen giữa "chúc thành công" và "cho mấy điểm" (bản 46)
         done = max((s.t1 for s in steps if s.kind in CORE_KINDS), default=end)
         if done < pieces[last].a - edl.MIN_PIECE:
-            ins = _split_at(pieces, done)
+            t_in = done
+        t_in = _sentence_start(segs, t_in)                   # không cắt đôi câu (bản 47)
+        ins = _split_at(pieces, t_in) if t_in < pieces[last].b - 0.01 else last + 1
         pieces[ins:ins] = tail
     out = edl.EditPlan(pieces=pieces, stretch=stretch, level="strong")
     # lời "gốc" cho khúc side (để AI viết lời mới cho đúng hình) + thẻ nguyên liệu
@@ -337,7 +357,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
 
 
 def check_rules(plan: edl.EditPlan, segs: list, steps: list, chat: list[bool]) -> list[str]:
-    """Luật cứng R1-R7 (rỗng = đạt)."""
+    """Luật cứng R1-R8 (rỗng = đạt)."""
     errs = list(plan.validate())                                              # R6
     starts = plan.starts()
 
@@ -405,6 +425,16 @@ def check_rules(plan: edl.EditPlan, segs: list, steps: list, chat: list[bool]) -
             m = (p.a + p.b) / 2
             if not any((q.role == "main" or q.tag == "moved") and q.a - 0.6 <= m <= q.b + 0.6 for q in plan.pieces):
                 errs.append(f"R5 khúc {p.tag} ở giây {p.a:.1f} không còn trong video chính")
+    for k, p in enumerate(plan.pieces):                                       # R8
+        # khúc phụ chèn vào giữa video gốc (hai khúc main hai bên liền nhau trên video gốc) không được cắt đôi một câu
+        prev = plan.pieces[k - 1] if k else None
+        if p.role == "main" or prev is None or prev.role != "main":
+            continue
+        m = next((q for q in plan.pieces[k:] if q.role == "main"), None)
+        if m is not None and abs(m.a - prev.b) < 0.02:
+            cut = next(((a, b) for a, b, _ in segs if a + 0.1 < prev.b < b - 0.1), None)
+            if cut:
+                errs.append(f"R8 khúc {p.tag} chèn giữa câu ở giây {cut[0]:.1f}")
     for p in plan.pieces:                                                     # R7
         if p.tag == "skip":
             for (a, b, _), c in zip(segs, chat):

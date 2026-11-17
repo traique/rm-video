@@ -156,7 +156,7 @@ class Remake:
         self.apply_teaser()
         self.add_tail()
         self.choose_backend()
-        self.target = int(self.out_dur)               # đường dự phòng (đọc một mạch): theo độ dài SẼ dựng
+        self.target = int(self.content_end)             # đường dự phòng (đọc một mạch): theo độ dài SẼ dựng
         if self.raw_segs:                             # (sau khi cắt quảng cáo / thêm đoạn mở đầu)
             self.text = " ".join(t for a, _, t in self.segs if a < self.out_dur - 0.5 and t)
         self.segs = [s for s in self.segs if s[0] < self.out_dur - 0.5]
@@ -253,7 +253,7 @@ class Remake:
             job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
             timed = await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, scenes.snap_to_cuts(segs, cuts) if len(segs) >= 2 else segs,
-                self.out_dur, images_for=self.keyframes_for, **({"teaser": T} if T else {}))
+                self.content_end, images_for=self.keyframes_for, **({"teaser": T} if T else {}))
             if not timed:
                 job.note("ℹ️ Bản ngắn: AI viết lời lỗi, bỏ bản ngắn. ")
                 return None
@@ -531,6 +531,13 @@ class Remake:
                  + (", cảnh ngắn nên đứng hình" if tz.get("still") else "") + ") kèm câu hook"
                  + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". ")
 
+    @property
+    def content_end(self) -> float:
+        """Giây hết phần video thật (trước màn kết nối thêm): lời đọc phải dứt trước đó. Bản 47: giọng được xếp tới hết
+        CẢ màn kết -> câu chốt đọc đè lên màn kết, âm hiệu chen vào chữ cuối, phụ đề hiện xuyên qua màn kết."""
+        tail = getattr(self, "tail", 0.0)
+        return round(self.out_dur - tail, 3) if tail else self.out_dur
+
     def add_tail(self):
         """Màn kết nối thêm sau video (bản 43) khi video giữ độ dài tự nhiên; không vượt Reels 90 giây (video ≤ 90 giây)
         hay giới hạn độ dài. Video cắt theo 30/60/90 giây / giới hạn: màn kết đè lên cuối như cũ."""
@@ -564,14 +571,14 @@ class Remake:
             job.step = (f"Viết lại {len(self.segs)} đoạn theo mốc lời"
                         + (f" + {len(self.cuts)} điểm chuyển cảnh" if self.cuts else "") + " (AI)")
             return await prompt_engine.generate_timed_any(
-                self.title, self.desc, job.mode, self.segs, self.out_dur,
+                self.title, self.desc, job.mode, self.segs, self.content_end,
                 images_for=self.keyframes_for,            # AI nhìn ảnh từng đoạn để lời khớp hình
                 **({"teaser": float(self.tz["dur"])} if self.tz else {}))
         if len(self.cuts) >= 2 or (not self.cuts and scenes.mode() == "light" and await self.late_cuts()):
-            sc = scenes.scene_segments(self.cuts, self.out_dur)   # video không lời: AI nhìn ảnh từng cảnh
+            sc = scenes.scene_segments(self.cuts, self.content_end)   # video không lời: AI nhìn ảnh từng cảnh
             job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
             return await prompt_engine.generate_scenes(self.title, self.desc, job.mode, sc,
-                                                       await self.keyframes_for(sc), self.out_dur)
+                                                       await self.keyframes_for(sc), self.content_end)
         return None
 
     def apply_script(self, timed: dict):
@@ -612,7 +619,7 @@ class Remake:
         est_k = 1.0 if self.remote else 0.85
         est = [0.0 if sg.get("ost") == "orig" else
                prompt_engine.spoken_words(sg["text"]) / prompt_engine.words_per_sec() * est_k for sg in segs_t]
-        _, sure_long = voiceplan.plan_voice(est, segs_t, self.out_dur)
+        _, sure_long = voiceplan.plan_voice(est, segs_t, self.content_end)
         if sure_long:
             self.job.step = f"Rút gọn trước {len(sure_long)} đoạn chắc chắn quá dài"
             await self.shorten(segs_t, sure_long, est)
@@ -847,7 +854,7 @@ class Remake:
 
     async def shorten(self, segs_t: list, idx: list, durs: list) -> list:
         """AI rút gọn các đoạn idx (nguyên câu, không mất nguyên liệu/con số). Trả chỉ số đoạn đã đổi."""
-        out_dur = self.out_dur
+        out_dur = self.content_end
         items = []
         close = brand.close_line()
         tails: dict = {}
