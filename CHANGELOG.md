@@ -18,6 +18,19 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 Soát bằng nhận dạng giọng + dò thẻ trên từng khung: thẻ nguyên liệu hiện 3,2-8,5s nhưng lời «Các nguyên liệu gồm…» đọc
 5,9-14,7s; thẻ TÓM TẮT hiện 161-164s mà không có lời tóm tắt.
 
+Soát kỹ lượt 2 trên chính video job 3 (khung 2 giây / lần kèm lời đang đọc, khung dày ở đoạn điểm danh và nêm gia vị,
+so với video gốc, đo âm thanh): thêm 4 lỗi —
+
+| Lỗi | Sửa |
+| --- | --- |
+| Đoạn đầu bếp múc đường / hạt nêm (33-35s gốc) bị tua nhanh: người gốc nói «nêm nửa muỗng…» xong mới múc, quãng lặng 4,6s chuyển động thấp (muỗng ở mép khung) | Sau câu dặn thao tác có nguyên liệu / định lượng (không phải câu báo thời gian chờ như «nướng 30 phút») giữ tốc độ thường 4 giây rồi mới được tua |
+| Câu chốt kênh bị AI rút gọn còn «cả nhà nấu thử nha» (mất «Đong đủ là ngon») | Câu chốt không đưa cho AI rút gọn, chỉ rút phần trước nó |
+| Âm hiệu màn kết ~-40 dB, gần như không nghe (file tạo bằng nguồn sine của FFmpeg chỉ 1/8 biên độ: -35 LUFS, đỉnh -29 dBFS) | Tạo lại file (-17 LUFS); lúc dựng tự chuẩn hoá đỉnh mọi âm hiệu (kể cả file tải lên) về -4 dBFS |
+| Chữ hook đè thẻ nguyên liệu đầu tiên 0,5 giây | Chữ hook tắt đúng lúc điểm danh bắt đầu |
+
+Đã ổn: âm lượng -14 LUFS, giọng cao hơn tiếng nền ~10 dB, không lọt tiếng gốc; thẻ nguyên liệu đúng cảnh; thẻ mẹo; nhãn
+tua; màn kết nối thêm.
+
 | Lỗi | Sửa |
 | --- | --- |
 | Câu thứ hai bắt đầu 2,68s, khúc điểm danh chèn ở 2,7s (ranh giới chuyển cảnh) → câu bị tính bắt đầu TRƯỚC khúc điểm danh, gộp chung, AI đọc câu đó đè lên thẻ rồi mới đọc nguyên liệu | Dời ranh giới khúc về đúng cuối câu mở đầu (2,58s) để chèn |

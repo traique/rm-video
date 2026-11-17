@@ -849,12 +849,24 @@ class Remake:
         """AI rút gọn các đoạn idx (nguyên câu, không mất nguyên liệu/con số). Trả chỉ số đoạn đã đổi."""
         out_dur = self.out_dur
         items = []
+        close = brand.close_line()
+        tails: dict = {}
         for i in idx:
             room = (segs_t[i + 1]["start"] if i + 1 < len(segs_t) else out_dur) - segs_t[i]["start"]
-            n = len(segs_t[i]["text"].split())
-            items.append((i, segs_t[i]["text"], max(3, int(n * room / max(durs[i], 0.1) * 0.95))))
+            text = segs_t[i]["text"]
+            n = len(text.split())
+            budget = max(3, int(n * room / max(durs[i], 0.1) * 0.95))
+            if close and text.rstrip().endswith(close) and text.strip() != close:
+                # câu chốt của kênh không đưa cho AI rút gọn (bản 46: "Đong đủ là ngon, cả nhà nấu thử nha" bị rút
+                # thành "cả nhà nấu thử nha"): rút phần trước nó, giữ nguyên câu chốt
+                tails[i] = close
+                text = text.rstrip()[: -len(close)].rstrip()
+                budget = max(3, budget - len(close.split()))
+            items.append((i, text, budget))
         changed = []
         for i, text in (await prompt_engine.shorten(items)).items():
+            if i in tails:
+                text = f"{text.rstrip()} {tails[i]}"
             if 0 <= i < len(segs_t) and len(text.split()) < len(segs_t[i]["text"].split()) \
                     and ingredients.find(text) >= ingredients.find(segs_t[i]["text"]) \
                     and not ingredients.check_numbers(segs_t[i]["text"], text)[0]:   # không được mất nguyên liệu/số

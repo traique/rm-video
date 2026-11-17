@@ -310,25 +310,25 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         k_m = next(k for k, q in enumerate(pieces) if q is montage[0][0])
         t0 = starts[k_m]
         out.texts.append({"t": round(t0, 2), "dur": round(sum(p.length for p, _ in montage) * stretch, 2),
-                          "text": MONTAGE_MARK + " " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
+                          "kind": "montage", "text": MONTAGE_MARK + " " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
         out.overlays = [edl.Overlay(round(s + 0.1, 2), round(p.length * stretch - 0.2, 2), "ingredient", lab)
                         for (p, lab), s in zip(montage, starts[k_m: k_m + len(montage)])]
     if moved:
         mk = next(i for i, q in enumerate(pieces) if q.tag == "moved" and not any(q is x for x in tail))
         mp = pieces[mk]
         out.texts.append({"t": round(starts[mk], 2), "dur": round(mp.length * stretch, 2),
-                          "text": " ".join(t for a, b, t in segs if mp.a <= a and b <= mp.b)})
+                          "kind": "moved", "text": " ".join(t for a, b, t in segs if mp.a <= a and b <= mp.b)})
     if tail:
         # lời "gốc" riêng cho cảm thán và cho tóm tắt (trước đây chung một đoạn, AI gộp với câu chào kết rồi bỏ mất
         # ý tóm tắt — video thật 17/11 chiếu thẻ TÓM TẮT mà không đọc)
         mt = [k for k, p in enumerate(pieces) if p.tag == "moved" and any(p is x for x in tail)]
         if mt and react_text:
             out.texts.append({"t": round(starts[mt[0]], 2), "dur": round(pieces[mt[0]].length * stretch, 2),
-                              "text": react_text})
+                              "kind": "react", "text": react_text})
         rk = [k for k, p in enumerate(pieces) if p.tag == "recap"]
         if rk:
             out.texts.append({"t": round(starts[rk[0]], 2), "dur": round(sum(pieces[k].length for k in rk) * stretch, 2),
-                              "text": recap_text})
+                              "kind": "recap", "text": recap_text})
             out.overlays.append(edl.Overlay(round(starts[rk[0]] + 0.05, 2),
                                             round(sum(pieces[k].length for k in rk) * stretch - 0.1, 2), "tip",
                                             "TÓM TẮT CÁCH LÀM"))

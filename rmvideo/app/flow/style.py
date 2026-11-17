@@ -30,6 +30,21 @@ SENT_GAP = 0.35       # ngắt câu: khoảng lặng giữa hai câu từ chừn
 ZOOMS = (1.0, 1.12, 1.0, 1.18)
 PUSH = 0.06
 FPS = 2.0
+ACT_HOLD = 4.0        # sau câu có nguyên liệu / định lượng: giữ tốc độ thường chừng này giây rồi mới được tua / bỏ —
+                      # người gốc nói "nêm nửa muỗng đường, nửa muỗng hạt nêm" xong mới múc (bản 46: phần múc gia vị
+                      # bị tua 2 lần, muỗng ở mép khung nên đo chuyển động không bắt được)
+
+
+_WAIT_UNITS = {"phút", "giây", "tiếng", "giờ"}
+
+
+def _action_line(text: str) -> bool:
+    """Câu dặn một thao tác sắp làm (có nguyên liệu / định lượng) mà KHÔNG nói thời gian chờ: "nướng 30 phút" là báo
+    chờ -> được tua ngay (thẻ »» 30 PHÚT SAU), còn "nêm nửa muỗng đường" thì thao tác theo sau phải được xem trọn."""
+    import ingredients
+    if any(x.split(" ", 1)[1] in _WAIT_UNITS for x in ingredients.numbers(text or "")):
+        return False
+    return bool(ingredients.find(text or "") or recipe.parse(text or ""))
 
 
 # ---------------- chuyển động ----------------
@@ -99,6 +114,7 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
     """segs: lời gốc [(a, b, lời)] trục GỐC trong [0, end]; cuts: điểm chuyển cảnh trục gốc; mot: motion().
     drop(a, b): quãng lời được phép bỏ (lớp B: lời tán gẫu lúc chờ) -> coi như khoảng lặng."""
     speech = _speech_windows([(a, b) for a, b, t in segs if not (drop and drop(a, b))], end)
+    acts = [b for a, b, t in segs if not (drop and drop(a, b)) and _action_line(t)]
     vals = sorted(mot) if mot else []
     lo = vals[int(len(vals) * 0.35)] if vals else None
     dead = vals[int(len(vals) * 0.15)] if vals else None
@@ -115,6 +131,8 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
     removed = skipped_src = 0.0
     for g0, g1, lead in gaps:
         i0, i1 = (g0 if lead else g0 + PAD), g1 - PAD
+        if any(g0 - 0.35 <= e <= g0 + 0.05 for e in acts):
+            i0 = max(i0, g0 + ACT_HOLD)                # thao tác vừa nói tới: cho xem trọn
         L = i1 - i0
         if L < 1.0:
             continue

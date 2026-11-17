@@ -185,6 +185,7 @@
       "texts": [
        {
         "dur": 2.1,
+        "kind": "recap",
         "t": 10.99,
         "text": "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa."
        }
@@ -397,6 +398,7 @@
      "texts": [
       {
        "dur": 2.1,
+       "kind": "recap",
        "t": 10.99,
        "text": "Tóm lại: cho thịt vào chảo, mở nắp, bày ra dĩa."
       }

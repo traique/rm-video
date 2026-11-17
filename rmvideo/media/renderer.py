@@ -4,6 +4,7 @@ Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương 
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 
@@ -220,6 +221,27 @@ def brand_hex(alpha: float | None = None) -> str:
 
 
 OUTRO_DUR = 2.2
+STING_PEAK = -4.0          # dBFS: đỉnh của âm hiệu trước khi trộn (bản 46: file mặc định đỉnh -29 dBFS, ra video còn
+                           # ~-40 dB, gần như không nghe thấy; file tải lên to nhỏ đủ kiểu -> chuẩn hoá lúc trộn)
+_STING_GAIN: dict = {}
+
+
+async def sting_gain(path: str) -> float:
+    """Số dB cần cộng để đỉnh âm hiệu bằng STING_PEAK (đo một lần mỗi file; đo lỗi thì 0)."""
+    try:
+        key = (path, os.path.getmtime(path))
+    except OSError:
+        return 0.0
+    if key not in _STING_GAIN:
+        from rmvideo.media import proc
+        try:
+            r = await proc.run(["ffmpeg", "-v", "info", "-nostats", "-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                               timeout=60, stderr_keep=None)
+            m = re.search(r"max_volume:\s*(-?[\d.]+) dB", r.stderr or "")
+            _STING_GAIN[key] = max(-12.0, min(30.0, STING_PEAK - float(m.group(1)))) if m else 0.0
+        except Exception:
+            _STING_GAIN[key] = 0.0
+    return _STING_GAIN[key]
 STING_LEN = 1.4            # âm hiệu màn kết (cắt ở 1,8 giây; bộ Bếp Đong Đủ dài 1,3 giây)
 
 
@@ -237,6 +259,16 @@ def title_layout(title: str, W: int, H: int) -> tuple[list, int]:
     """(các dòng, cỡ chữ) của chữ hook cho vừa khung: đo theo font thật (textfit), tối đa 3 dòng."""
     k = H / 1280
     return textfit.fit(title.strip(), text_room(W, int(TITLE_PAD * k)), int(TITLE_FS * k), max_lines=3)
+
+
+def hook_title_end(T: float, plan) -> float | None:
+    """Lúc tắt chữ hook (None = mặc định 0,3-3,3s). Có đoạn mở đầu: hết đoạn đó. Điểm danh nguyên liệu bắt đầu sớm hơn
+    thì tắt đúng lúc đó (bản 46: chữ hook đè thẻ «Mực» nửa giây)."""
+    end = (T + 0.3) if T else None
+    first = min((float(x["t"]) for x in (plan.texts if plan else []) if x.get("kind") == "montage"), default=None)
+    if first is not None and first + T < (end or 3.3):
+        end = round(first + T, 2)
+    return end
 
 
 def fit_one(text: str, W: int, fs_max: int) -> int:
@@ -423,7 +455,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
                       bed=bool(music_bed and ambient_wav), teaser=tz, edit=plan, side_inputs=side_inputs,
                       side_audio=side_audio, tail=max(0.0, tail))
-    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=(T + 0.3) if T else None,
+    title_end = hook_title_end(T, plan)
+    brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=title_end,
                           tagline_file=tagline_file, title_fs=title_fs, outro_fs=outro_fs, tagline_fs=tagline_fs)
     cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
     if cards:
@@ -438,7 +471,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
             at = max(at, min(sting_after + 0.15, out_dur - STING_LEN))
         ms = int(at * 1000)
         fc = fc.replace("[a]", "[a0]", 1)
-        fc += (f";[{sting_idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:1.8,"
+        gain = await sting_gain(sting_file)
+        fc += (f";[{sting_idx}:a]aformat=sample_rates=48000:channel_layouts=stereo,atrim=0:1.8,volume={gain:.1f}dB,"
                f"adelay={ms}|{ms},volume=0.7[sting];[a0][sting]amix=inputs=2:duration=first:normalize=0[a]")
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
     fc = await two_pass_loudness(fc, audio_in, out_dur)

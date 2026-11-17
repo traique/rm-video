@@ -216,3 +216,57 @@ def test_side_texts_never_merged():
     segs = [(0.0, 2.0, "rồi mọi người"), (2.0, 4.0, "Tóm lại: luộc mực, vớt ra."), (4.1, 4.6, "nha")]
     out = prompt_engine.merge_sentences(segs, 10.0)
     assert [t for _, _, t in out] == ["rồi mọi người", "Tóm lại: luộc mực, vớt ra.", "nha"]
+
+
+# ---------------- bản 46 (soát kỹ video job 3) ----------------
+
+def test_action_after_instruction_not_fast_forwarded():
+    """Người gốc nói "nêm nửa muỗng đường, nửa muỗng hạt nêm" (hết 32,4s) rồi mới múc (33-35s), câu sau 37,0s: quãng
+    lặng 4,6s chuyển động thấp (muỗng ở mép khung) từng bị tua 2 lần."""
+    from rmvideo.app.flow import style
+    segs = [(26.1, 32.4, "rồi mọi người bỏ trong này là nửa muỗng bột ngọt, nửa muỗng đường, nửa muỗng hạt nêm"),
+            (37.0, 42.3, "rồi anh chị đốt lửa riu riu cho mình"), (60.0, 62.0, "đây là bí quyết nha")]
+    mot = [0.001] * 200
+    plan = style.plan_light(70.0, segs, [], mot)
+    assert not any(p.tag == "skip" and p.a < 36.4 and p.b > 32.4 for p in plan.pieces)
+    assert any(p.tag == "skip" and p.a >= 42.3 for p in plan.pieces)            # quãng chờ sau câu thường: vẫn tua
+
+
+def test_brand_close_line_survives_shortening(monkeypatch):
+    from rmvideo.app.flow import remake
+    monkeypatch.setattr(config, "BRAND_CLOSE", "Đong đủ là ngon, cả nhà nấu thử nha")
+    seen = {}
+
+    async def fake_shorten(items):
+        seen["items"] = items
+        return {0: "Dễ làm quá."}
+    monkeypatch.setattr(prompt_engine, "shorten", fake_shorten)
+    r = remake.Remake.__new__(remake.Remake)
+    r.out_dur, r.job = 10.0, type("J", (), {"script": ""})()
+    segs = [{"start": 6.0, "text": "Quá đỗi dễ thực hiện, mọi người cho mấy điểm nè. Đong đủ là ngon, cả nhà nấu thử nha."}]
+    changed = asyncio.run(r.shorten(segs, [0], [6.0]))
+    assert changed == [0] and "Đong đủ" not in seen["items"][0][1]
+    assert segs[0]["text"] == "Dễ làm quá. Đong đủ là ngon, cả nhà nấu thử nha."
+
+
+def test_quiet_sting_is_normalised(tmp_path):
+    import subprocess
+    from rmvideo.media import renderer
+    quiet = str(tmp_path / "s.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=880:d=1", "-af", "volume=0.1", quiet],
+                   check=True)
+    g = asyncio.run(renderer.sting_gain(quiet))
+    assert 20 < g <= 30                                         # đỉnh ~-38 dBFS -> cộng ~34 dB, chặn ở 30
+    loud = str(tmp_path / "l.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=880:d=1", "-af", "volume=8", loud],
+                   check=True)
+    assert asyncio.run(renderer.sting_gain(loud)) < 0
+
+
+def test_hook_title_stops_when_montage_starts():
+    from rmvideo.media import renderer
+    plan = edl.EditPlan(pieces=[edl.Piece(0, 2.58), edl.Piece(26.9, 28.1, role="side", tag="montage"), edl.Piece(2.58, 10)])
+    plan.texts.append({"t": 2.58, "dur": 6.0, "kind": "montage", "text": "Nguyên liệu gồm: mực."})
+    assert renderer.hook_title_end(0.0, plan) == 2.58
+    assert renderer.hook_title_end(0.0, None) is None
+    assert renderer.hook_title_end(3.0, None) == 3.3
