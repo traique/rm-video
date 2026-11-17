@@ -124,3 +124,54 @@ def test_invented_numbers_removed_after_rewrites(monkeypatch):
     out = asyncio.run(prompt_engine.generate_timed("", "", "cook", segs, 12.0))
     assert len(seen) == 3 and "KHÔNG tự điền" in seen[1]
     assert out["segments"][0]["text"] == "Mình nêm thêm bột ngọt, đường cùng hạt nêm vô nồi nha."
+
+
+# ---------------- bản 45: dữ liệu như phiên Kaggle (lời gộp câu dài, có điểm chuyển cảnh) ----------------
+
+KAGGLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "muc_hap_gung_kaggle.json")
+
+
+def _kaggle():
+    d = json.load(open(KAGGLE, encoding="utf-8"))
+    return d["end"], [tuple(s) for s in d["segs"]], d["cuts"], recipe.Facts.from_dict(d["facts"]), d["motion"]
+
+
+def test_sentence_across_scene_cut_is_not_lost():
+    """Lời Kaggle gộp câu 8,56-14,28s vắt qua chuyển cảnh 8,67s: hai khúc liền nhau, câu vẫn còn nguyên. Bản 44 báo
+    nhầm "R1 mất câu ở giây 8.6" và bỏ cả lớp B (video thật 17/11 hai lần liền không có điểm danh / tóm tắt)."""
+    end, segs, cuts, facts, mot = _kaggle()
+    plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
+    assert why == "" and plan.level == "strong"
+    tags = [p.tag or p.role for p in plan.pieces]
+    assert tags[0] == "main" and tags[1] == "montage" and "recap" in tags
+
+
+def test_split_at_scene_cut_close_to_sentence_end():
+    """Câu mở đầu hết 2,58s, chuyển cảnh 2,7s: chèn điểm danh SAU khúc đầu, không lên đầu video."""
+    pieces = [edl.Piece(0.0, 2.7), edl.Piece(2.7, 4.57)]
+    assert style_b._split_at(pieces, 2.58) == 1 and len(pieces) == 2
+    pieces = [edl.Piece(0.0, 6.0)]
+    assert style_b._split_at(pieces, 2.58) == 1 and [(p.a, p.b) for p in pieces] == [(0.0, 2.58), (2.58, 6.0)]
+
+
+def test_failing_op_is_dropped_not_whole_layer(monkeypatch):
+    """Một phép phạm luật: bỏ đúng phép đó, giữ các phép còn lại (trước đây bỏ cả lớp B)."""
+    end, segs, cuts, facts, mot = _kaggle()
+    real = style_b.check_rules
+
+    def recap_breaks(plan, *a):
+        return ["R5 khúc recap ở giây 29.3 không còn trong video chính"] if any(p.tag == "recap" for p in plan.pieces) \
+            else real(plan, *a)
+    monkeypatch.setattr(style_b, "check_rules", recap_breaks)
+    plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
+    assert plan.level == "strong" and why.startswith("bỏ phép tóm tắt (R5")
+    tags = [p.tag for p in plan.pieces]
+    assert "recap" not in tags and tags.count("montage") >= 3
+
+    monkeypatch.setattr(style_b, "check_rules", lambda plan, *a: ["R6 quá nhiều khúc"])
+    plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
+    assert plan.level == "light" and "chỉ áp lớp A" in why                   # bỏ hết vẫn phạm: lớp A như cũ
+
+
+def test_reduplicated_vua_not_coconut():
+    assert vocab.fix_common("nó sâu dừa dừa thôi nha") == "nó sôi vừa vừa thôi nha"

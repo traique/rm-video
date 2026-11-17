@@ -84,14 +84,15 @@ def _hook_end(segs: list, intro_end: float) -> float:
 def _split_at(pieces: list, t: float) -> int:
     """Chỉ số chèn khúc phụ ngay tại giây gốc t (tách khúc main chứa t làm đôi nếu cần)."""
     for k, p in enumerate(pieces):
-        if p.role != "main":
+        if p.role != "main" or not (p.a - 0.05 <= t <= p.b + 0.05):
             continue
-        if abs(p.a - t) < 0.05:
+        if t - p.a < edl.MIN_PIECE:                     # sát đầu khúc: chèn trước khúc
             return k
-        if p.a < t < p.b and t - p.a >= edl.MIN_PIECE and p.b - t >= edl.MIN_PIECE:
-            pieces[k:k + 1] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
-                               edl.Piece(round(t, 3), p.b, p.speed, p.zoom, p.push, "", p.role, p.tag)]
+        if p.b - t < edl.MIN_PIECE:                     # sát cuối khúc (câu mở đầu hết 2,58s, chuyển cảnh 2,7s)
             return k + 1
+        pieces[k:k + 1] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
+                           edl.Piece(round(t, 3), p.b, p.speed, p.zoom, p.push, "", p.role, p.tag)]
+        return k + 1
     return 0
 
 
@@ -158,15 +159,43 @@ def _label(it: recipe.Item) -> str:
     return it.name[:1].upper() + it.name[1:]
 
 
+OPS = {"B3": "bỏ chào hỏi", "B6": "đổi chỗ bước sơ chế", "B2": "điểm danh nguyên liệu", "B4": "dời cảm thán",
+       "B5": "tóm tắt", "B9": "bỏ lời tán gẫu"}
+# phép nào bị nghi khi gặp lỗi của luật nào (thử bỏ lần lượt, phép rủi ro cao trước)
+_SUSPECTS = (("R5 khúc recap", ("B5",)), ("R5 khúc montage", ("B2",)), ("R2 bước nấu", ("B6", "B4")),
+             ("R3", ("B6",)), ("R7", ("B9",)), ("R1", ("B9", "B3", "B6", "B4")), ("R4", ("B3", "B6", "B4", "B9")),
+             ("R2", ("B6", "B4", "B2", "B5")), ("", ("B6", "B4", "B3", "B5", "B2", "B9")))
+
+
 def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label_mode: str,
                 facts: recipe.Facts | None) -> tuple[edl.EditPlan, str]:
-    """(kế hoạch, ghi chú). Không đủ dữ liệu / vi phạm luật: kế hoạch lớp A + lý do."""
+    """(kế hoạch, ghi chú). Không đủ dữ liệu: kế hoạch lớp A + lý do. Phạm luật: bỏ ĐÚNG phép gây lỗi rồi dựng lại
+    (bản 45: trước đây một phép hỏng là bỏ cả lớp B — video mực hai lần liền mất điểm danh nguyên liệu + tóm tắt);
+    bỏ hết vẫn phạm thì lớp A. Ghi chú nêu phép đã bỏ và luật."""
     segs = [(a, min(b, end), t) for a, b, t in segs if a < end]          # câu cuối có thể dài quá hết video
     light = style.plan_light(end, segs, cuts, mot, stretch, label_mode, "light")
     if facts is None or not facts.is_recipe or not facts.steps:
         return light, "không có nhãn bước của AI: chỉ áp lớp A"
     steps = [s for s in facts.steps if s.t0 >= 0]
-    chat = chatter(segs, steps)
+    skip: set = set()
+    notes: list[str] = []
+    for _ in range(len(OPS) + 1):
+        out, errs = _strong(end, segs, cuts, mot, stretch, label_mode, facts, steps, frozenset(skip))
+        if not errs:
+            return out, "; ".join(notes)
+        sus = next(ops for key, ops in _SUSPECTS if errs[0].startswith(key) and any(o not in skip for o in ops))
+        op = next(o for o in sus if o not in skip)
+        skip.add(op)
+        notes.append(f"bỏ phép {OPS[op]} ({errs[0]})")
+        if len(skip) == len(OPS):
+            break
+    return light, f"lớp B vi phạm luật ({errs[0]}): chỉ áp lớp A"
+
+
+def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label_mode: str, facts: recipe.Facts,
+            steps: list, skip: frozenset) -> tuple[edl.EditPlan, list]:
+    """Một lượt lớp B, trừ các phép trong `skip`. Trả (kế hoạch, lỗi luật)."""
+    chat = chatter(segs, steps) if "B9" not in skip else [False] * len(segs)
     keep = [not c for c in chat]
     dropped = {(a, b) for (a, b, _), c in zip(segs, chat) if c}
     plan = style.plan_light(end, segs, cuts, mot, stretch, label_mode, "strong", drop=lambda a, b: (a, b) in dropped)
@@ -177,7 +206,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
     # B3: phần chào hỏi ở đầu (không bỏ nếu nguyên liệu được bày ra đúng lúc đó: điểm danh chỉ được LẶP, không thay)
     intro = [s for s in steps if s.kind == "intro" and s.t0 < 2.0]
     hook_end = 0.0
-    if intro and not any(t <= intro[0].t1 + 0.5 for t in roll_t):
+    if intro and "B3" not in skip and not any(t <= intro[0].t1 + 0.5 for t in roll_t):
         s = intro[0]
         in_segs = [k for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05]
         hook_end = _hook_end(segs, s.t1)                   # câu đầu giữ làm câu mở đầu, chỉ bỏ phần chào sau nó
@@ -191,7 +220,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
     first_cook = min((s.t0 for s in steps if s.kind == "cook"), default=end)
     moved: tuple | None = None
     preps = [s for s in steps if s.kind == "prep" and s.t1 <= first_cook]
-    for x, y in zip(preps, preps[1:]):
+    for x, y in (zip(preps, preps[1:]) if "B6" not in skip else []):
         shared = {ingredients.GROUPS[g][0] for n in x.ingredients for g in ingredients.find(n)} & \
                  {ingredients.GROUPS[g][0] for n in y.ingredients for g in ingredients.find(n)}
         if y.independent and not shared and 2.0 <= x.t1 - x.t0 <= 12.0 and 2.0 <= y.t1 - y.t0 <= 12.0 \
@@ -227,7 +256,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         if ka is not None and all(abs(ka - p.a) >= MONTAGE_LEN for p, _ in montage):
             montage.append((edl.Piece(ka, round(ka + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"),
                             _label(it)))
-    if len(montage) >= 3:
+    if len(montage) >= 3 and "B2" not in skip:
         at = _split_at(pieces, hook_end) if hook_end else 0       # sau câu mở đầu, không thay nó
         pieces[at:at] = [p for p, _ in montage]
         did.append(f"điểm danh {len(montage)} nguyên liệu")
@@ -238,7 +267,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
     tail_text = []
     react = [s for s in steps if s.kind == "reaction" and s.t1 < end * 0.8 and 1.5 <= s.t1 - s.t0 <= 5.0
              and all(chat[k] for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05)]
-    if react:
+    if react and "B4" not in skip:
         r = max(react, key=lambda s: s.t1 - s.t0)
         lo, hi = _gap_bounds(segs, keep, r.t0, r.t1)
         pieces = _cut_out(pieces, lo, hi)
@@ -248,7 +277,7 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
         did.append("dời đoạn cảm thán về cuối")
     core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0
             and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]
-    if len(core) >= 3:
+    if len(core) >= 3 and "B5" not in skip:
         pick = core[:: max(1, len(core) // RECAP_MAX)][:RECAP_MAX]
         for s in pick:
             a = _kept_at(pieces, s.t0, s.t1, RECAP_LEN) or 0.0
@@ -285,20 +314,26 @@ def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, l
                                             round(sum(pieces[k].length for k in rk) * stretch - 0.1, 2), "tip",
                                             "TÓM TẮT CÁCH LÀM"))
     style.finalize(out, segs, label_mode, end, extra=("; " + ", ".join(did)) if did else "")
-    errs = check_rules(out, segs, steps, chat)
-    if errs:
-        return light, f"lớp B vi phạm luật ({errs[0]}): chỉ áp lớp A"
-    return out, ""
+    return out, check_rules(out, segs, steps, chat)
 
 
 def check_rules(plan: edl.EditPlan, segs: list, steps: list, chat: list[bool]) -> list[str]:
     """Luật cứng R1-R7 (rỗng = đạt)."""
     errs = list(plan.validate())                                              # R6
     starts = plan.starts()
-    mains = [(p, s) for p, s in zip(plan.pieces, starts) if p.role == "main"]
 
-    def kept(a: float, b: float) -> bool:                                     # câu nằm trọn trong khúc main tốc độ 1
-        return any(p.speed == 1.0 and p.a - 0.01 <= a and b <= p.b + 0.01 for p, _ in mains)
+    # dãy khúc main tốc độ 1 nối liền nhau (liền cả trên video gốc lẫn video ra): câu vắt qua điểm chuyển cảnh nằm ở hai
+    # khúc liền nhau vẫn là câu còn nguyên (bản 45: lời Kaggle gộp câu dài 8,6-14,3s qua chuyển cảnh 8,67s -> báo
+    # nhầm "R1 mất câu", bỏ cả lớp B hai lần liền)
+    runs: list = []
+    for p in plan.pieces:
+        if p.role == "main" and p.speed == 1.0 and runs and runs[-1] is not None and abs(runs[-1][1] - p.a) < 0.02:
+            runs[-1][1] = p.b
+        else:
+            runs.append([p.a, p.b] if p.role == "main" and p.speed == 1.0 else None)
+
+    def kept(a: float, b: float) -> bool:                                     # câu nằm trọn trong một dãy như vậy
+        return any(r is not None and r[0] - 0.01 <= a and b <= r[1] + 0.01 for r in runs)
 
     def first_out(t0: float, t1: float, moved_ok: bool = False) -> float | None:
         best = None
