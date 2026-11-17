@@ -41,7 +41,7 @@ import transcribe
 import vocal_sep
 from queue_manager import Job
 from review import spoken_script
-from rmvideo.app import brand, job_factory
+from rmvideo.app import brand, job_factory, voice_book
 from rmvideo.app.assemble import _edit_kw, assemble
 from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, style, style_b, teaser
 from rmvideo.app.flow import music as music_flow
@@ -253,7 +253,7 @@ class Remake:
             job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
             timed = await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, scenes.snap_to_cuts(segs, cuts) if len(segs) >= 2 else segs,
-                self.content_end, images_for=self.keyframes_for, **({"teaser": T} if T else {}))
+                self.content_end, images_for=self.keyframes_for, **self._timed_kw(T))
             if not timed:
                 job.note("ℹ️ Bản ngắn: AI viết lời lỗi, bỏ bản ngắn. ")
                 return None
@@ -573,12 +573,13 @@ class Remake:
             return await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, self.segs, self.content_end,
                 images_for=self.keyframes_for,            # AI nhìn ảnh từng đoạn để lời khớp hình
-                **({"teaser": float(self.tz["dur"])} if self.tz else {}))
+                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0))
         if len(self.cuts) >= 2 or (not self.cuts and scenes.mode() == "light" and await self.late_cuts()):
             sc = scenes.scene_segments(self.cuts, self.content_end)   # video không lời: AI nhìn ảnh từng cảnh
             job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
             return await prompt_engine.generate_scenes(self.title, self.desc, job.mode, sc,
-                                                       await self.keyframes_for(sc), self.content_end)
+                                                       await self.keyframes_for(sc), self.content_end,
+                                                       **self._timed_kw(0.0))
         return None
 
     def apply_script(self, timed: dict):
@@ -656,6 +657,7 @@ class Remake:
             job.note("".join(res.get("notes") or []))
             await self.finish_cover(self.start_cover(post_title) if cover == "start" else cover)
             job.final_segments = common.final_timeline(segs_t, res["plan"], self.out_dur)
+            job.note(common.voice_report(segs_t, res["plan"], self.content_end))
             tm = res.get("timings") or {}
             eng = kaggle_worker.voice_engine(job.voice)
             job.note(f"ℹ️ Kaggle ({'GPU' if res.get('gpu') else 'CPU'}) đọc giọng "
@@ -713,6 +715,7 @@ class Remake:
             job.note("".join(res.notes))
         await self.finish_cover(cover_task)
         job.final_segments = common.final_timeline(segs_t, res.plan, self.out_dur)
+        job.note(common.voice_report(segs_t, res.plan, self.content_end))
         if job.mode == Mode.COOK:
             job.note("ℹ️ Đã tách bỏ giọng gốc bằng AI. " if res.ambient else
                      f"ℹ️ Không tách giọng AI ({sep.why}): tắt tiếng nền lúc người gốc nói. " if sep.why else
@@ -784,6 +787,20 @@ class Remake:
             return tz["a"] + (0.0 if tz.get("still") else min(x, tz["dur"] - 0.1))
         x -= tz["dur"] if tz else 0.0
         return self.edit.src_time(x) if self.edit else x / self.stretch
+
+    def voice_examples(self) -> list:
+        """Cặp mẫu của sổ giọng cho video này (cùng một bộ cho bản đầy đủ và bản ngắn)."""
+        if getattr(self, "_examples", None) is None:
+            ctx = " ".join(t for *_, t in (self.raw_segs or self.segs or []) if t)
+            self._examples = voice_book.pick(ctx, self.job.url or self.job.local or self.title or "")
+        return self._examples
+
+    def _timed_kw(self, teaser: float) -> dict[str, Any]:
+        """Tham số tuỳ chọn cho AI viết lời: chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)."""
+        kw: dict[str, Any] = {"teaser": teaser} if teaser else {}
+        if ex := self.voice_examples():
+            kw["examples"] = ex
+        return kw
 
     def keyframes_for(self, sg: list):
         """Ảnh cho AI: ảnh GIỮA mỗi đoạn, lấy trên video gốc."""

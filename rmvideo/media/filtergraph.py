@@ -22,7 +22,7 @@ AOUT = "aresample=48000:ochl=stereo"
 TARGET_LUFS = -14.0
 
 
-PEAK_LIMIT = 0.85                 # -1.4 dBFS: đỉnh thật (giữa hai mẫu) vẫn dưới -1 dBTP
+PEAK_LIMIT = 0.8                  # -1.9 dBFS: sau khi nén AAC (đẩy đỉnh lên 0,5-1 dB, bản 48: +0,1 dBTP) vẫn dưới -1 dBTP
 
 
 _LUFS_RE = re.compile(r"Integrated loudness:\s*I:\s*(-?[\d.]+|-inf) LUFS")

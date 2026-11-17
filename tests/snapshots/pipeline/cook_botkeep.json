@@ -126,7 +126,7 @@
    "job": {
     "approved": [],
     "cut_at": 4.95,
-    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 3 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ Lời đọc: 12 chữ, giọng phủ 79% video, 0/3 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 3 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
     "final_segments": [
      {
       "end": 2.1,

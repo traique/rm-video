@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 
 import logging
@@ -51,17 +52,43 @@ def close_line() -> str:
     return s if s[-1] in ".!?…" else s + "."
 
 
+# lời mời làm thử AI tự viết ở cuối ("…, cả nhà tranh thủ làm thử nha."): câu chốt của kênh đã mời rồi
+_TRY_RE = re.compile(r"[,;]?\s*(?:(?:cả nhà|mọi người|bà con|các bạn)\s+)?(?:(?:nhớ|tranh thủ|hãy|cùng)\s+)?(?:làm|nấu)"
+                     r"\s+thử(?:\s+(?:liền|ngay|luôn|đi|món này|nghen))?(?:\s+(?:nha|nhé|nè))?\s*(?=[.!?…]|$)",
+                     re.IGNORECASE)
+
+
+def _drop_try(text: str) -> str:
+    """Bỏ lời mời làm thử. Cả đoạn chỉ là lời mời ("Cả nhà làm thử nha.") -> "" (câu chốt thay chỗ nó); còn lại một
+    chữ lẻ thì giữ nguyên đoạn."""
+    out = _TRY_RE.sub("", text or "").strip()
+    out = re.sub(r"\s+([.!?…])", r"\1", out).lstrip(",; ")
+    if not re.search(r"\w", out):
+        return ""
+    return out if len(out.split()) >= 2 else text
+
+
 def add_close(segs: list) -> bool:
-    """Gắn câu chốt vào đoạn đọc cuối cùng (bản viết mới, chưa duyệt). True nếu đã gắn."""
+    """Gắn câu chốt vào đoạn đọc cuối cùng (bản viết mới, chưa duyệt). True nếu đã gắn. Câu chốt có mời nấu thử thì bỏ
+    lời mời AI tự viết ở hai đoạn cuối (bản 48: "…cả nhà tranh thủ làm thử nha. Dễ làm nha. Đong đủ là ngon, cả nhà nấu
+    thử nha." — hai lời mời liền nhau)."""
     line = close_line()
     if not line:
         return False
-    for sg in reversed(segs):
-        if sg.get("ost") != "orig" and (sg.get("text") or "").strip():
+    spoken = [sg for sg in segs if sg.get("ost") != "orig" and (sg.get("text") or "").strip()]
+    if not spoken:
+        return False
+    if re.search(r"\b(làm|nấu)\s+thử\b", line, re.IGNORECASE):
+        for sg in spoken[-2:]:
             if line.lower() not in sg["text"].lower():
-                sg["text"] = sg["text"].rstrip() + " " + line
-            return True
-    return False
+                cut = _drop_try(sg["text"])
+                # đoạn áp chót chỉ có lời mời: giữ (không để đoạn đọc trống); đoạn cuối: câu chốt thay chỗ
+                if cut or sg is spoken[-1]:
+                    sg["text"] = cut
+    sg = spoken[-1]
+    if line.lower() not in sg["text"].lower():
+        sg["text"] = (sg["text"].rstrip() + " " + line).strip()
+    return True
 
 
 # ---------------- màn kết nối thêm (bản 43) ----------------

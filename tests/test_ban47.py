@@ -85,7 +85,7 @@ def test_unit_change_is_caught_and_only_that_phrase_dropped():
          "3-4 giọt để cho thơm. bỏ trong này là nửa muỗng bột ngọt")
     n = "Giờ mình luộc khoảng 4 phút nha. Mọi người rưới thêm 3-4 muỗng dầu mè cho thơm. Nêm nửa muỗng bột ngọt."
     missing, added = ingredients.check_numbers(o, n)
-    assert missing == ["4 giọt"] and added == ["4 muỗng"]
+    assert missing == ["3-4 giọt"] and added == ["3-4 muỗng"]
     assert ingredients.drop_numbers(n, set(added)) == \
         "Giờ mình luộc khoảng 4 phút nha. Mọi người rưới thêm dầu mè cho thơm. Nêm nửa muỗng bột ngọt."
     assert ingredients.check_numbers(o, n.replace("muỗng dầu", "giọt dầu")) == ([], [])
@@ -116,3 +116,73 @@ def test_timing_names_ai_phases():
     assert queue_manager.phase_of("AI chọn cảnh món đã xong (ảnh bìa + đoạn mở đầu)") == "AI chọn cảnh mở đầu"
     assert queue_manager.phase_of("Lập kế hoạch dựng (nhịp, khung hình)") == "Lập kế hoạch dựng"
     assert queue_manager.phase_of("Bản ngắn: AI viết lời 12 đoạn") == "AI viết kịch bản"
+
+
+# ---------------- bản 48: soát video job 5 ----------------
+
+def test_quantity_ranges_kept_whole():
+    """Gốc "khoảng 3-4 giọt dầu mè": trước đây chỉ lấy số sau -> thẻ điểm danh "4 giọt dầu mè"."""
+    assert ingredients.numbers("khoảng 3-4 giọt dầu mè") == ["3-4 giọt"]
+    assert ingredients.numbers("ba tới bốn giọt dầu") == ["3-4 giọt"]
+    assert ingredients.numbers("luộc 2 đến 3 phút") == ["2-3 phút"]
+    assert recipe.parse("3-4 giọt dầu mè") == []                       # khoảng: không thành MỘT con số (không bịa số)
+    assert [recipe.fmt(q) for q in recipe.parse("nửa muỗng đường, luộc 4 phút")] == ["1/2 muỗng", "4 phút"]
+    o = "rồi luộc khoảng 4 phút. cho mình 1 ít dầu mè lên, khoảng 3-4 giọt để thơm."
+    assert ingredients.check_numbers(o, "Rưới khoảng 3 đến 4 giọt dầu nè, luộc 4 phút.") == ([], [])
+    assert ingredients.check_numbers(o, "Rưới 4 giọt dầu mè, luộc 4 phút.") == (["3-4 giọt"], ["4 giọt"])
+    assert ingredients.drop_numbers("Rưới 3 đến 4 muỗng dầu mè, luộc 4 phút.", {"3-4 muỗng"}) == \
+        "Rưới dầu mè, luộc 4 phút."
+
+
+def test_sparse_script_is_rewritten(monkeypatch):
+    """Job 5: mỗi đoạn chỉ hơi ngắn (trên ngưỡng từng đoạn) nhưng cả bài 322 chữ, giọng phủ 54% video, 7 quãng lặng
+    5-10 giây -> giờ bắt AI viết lại."""
+    import asyncio
+
+    import config
+    base = ["Hôm nay mình làm món mực hấp gừng giòn ngọt thơm ngon đơn giản tại nhà nha mọi người.",
+            "Đầu tiên mọi người bắc nồi nước lên bếp, đợi nước sôi thật là sôi rồi mới thả mực vô nha.",
+            "Mọi người nhớ là không được đảo nhiều, đảo nhiều nó bị rách da, ăn không có ngon đâu.",
+            "Rồi mọi người vặn lửa riu riu cho mình, để nó sôi lăn tăn vậy thôi là được rồi đó."]
+    segs = [(k * 6.0, k * 6.0 + 5.6, base[k % 4]) for k in range(8)]
+    thin = ["Mực hấp gừng kiểu này giòn ngọt thơm lừng.", "Đặt nồi lên chờ sôi sùng sục rồi thả.",
+            "Cả nhà để yên, khuấy hoài là tróc vỏ.", "Hạ lửa nhỏ xíu, giữ sủi tăm nhè nhẹ.",
+            "Món này ăn với cơm nóng là hết sẩy.", "Nước sôi già thì mực mới săn chắc lại.",
+            "Đừng khuấy mạnh tay, vỏ mực dễ bong lắm.", "Lửa nhỏ giữ cho thịt mực mềm ngọt hơn."]
+    full = [t[:-1] + ", nhìn là thấy mê liền, cả nhà để ý giúp mình." for t in thin]
+    seen: list = []
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
+    monkeypatch.setattr(prompt_engine, "genai", object())
+    replies = iter([thin, full])
+
+    async def fake(prompt, images=None, **kw):
+        seen.append(prompt)
+        return json.dumps({"segments": [{"i": k, "text": t} for k, t in enumerate(next(replies))],
+                           "title": "t", "caption": "c", "hashtags": "#a", "hook": "mực hấp gừng"})
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
+    prompt_engine.set_voice_rate(3.0)
+    try:
+        out = asyncio.run(prompt_engine.generate_timed("", "", "cook", segs, 48.0))
+    finally:
+        prompt_engine.set_voice_rate(None)
+    assert len(seen) == 2 and "QUÁ NGẮN" in seen[1]
+    assert [s["text"] for s in out["segments"]][0] == full[0]
+
+
+def test_brand_close_replaces_ai_try_invitation(monkeypatch):
+    import config
+    from rmvideo.app import brand
+    monkeypatch.setattr(config, "BRAND_CLOSE", "Đong đủ là ngon, cả nhà nấu thử nha")
+    segs = [{"text": "Mực bung đều rồi nè."},
+            {"text": "Thành phẩm thơm ngon xuất sắc, cả nhà tranh thủ làm thử nha."}, {"text": "Dễ làm nha."}]
+    assert brand.add_close(segs)
+    assert [s["text"] for s in segs] == ["Mực bung đều rồi nè.", "Thành phẩm thơm ngon xuất sắc.",
+                                         "Dễ làm nha. Đong đủ là ngon, cả nhà nấu thử nha."]
+    assert brand._drop_try("Chúc cả nhà làm món mực hấp gừng thành công nha.") == \
+        "Chúc cả nhà làm món mực hấp gừng thành công nha."
+
+
+def test_peak_limit_leaves_room_for_aac():
+    from rmvideo.media import filtergraph
+    assert filtergraph.PEAK_LIMIT <= 0.8

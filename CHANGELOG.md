@@ -13,6 +13,30 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 48 — soát video job 5 (17/11/2026, chạy bản 47)
+
+Bản 47 đã có hiệu lực: lời tóm tắt đọc khớp thẻ TÓM TẮT, «3 đến 4 giọt dầu» đúng đơn vị, chỉ một thẻ «»» 4 PHÚT SAU»,
+giọng và phụ đề dứt trước màn kết, câu chốt đủ.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Lời đọc thưa: 322 chữ (job 4 cùng video: 477), giọng phủ 54% video (job 4: 80%), 7 quãng lặng 5-10 giây. Từng đoạn chỉ hơi ngắn nên lọt luật «đoạn quá ngắn» (phải ≥ 1/4 số đoạn); câu mới «từ đệm dùng TIẾT CHẾ» ở bản 47 có thể khiến AI viết gọn cả câu | Thêm luật cả bài: tổng chữ < 70% mức tối thiểu thì bắt viết lại (kể tên các đoạn thiếu nhiều nhất); câu về từ đệm viết lại rõ «chỉ bớt từ đệm, mỗi đoạn vẫn viết ĐỦ số từ» |
+| Thẻ điểm danh «4 giọt dầu mè», gốc «3-4 giọt» (bản 47 thêm đơn vị giọt nhưng khoảng số chỉ lấy số sau) | Khoảng «3-4 giọt» / «3 đến 4 giọt» / «ba tới bốn giọt» giữ nguyên khoảng; không thành MỘT con số nên thẻ chỉ ghi tên nguyên liệu, không bao giờ ghi số sai; kiểm lời đọc so cả khoảng |
+| Cuối video hai lời mời liền nhau: «…cả nhà tranh thủ làm thử nha. Dễ làm nha. Đong đủ là ngon, cả nhà nấu thử nha.» | Câu chốt của kênh có mời nấu thử thì bỏ lời mời AI tự viết ở hai đoạn cuối |
+| Đỉnh âm +0,1 dBTP (bộ chặn -1,4 dBFS, nén AAC đẩy đỉnh lên 0,5-1 dB) | Bộ chặn -1,9 dBFS |
+
+Thêm (theo ý tưởng của bạn: mô hình học theo ví dụ tốt hơn theo luật):
+
+| Phần | Làm gì |
+| --- | --- |
+| Sổ giọng Bếp Đong Đủ | `brand/bep_dong_du/voice_examples.json`: 13 cặp «lời gốc → lời kênh» (câu mở đầu, thao tác có định lượng, lúc chờ, mẹo, bày món, cảm thán, tóm tắt, chào kết) ở nhiều món; mỗi lần viết lời đưa 6 cặp (luôn có câu mở đầu + thao tác có định lượng, còn lại xoay vòng theo video); chép gần nguyên câu mẫu thì bắt viết lại |
+| Kho lời đã duyệt | Duyệt kịch bản thì lưu các đoạn đã chốt (`voice_bank.json`); đoạn sửa tay được đưa vào mẫu ở video sau (tối đa 2, ưu tiên cùng nguyên liệu) |
+| Đổi từ miền Bắc | Sau khi AI viết (lời, tiêu đề, caption, rút gọn), trước bước kiểm: thìa → muỗng, bát → chén, đĩa → dĩa, rán → chiên, lợn → heo, vừng → mè, ngô → bắp, mì chính → bột ngọt, trần qua → trụng qua, quả chanh / 2 quả → trái…; theo ngữ cảnh («trần nhà», «kết quả», «lá dứa», «Ninh Bình», «bát ngát» giữ nguyên) |
+| Chỉ số lời đọc | Mỗi job thêm dòng «Lời đọc: N chữ, giọng phủ X% video, K quãng lặng trên 4 giây, a/b câu kết «nha»» |
+
+Còn lại (chưa sửa): thẻ điểm danh đi trước lời đọc ~1 giây (câu hook dài sát khe 2,6 giây); đoạn giải thích mực đông /
+mực tươi lần này lại bị coi là tán gẫu, tua nhanh (thẻ mẹo vẫn có ý chính) — tuỳ kết quả AI đọc công thức từng lần.
+
 ## Bản 47 — soát video job 4 (17/11/2026, Kaggle, dựng mạnh + màn kết mặc định)
 
 Soát bằng nhận dạng giọng bản ra, khung 2 giây / lần kèm lời đang đọc, khung nửa giây ở đoạn điểm danh và đoạn kết, so

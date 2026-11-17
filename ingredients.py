@@ -221,7 +221,7 @@ _UNITS = ("g", "gam", "gram", "gr", "kg", "ký", "cân", "lạng", "ml", "lít",
           "giọt", "nhúm", "muỗng cà phê", "thìa canh", "thìa cà phê", "chén", "bát", "ly", "cốc", "tô", "quả", "trái", "củ", "tép",
           "nhánh", "cây", "lá", "miếng", "lát", "con", "cái", "gói", "hộp", "lon", "chai", "phút", "giây", "tiếng",
           "giờ", "ngày", "độ", "%", "phần", "k", "nghìn", "ngàn", "triệu", "đồng", "đ", "tuổi", "người", "cm", "mm", "m")
-_NUM_RE = re.compile(r"(\d+/\d+|\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
+_NUM_RE = re.compile(r"(\d+/\d+|\d+(?:[.,]\d+)?-\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
                      + r")(?![\w])", re.IGNORECASE)
 
 
@@ -229,12 +229,26 @@ _WORDNUM = {"một": "1", "hai": "2", "ba": "3", "bốn": "4", "tư": "4", "năm
             "tám": "8", "chín": "9", "mười": "10", "nửa": "0.5", "rưỡi": "0.5"}
 _WORDNUM_RE = re.compile(r"\b(" + "|".join(_WORDNUM) + r")\s+(?=(" +
                          "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")\b)")
+_RANGE_SEP = r"\s*(?:-|–|đến|tới|hoặc)\s*"
+# "ba tới bốn giọt": số chữ đứng trước "tới / đến / -" của một khoảng
+_WORDNUM_LO_RE = re.compile(r"\b(" + "|".join(k for k in _WORDNUM if k not in ("nửa", "rưỡi")) + r")(?=" + _RANGE_SEP
+                            + r"\d)")
+# khoảng "3-4 giọt" / "3 đến 4 giọt" giữ NGUYÊN khoảng (bản 47: lấy mỗi số sau -> thẻ "4 giọt dầu mè", gốc 3-4 giọt)
+_RANGE_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)" + _RANGE_SEP + r"(\d+(?:[.,]\d+)?)(?=\s*(?:" +
+                       "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w]))")
+
+
+def _clean_num(n: str) -> str:
+    n = n.replace(",", ".")
+    return n.rstrip("0").rstrip(".") if "." in n else n
 
 
 def numbers(text: str) -> list:
     """Danh sách số có đơn vị: ['2 quả', '1 muỗng', '200 g', '15 phút'] (chuẩn hóa số).
     Số viết bằng chữ ("hai muỗng") cũng tính. Bỏ "1 cái/1 chiếc" vì đó là mạo từ ("cho vào 1 cái tô")."""
     t = _WORDNUM_RE.sub(lambda m: _WORDNUM[m.group(1)] + " ", (text or "").lower())
+    t = _WORDNUM_LO_RE.sub(lambda m: _WORDNUM[m.group(1)], t)
+    t = _RANGE_RE.sub(lambda m: f"{m.group(1)}-{m.group(2)}", t)
     t = re.sub(r"\b(\d+)\s+phần\s+(\d+)\b", r"\1/\2", t)                 # "1 phần 3 muỗng" = "1/3 muỗng"
     # "đợi một lát", "cắn một miếng", "thử một xíu": không phải định lượng (trước đây báo bịa "1 lát")
     t = re.sub(r"\b(đợi|chờ|cắn|ăn|thử|nếm|nghỉ)\s+(thêm\s+)?1\s+(lát|miếng|chút|xíu|tí)\b", r"\1 ", t)
@@ -243,12 +257,13 @@ def numbers(text: str) -> list:
     for n, u in _NUM_RE.findall(t):
         if n == "1" and u in ("cái", "chiếc", "con"):
             continue
-        n = n.replace(",", ".").rstrip("0").rstrip(".") if "." in n.replace(",", ".") else n
+        n = "-".join(_clean_num(x) for x in n.split("-"))
         out.append(f"{n} {u}")
     return out
 
 
-_QTY_RE = re.compile(r"(?<![\w])(\d+(?:[.,]\d+)?(?:\s*[-–]\s*\d+(?:[.,]\d+)?)?|" + "|".join(_WORDNUM) + r")\s+(" +
+_QTY_RE = re.compile(r"(?<![\w])((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+(?:[.,]\d+)?|"
+                     + "|".join(_WORDNUM) + r"))\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
 
 
@@ -257,10 +272,8 @@ def drop_numbers(text: str, bad: set) -> str:
     đơn vị") hoặc "số đơn vị" ("4 muỗng": chỉ bỏ cụm đó, giữ "4 phút"). "Nêm một muỗng bột ngọt, một muỗng đường" với
     bad={"1"} -> "Nêm bột ngọt, đường". Khoảng "3-4 muỗng" bỏ trọn. Giữ nguyên tên nguyên liệu và mọi chữ khác."""
     def one(m):
-        n = re.split(r"\s*[-–]\s*", m.group(1).lower())[-1]
-        n = _WORDNUM.get(n, n).replace(",", ".")
-        if "." in n:
-            n = n.rstrip("0").rstrip(".")
+        parts = [x for x in re.split(r"\s*(?:-|–|\bđến\b|\btới\b|\bhoặc\b)\s*", m.group(1).lower()) if x]
+        n = "-".join(_clean_num(_WORDNUM.get(x, x)) for x in parts)
         u = _norm_num(f"{n} {m.group(2).lower()}").split(" ", 1)[1]
         return "" if n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad} else m.group(0)
     out = _QTY_RE.sub(one, text or "")
