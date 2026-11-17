@@ -760,8 +760,6 @@ def montage_lead(text: str) -> str:
 _ADD_VERBS = {"thả", "bỏ", "đổ", "trút", "nêm", "rắc", "rưới", "thêm", "ướp", "cho"}
 _ADD_FILL = {"hết", "cả", "chút", "ít", "xíu", "nguyên", "con", "cái", "mấy", "phần", "nốt", "tiếp", "thẳng", "luôn",
              "thêm", "đám", "số", "vô", "vào", "lên"}
-_ADD_ANY_RE = re.compile(r"(?<![\w])(?:thả|bỏ|đổ|trút|nêm|rắc|rưới|ướp|thêm(?!\s+nữa)|cho(?:\s+\S+){0,3}?\s+(?:vô|vào))"
-                         r"(?![\w])", re.IGNORECASE)
 _NUMWORD_RE = re.compile(r"\d|(?<![\w])(?:một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười|nửa|rưỡi)(?![\w])", re.IGNORECASE)
 
 
@@ -805,11 +803,22 @@ def replayed_steps(items: list) -> dict:
 
 
 def _orig_adds(orig: str, groups: set) -> bool:
-    """Lời gốc có thao tác cho vào (rộng tay: "cho là hành tây, đầu hành" cũng tính) -> không coi là kể lại."""
-    if _ADD_ANY_RE.search(orig):
-        return True
+    """Lời gốc của đoạn có cho (một trong) các nguyên liệu `groups` vào -> không coi là kể lại. Tính khi: có động từ cho
+    vào kèm tên nguyên liệu đó trong vài chữ sau ("cho là hành tây, đầu hành" cũng tính), hoặc có động từ cho vào mà
+    KHÔNG nói cho gì ("bỏ trực tiếp vô luôn": rộng tay, không đoán được). Gốc cho vào thứ KHÁC có nêu tên ("cho hành
+    tây vô") thì "thả mực vô" vẫn là kể lại (Codex, PR #8)."""
     toks = _norm_words(orig)
-    return any(w == "cho" and ingredients.find(" ".join(toks[i + 1:i + 5])) & groups for i, w in enumerate(toks))
+    for i, w in enumerate(toks):
+        if w not in _ADD_VERBS or (w == "thêm" and toks[i + 1:i + 2] == ["nữa"]):    # "thêm nữa là..." = ngoài ra
+            continue
+        named = ingredients.find(" ".join(toks[i + 1:i + 9]))
+        if named & groups:
+            return True
+        if w == "cho" and not {"vô", "vào"} & set(toks[i + 1:i + 5]):   # "cho mình", "cho mực chín": không phải cho vào
+            continue
+        if not named:
+            return True
+    return False
 
 
 def drop_replayed(text: str, groups: set) -> str:

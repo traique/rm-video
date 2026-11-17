@@ -124,6 +124,17 @@ def test_replayed_step_found_only_when_already_done_and_not_in_source():
     assert prompt_engine.replayed_steps([first, again]) == {}
     assert prompt_engine.drop_replayed(J7, prompt_engine.add_actions(J7)) == \
         "Mọi người làm theo cách này nha, mọi người đun chừng 4 phút là mực nở bung ra, nhìn hấp dẫn ghê."
+    # Codex PR #8: gốc cho thứ KHÁC vào (hành tây) không che việc AI cho lại mực
+    other = (3, "rồi xong lúc này mình cho hành tây vô nồi", "Giờ mình thả mực vô nồi rồi cho hành tây vô luôn.")
+    assert prompt_engine.replayed_steps([first, other]) == {3: prompt_engine.add_actions(J7)}
+    named = (3, "rồi xong lúc này thì mình sẽ cho là hành tây, đầu hành, gừng",
+             "Giờ mình thêm hành tây, đầu hành với gừng vô.")
+    hanh = (2, "đầu tiên mình cho hành tây vô nồi", "Đầu tiên mình thả hành tây vô nồi nè.")
+    assert prompt_engine.replayed_steps([hanh, named]) == {}                           # gốc nêu đúng thứ được cho vào
+    implicit = (3, "rồi mọi người bỏ trực tiếp vô luôn", "Giờ mình thả mực vô nồi nước sôi.")
+    assert prompt_engine.replayed_steps([first, implicit]) == {}                       # gốc không nói cho gì: rộng tay
+    for o in ("rồi anh chị luộc cho mình là khoảng 4 phút", "thêm nữa là mực mua về để nguyên con"):
+        assert prompt_engine.replayed_steps([first, (3, o, J7)]) == {3: prompt_engine.add_actions(J7)}, o
     short = "Giờ mình thả mực vô, ngon."
     assert prompt_engine.drop_replayed(short, prompt_engine.add_actions(short)) == short   # còn quá ít chữ: giữ
 
