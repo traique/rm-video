@@ -688,6 +688,13 @@ def _open_end(t: str) -> bool:
     return bool(w) and w[-1] in _OPEN_END and not (t or "").rstrip().endswith(_SENT_END)
 
 
+SIDE_MARKS = ("Nguyên liệu gồm:", "Tóm lại:")   # lời "gốc" của khúc điểm danh / tóm tắt (style_b): luôn đứng riêng
+
+
+def _side(t: str) -> bool:
+    return (t or "").lstrip().startswith(SIDE_MARKS)
+
+
 def merge_sentences(segments: list, out_dur: float) -> list:
     """Gộp các mẩu lời bị cắt ngang thành câu trọn TRƯỚC khi AI viết lại. Máy nghe cắt theo chỗ ngắt hơi nên ra
     những mẩu cụt ("Sau khi mình" | "luộc ... vớt ra" | "cho mình." | "Rồi"); AI viết từng mẩu thành một câu riêng
@@ -706,10 +713,10 @@ def merge_sentences(segments: list, out_dur: float) -> list:
 
     def tiny(a, b, t):       # mẩu vụn: "Rồi", "sau", "cái thìa." (không có dấu câu thì 2 chữ phải là nói vội)
         return n(t) <= 1 or (n(t) <= 2 and (punct or b - a < 1.5))
-    out = []
+    out: list = []
     for st, en, tx in segments:
         tx = (tx or "").strip()
-        if out:
+        if out and not _side(tx) and not _side(out[-1][2]):    # khúc điểm danh / tóm tắt: không gộp với câu nào
             pst, pen, ptx = out[-1]
             cut = (punct and not ptx.rstrip().endswith(_CLAUSE_END)) or _open_end(ptx)   # câu trước chưa xong
             opens = punct and not tx.rstrip().endswith(_CLAUSE_END) and ptx.rstrip().endswith(_SENT_END)
@@ -735,16 +742,16 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     # khe quá ngắn: người gốc nói nhanh, máy cắt mỗi 1.5-2.5s -> giọng mới (Mỹ Duyên ~3.1 chữ/giây) chỉ được 4-6 chữ,
     # AI viết câu cụt hoặc viết quá rồi bị nén (Botkeep 12/11/2026: 19/46 đoạn vượt số từ, 16 đoạn bị rút gọn thành
     # "Thêm vào.", "Phi thơm lên."). Gộp với đoạn sau khi người gốc nói liền (nghỉ < 0.8s), câu gộp ≤ SENT_MAX.
-    out2 = []
+    out2: list = []
     for st, en, tx in out:
-        if out2:
+        if out2 and not _side(tx) and not _side(out2[-1][2]):
             pst, pen, ptx = out2[-1]
             if st - pst < MIN_SLOT and st - pen < 0.8 and en - pst <= SENT_MAX:
                 out2[-1] = (pst, en, f"{ptx} {tx}")
                 continue
         out2.append((st, en, tx))
     out = out2
-    if len(out) >= 2 and out_dur - out[-1][0] < 1.2:
+    if len(out) >= 2 and out_dur - out[-1][0] < 1.2 and not _side(out[-1][2]) and not _side(out[-2][2]):
         a, b = out[-2], out[-1]
         out[-2:] = [(a[0], b[1], a[2] + " " + b[2])]
     return out

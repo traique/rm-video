@@ -13,6 +13,17 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 46 — lời đọc lệch khúc điểm danh / tóm tắt (17/11/2026, job 3: dựng mạnh đã chạy)
+
+Soát bằng nhận dạng giọng + dò thẻ trên từng khung: thẻ nguyên liệu hiện 3,2-8,5s nhưng lời «Các nguyên liệu gồm…» đọc
+5,9-14,7s; thẻ TÓM TẮT hiện 161-164s mà không có lời tóm tắt.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Câu thứ hai bắt đầu 2,68s, khúc điểm danh chèn ở 2,7s (ranh giới chuyển cảnh) → câu bị tính bắt đầu TRƯỚC khúc điểm danh, gộp chung, AI đọc câu đó đè lên thẻ rồi mới đọc nguyên liệu | Dời ranh giới khúc về đúng cuối câu mở đầu (2,58s) để chèn |
+| Lời «gốc» của tóm tắt gộp vào câu chào kết không dấu chấm → AI viết một câu chào kết, bỏ ý tóm tắt | Lời của khúc điểm danh / tóm tắt (đánh dấu «Nguyên liệu gồm:» / «Tóm lại:») không bao giờ gộp với câu khác; cảm thán dời chỗ và tóm tắt có lời riêng |
+| Tóm tắt chen giữa «chúc thành công» và «cho mấy điểm» | Tóm tắt đặt sau bước bày món, trước lời chào kết |
+
 ## Bản 45 — dựng mạnh vẫn bị bỏ trên job thật (17/11/2026, lần 3)
 
 Dựng lại đúng dữ liệu phiên Kaggle (tách giọng Kim_Vocal_2 → Whisper large-v3 cùng tham số `asr_local` trên giọng đã

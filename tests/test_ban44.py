@@ -175,3 +175,44 @@ def test_failing_op_is_dropped_not_whole_layer(monkeypatch):
 
 def test_reduplicated_vua_not_coconut():
     assert vocab.fix_common("nó sâu dừa dừa thôi nha") == "nó sôi vừa vừa thôi nha"
+
+
+# ---------------- bản 46: lời của khúc điểm danh / tóm tắt (video thật 17/11, job 3) ----------------
+
+def _narration_slots(plan, segs):
+    """Như remake.restyle (dựng mạnh) + lúc viết lời: lời gốc theo trục mới + lời khúc phụ, gộp câu."""
+    mapped = [(round(plan.to_out(a), 2), round(plan.to_out(b), 2), t) for a, b, t in segs
+              if plan.to_out(b) - plan.to_out(a) >= max(0.05, (b - a) * plan.stretch * 0.95)]
+    side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts]
+    return prompt_engine.merge_sentences(sorted(mapped + side), plan.out_dur())
+
+
+def test_montage_and_recap_texts_stay_apart_and_in_order():
+    """Job 3: câu "Hôm nay..." bắt đầu 0,02s trước chỗ chèn điểm danh -> bị tính bắt đầu TRƯỚC khúc điểm danh, gộp
+    chung, lời nguyên liệu đọc trễ 3-6 giây so với thẻ; lời tóm tắt gộp vào câu chào kết, AI bỏ mất -> thẻ TÓM TẮT
+    chiếu mà không đọc."""
+    end, segs, cuts, facts, mot = _kaggle()
+    plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
+    assert why == "" and plan.level == "strong"
+    slots = _narration_slots(plan, segs)
+    texts = [t for _, _, t in slots]
+    k_m = next(k for k, t in enumerate(texts) if t.startswith(style_b.MONTAGE_MARK))
+    k_r = next(k for k, t in enumerate(texts) if t.startswith(style_b.RECAP_MARK))
+    m = next(p for p in plan.pieces if p.tag == "montage")
+    assert slots[k_m][0] == plan.texts[0]["t"] and k_m == 1                          # ngay sau câu mở đầu, đứng riêng
+    assert texts[k_m + 1].startswith("Hôm nay") and slots[k_m + 1][0] >= slots[k_m][1] - 0.05
+    assert m.a >= 0 and texts[k_r].count(style_b.RECAP_MARK) == 1 and len(texts[k_r]) < 160
+    assert "Vậy là đã xong" in " ".join(texts[k_r + 1:])                             # tóm tắt TRƯỚC lời chào kết
+    assert "Vậy là đã xong" not in " ".join(texts[:k_r])
+
+
+def test_split_at_moves_boundary_when_next_sentence_starts_right_after():
+    pieces = [edl.Piece(0.0, 2.7, zoom=1.0), edl.Piece(2.7, 4.57, zoom=1.12)]
+    assert style_b._split_at(pieces, 2.58) == 1
+    assert [(p.a, p.b, p.zoom) for p in pieces] == [(0.0, 2.58, 1.0), (2.58, 4.57, 1.12)]
+
+
+def test_side_texts_never_merged():
+    segs = [(0.0, 2.0, "rồi mọi người"), (2.0, 4.0, "Tóm lại: luộc mực, vớt ra."), (4.1, 4.6, "nha")]
+    out = prompt_engine.merge_sentences(segs, 10.0)
+    assert [t for _, _, t in out] == ["rồi mọi người", "Tóm lại: luộc mực, vớt ra.", "nha"]

@@ -31,6 +31,8 @@ MONTAGE_MAX = 5
 MONTAGE_LEN = 1.2
 RECAP_MAX = 5
 RECAP_LEN = 0.7
+RECAP_MARK = "Tóm lại:"            # đầu lời "gốc" của khúc tóm tắt / điểm danh: AI viết riêng, không gộp với câu bên cạnh
+MONTAGE_MARK = "Nguyên liệu gồm:"
 HOOK_KEEP = 2.0          # câu đầu tiên dài ít nhất chừng này giây luôn giữ làm câu mở đầu (thường là món thành phẩm)
 HOOK_MAX = 6.0
 CHAT_KINDS = ("wait", "other", "reaction", "intro", "promo")
@@ -89,6 +91,13 @@ def _split_at(pieces: list, t: float) -> int:
         if t - p.a < edl.MIN_PIECE:                     # sát đầu khúc: chèn trước khúc
             return k
         if p.b - t < edl.MIN_PIECE:                     # sát cuối khúc (câu mở đầu hết 2,58s, chuyển cảnh 2,7s)
+            nxt = pieces[k + 1] if k + 1 < len(pieces) else None
+            if t - p.a >= edl.MIN_PIECE and nxt is not None and nxt.role == "main" and abs(nxt.a - p.b) < 0.02:
+                # dời ranh giới về đúng t: câu sau bắt đầu ngay sau t (2,68s) phải nằm SAU khúc chèn, không thì lời
+                # của nó bị tính bắt đầu trước khúc chèn và đọc đè lên (bản 46: lời điểm danh trễ 3-6 giây so với thẻ)
+                pieces[k:k + 2] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
+                                   edl.Piece(round(t, 3), nxt.b, nxt.speed, nxt.zoom, nxt.push, nxt.fx, nxt.role,
+                                             nxt.tag)]
             return k + 1
         pieces[k:k + 1] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
                            edl.Piece(round(t, 3), p.b, p.speed, p.zoom, p.push, "", p.role, p.tag)]
@@ -264,7 +273,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         montage = []
     # B4 + B5: cảm thán giữa video dời về cuối, tóm tắt các bước chính, trước cảnh cuối
     tail: list = []
-    tail_text = []
+    react_text = recap_text = ""
     react = [s for s in steps if s.kind == "reaction" and s.t1 < end * 0.8 and 1.5 <= s.t1 - s.t0 <= 5.0
              and all(chat[k] for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05)]
     if react and "B4" not in skip:
@@ -273,7 +282,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         pieces = _cut_out(pieces, lo, hi)
         tail.append(edl.Piece(lo, hi, role="side", tag="moved"))
         said = " ".join(t for a, b, t in segs if lo <= a and b <= hi).strip()
-        tail_text.append(said if said[-1:] in ".!?…" else said + ".")
+        react_text = said if said[-1:] in ".!?…" else said + "."
         did.append("dời đoạn cảm thán về cuối")
     core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0
             and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]
@@ -282,11 +291,16 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         for s in pick:
             a = _kept_at(pieces, s.t0, s.t1, RECAP_LEN) or 0.0
             tail.append(edl.Piece(a, round(min(end, a + RECAP_LEN), 3), zoom=1.18, role="side", tag="recap"))
-        tail_text.append("Tóm lại: " + ", ".join(_short_step(s.text, s.kind) for s in pick) + ".")
+        recap_text = RECAP_MARK + " " + ", ".join(_short_step(s.text, s.kind) for s in pick) + "."
         did.append(f"tóm tắt {len(pick)} bước trước khi kết")
     if tail:
         last = max((k for k, p in enumerate(pieces) if p.role == "main"), default=len(pieces) - 1)
         ins = last if pieces[last].push > 0 else last + 1     # trước cảnh món cuối (đang đẩy cận) nếu có
+        # có lời chào kết sau bước bày món ("vậy là xong... chúc thành công... mấy điểm"): tóm tắt đứng TRƯỚC lời
+        # chào kết, không chen giữa "chúc thành công" và "cho mấy điểm" (bản 46)
+        done = max((s.t1 for s in steps if s.kind in CORE_KINDS), default=end)
+        if done < pieces[last].a - edl.MIN_PIECE:
+            ins = _split_at(pieces, done)
         pieces[ins:ins] = tail
     out = edl.EditPlan(pieces=pieces, stretch=stretch, level="strong")
     # lời "gốc" cho khúc side (để AI viết lời mới cho đúng hình) + thẻ nguyên liệu
@@ -296,7 +310,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         k_m = next(k for k, q in enumerate(pieces) if q is montage[0][0])
         t0 = starts[k_m]
         out.texts.append({"t": round(t0, 2), "dur": round(sum(p.length for p, _ in montage) * stretch, 2),
-                          "text": "Nguyên liệu gồm: " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
+                          "text": MONTAGE_MARK + " " + ", ".join(n[:1].lower() + n[1:] for n in names) + "."})
         out.overlays = [edl.Overlay(round(s + 0.1, 2), round(p.length * stretch - 0.2, 2), "ingredient", lab)
                         for (p, lab), s in zip(montage, starts[k_m: k_m + len(montage)])]
     if moved:
@@ -305,11 +319,16 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         out.texts.append({"t": round(starts[mk], 2), "dur": round(mp.length * stretch, 2),
                           "text": " ".join(t for a, b, t in segs if mp.a <= a and b <= mp.b)})
     if tail:
-        k0 = pieces.index(tail[0])
-        out.texts.append({"t": round(starts[k0], 2), "dur": round(sum(p.length for p in tail) * stretch, 2),
-                          "text": " ".join(x for x in tail_text if x)})
+        # lời "gốc" riêng cho cảm thán và cho tóm tắt (trước đây chung một đoạn, AI gộp với câu chào kết rồi bỏ mất
+        # ý tóm tắt — video thật 17/11 chiếu thẻ TÓM TẮT mà không đọc)
+        mt = [k for k, p in enumerate(pieces) if p.tag == "moved" and any(p is x for x in tail)]
+        if mt and react_text:
+            out.texts.append({"t": round(starts[mt[0]], 2), "dur": round(pieces[mt[0]].length * stretch, 2),
+                              "text": react_text})
         rk = [k for k, p in enumerate(pieces) if p.tag == "recap"]
         if rk:
+            out.texts.append({"t": round(starts[rk[0]], 2), "dur": round(sum(pieces[k].length for k in rk) * stretch, 2),
+                              "text": recap_text})
             out.overlays.append(edl.Overlay(round(starts[rk[0]] + 0.05, 2),
                                             round(sum(pieces[k].length for k in rk) * stretch - 0.1, 2), "tip",
                                             "TÓM TẮT CÁCH LÀM"))
