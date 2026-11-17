@@ -58,7 +58,7 @@
       "bà con bấm vào giỏ hàng góc trái màn hình mua ngay"
      ]
     ],
-    8.0,
+    7.7,
     0.0,
     4
    ]
@@ -138,10 +138,10 @@
       "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
       "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
       "Dialogue: 0,0:00:03.60,0:00:05.02,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
-      "Dialogue: 0,0:00:05.02,0:00:05.80,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}Lời {\\kf26}mới3 {\\kf22}Đong",
-      "Dialogue: 0,0:00:05.80,0:00:06.57,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}đủ {\\kf26}là {\\kf22}ngon,",
-      "Dialogue: 0,0:00:06.57,0:00:07.35,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}cả {\\kf26}nhà {\\kf22}nấu",
-      "Dialogue: 0,0:00:07.35,0:00:08.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf26}thử {\\kf22}nha."
+      "Dialogue: 0,0:00:05.02,0:00:05.74,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}Lời {\\kf24}mới3 {\\kf20}Đong",
+      "Dialogue: 0,0:00:05.74,0:00:06.46,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}đủ {\\kf24}là {\\kf20}ngon,",
+      "Dialogue: 0,0:00:06.46,0:00:07.18,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}cả {\\kf24}nhà {\\kf20}nấu",
+      "Dialogue: 0,0:00:07.18,0:00:07.70,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}thử {\\kf20}nha."
      ],
      "teaser": null,
      "title": "THỊT KHO MỀM RỤC",
@@ -302,8 +302,8 @@
       "start": 5.1,
       "text": "Lời mới3 Đong đủ là ngon, cả nhà nấu thử nha.",
       "voice": {
-       "end": 7.95,
-       "speed": 1.16,
+       "end": 7.74,
+       "speed": 1.25,
        "start": 5.02
       }
      }
@@ -321,7 +321,7 @@
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"
     },
-    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,020\nLời mới2 mới2 mới2\n\n4\n00:00:05,020 --> 00:00:05,796\nLời mới3 Đong\n\n5\n00:00:05,796 --> 00:00:06,571\nđủ là ngon,\n\n6\n00:00:06,571 --> 00:00:07,347\ncả nhà nấu\n\n7\n00:00:07,347 --> 00:00:08,000\nthử nha.\n",
+    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,020\nLời mới2 mới2 mới2\n\n4\n00:00:05,020 --> 00:00:05,740\nLời mới3 Đong\n\n5\n00:00:05,740 --> 00:00:06,460\nđủ là ngon,\n\n6\n00:00:06,460 --> 00:00:07,180\ncả nhà nấu\n\n7\n00:00:07,180 --> 00:00:07,700\nthử nha.\n",
     "status": "queued",
     "step": "Render (FFmpeg)",
     "teaser": {}
