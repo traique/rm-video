@@ -13,6 +13,30 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 46 — lời đọc lệch khúc điểm danh / tóm tắt (17/11/2026, job 3: dựng mạnh đã chạy)
+
+Soát bằng nhận dạng giọng + dò thẻ trên từng khung: thẻ nguyên liệu hiện 3,2-8,5s nhưng lời «Các nguyên liệu gồm…» đọc
+5,9-14,7s; thẻ TÓM TẮT hiện 161-164s mà không có lời tóm tắt.
+
+Soát kỹ lượt 2 trên chính video job 3 (khung 2 giây / lần kèm lời đang đọc, khung dày ở đoạn điểm danh và nêm gia vị,
+so với video gốc, đo âm thanh): thêm 4 lỗi —
+
+| Lỗi | Sửa |
+| --- | --- |
+| Đoạn đầu bếp múc đường / hạt nêm (33-35s gốc) bị tua nhanh: người gốc nói «nêm nửa muỗng…» xong mới múc, quãng lặng 4,6s chuyển động thấp (muỗng ở mép khung) | Sau câu dặn thao tác có nguyên liệu / định lượng (không phải câu báo thời gian chờ như «nướng 30 phút») giữ tốc độ thường 4 giây rồi mới được tua |
+| Câu chốt kênh bị AI rút gọn còn «cả nhà nấu thử nha» (mất «Đong đủ là ngon») | Câu chốt không đưa cho AI rút gọn, chỉ rút phần trước nó |
+| Âm hiệu màn kết ~-40 dB, gần như không nghe (file tạo bằng nguồn sine của FFmpeg chỉ 1/8 biên độ: -35 LUFS, đỉnh -29 dBFS) | Tạo lại file (-17 LUFS); lúc dựng tự chuẩn hoá đỉnh mọi âm hiệu (kể cả file tải lên) về -4 dBFS |
+| Chữ hook đè thẻ nguyên liệu đầu tiên 0,5 giây | Chữ hook tắt đúng lúc điểm danh bắt đầu |
+
+Đã ổn: âm lượng -14 LUFS, giọng cao hơn tiếng nền ~10 dB, không lọt tiếng gốc; thẻ nguyên liệu đúng cảnh; thẻ mẹo; nhãn
+tua; màn kết nối thêm.
+
+| Lỗi | Sửa |
+| --- | --- |
+| Câu thứ hai bắt đầu 2,68s, khúc điểm danh chèn ở 2,7s (ranh giới chuyển cảnh) → câu bị tính bắt đầu TRƯỚC khúc điểm danh, gộp chung, AI đọc câu đó đè lên thẻ rồi mới đọc nguyên liệu | Dời ranh giới khúc về đúng cuối câu mở đầu (2,58s) để chèn |
+| Lời «gốc» của tóm tắt gộp vào câu chào kết không dấu chấm → AI viết một câu chào kết, bỏ ý tóm tắt | Lời của khúc điểm danh / tóm tắt (đánh dấu «Nguyên liệu gồm:» / «Tóm lại:») không bao giờ gộp với câu khác; cảm thán dời chỗ và tóm tắt có lời riêng |
+| Tóm tắt chen giữa «chúc thành công» và «cho mấy điểm» | Tóm tắt đặt sau bước bày món, trước lời chào kết |
+
 ## Bản 45 — dựng mạnh vẫn bị bỏ trên job thật (17/11/2026, lần 3)
 
 Dựng lại đúng dữ liệu phiên Kaggle (tách giọng Kim_Vocal_2 → Whisper large-v3 cùng tham số `asr_local` trên giọng đã

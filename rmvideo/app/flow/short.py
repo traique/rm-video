@@ -116,7 +116,7 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
     if montage:
         labels = [style_b._label(it) for it, _ in montage]
         plan.texts.append({"t": 0.0, "dur": round(len(montage) * MONTAGE_LEN * stretch, 2),
-                           "text": "Nguyên liệu gồm: " + ", ".join(n[:1].lower() + n[1:] for n in labels) + "."})
+                           "kind": "montage", "text": style_b.MONTAGE_MARK + " " + ", ".join(n[:1].lower() + n[1:] for n in labels) + "."})
         plan.overlays = [edl.Overlay(round(k * MONTAGE_LEN * stretch + 0.1, 2), round(MONTAGE_LEN * stretch - 0.2, 2),
                                      "ingredient", lab) for k, lab in enumerate(labels)]
     errs = plan.validate()

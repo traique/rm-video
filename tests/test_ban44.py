@@ -175,3 +175,98 @@ def test_failing_op_is_dropped_not_whole_layer(monkeypatch):
 
 def test_reduplicated_vua_not_coconut():
     assert vocab.fix_common("nó sâu dừa dừa thôi nha") == "nó sôi vừa vừa thôi nha"
+
+
+# ---------------- bản 46: lời của khúc điểm danh / tóm tắt (video thật 17/11, job 3) ----------------
+
+def _narration_slots(plan, segs):
+    """Như remake.restyle (dựng mạnh) + lúc viết lời: lời gốc theo trục mới + lời khúc phụ, gộp câu."""
+    mapped = [(round(plan.to_out(a), 2), round(plan.to_out(b), 2), t) for a, b, t in segs
+              if plan.to_out(b) - plan.to_out(a) >= max(0.05, (b - a) * plan.stretch * 0.95)]
+    side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts]
+    return prompt_engine.merge_sentences(sorted(mapped + side), plan.out_dur())
+
+
+def test_montage_and_recap_texts_stay_apart_and_in_order():
+    """Job 3: câu "Hôm nay..." bắt đầu 0,02s trước chỗ chèn điểm danh -> bị tính bắt đầu TRƯỚC khúc điểm danh, gộp
+    chung, lời nguyên liệu đọc trễ 3-6 giây so với thẻ; lời tóm tắt gộp vào câu chào kết, AI bỏ mất -> thẻ TÓM TẮT
+    chiếu mà không đọc."""
+    end, segs, cuts, facts, mot = _kaggle()
+    plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
+    assert why == "" and plan.level == "strong"
+    slots = _narration_slots(plan, segs)
+    texts = [t for _, _, t in slots]
+    k_m = next(k for k, t in enumerate(texts) if t.startswith(style_b.MONTAGE_MARK))
+    k_r = next(k for k, t in enumerate(texts) if t.startswith(style_b.RECAP_MARK))
+    m = next(p for p in plan.pieces if p.tag == "montage")
+    assert slots[k_m][0] == plan.texts[0]["t"] and k_m == 1                          # ngay sau câu mở đầu, đứng riêng
+    assert texts[k_m + 1].startswith("Hôm nay") and slots[k_m + 1][0] >= slots[k_m][1] - 0.05
+    assert m.a >= 0 and texts[k_r].count(style_b.RECAP_MARK) == 1 and len(texts[k_r]) < 160
+    assert "Vậy là đã xong" in " ".join(texts[k_r + 1:])                             # tóm tắt TRƯỚC lời chào kết
+    assert "Vậy là đã xong" not in " ".join(texts[:k_r])
+
+
+def test_split_at_moves_boundary_when_next_sentence_starts_right_after():
+    pieces = [edl.Piece(0.0, 2.7, zoom=1.0), edl.Piece(2.7, 4.57, zoom=1.12)]
+    assert style_b._split_at(pieces, 2.58) == 1
+    assert [(p.a, p.b, p.zoom) for p in pieces] == [(0.0, 2.58, 1.0), (2.58, 4.57, 1.12)]
+
+
+def test_side_texts_never_merged():
+    segs = [(0.0, 2.0, "rồi mọi người"), (2.0, 4.0, "Tóm lại: luộc mực, vớt ra."), (4.1, 4.6, "nha")]
+    out = prompt_engine.merge_sentences(segs, 10.0)
+    assert [t for _, _, t in out] == ["rồi mọi người", "Tóm lại: luộc mực, vớt ra.", "nha"]
+
+
+# ---------------- bản 46 (soát kỹ video job 3) ----------------
+
+def test_action_after_instruction_not_fast_forwarded():
+    """Người gốc nói "nêm nửa muỗng đường, nửa muỗng hạt nêm" (hết 32,4s) rồi mới múc (33-35s), câu sau 37,0s: quãng
+    lặng 4,6s chuyển động thấp (muỗng ở mép khung) từng bị tua 2 lần."""
+    from rmvideo.app.flow import style
+    segs = [(26.1, 32.4, "rồi mọi người bỏ trong này là nửa muỗng bột ngọt, nửa muỗng đường, nửa muỗng hạt nêm"),
+            (37.0, 42.3, "rồi anh chị đốt lửa riu riu cho mình"), (60.0, 62.0, "đây là bí quyết nha")]
+    mot = [0.001] * 200
+    plan = style.plan_light(70.0, segs, [], mot)
+    assert not any(p.tag == "skip" and p.a < 36.4 and p.b > 32.4 for p in plan.pieces)
+    assert any(p.tag == "skip" and p.a >= 42.3 for p in plan.pieces)            # quãng chờ sau câu thường: vẫn tua
+
+
+def test_brand_close_line_survives_shortening(monkeypatch):
+    from rmvideo.app.flow import remake
+    monkeypatch.setattr(config, "BRAND_CLOSE", "Đong đủ là ngon, cả nhà nấu thử nha")
+    seen = {}
+
+    async def fake_shorten(items):
+        seen["items"] = items
+        return {0: "Dễ làm quá."}
+    monkeypatch.setattr(prompt_engine, "shorten", fake_shorten)
+    r = remake.Remake.__new__(remake.Remake)
+    r.out_dur, r.job = 10.0, type("J", (), {"script": ""})()
+    segs = [{"start": 6.0, "text": "Quá đỗi dễ thực hiện, mọi người cho mấy điểm nè. Đong đủ là ngon, cả nhà nấu thử nha."}]
+    changed = asyncio.run(r.shorten(segs, [0], [6.0]))
+    assert changed == [0] and "Đong đủ" not in seen["items"][0][1]
+    assert segs[0]["text"] == "Dễ làm quá. Đong đủ là ngon, cả nhà nấu thử nha."
+
+
+def test_quiet_sting_is_normalised(tmp_path):
+    import subprocess
+    from rmvideo.media import renderer
+    quiet = str(tmp_path / "s.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=880:d=1", "-af", "volume=0.1", quiet],
+                   check=True)
+    g = asyncio.run(renderer.sting_gain(quiet))
+    assert 20 < g <= 30                                         # đỉnh ~-38 dBFS -> cộng ~34 dB, chặn ở 30
+    loud = str(tmp_path / "l.mp3")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=f=880:d=1", "-af", "volume=8", loud],
+                   check=True)
+    assert asyncio.run(renderer.sting_gain(loud)) < 0
+
+
+def test_hook_title_stops_when_montage_starts():
+    from rmvideo.media import renderer
+    plan = edl.EditPlan(pieces=[edl.Piece(0, 2.58), edl.Piece(26.9, 28.1, role="side", tag="montage"), edl.Piece(2.58, 10)])
+    plan.texts.append({"t": 2.58, "dur": 6.0, "kind": "montage", "text": "Nguyên liệu gồm: mực."})
+    assert renderer.hook_title_end(0.0, plan) == 2.58
+    assert renderer.hook_title_end(0.0, None) is None
+    assert renderer.hook_title_end(3.0, None) == 3.3

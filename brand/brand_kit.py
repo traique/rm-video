@@ -112,8 +112,10 @@ def sting(out: str) -> None:
     _ff("-f", "lavfi", "-i", "sine=f=880:d=0.28:sample_rate=44100",
         "-f", "lavfi", "-i", "sine=f=1318.5:d=1.0:sample_rate=44100",
         "-filter_complex",
-        "[0]volume=0.5,afade=t=out:st=0.05:d=0.23[a];[1]volume=0.5,afade=t=out:st=0.1:d=0.9[b];"
-        "[a][b]concat=n=2:v=0:a=1,aecho=0.8:0.6:60:0.25,atrim=0:1.3,afade=t=out:st=1.1:d=0.2",
+        # nguồn sine của FFmpeg chỉ ở 1/8 biên độ: x4 rồi chuẩn hoá đỉnh ~-3 dBFS (bản cũ đỉnh -29 dBFS, gần như câm)
+        "[0]volume=4,afade=t=out:st=0.05:d=0.23[a];[1]volume=4,afade=t=out:st=0.1:d=0.9[b];"
+        "[a][b]concat=n=2:v=0:a=1,aecho=0.8:0.6:60:0.25,atrim=0:1.3,afade=t=out:st=1.1:d=0.2,"
+        "alimiter=limit=0.7:level=false",
         "-ac", "1", "-b:a", "96k", out)
 
 
