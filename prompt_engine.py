@@ -3,6 +3,7 @@
 LUẬT CỨNG: giữ nguyên văn định lượng công thức, giá, địa chỉ, tên quán/thương hiệu."""
 import asyncio
 import contextvars
+import difflib
 import json
 import logging
 import re
@@ -856,6 +857,35 @@ def drop_replayed(text: str, steps: set) -> str:
     return out[:-1] + "." if out.endswith((",", ";")) else out if out.endswith((".", "!", "?", "…")) else out + "."
 
 
+# ---------- nói «dĩa» khi món chưa lên dĩa (bản 50, job 7 phút 2:28) ----------
+_PLATE_ACT_RE = re.compile(r"(?<![\w])(?:đổ ra|trút ra|bày ra|xúc ra|ra dĩa|ra đĩa|ra tô|ra chén|ra mâm|lên dĩa|lên đĩa|"
+                           r"bày lên)(?![\w])", re.IGNORECASE)
+_PLATE_NOUN_RE = re.compile(r"(?<![\w])(dĩa|đĩa)\s+(\w+(?:\s+\w+)?)", re.IGNORECASE)
+
+
+def early_plate(items: list) -> dict:
+    """items: [(k, lời gốc, lời mới)] theo thứ tự (bỏ câu hook / khúc điểm danh, tóm tắt). Trả {k: "Dĩa mực"}: lời mới
+    gọi món là «dĩa + món» ở đoạn mà lời gốc CHƯA bày món ra dĩa, trong khi một đoạn SAU mới đổ / bày ra (job 7, 2:28:
+    «Dĩa mực nóng hổi» khi hình là mực còn trong vợt; gốc «đổ ra» ở 2:43). Lời gốc không bao giờ nói bày ra: không bắt."""
+    at = next((i for i, (_, orig, _new) in enumerate(items) if _PLATE_ACT_RE.search(orig or "")), None)
+    out: dict = {}
+    for k, orig, new in items[:at] if at is not None else []:
+        if re.search(r"(?<![\w])(?:dĩa|đĩa)(?![\w])", orig or "", re.IGNORECASE):   # gốc cũng nói dĩa (dĩa rau...)
+            continue
+        for m in _PLATE_NOUN_RE.finditer(new or ""):
+            what = m.group(2).lower()
+            if ingredients.find(what) or what.split()[0] in ("món", "này", "thành"):
+                out[k] = m.group(0)
+                break
+    return out
+
+
+def unplate(text: str) -> str:
+    """Bản cuối vẫn nói «dĩa» quá sớm: «Dĩa mực nóng hổi» -> «Mẻ mực nóng hổi» (giữ chữ hoa đầu câu)."""
+    return _PLATE_NOUN_RE.sub(lambda m: ("Mẻ" if m.group(1)[0].isupper() else "mẻ") + " " + m.group(2), text or "",
+                              count=1)
+
+
 _DUP_ITEM_RE = re.compile(r"(?<![\w])([^,.;!?]*?\w\s+\w[^,.;!?]*?)(?:,\s*\1)+(?=[,.;!?]|$)", re.IGNORECASE)
 
 
@@ -952,16 +982,21 @@ def merge_sentences(segments: list, out_dur: float) -> list:
 
 
 TEASER_SPILL = 0.4      # câu hook của đoạn mở đầu được lấn sang video chính tối đa chừng này giây
+HOOK_TIP = """
+- ĐIỂM ĂN TIỀN của video (mẹo chính người gốc nói, đã kiểm trong lời gốc): «{tip}». Câu hook (đoạn 0) và chữ "hook" xoáy vào điều BẤT NGỜ hoặc KẾT QUẢ mà mẹo này mang lại, nói như một lời hứa ngắn cho người đang lướt; KHÔNG khen chung chung kiểu "giữ trọn vị ngọt", "thơm ngon khó cưỡng". Nguyên liệu, con số trong câu hook chỉ lấy từ mẹo này hoặc lời gốc."""
+
 TEASER_HINT = """
 - ĐOẠN MỞ ĐẦU: đoạn 0 chiếu trước cảnh MÓN ĐÃ HOÀN THÀNH trong {dur:.0f} giây đầu (xem ảnh đoạn 0), rồi video mới bắt đầu làm từ đầu. Câu hook nói về đúng món đang thấy (giòn, thơm, mềm, màu, độ hấp dẫn) hoặc gợi tò mò cách làm, đọc vừa {dur:.0f} giây; KHÔNG kể bước làm, không nhắc nguyên liệu hay con số mà lời gốc không có."""
 INTRO_MIN = 2.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu hook riêng ở giây 0 (sớm hơn: đoạn 0 là hook)
 INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (một câu hook, phần còn lại của quãng để im)
+DEAD_AIR = 3.5          # đọc xong mà khe còn lặng quá chừng này giây (ước theo số chữ) -> bắt viết thêm (bản 50)
 
 
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
                          images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True,
-                         teaser: float = 0.0, examples: list | None = None) -> dict:
+                         teaser: float = 0.0, examples: list | None = None, hook_tip: str = "") -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
+    hook_tip: mẹo chính của video (đã đối chiếu lời gốc) để câu hook xoáy vào (bản 50).
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
     intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
     kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu).
@@ -995,6 +1030,8 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     avoid = list(avoid or []) + [x["new"] for x in (examples or [])]
     if intro:
         prompt += HOOK_RULE
+        if hook_tip:
+            prompt += HOOK_TIP.format(tip=hook_tip.strip().rstrip("."))
         if teaser and not slots[0][4]:
             prompt += TEASER_HINT.format(dur=teaser)
     ost_auto = config.OST_AUTO == "1"
@@ -1041,17 +1078,24 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return replayed_steps([(k, tx, "" if osts.get(k) == "orig" else got.get(k, ""))
                                for k, st, slot, mx, tx, span in slots if tx and not _side(tx)])
 
+    def _plates(got, osts):
+        """Đoạn nói «dĩa + món» khi món chưa được bày ra dĩa (early_plate). Đoạn 0 (câu hook, hay chiếu món xong) không
+        tính."""
+        return early_plate([(k, tx, "" if osts.get(k) == "orig" else got.get(k, ""))
+                            for k, st, slot, mx, tx, span in slots if k and tx and not _side(tx)])
+
     def _bad(got, osts):
         """Đoạn thiếu hoặc chép lời gốc (>=45% cụm 2 từ trùng). Đoạn giữ nguyên tiếng gốc không cần lời mới."""
         out = []
         again = _replays(got, osts)
+        plates = _plates(got, osts)
         for k, st, slot, mx, tx, span in slots:
             if osts.get(k) == "orig":
                 continue
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
                     or _CTA_RE.search(got[k]) or has_sub_cta(got[k]) \
-                    or _hook_bad(k, got[k]) or side_lost(got[k], tx) or k in again:   # lặp câu lô trước / quảng cáo
+                    or _hook_bad(k, got[k]) or side_lost(got[k], tx) or k in again or k in plates:   # lặp câu / quảng cáo
                 out.append(k)
         return out
 
@@ -1066,6 +1110,20 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         need = sum(w for _, w in want)
         return need >= 40 and sum(spoken_words(got.get(k, "")) for k, _ in want) < 0.7 * need
 
+    def _dead(got, osts):
+        """Đoạn đọc xong còn lặng > DEAD_AIR giây tới đoạn sau (ước theo số chữ / tốc độ giọng) mà chưa viết tới mức tối
+        thiểu của khe. Job 7: 3 quãng lặng 4-5 giây (1:35, 2:10, 2:24) — người xem lướt đi khi video im. Không tính
+        đoạn cuối (câu chốt kênh nối vào), khúc điểm danh / tóm tắt, và đoạn ngay trước đoạn giữ tiếng gốc."""
+        out = []
+        for n, (k, st, slot, mx, tx, span) in enumerate(slots):
+            if n + 1 >= len(slots) or osts.get(k) == "orig" or osts.get(slots[n + 1][0]) == "orig" or k not in got \
+                    or _side(tx):
+                continue
+            words = spoken_words(got[k])
+            if words < max(2, round(mx * 0.8)) and slot - words / _rate() > DEAD_AIR:
+                out.append(k)
+        return out
+
     def _thin(got, osts):
         """Đoạn viết quá ít chữ so với khe (dưới 60% mức tối thiểu): giọng hết sớm, video lặng 5-7 giây giữa các câu
         (bản 43, video mực: AI viết ~nửa số chữ, nghe như đọc tít rời rạc). Khe ngắn (< 8 chữ) không tính. Cả bài thưa
@@ -1077,7 +1135,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                    if osts.get(k) != "orig" and k in got and k not in out and mx >= 5
                    and spoken_words(got[k]) < 0.8 * max(2, round(mx * 0.8))]
             out += [k for _, k in sorted(low)]
-        return out
+        return out + [k for k in _dead(got, osts) if k not in out]
 
     orig_all = " ".join(s[4] for s in slots)
     async def attempt(p):
@@ -1097,13 +1155,15 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         for attempt in range(2):                    # tối đa 2 lần bắt viết lại
             txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
             again = _replays(got, d["_ost"])
+            plates = _plates(got, d["_ost"])
             severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
                       or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
-                      or _hook_bad(k, got.get(k, "")) or side_lost(got.get(k, ""), txt_of.get(k, "")) or k in again]
+                      or _hook_bad(k, got.get(k, "")) or side_lost(got.get(k, ""), txt_of.get(k, "")) or k in again
+                      or k in plates]
             # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
-            too_thin = len(thin) >= max(2, len(slots) // 4) or _sparse(got, d["_ost"])
+            too_thin = len(thin) >= max(2, len(slots) // 4) or _sparse(got, d["_ost"]) or len(_dead(got, d["_ost"])) >= 2
             if not (too_copy or miss or added or too_thin):
                 break
             logging.warning("AI %s lần %d: %d đoạn chép/thiếu; %d đoạn quá ngắn; nguyên liệu thiếu %s; bịa/đổi %s -> "
@@ -1123,8 +1183,12 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            " gốc của chính đoạn đó, không cho lại nguyên liệu vào: " +
                            ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}», đã cho vào trước đó: "
                                      f"{_steps_vi(again[k])})" for k in sorted(again)[:4]))
+            if plates:
+                why.append("các đoạn sau gọi món là «dĩa ...» nhưng lúc đó món CHƯA được bày ra dĩa (lời gốc tới đoạn sau mới"
+                           " đổ / bày ra), hình đang là món trong nồi / chảo / vợt: gọi đúng thứ đang thấy: " +
+                           ", ".join(f"{k} («{got.get(k, '')}»)" for k in sorted(plates)[:4]))
             copies = [k for k in bad if k not in ads and k not in subs and k not in hooks and k not in sides
-                      and k not in again]
+                      and k not in again and k not in plates]
             if subs:
                 why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
                            "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
@@ -1182,6 +1246,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             if fixed != got[k]:
                 logging.warning("Đoạn %d kể lại bước đã làm (%s): %s -> %s", k, _steps_vi(steps), got[k], fixed)
                 got[k] = fixed
+        for k, what in _plates(got, d["_ost"]).items():        # viết lại vẫn nói «dĩa» quá sớm: "Dĩa mực" -> "Mẻ mực"
+            logging.warning("Đoạn %d nói «%s» khi món chưa lên dĩa: %s", k, what, got[k])
+            got[k] = unplate(got[k])
         for k, st, slot, mx, tx, span in slots:               # điểm danh: vào thẳng món đầu, khớp thẻ chữ
             if (tx or "").lstrip().startswith(SIDE_MARKS[0]) and got.get(k):
                 got[k] = montage_lead(got[k])
@@ -1211,6 +1278,61 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
     return await llm.first_success(chain, attempt, record=metrics.record,
                                    on_error=lambda p, e: logging.error("generate_timed: provider %s lỗi", p.name, exc_info=e))
+
+
+PROOF_PROMPT = """Bạn là biên tập viên soát lời đọc cho video nấu ăn tiếng Việt (giọng miền Nam). Dưới đây là các câu sẽ được đọc lên, mỗi dòng «số | câu».
+Chỉ tìm câu có CHỮ DÙNG SAI NGHĨA hoặc chữ vô nghĩa, lạc ngữ cảnh (vd «Hoàn thành dĩa mực thơm lừng rảnh rỗi nè»: «rảnh rỗi» lạc nghĩa), sai chính tả, chữ bị lặp, câu cụt bỏ lửng.
+Sửa ÍT NHẤT có thể: chỉ thay hoặc bỏ đúng chữ sai; giữ nguyên ý, giọng nói chuyện, mọi con số, đơn vị và tên nguyên liệu; không thêm ý mới, KHÔNG viết lại câu đang đúng (khen ngon, từ đệm nha/nè/luôn là bình thường).
+{items}
+Trả về DUY NHẤT JSON: {{"fixes": [{{"i": số, "text": "câu đã sửa"}}]}}; không có câu nào sai thì "fixes": []."""
+
+
+PROOF_MAX = 75.0        # giây: lượt soát lời tối đa chừng này (kể cả thử lại)
+
+
+def _minor_edit(old: str, new: str) -> bool:
+    """Bản soát chỉ được sửa nhỏ: thay / bỏ / thêm tối đa 30% số chữ (ít nhất 2 chữ)."""
+    a, b = _norm_words(old), _norm_words(new)
+    ops = difflib.SequenceMatcher(a=a, b=b, autojunk=False).get_opcodes()
+    changed = sum(max(i2 - i1, j2 - j1) for tag, i1, i2, j1, j2 in ops if tag != "equal")
+    return 0 < changed <= max(2, 0.3 * len(a))
+
+
+async def proofread(segments: list) -> list:
+    """Soát lời lần cuối (bản 50): một lượt AI đọc lại cả kịch bản, chỉ sửa chữ dùng sai nghĩa / vô nghĩa (job 7, 3:01:
+    «Hoàn thành dĩa mực hấp gừng thơm lừng rảnh rỗi nè»). Mỗi chỗ sửa phải nhỏ (_minor_edit), giữ đúng nguyên liệu và
+    con số, không chép lời gốc; sai thì bỏ chỗ sửa đó. Sửa tại chỗ trong `segments`, trả [(i, cũ, mới)]. Không có key
+    Gemini / lỗi mạng: không sửa gì."""
+    items = {n: s for n, s in enumerate(segments) if s.get("ost") != "orig" and (s.get("text") or "").strip()
+             and not _side(s.get("orig") or "")}
+    if not items or not (genai and config.GEMINI_API_KEY):
+        return []
+    lines = "\n".join(f"{n} | {s['text']}" for n, s in items.items())
+    try:                                  # lượt phụ: Gemini quá tải (tự thử lại nhiều lần) thì bỏ, không giữ job lại
+        raw = await asyncio.wait_for(_call_gemini(PROOF_PROMPT.format(items=lines), timeout=45), PROOF_MAX)
+        fixes = loads_lenient(raw).get("fixes") or []
+    except Exception as e:
+        logging.warning("Soát lời lỗi (%s: %s), giữ nguyên", type(e).__name__, str(e)[:100])
+        return []
+    done = []
+    for f in fixes if isinstance(fixes, list) else []:
+        try:
+            n, new = int(f["i"]), dialect.south(str(f["text"]).strip())
+        except Exception:
+            continue
+        seg = items.get(n)
+        if seg is None or not new:
+            continue
+        old = seg["text"]
+        if new == old or not _minor_edit(old, new) or ingredients.find(new) != ingredients.find(old) \
+                or sorted(ingredients.numbers(new)) != sorted(ingredients.numbers(old)) \
+                or copy_ratio(new, seg.get("orig") or "") >= 0.45:
+            logging.info("Soát lời: bỏ chỗ sửa đoạn %d («%s» -> «%s»)", n, old, new)
+            continue
+        seg["text"] = new
+        done.append((n, old, new))
+        logging.warning("Soát lời: đoạn %d «%s» -> «%s»", n, old, new)
+    return done
 
 
 SHORTEN_PROMPT = """Rút gọn các câu thoại video dưới đây cho vừa thời gian, mỗi câu tối đa số từ ghi kèm.
@@ -1281,13 +1403,16 @@ BATCH_PARALLEL = 2
 
 
 async def generate_timed_any(title: str, desc: str, mode: str, segments: list, out_dur: float,
-                             images_for=None, teaser: float = 0.0, examples: list | None = None):
+                             images_for=None, teaser: float = 0.0, examples: list | None = None,
+                             hook_tip: str = ""):
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
     lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại.
     teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó."""
     segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)],
                                out_dur)                                        # gộp TRƯỚC khi chia lô
     tkw = {"teaser": teaser} if teaser else {}           # chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)
+    if hook_tip:                                           # mẹo chính: chỉ lô đầu (lô có câu hook)
+        tkw["hook_tip"] = hook_tip
     ekw = {"examples": examples} if examples else {}       # sổ giọng: mọi lô cùng một bộ mẫu
     if len(segments) <= BATCH + 6:
         return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw, **ekw)

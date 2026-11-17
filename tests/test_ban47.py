@@ -98,7 +98,7 @@ def test_unit_change_is_caught_and_only_that_phrase_dropped():
 def test_narration_stops_before_end_card():
     r = Remake.__new__(Remake)
     r.out_dur, r.tail = 188.39, 2.2
-    assert r.content_end == 186.19
+    assert r.content_end == 185.89                  # bản 50: chừa 0,3 giây thở trước màn kết
     r.tail = 0.0
     assert r.content_end == 188.39
 

@@ -462,8 +462,9 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
     if cards:
         brand = overlay_filter(cards, W, H, T, tmp) + brand
-    # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
-    fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
+    # vào thẳng hình, KHÔNG mờ từ đen (bản 50): khung đầu là thứ người xem TikTok / Reels thấy đầu tiên khi lướt tới
+    # (và hay được lấy làm ảnh bìa); job 7: 0,33 giây đầu tối đen -> mất cú chạm đầu tiên
+    fades = f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     if sting_idx is not None:
         # âm hiệu kênh vang lúc màn kết hiện (hoặc 1,6 giây cuối nếu không có màn kết), trộn trên giọng + tiếng nền

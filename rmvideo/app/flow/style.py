@@ -9,6 +9,7 @@ Mọi mép khúc nằm trong khoảng lặng (chừa PAD giây quanh lời): kh�
 Lớp B ("strong") nằm ở plan_strong (rmvideo/app/flow/style_b.py)."""
 from __future__ import annotations
 
+import math
 import logging
 import os
 from collections.abc import Callable
@@ -26,6 +27,8 @@ SKIP_MIN_BLIND = 6.0  # không đo được chuyển động: chỉ tua quãng t
 SKIP_TARGET = 1.8     # tua còn khoảng chừng này giây
 DEAD_KEEP = 0.6       # khoảng chết chỉ giữ chừng này giây
 SHOT_MIN = 2.5        # một cỡ khung giữ ít nhất
+SHOT_MAX = 6.0        # ... và nhiều nhất: quãng dài hơn thì đổi cỡ (cận / xa) chia đều, hình không đứng yên (bản 50:
+                      # job 7 có quãng 13 giây không đổi khung vì người gốc nói một mạch, không ngắt câu)
 SENT_GAP = 0.35       # ngắt câu: khoảng lặng giữa hai câu từ chừng này
 ZOOMS = (1.0, 1.12, 1.0, 1.18)
 PUSH = 0.06
@@ -114,6 +117,7 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
     """segs: lời gốc [(a, b, lời)] trục GỐC trong [0, end]; cuts: điểm chuyển cảnh trục gốc; mot: motion().
     drop(a, b): quãng lời được phép bỏ (lớp B: lời tán gẫu lúc chờ) -> coi như khoảng lặng."""
     speech = _speech_windows([(a, b) for a, b, t in segs if not (drop and drop(a, b))], end)
+    sents = sorted((a, b) for a, b, t in segs)               # mọi câu (kể cả câu được phép bỏ): chỗ đổi khung tránh
     acts = [b for a, b, t in segs if not (drop and drop(a, b)) and _action_line(t)]
     vals = sorted(mot) if mot else []
     lo = vals[int(len(vals) * 0.35)] if vals else None
@@ -168,6 +172,8 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
             if x - pts[-1] >= (1.5 if x in breaks else SHOT_MIN * 1.2):
                 pts.append(x)
         pts.append(b)
+        if len(pieces) + len(pts) < edl.MAX_PIECES - 25:     # chừa chỗ cho khúc tua / khúc phụ của lớp B
+            pts = _split_long(pts, sents)
         for x, y in zip(pts, pts[1:]):
             if y - x < edl.MIN_PIECE and pieces and pieces[-1].tag != "skip":
                 p = pieces[-1]
@@ -186,6 +192,38 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
     plan = edl.EditPlan(pieces=pieces, stretch=stretch, level=level)
     finalize(plan, segs, label_mode, end, removed, skipped_src)
     return plan
+
+
+def _split_long(pts: list, sents: list | None = None) -> list:
+    """Chèn chỗ đổi cỡ khung vào quãng dài hơn SHOT_MAX: chia đều, mỗi chỗ dời về khoảng lặng giữa hai câu gần nhất
+    (±1,5 giây). sents: [(a, b)] các câu lời gốc, theo thứ tự."""
+    out = [pts[0]]
+    for x, y in zip(pts, pts[1:]):
+        n = math.ceil((y - x) / SHOT_MAX) if y - x > SHOT_MAX else 1
+        for i in range(1, n):
+            t = _calm_point(x + (y - x) * i / n, out[-1], y, sents or [])
+            if t is not None:
+                out.append(t)
+        out.append(y)
+    return out
+
+
+def _calm_point(t: float, lo: float, hi: float, sents: list) -> float | None:
+    """Chỗ đổi khung gần t: khoảng lặng giữa hai câu nếu có (±1,5 giây); không thì giữ t nhưng KHÔNG đặt trong 0,6 giây
+    cuối một câu — khúc phụ chèn ngay sau câu đó bị kéo lùi về ranh giới gần (< 0,5 giây, style_b._split_at) và cắt đôi
+    câu (video mực: khúc tóm tắt chen giữa câu 174,0s). Cách ranh giới hai bên ≥ SHOT_MIN; không được thì None."""
+    def ok(p: float) -> bool:
+        return p - lo >= SHOT_MIN and hi - p >= SHOT_MIN
+    gaps: list[float] = [(b1 + a2) / 2 for (_, b1), (a2, _) in zip(sents, sents[1:]) if a2 - b1 >= 0.1]
+    near: list[float] = [g for g in gaps if abs(g - t) <= 1.5 and ok(g)]
+    if near:
+        best = min(near, key=lambda g: abs(g - t))
+        return round(best, 3)
+    for a, b in sents:
+        if max(a, b - 0.6) <= t < b:
+            t = max(a, b - 0.6) - 0.05 if b - 0.6 > a else t
+            break
+    return round(t, 3) if ok(t) else None
 
 
 def finalize(plan: edl.EditPlan, segs: list, label_mode: str, end: float, removed: float = 0.0,

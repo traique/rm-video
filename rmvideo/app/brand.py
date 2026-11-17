@@ -101,6 +101,9 @@ def end_tail(content: float, cap: float) -> float:
     return t if t and content > 6 and content + t <= cap + 0.01 else 0.0
 
 
+END_BREATH = 0.3     # lời đọc dứt trước màn kết chừng này giây (bản 50, job 7: chữ "nha" cuối dứt đúng lúc hình tối lại)
+
+
 def tail_len() -> float:
     """Độ dài màn kết nối thêm nếu có tên kênh (để chừa chỗ trước, vd. bản ngắn ≤ 90 giây)."""
     return renderer.OUTRO_DUR if config.brand_text("BRAND_NAME") else 0.0

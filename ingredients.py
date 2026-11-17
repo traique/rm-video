@@ -47,6 +47,7 @@ GROUPS = [
 ]
 
 _ALIASES = sorted(((a, gi) for gi, g in enumerate(GROUPS) for a in g), key=lambda x: -len(x[0].split()))
+_ALIAS_SYL = [a.split() for a, _ in _ALIASES]
 
 
 def _syllables(text: str) -> list:
@@ -85,7 +86,11 @@ def _ctx_skip(alias: str, syl: list, i: int) -> bool:
         return False
     prev = syl[i - 1] if i > 0 else ""
     nxt = syl[i + 1] if i + 1 < len(syl) else ""
-    return prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt)
+    if prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt):
+        return True
+    # "mùi gừng", "mùi tỏi phi", "mùi nước mắm": mùi = hương của nguyên liệu đứng sau, không phải rau mùi (bản 50: AI
+    # viết "Mùi gừng bốc lên thơm lừng" bị coi là BỊA nguyên liệu "mùi", bản viết lại tốt hơn bị bỏ)
+    return alias == "mùi" and any(syl[i + 1:i + 1 + len(a)] == a for a in _ALIAS_SYL if a != ["mùi"])
 
 
 def counts(text: str) -> dict:

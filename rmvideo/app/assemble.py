@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import subs as subs_mod
+from rmvideo.app import brand
 from rmvideo.media import filtergraph, renderer, voiceplan
 
 # items [(chỉ số đoạn, lời)] + thư mục tạm -> {chỉ số: {"path": file giọng, "words": mốc từng từ | None}}
@@ -94,7 +95,7 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     t["tts"] = round(time.time() - t0, 1)
     clips = [voiced.get(k) or {"path": None, "words": []} for k in range(len(segs))]
     durs = await _durations(clips)
-    speak_end = out_dur - tail                              # lời dứt trước màn kết nối thêm (bản 47)
+    speak_end = out_dur - tail - brand.END_BREATH if tail else out_dur   # lời dứt trước màn kết (bản 47, 50)
     plan, too_long = voiceplan.plan_voice(durs, segs, speak_end)
     if too_long and shorten is not None:                    # đoạn nào vẫn quá dài -> AI viết ngắn lại 1 lần
         on_step(f"Rút gọn {len(too_long)} đoạn quá dài")
