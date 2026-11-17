@@ -13,6 +13,22 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 44 — soát lần 2 video «mực hấp gừng» (17/11/2026, Kaggle bóc lời + dựng)
+
+Bản 43 chạy đúng trên máy thật (chữ hook vừa khung, đúng dấu, logo, màu kênh, thẻ mẹo, màn kết; lời khớp hình — đo bằng
+nhận dạng giọng + so khung hình với video gốc). Lỗi còn lại, dựng lại trên dữ liệu thật (`tests/data/muc_hap_gung.json`:
+lời gốc Whisper large-v3, kết quả AI đọc công thức, chuyển động):
+
+| Lỗi | Sửa |
+| --- | --- |
+| Dựng mạnh lùi về dựng nhẹ: khúc tóm tắt lấy giữa bước «bắc nước sôi» đúng quãng lớp A đã tua (luật R5) → mất điểm danh nguyên liệu + tóm tắt | Khúc tóm tắt / điểm danh chỉ lấy cảnh còn trong video chính, tốc độ thường (`_kept_at`); video thật: đạt R1-R7, điểm danh 5 nguyên liệu, tóm tắt 5 bước |
+| Bỏ «chào hỏi» từ giây 0 làm mất cảnh đầu bếp nhấc mực thành phẩm, video mở bằng thẻ «1/2 muỗng bột ngọt» | Câu đầu (không phải câu chào) giữ làm câu hook, điểm danh nguyên liệu chèn ngay sau |
+| Gốc «nửa muỗng bột ngọt» (Whisper nghe «nổ muỗng») → lời đọc «1 muỗng» x3; bộ kiểm bắt được mà vẫn để lọt | «nổ + đơn vị» = «nửa»; thêm sửa «bột mọt», «mật hấp gừng», «sóc nhiệt», «cằn tàu»; còn số AI tự điền sau 2 lần viết lại thì bỏ con số khỏi câu |
+| Lời cụt kiểu tít báo / mệnh lệnh («Bắt nồi nước sôi sùng sục rồi thả vô luôn.»), AI viết ~nửa số chữ → lặng 5-7 giây, nghe «chất AI» | Lời nhắc: giọng nói chuyện có «mình / mọi người», từ nối; luật «động từ đi trước» cho phép 1-3 chữ dẫn («Giờ mình…»); đoạn viết dưới 60% số chữ tối thiểu thì bắt viết lại |
+
+Giọng đọc: giọng mặc định VieNeu «Mỹ Duyên» là giọng nữ miền Nam **phong cách đọc truyện**; mẫu so sánh các giọng
+khác trong buổi soát (đổi ở ô giọng VieNeu trong Cài đặt).
+
 ## Bản 43 — sửa lỗi chạy thật «mực hấp gừng» (16/11/2026) + bộ nhận diện «Bếp Đong Đủ» làm mặc định
 
 Soát bản ra bằng nhận dạng giọng + so khung hình với video gốc: lời đọc đúng mốc của lời gốc (phần tua nhanh đã dời

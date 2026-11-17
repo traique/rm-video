@@ -248,6 +248,24 @@ def numbers(text: str) -> list:
     return out
 
 
+_QTY_RE = re.compile(r"(?<![\w])(\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")\s+(" +
+                     "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
+
+
+def drop_numbers(text: str, bad: set) -> str:
+    """Bỏ các cụm "số + đơn vị" có CON SỐ thuộc `bad` (số AI tự điền, lời gốc không có): "Nêm một muỗng bột ngọt,
+    một muỗng đường" với bad={"1"} -> "Nêm bột ngọt, đường". Giữ nguyên tên nguyên liệu và mọi chữ khác."""
+    def one(m):
+        n = m.group(1).lower()
+        n = _WORDNUM.get(n, n).replace(",", ".")
+        if "." in n:
+            n = n.rstrip("0").rstrip(".")
+        return "" if n in bad else m.group(0)
+    out = _QTY_RE.sub(one, text or "")
+    out = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"\s{2,}", " ", out)).strip()
+    return out[:1].upper() + out[1:] if out and (text or "")[:1].isupper() else out
+
+
 _UNIT_EQ = {"thìa": "muỗng", "thìa canh": "muỗng canh", "thìa cà phê": "muỗng cà phê", "bát": "chén", "quả": "trái",
             "gam": "g", "gram": "g", "gr": "g", "ký": "kg", "cân": "kg", "lít": "l", "cốc": "ly", "ngàn": "nghìn", "k": "nghìn",
             "đ": "đồng", "tiếng": "giờ"}
