@@ -26,3 +26,20 @@ jobs:
         run: if [ -d rmvideo ]; then mypy; fi
       - name: pytest song song (máy GitHub 4 lõi)
         run: pytest -q -n auto
+  botkeep:
+    # Sau mỗi lần gộp vào nhánh chính (test đã xanh): nhánh `botkeep` = mã chạy bot + zip phẳng vừa trình giải nén của
+    # Botkeep (scripts/botkeep_zip.py). Nội dung không đổi thì không đẩy. Không tạo bản phát hành, không đổi phiên bản.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ccr-0f4ff082-rshcy5'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Đồng bộ nhánh botkeep
+        run: |
+          git fetch --depth=1 origin +refs/heads/botkeep:refs/remotes/origin/botkeep || true
+          C=$(python3 scripts/botkeep_zip.py --commit)
+          if [ "$C" != "$(git rev-parse -q --verify refs/remotes/origin/botkeep || true)" ]; then
+            git push --force origin "$C:refs/heads/botkeep"
+          fi

@@ -113,6 +113,9 @@ và các dòng gạch đầu dòng tóm tắt: đó chính là tin bot gửi khi
   - Ba bản cũ chạy song song nên bỏ bớt không nhanh hơn. Phần nhanh hơn đến từ cache thư viện + pytest song song
     (`-n auto`), mỗi job trước đây mất 7–9 phút.
   - Mỗi lần đẩy chỉ chạy một lượt (trước đây chạy cả lượt push lẫn lượt PR); đẩy commit mới thì huỷ lượt cũ.
+- Nhánh `botkeep` (không đổi phiên bản, không tạo bản phát hành): mã chạy bot + `rm-video-botkeep.zip` phẳng, vừa
+  trình giải nén của Botkeep (≤ 250 mục; zip «Download ZIP» của nhánh chính đã ~270 mục nên bị từ chối). CI tự đồng
+  bộ sau mỗi lần gộp vào nhánh chính (`scripts/botkeep_zip.py --commit`, nội dung không đổi thì không đẩy).
 
 ## Bản 50 — số đọc bằng chữ + soát video job 7 dưới góc nhìn đạo diễn TikTok (17/11/2026)
 
