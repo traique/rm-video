@@ -7,4 +7,4 @@
 Mỗi lần lên phiên bản: thêm mục «## <phiên bản> — <tóm tắt> (<ngày>)» ở đầu CHANGELOG.md (các dòng «- …» đầu mục là
 phần tóm tắt). Lần khởi động đầu tiên của phiên bản mới, bot tự báo qua Telegram và Zoom (rmvideo/app/release.py).
 """
-VERSION = "1.0.1"
+VERSION = "1.0.2"

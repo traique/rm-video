@@ -863,11 +863,23 @@ _PLATE_ACT_RE = re.compile(r"(?<![\w])(?:đổ ra|trút ra|bày ra|xúc ra|ra d�
 _PLATE_NOUN_RE = re.compile(r"(?<![\w])(dĩa|đĩa)\s+(\w+(?:\s+\w+)?)", re.IGNORECASE)
 
 
-def early_plate(items: list) -> dict:
+def plating_said(text: str) -> bool:
+    """Câu nói đổ / bày món ra dĩa («mình trút ra dĩa»)."""
+    return bool(_PLATE_ACT_RE.search(text or ""))
+
+
+def early_plate(items: list, at_k: int | None = None) -> dict:
     """items: [(k, lời gốc, lời mới)] theo thứ tự (bỏ câu hook / khúc điểm danh, tóm tắt). Trả {k: "Dĩa mực"}: lời mới
     gọi món là «dĩa + món» ở đoạn mà lời gốc CHƯA bày món ra dĩa, trong khi một đoạn SAU mới đổ / bày ra (job 7, 2:28:
-    «Dĩa mực nóng hổi» khi hình là mực còn trong vợt; gốc «đổ ra» ở 2:43). Lời gốc không bao giờ nói bày ra: không bắt."""
-    at = next((i for i, (_, orig, _new) in enumerate(items) if _PLATE_ACT_RE.search(orig or "")), None)
+    «Dĩa mực nóng hổi» khi hình là mực còn trong vợt; gốc «đổ ra» ở 2:43). Lời gốc không bao giờ nói bày ra: không bắt.
+    at_k: đoạn đầu tiên ở sau lúc món lên dĩa (theo thời gian, do bên gọi tính trên video nguồn): bản ngắn bỏ câu «trút ra
+    dĩa» của gốc (job 2, 1:05: «nhìn dĩa mực bóng bẩy» khi mực còn trong nồi). Có cả hai mốc thì lấy mốc SAU: câu gốc có
+    khi khớp nhầm (video mực, giây 58: máy nghe «nở ra» thành «nó sẽ được đổ ra», món còn đang luộc); mốc muộn quá thì
+    cùng lắm «dĩa mực» thành «mẻ mực», mốc sớm quá thì lọt lỗi."""
+    at = next((i for i, (_, orig, _new) in enumerate(items) if plating_said(orig)), None)
+    if at_k is not None:
+        by_time = next((i for i, (k, _o, _n) in enumerate(items) if k >= at_k), len(items))
+        at = by_time if at is None else max(at, by_time)
     out: dict = {}
     for k, orig, new in items[:at] if at is not None else []:
         if re.search(r"(?<![\w])(?:dĩa|đĩa)(?![\w])", orig or "", re.IGNORECASE):   # gốc cũng nói dĩa (dĩa rau...)
@@ -894,7 +906,7 @@ _TIME_Q_RE = re.compile(r"(?<![\w])(\d+(?:[,.]\d+)?(?:\s*[-–]\s*\d+)?|nửa|m�
                         r"|mươi)\s+(phút|giây|tiếng)(?![\w])", re.IGNORECASE)
 _REPEAT_STOP = set("mình là thì này nha nè cho vô vào rồi cái con mấy cả nhà đó á luôn cũng vậy nữa đã đang sẽ có được "
                    "với và hay mà ra lên xuống đi các những kia đây ơi nhé nhá hen nghen giờ lúc khi để một hai ba "
-                   "chừng khoảng tầm cứ chỉ thêm như là coi xem nhìn thấy".split())
+                   "chừng khoảng tầm cứ chỉ thêm như là coi xem nhìn thấy làm".split())
 _COOK_WORDS = set("hấp luộc chiên xào nấu kho nướng rang trụng chần ướp nêm phi rim om hầm nồi chảo vợt dĩa đĩa tô chén "
                   "nước sôi lửa món mẻ con".split())
 
@@ -904,7 +916,8 @@ def _idea_grams(text: str) -> set:
     out = set()
     for i in range(len(toks) - 2):
         g = toks[i:i + 3]
-        content = [t for t in g if t not in _REPEAT_STOP]
+        # chữ định lượng không tính là ý: «nêm thêm nửa muỗng bột ngọt» rồi «thêm nửa muỗng hạt nêm» là hai bước
+        content = [t for t in g if t not in _REPEAT_STOP and not _qty_word(t)]
         if len(content) < 2:
             continue
         # cụm chỉ gồm tên món / nguyên liệu / cách nấu (mực hấp gừng, nồi nước sôi): nhắc lại là thường
@@ -914,21 +927,213 @@ def _idea_grams(text: str) -> set:
     return out
 
 
+# Cụm 2 chữ (bản 1.0.2, job 2: «…thơm lừng cả gian bếp» rồi đoạn kế «…thơm lừng mũi»): chỉ bắt khi lặp SÁT nhau (trong
+# PAIR_WINDOW đoạn kế tiếp) — cách xa thì cụm 2 chữ nhắc lại là chuyện thường. Không tính chữ gọi / chữ nhấn («mọi
+# người», «cực kỳ», «quá chừng»): lặp mấy chữ đó không phải lặp ý.
+PAIR_WINDOW = 2
+_PAIR_STOP = _REPEAT_STOP | set("mọi bạn bà con các anh chị em quá lắm rất cực kỳ vô cùng thật siêu ghê chưa chừng "
+                                "dữ hết sạch đều liền ngay lại vừa mới không chẳng".split())
+
+
+def _idea_pairs(text: str) -> set:
+    toks = re.findall(r"\w+", (text or "").lower())
+    return {f"{a} {b}" for a, b in zip(toks, toks[1:])
+            if not ({a, b} & (_PAIR_STOP | _COOK_WORDS)) and not _qty_word(a) and not _qty_word(b)
+            and not ingredients.find(f"{a} {b}")}
+
+
 def repeated_ideas(items: list) -> dict:
     """items: [(k, lời mới)] theo thứ tự (đã bỏ khúc điểm danh / tóm tắt — đọc lại là việc của chúng). Trả {k: cụm lặp}
-    cho đoạn nhắc lại một thời lượng hay một cụm có nghĩa đã nói ở đoạn trước."""
+    cho đoạn nhắc lại một thời lượng hay một cụm có nghĩa đã nói ở đoạn trước, hoặc một cụm 2 chữ vừa nói ở
+    PAIR_WINDOW đoạn ngay trước."""
     seen_q: set = set()
     seen_g: set = set()
+    recent: list = []                                  # cụm 2 chữ của mấy đoạn ngay trước
     out: dict = {}
     for k, text in items:
         qs = {re.sub(r"\s+", " ", m.group(0).lower()) for m in _TIME_Q_RE.finditer(text or "")}
         grams = _idea_grams(text)
-        hit = sorted(qs & seen_q) or sorted(grams & seen_g)
+        pairs = _idea_pairs(text)
+        hit = sorted(qs & seen_q) or sorted(grams & seen_g) or sorted(pairs & set().union(*recent))
         if hit:
             out[k] = hit[0]
         seen_q |= qs
         seen_g |= grams
+        recent = (recent + [pairs])[-PAIR_WINDOW:]
     return out
+
+
+# ---------- nói trước định lượng của đoạn sau (bản 1.0.2, job 2 bản ngắn 0:19-0:30) ----------
+# Lời gốc tách «…nửa muỗng đường» | «thêm nửa muỗng hạt nêm nữa» thành hai đoạn; AI viết luôn «thêm nửa muỗng hạt nêm»
+# vào đoạn trước, đoạn sau lại đọc «Thêm nửa muỗng hạt nêm nữa» -> người xem nghe thành 1 muỗng hạt nêm. Đếm theo bộ
+# (định lượng, nguyên liệu) nên kiểm số theo TẬP hợp (check_numbers) không thấy.
+_QTY_TOK_RE = re.compile(r"\d+(?:[.,/]\d+)*|\w+")
+_QTY_MOD = {"canh", "cà", "phê", "café", "lớn", "nhỏ", "vun", "gạt", "đầy", "to"}
+_TIME_UNITS = {"phút", "giây", "tiếng", "giờ", "ngày", "độ", "%"}      # «luộc mực 4 phút»: thời gian, không phải lượng
+
+
+def _qty_run(toks: list, tail: bool) -> list:
+    """Dãy chữ định lượng liền sát tên nguyên liệu (tail: phía trước tên, lấy từ cuối; không: phía sau, lấy từ đầu)."""
+    seq = toks[::-1] if tail else toks
+    run = []
+    for w in seq:
+        if not (_qty_word(w) or w in _QTY_MOD):
+            break
+        run.append(w)
+    run = run[::-1] if tail else run
+    return run if any(re.fullmatch(r"[\d.,/]+", w) or w in ingredients._WORDNUM for w in run) else []
+
+
+def qty_pairs(text: str) -> list:
+    """[(định lượng, nhóm nguyên liệu)] của các cụm «định lượng + tên» / «tên + định lượng» trong câu: «thêm nửa muỗng
+    hạt nêm», «hạt nêm nửa muỗng» -> [("0.5 muỗng", nhóm hạt nêm)]."""
+    out: list = []
+    for clause in re.split(r"[,.;!?…]", (text or "").lower()):
+        toks = _QTY_TOK_RE.findall(clause)
+        p = 0
+        while p < len(toks):
+            got = ingredients.find(" ".join(toks[p:p + 3])) - ingredients.find(" ".join(toks[p + 1:p + 3]))
+            if not got:
+                p += 1
+                continue
+            n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), 3)
+            before, after = _qty_run(toks[max(0, p - 5):p], tail=True), _qty_run(toks[p + n:p + n + 5], tail=False)
+            q = ingredients.numbers(" ".join(before)) if before else ingredients.numbers(" ".join(after))
+            q = [x for x in q if x.split(" ", 1)[-1] not in _TIME_UNITS]
+            if q:
+                out += [(q[-1] if before else q[0], g) for g in sorted(got)]
+            p += n
+    return out
+
+
+def anticipated_items(items: list) -> dict:
+    """items: [(k, lời gốc, lời mới)] theo thứ tự (bỏ câu hook / khúc điểm danh, tóm tắt; đoạn giữ tiếng gốc: lời mới =
+    lời gốc). Trả {k: {(định lượng, nhóm)}}: đoạn nói một «định lượng + nguyên liệu» mà lời gốc của CHÍNH đoạn không có,
+    trong khi cả bài nói cụm đó NHIỀU LẦN HƠN lời gốc — nói trước phần của đoạn khác, đoạn kia lại nói, nghe thành cho
+    hai lần."""
+    orig_c = Counter(x for _k, o, _n in items for x in qty_pairs(o))
+    new_c = Counter(x for _k, _o, n in items for x in qty_pairs(n))
+    extra = {x for x, c in new_c.items() if c > orig_c.get(x, 0) > 0}
+    out: dict = {}
+    for k, o, n in items:
+        hit = (set(qty_pairs(n)) & extra) - set(qty_pairs(o))
+        if hit:
+            out[k] = hit
+    return out
+
+
+def _qty_vi(pairs: set) -> str:
+    """{(định lượng, nhóm)} -> "0.5 muỗng hạt nêm" (lời nhắc AI / log)."""
+    return ", ".join(sorted(f"{q} {ingredients.GROUPS[g][0]}" for q, g in pairs))
+
+
+def drop_anticipated(text: str, pairs: set) -> str:
+    """Bỏ vế câu (giữa hai dấu phẩy) nói trước định lượng của đoạn khác; vế có thêm nguyên liệu KHÁC thì giữ. Còn dưới
+    4 chữ thì giữ nguyên câu."""
+    parts = re.split(r"(?<=[,.!?;…])\s+", (text or "").strip())
+    groups = {g for _q, g in pairs}
+
+    def ahead_only(p: str) -> bool:
+        mine = set(qty_pairs(p))
+        return bool(mine & pairs) and ingredients.find(p) <= groups
+    keep = [p for p in parts if not ahead_only(p)]
+    if len(keep) == len(parts):
+        return text
+    out = " ".join(keep).strip()
+    if len(out.split()) < 4:
+        return text
+    out = out[:1].upper() + out[1:]
+    return out[:-1] + "." if out.endswith((",", ";")) else out if out.endswith((".", "!", "?", "…")) else out + "."
+
+
+# ---------- nói tới nguyên liệu khi chưa cho vào (bản 1.0.2, job 2 bản đầy đủ 0:43) ----------
+# «Rồi mình đun lửa liu riu, lưu ý lúc luộc gừng thế này…» khi nồi mới có mực (lời gốc tới 1:46 mới cho gừng vào).
+# Bắt: lời mới nhắc một nguyên liệu mà lời gốc tới ≥ EARLY_AHEAD giây sau mới nói tới lần đầu. Không tính: đuôi tên món
+# («mực hấp gừng»), câu sơ chế / chuẩn bị (hình bày sẵn nguyên liệu trên thớt), câu hook, khúc điểm danh / tóm tắt.
+EARLY_AHEAD = 15.0
+_DISH_METHODS = set("hấp luộc chiên xào nấu kho nướng rang rim om hầm sốt xốt trộn quay chưng tiềm um áp".split())
+_PREP_VERBS = set("thái cắt băm xắt gọt rửa đập giã bóc lột lặt ngâm sơ chuẩn".split())
+_COOK_VERBS = {"luộc", "nấu", "hấp", "chiên", "xào", "kho", "nướng", "rang", "trụng", "chần", "hầm", "om", "rim"}
+
+
+# «thơm» là quả dứa (miền Nam) nhưng trong lời đọc gần như luôn là mùi thơm («thêm thơm», «vừa giòn vừa thơm», «nó được
+# thơm»): chỉ tính là nguyên liệu khi có dấu hiệu rõ — «trái / miếng thơm», «cho thơm vô», «thơm cắt miếng»
+_ADJ_ITEMS = {"thơm"}
+_FRUIT_UNITS = {"trái", "quả", "miếng", "lát", "khoanh", "múi"}
+
+
+def _adjective(toks: list, p: int, n: int) -> bool:
+    if " ".join(toks[p:p + n]) not in _ADJ_ITEMS:
+        return False
+    after = toks[p + n:p + n + 1]
+    return not ((p and toks[p - 1] in _FRUIT_UNITS) or after in (["vô"], ["vào"]) or (after and after[0] in _PREP_VERBS))
+
+
+def _item_mentions(text: str) -> list:
+    """[(vị trí chữ, số chữ, {nhóm}, là đuôi tên món)] các tên nguyên liệu trong câu (chữ thường, bỏ dấu câu). Đuôi tên
+    món: nguyên liệu đứng ngay sau một cách nấu mà ngay trước cách nấu là nguyên liệu khác («mực hấp gừng», «thịt ba chỉ
+    kho tiêu»), hoặc nối liền đuôi tên món trước («mực xào sả ớt»). «thơm» chỉ mùi thơm: không tính."""
+    toks = _norm_words(text)
+    out: list = []
+    p = 0
+    while p < len(toks):
+        got = ingredients.find(" ".join(toks[p:p + 3])) - ingredients.find(" ".join(toks[p + 1:p + 3]))
+        if not got:
+            p += 1
+            continue
+        n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), 3)
+        if _adjective(toks, p, n):
+            p += n
+            continue
+        prev = out[-1] if out else None
+        tail = prev is not None and ((toks[p - 1] in _DISH_METHODS and prev[0] + prev[1] == p - 1)
+                                     or (prev[3] and prev[0] + prev[1] == p))
+        out.append((p, n, got, tail))
+        p += n
+    return out
+
+
+def first_mentions(segs: list) -> dict:
+    """{nhóm: giây}: lần đầu lời gốc nói tới nguyên liệu (không tính đuôi tên món, khúc điểm danh / tóm tắt).
+    segs: [(giây bắt đầu, lời gốc)]."""
+    out: dict = {}
+    for st, text in segs:
+        if _side(text):
+            continue
+        for _p, _n, groups, tail in _item_mentions(text):
+            if not tail:
+                for g in groups:
+                    out.setdefault(g, st)
+    return out
+
+
+def early_items(items: list, first: dict, ahead: float = EARLY_AHEAD) -> dict:
+    """items: [(k, giây bắt đầu, lời mới)] (bỏ câu hook, khúc điểm danh / tóm tắt, đoạn giữ tiếng gốc). first: lần đầu
+    lời gốc nói tới từng nguyên liệu (first_mentions, cả video). Trả {k: [tên nguyên liệu]} nói trước khi có."""
+    out: dict = {}
+    for k, st, text in items:
+        toks = _norm_words(text)
+        names = []
+        for p, n, groups, tail in _item_mentions(text):
+            if tail or set(toks[max(0, p - 6):p]) & _PREP_VERBS:     # «thái sẵn gừng với ớt sừng»: cả cụm sơ chế
+                continue
+            late = [g for g in groups if g in first and first[g] - st >= ahead]
+            if late:
+                names.append(" ".join(toks[p:p + n]))
+        if names:
+            out[k] = names
+    return out
+
+
+def drop_early(text: str, names: list) -> str:
+    """Bỏ tên nguyên liệu nói trước khi có, chỉ khi nó đứng ngay sau động từ nấu («lúc luộc gừng thế này» -> «lúc luộc
+    thế này»): cách nói khác thì giữ (AI viết lại là chính, đây chỉ là chốt cuối)."""
+    out = text or ""
+    for name in names:
+        pat = re.compile(r"(?<![\w])(" + "|".join(sorted(_COOK_VERBS)) + r")\s+" + re.escape(name) + r"(?![\w])",
+                         re.IGNORECASE)
+        out = pat.sub(r"\1", out, count=1)
+    return re.sub(r"\s{2,}", " ", out).strip()
 
 
 _DUP_ITEM_RE = re.compile(r"(?<![\w])([^,.;!?]*?\w\s+\w[^,.;!?]*?)(?:,\s*\1)+(?=[,.;!?]|$)", re.IGNORECASE)
@@ -1039,9 +1244,13 @@ DEAD_AIR = 3.5          # đọc xong mà khe còn lặng quá chừng này giâ
 
 async def generate_timed(title: str, desc: str, mode: str, segments: list, out_dur: float,
                          images_for=None, extra: str = "", avoid: list | None = None, intro: bool = True,
-                         teaser: float = 0.0, examples: list | None = None, hook_tip: str = "") -> dict:
+                         teaser: float = 0.0, examples: list | None = None, hook_tip: str = "",
+                         plate_at: float | None = None, first_said: dict | None = None) -> dict:
     """segments: [(start, end, text)] của lời gốc. Trả về pack có "segments": [{i, start, slot, text}].
     hook_tip: mẹo chính của video (đã đối chiếu lời gốc) để câu hook xoáy vào (bản 50).
+    plate_at: giây (video ra) món lên dĩa, khi lời gốc của các đoạn có thể không còn câu «đổ / bày ra» (bản ngắn).
+    first_said: lần đầu lời gốc nói tới từng nguyên liệu trên CẢ video (first_mentions; chia lô thì lô sau không thấy
+    lời gốc của lô khác). None: tính trên chính các đoạn.
     Không bao giờ raise; nếu AI lỗi trả về None để caller dùng cách cũ.
     intro: lời gốc bắt đầu muộn (≥ INTRO_MIN) thì thêm đoạn 0s "(chưa có lời gốc)" để AI viết câu mở đầu — video cá
     kèo 12/11/2026 bóc lời sót 29s đầu, giọng mới tới giây 29 mới cất lên (người xem lướt qua trong 3 giây đầu).
@@ -1128,24 +1337,37 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return repeated_ideas([(k, got.get(k, "")) for k, st, slot, mx, tx, span in slots
                                if k and osts.get(k) != "orig" and k in got and not _side(tx)])
 
+    plate_k = None if plate_at is None else next((k for k, st, *_ in slots if st >= plate_at - 0.3), len(slots))
+
     def _plates(got, osts):
         """Đoạn nói «dĩa + món» khi món chưa được bày ra dĩa (early_plate). Đoạn 0 (câu hook, hay chiếu món xong) không
         tính."""
         return early_plate([(k, tx, "" if osts.get(k) == "orig" else got.get(k, ""))
-                            for k, st, slot, mx, tx, span in slots if k and tx and not _side(tx)])
+                            for k, st, slot, mx, tx, span in slots if k and tx and not _side(tx)], plate_k)
+
+    first = first_said if first_said is not None else first_mentions([(st, tx) for k, st, slot, mx, tx, span in slots])
+
+    def _ahead(got, osts):
+        """Đoạn nói trước «định lượng + nguyên liệu» của đoạn khác (anticipated_items). Bỏ câu hook."""
+        return anticipated_items([(k, tx, tx if osts.get(k) == "orig" else got.get(k, ""))
+                                  for k, st, slot, mx, tx, span in slots if (k or not intro) and tx and not _side(tx)])
+
+    def _early(got, osts):
+        """Đoạn nhắc nguyên liệu mà lời gốc tới ≥ EARLY_AHEAD giây sau mới nói tới (early_items). Bỏ câu hook."""
+        return early_items([(k, st, got[k]) for k, st, slot, mx, tx, span in slots
+                            if (k or not intro) and tx and not _side(tx) and osts.get(k) != "orig" and k in got], first)
 
     def _bad(got, osts):
         """Đoạn thiếu hoặc chép lời gốc (>=45% cụm 2 từ trùng). Đoạn giữ nguyên tiếng gốc không cần lời mới."""
         out = []
-        again = _replays(got, osts)
-        plates = _plates(got, osts)
+        wrong = set(_replays(got, osts)) | set(_plates(got, osts)) | set(_ahead(got, osts)) | set(_early(got, osts))
         for k, st, slot, mx, tx, span in slots:
             if osts.get(k) == "orig":
                 continue
             if k not in got or copy_ratio(got[k], tx) >= 0.45 \
                     or any(a and copy_ratio(got[k], a) >= 0.5 for a in (avoid or [])) \
                     or _CTA_RE.search(got[k]) or has_sub_cta(got[k]) \
-                    or _hook_bad(k, got[k]) or side_lost(got[k], tx) or k in again or k in plates:   # lặp câu / quảng cáo
+                    or _hook_bad(k, got[k]) or side_lost(got[k], tx) or k in wrong:   # lặp câu / quảng cáo / sai hình
                 out.append(k)
         return out
 
@@ -1206,10 +1428,12 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             txt_of = {k: tx for k, st, slot, mx, tx, span in slots}
             again = _replays(got, d["_ost"])
             plates = _plates(got, d["_ost"])
+            ahead = _ahead(got, d["_ost"])
+            early = _early(got, d["_ost"])
             severe = [k for k in bad if k not in got or copy_ratio(got[k], txt_of.get(k, "")) >= 0.6
                       or _CTA_RE.search(got.get(k, "")) or has_sub_cta(got.get(k, ""))
                       or _hook_bad(k, got.get(k, "")) or side_lost(got.get(k, ""), txt_of.get(k, "")) or k in again
-                      or k in plates]
+                      or k in plates or k in ahead or k in early]
             # viết lại khi: có đoạn chép nặng (≥60%, ví dụ thật trong log: 90%) / còn quảng cáo / thiếu đoạn,
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
@@ -1236,11 +1460,21 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}», đã cho vào trước đó: "
                                      f"{_steps_vi(again[k])})" for k in sorted(again)[:4]))
             if plates:
-                why.append("các đoạn sau gọi món là «dĩa ...» nhưng lúc đó món CHƯA được bày ra dĩa (lời gốc tới đoạn sau mới"
-                           " đổ / bày ra), hình đang là món trong nồi / chảo / vợt: gọi đúng thứ đang thấy: " +
+                why.append("các đoạn sau gọi món là «dĩa ...» nhưng lúc đó món CHƯA được bày ra dĩa (tới đoạn sau mới đổ /"
+                           " bày ra), hình đang là món trong nồi / chảo / vợt: gọi đúng thứ đang thấy: " +
                            ", ".join(f"{k} («{got.get(k, '')}»)" for k in sorted(plates)[:4]))
+            if ahead:
+                why.append("các đoạn sau nói TRƯỚC định lượng mà lời gốc tới đoạn khác mới cho vào, đoạn kia lại nói lần "
+                           "nữa: người xem nghe thành cho HAI lần (gấp đôi). Định lượng chỉ nói ở đúng đoạn có nó trong lời"
+                           " gốc: " + ", ".join(f"{k} (gốc «{txt_of[k]}», bản trước «{got.get(k, '')}», nói trước "
+                                                 f"«{_qty_vi(ahead[k])}»)" for k in sorted(ahead)[:4]))
+            if early:
+                why.append("các đoạn sau nhắc nguyên liệu CHƯA cho vào (lời gốc phải mấy chục giây sau mới nói tới, hình "
+                           "lúc đó chưa có): viết đúng thứ đang có trên hình, không nhắc nguyên liệu đó: " +
+                           ", ".join(f"{k} («{got.get(k, '')}», nhắc «{', '.join(early[k])}» quá sớm)"
+                                     for k in sorted(early)[:4]))
             copies = [k for k in bad if k not in ads and k not in subs and k not in hooks and k not in sides
-                      and k not in again and k not in plates]
+                      and k not in again and k not in plates and k not in ahead and k not in early]
             if subs:
                 why.append("các đoạn sau còn lời kêu gọi đăng ký/theo dõi kênh, BỎ ý đó (viết lời chốt về món "
                            "hoặc để trống): " + ", ".join(f"{k} («{got[k]}»)" for k in subs[:8]))
@@ -1308,6 +1542,15 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         for k, what in _plates(got, d["_ost"]).items():        # viết lại vẫn nói «dĩa» quá sớm: "Dĩa mực" -> "Mẻ mực"
             logging.warning("Đoạn %d nói «%s» khi món chưa lên dĩa: %s", k, what, got[k])
             got[k] = unplate(got[k])
+        for k, pairs in _ahead(got, d["_ost"]).items():        # vẫn nói trước định lượng của đoạn khác: bỏ vế đó
+            fixed = drop_anticipated(got[k], pairs)
+            if fixed != got[k]:
+                logging.warning("Đoạn %d nói trước %s của đoạn khác: %s -> %s", k, _qty_vi(pairs), got[k], fixed)
+                got[k] = fixed
+        for k, names in _early(got, d["_ost"]).items():        # vẫn nhắc nguyên liệu chưa cho vào: «luộc gừng» -> «luộc»
+            fixed = drop_early(got[k], names)
+            logging.warning("Đoạn %d nhắc %s khi chưa cho vào: %s -> %s", k, ", ".join(names), got[k], fixed)
+            got[k] = fixed
         for k, st, slot, mx, tx, span in slots:               # điểm danh: vào thẳng món đầu, khớp thẻ chữ
             if (tx or "").lstrip().startswith(SIDE_MARKS[0]) and got.get(k):
                 got[k] = montage_lead(got[k])
@@ -1482,18 +1725,23 @@ BATCH_PARALLEL = 2
 
 async def generate_timed_any(title: str, desc: str, mode: str, segments: list, out_dur: float,
                              images_for=None, teaser: float = 0.0, examples: list | None = None,
-                             hook_tip: str = ""):
+                             hook_tip: str = "", plate_at: float | None = None):
     """Video dài: chia thành lô ~28 đoạn, mỗi lô một lần gọi AI (ngắn gọn, ít lỗi hơn một prompt khổng lồ),
     lô sau được báo là phần tiếp theo + câu cuối của lô trước để nối mạch, không mở hook lại.
-    teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó."""
+    teaser: giây của đoạn mở đầu (cảnh món đã xong chiếu trước), chỉ lô đầu có câu hook cho đoạn đó.
+    plate_at: giây (video ra) món lên dĩa (xem generate_timed)."""
     segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)],
                                out_dur)                                        # gộp TRƯỚC khi chia lô
     tkw = {"teaser": teaser} if teaser else {}           # chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)
     if hook_tip:                                           # mẹo chính: chỉ lô đầu (lô có câu hook)
         tkw["hook_tip"] = hook_tip
-    ekw = {"examples": examples} if examples else {}       # sổ giọng: mọi lô cùng một bộ mẫu
+    ekw: dict = {"examples": examples} if examples else {}  # sổ giọng: mọi lô cùng một bộ mẫu
+    if plate_at is not None:                               # mốc lên dĩa: mọi lô (giây tuyệt đối)
+        ekw["plate_at"] = plate_at
     if len(segments) <= BATCH + 6:
         return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw, **ekw)
+    if first := first_mentions([(a, t) for a, b, t in segments]):   # lô sau cũng biết lúc gốc nói tới nguyên liệu
+        ekw["first_said"] = first
     starts = list(range(0, len(segments), BATCH))
 
     async def _one(b):
@@ -1540,6 +1788,15 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     for k, s in enumerate(out):
         s["i"] = k
     merged = out
+    # nói trước định lượng của một đoạn ở LÔ KHÁC (mỗi lô chỉ thấy lời gốc của mình nên không tự bắt được): bỏ vế đó
+    items = [(k, s.get("orig") or "", (s.get("orig") or "") if s.get("ost") == "orig" else s.get("text") or "")
+             for k, s in enumerate(merged) if k and s.get("orig") and not _side(s.get("orig"))]
+    for k, pairs in anticipated_items(items).items():
+        fixed = drop_anticipated(merged[k]["text"], pairs)
+        if fixed != merged[k]["text"]:
+            logging.warning("Đoạn %d nói trước %s của đoạn ở lô khác: %s -> %s", k, _qty_vi(pairs), merged[k]["text"],
+                            fixed)
+            merged[k]["text"] = fixed
     script = " ".join(s["text"] for s in merged if s["text"])
     fresh = 1 - sum(s.get("copy", 0) for s in merged) / max(1, len(merged))
     return {"segments": merged, "script": script, "fresh": round(fresh, 2), "hook": first.get("hook", ""),

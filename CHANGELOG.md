@@ -13,6 +13,39 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.0.2 — sửa theo soát video mực của job 2 (18/11/2026)
+
+- Không còn đọc một định lượng hai lần (bản ngắn job 2: «thêm nửa muỗng hạt nêm» ở hai câu liền nhau, nghe như 1 muỗng).
+- Bản ngắn: thẻ điểm danh nguyên liệu 1,2 giây mỗi món như bản đầy đủ, khớp giọng đọc (trước đây thẻ chạy trước giọng một món).
+- Không gọi «dĩa mực» khi mực còn trong nồi, kể cả khi bản ngắn bỏ câu «trút ra dĩa» của video gốc.
+- Không nhắc nguyên liệu khi chưa cho vào (job 2: «lúc luộc gừng» khi nồi mới có mực, gừng tới 1:48 mới cho).
+- Câu chốt cuối video dứt trước màn kết, phụ đề chữ cuối («thử nha.») không còn tắt khi giọng chưa đọc xong.
+- Bắt thêm cụm 2 chữ lặp ở hai câu liền nhau («thơm lừng» 2 lần cách 7 giây).
+
+### Chi tiết
+- **Nói trước định lượng**:
+  - lời gốc tách «…nửa muỗng đường» | «thêm nửa muỗng hạt nêm nữa» thành hai đoạn; AI viết luôn hạt nêm vào đoạn trước, đoạn sau lại đọc lần nữa.
+  - Kiểm số cũ so theo TẬP hợp nên không thấy. `prompt_engine.qty_pairs` đọc từng cặp (định lượng, nguyên liệu); `anticipated_items` bắt đoạn nói một cặp mà lời gốc của chính đoạn không có, trong khi cả bài nói cặp đó nhiều lần hơn lời gốc.
+  - Bắt AI viết lại; vẫn còn thì bỏ vế câu đó (`drop_anticipated`). Video dài chia lô: soát thêm một lượt sau khi ghép các lô.
+- **Thẻ điểm danh bản ngắn**: `short.MONTAGE_LEN` = `style_b.MONTAGE_LEN` (1,2 giây). Thiếu chỗ cho cả 5 món thì bớt món ít quan trọng (giữ món có định lượng, tối thiểu 3 món) thay vì bỏ cả khúc điểm danh.
+- **«Dĩa» quá sớm**:
+  - `Remake.plate_kw` lấy mốc món lên dĩa trên TOÀN BỘ lời gốc (câu đổ / bày ra cuối cùng) và bước «bày món» AI xem video thấy, lấy mốc muộn hơn, quy ra giây video ra (`generate_timed(plate_at=…)`).
+  - Lấy mốc muộn vì câu gốc có khi khớp nhầm: video mực giây 58 máy nghe «nở ra» thành «nó sẽ được đổ ra» khi mực còn đang luộc.
+  - `early_plate` có cả câu gốc lẫn mốc thời gian thì lấy mốc sau.
+- **Nhắc nguyên liệu quá sớm**:
+  - `early_items`: lời mới nhắc một nguyên liệu mà lời gốc tới ≥ 15 giây sau mới nói tới lần đầu (`first_mentions`, tính trên cả video kể cả khi chia lô).
+  - Không tính: đuôi tên món («mực hấp gừng», «mực xào sả ớt»), câu sơ chế / chuẩn bị, câu hook, khúc điểm danh / tóm tắt; «thơm» chỉ mùi thơm («thêm thơm») không phải quả thơm.
+  - Bắt AI viết lại; vẫn còn thì bỏ tên nguyên liệu khi nó đứng ngay sau động từ nấu («lúc luộc gừng thế này» → «lúc luộc thế này»).
+  - Trên lời thật của job 2 chỉ bắt đúng câu «luộc gừng».
+- **Câu cuối**:
+  - `voiceplan.VOICE_BACK_LAST`: đoạn cuối (câu chốt kênh nối vào) được bắt đầu sớm hơn mốc tới 1,5 giây khi đoạn trước đã đọc xong (đoạn khác vẫn 0,5 giây). Job 2: câu chốt bắt đầu 170,7s thay vì 171,2s, dứt đúng 174,71s.
+  - `assemble.subtitle_until`: giọng vẫn lố mốc thì phụ đề theo tới hết giọng thay vì tắt giữa chữ.
+- **Lặp ý**:
+  - `repeated_ideas` bắt thêm cụm 2 chữ lặp trong 2 đoạn kế tiếp (không tính chữ gọi «mọi người», chữ nhấn «cực kỳ», định lượng).
+  - Cụm 3 chữ không còn tính chữ định lượng («thêm nửa muỗng» ở hai bước nêm khác nhau không phải lặp ý).
+  - Trên lời job 2 bắt «thơm lừng», «sốc nhiệt», «4 phút»; không còn bắt nhầm «thêm nửa muỗng», «làm mực hấp».
+- Test: `tests/test_v102.py`; snapshot `short_version_after_full`, `style_strong_botkeep` ghi thêm mốc lên dĩa gửi cho AI.
+
 ## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)
 
 - Thẻ MẸO không còn bị logo che chữ: thẻ phía trên (mẹo, tua nhanh) đặt xuống dưới logo.

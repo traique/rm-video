@@ -20,7 +20,9 @@ MARGIN = 1.5            # chừa làm tròn (màn kết nối thêm chừa riên
 PAD = 0.15              # chừa quanh câu
 MERGE_GAP = 0.6         # hai câu giữ cách nhau ít hơn: lấy luôn khoảng giữa (khỏi giật hình)
 HERO = 2.5              # cảnh cuối
-MONTAGE_LEN = 1.0
+# mỗi món của khúc điểm danh: như bản đầy đủ. Bản 1.0.1 để 1,0 giây: giọng đọc «nửa muỗng bột ngọt,» mất ~1,1-1,3 giây
+# nên thẻ chạy trước giọng một món (job 2: thẻ «1/2 muỗng hạt nêm» hiện khi giọng đang đọc «nửa muỗng đường»)
+MONTAGE_LEN = style_b.MONTAGE_LEN
 MIN_SOURCE = 100.0      # nguồn ngắn hơn: bản đầy đủ đã vừa Reels
 
 
@@ -99,9 +101,12 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
         if when(it) >= 0 and key not in seen and len(items) < 5:
             seen.add(key)
             items.append((it, when(it)))
+    # thiếu chỗ cho cả 5 món thì bớt món ít quan trọng (cuối danh sách ưu tiên), còn ít nhất 3 món mới làm điểm danh —
+    # mỗi món 1,2 giây (bản 1.0.2) cần thêm chỗ so với 1,0 giây, không để vì thế mà mất cả khúc điểm danh
+    items = items[:max(0, int((cap - _length(chosen + fixed)) / MONTAGE_LEN + 1e-9))]
     items = [(it, t) for it, t in style_b.montage_times([it for it, _ in sorted(items, key=lambda x: x[1])], end,
                                                          MONTAGE_LEN)]
-    montage = items if len(items) >= 3 and _length(chosen + fixed) + len(items) * MONTAGE_LEN <= cap else []
+    montage = items if len(items) >= 3 else []
     room = cap - _length(chosen + fixed) - len(montage) * MONTAGE_LEN
     # thêm câu điểm cao còn vừa
     for k in sorted(range(len(segs)), key=lambda k: (-score[k], segs[k][0])):

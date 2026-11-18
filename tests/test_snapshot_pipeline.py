@@ -252,9 +252,11 @@ def env(monkeypatch, tmp_path):
     def _seg_text(k):
         return " ".join(["Lời"] + [f"mới{k}"] * (E.words - 1))
 
-    async def generate_timed_any(title, desc, mode, segments, out_dur, images_for=None, teaser=0.0):
+    async def generate_timed_any(title, desc, mode, segments, out_dur, images_for=None, teaser=0.0, plate_at=None):
         imgs = await images_for(segments) if images_for else []
         rec.add("ai.timed", title, mode, [list(s) for s in segments], out_dur, teaser, len(imgs))
+        if plate_at is not None:                    # mốc món lên dĩa (bản 1.0.2): chỉ ghi khi có
+            rec.add("ai.timed.plate_at", plate_at)
         out = [{"i": k, "start": a, "slot": max(1.0, b - a), "span": b - a, "text": _seg_text(k), "orig": t,
                 "ost": "orig" if k == 1 and E.words == 1 else "new"} for k, (a, b, t) in enumerate(segments)]
         return {"segments": out, "script": " ".join(x["text"] for x in out), "fresh": E.fresh,
