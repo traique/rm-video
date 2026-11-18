@@ -1,8 +1,9 @@
 """(Kaggle) Sinh 8 ảnh 9:16 cho truyện bé bằng diffusers trên GPU T4.
 
 - `schnell` (mặc định): FLUX.1-schnell, Apache-2.0, 4 bước; transformer 4-bit NF4 + T5 8-bit (bitsandbytes) để vừa T4
-  (fp16 — T4 không có bf16). Bản đã lượng tử sẵn trong /kaggle/input (notebook rmvideo-kids-models) nạp ~1 phút; không
-  có thì tải + lượng tử tại chỗ (~24GB, chậm hơn 5-8 phút).
+  (fp16 — T4 không có bf16). Bản đã lượng tử sẵn trong /kaggle/input (notebook rmvideo-kids-models, 14GB): ổ gắn chỉ
+  ~30 MB/s nên nạp thẳng mất 7-8,5 phút (đo 18/11) -> prefetch() chép về đĩa cục bộ bằng 4 luồng NGAY khi bắt đầu việc,
+  trong lúc model chữ tải/viết; không có bản lưu thì tải + lượng tử tại chỗ (~24GB, chậm hơn 5-8 phút).
 - `zimage`: Z-Image-Turbo (Alibaba, 6B, Apache-2.0, 8 bước) — thử nghiệm, cần diffusers mới.
 Sinh ở 832x1472 (~1,2 MP, bội số 16) rồi phóng lên 1080x1920 bằng lanczos (ffmpeg). Giải mã VAE ở fp32 để không ra ảnh
 đen/NaN (lỗi hay gặp của FLUX fp16). Ảnh đen vẫn xảy ra thì sinh lại với seed khác một lần."""
@@ -12,12 +13,18 @@ import gc
 import glob
 import logging
 import os
+import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 INPUT_ROOT = "/kaggle/input"
+PREFETCH_DIR = "/tmp/rm_kids_models"     # bản chép cục bộ của model đã lưu (đĩa Kaggle ngoài /kaggle/working còn rộng)
+PREFETCH_THREADS = 4
+_prefetching: dict[str, threading.Thread] = {}
 # Đo thật 18/11/2026 (T4 14,5GB): T5 8-bit nằm cố định trên GPU (4,8GB) + transformer NF4 (6,5GB) + kích hoạt ở 832x1472 -> hết
 # VRAM. Giờ: mã hoá cả 8 prompt trước, bỏ T5 khỏi GPU, rồi mới chạy transformer; sinh ở 768x1344 (~1 MP, bội số 16).
 GEN_W, GEN_H = 768, 1344
@@ -42,6 +49,61 @@ def find_local(model: str, root: str = INPUT_ROOT) -> str | None:
         if any(n in low for n in names):
             return os.path.dirname(p)
     return None
+
+
+def prefetch(model: str, log: Log = logging.info, root: str = INPUT_ROOT, dest: str = PREFETCH_DIR) -> threading.Thread | None:
+    """Chép thư mục model đã lưu từ ổ gắn về đĩa cục bộ trong luồng nền (4 file song song, file to trước). Gọi NGAY đầu
+    việc; local_dir() chờ xong rồi trả bản cục bộ. Không đủ đĩa / lỗi thì bỏ, nạp thẳng từ ổ gắn như cũ."""
+    src = find_local(model, root)
+    if not src:
+        return None
+    dst = os.path.join(dest, os.path.basename(src))
+    if os.path.exists(os.path.join(dst, ".done")):
+        return None
+    files = [os.path.relpath(os.path.join(r, f), src) for r, _, fs in os.walk(src) for f in fs]
+    size = sum(os.path.getsize(os.path.join(src, f)) for f in files)
+    try:
+        os.makedirs(dest, exist_ok=True)
+        free = shutil.disk_usage(dest).free
+    except OSError:
+        return None
+    if free < size * 1.2 + 5 * 2 ** 30:
+        log(f"Không chép model ảnh về đĩa cục bộ: còn {free / 2 ** 30:.0f}GB, cần {size * 1.2 / 2 ** 30:.0f}GB")
+        return None
+    files.sort(key=lambda f: -os.path.getsize(os.path.join(src, f)))
+
+    def one(f: str) -> None:
+        os.makedirs(os.path.dirname(os.path.join(dst, f)), exist_ok=True)
+        shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
+
+    def work() -> None:
+        t0 = time.time()
+        try:
+            with ThreadPoolExecutor(PREFETCH_THREADS) as ex:
+                list(ex.map(one, files))
+            open(os.path.join(dst, ".done"), "w").close()
+            log(f"Đã chép model ảnh ({size / 2 ** 30:.1f}GB) về đĩa cục bộ sau {time.time() - t0:.0f}s")
+        except Exception as e:
+            log(f"Chép model ảnh về đĩa cục bộ lỗi ({str(e)[:120]}): nạp thẳng từ ổ gắn")
+            shutil.rmtree(dst, ignore_errors=True)
+
+    th = threading.Thread(target=work, name="kids-prefetch", daemon=True)
+    th.start()
+    _prefetching[model] = th
+    return th
+
+
+def local_dir(model: str, root: str = INPUT_ROOT, dest: str = PREFETCH_DIR) -> str | None:
+    """Thư mục để nạp: bản chép cục bộ (chờ prefetch xong nếu đang chép) hoặc thẳng từ ổ gắn, hoặc None."""
+    th = _prefetching.pop(model, None)
+    if th is not None:
+        th.join()
+    src = find_local(model, root)
+    if src:
+        dst = os.path.join(dest, os.path.basename(src))
+        if os.path.exists(os.path.join(dst, ".done")):
+            return dst
+    return src
 
 
 def load_flux(repo: str, local: str | None, log: Log) -> Any:
@@ -166,7 +228,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
     own = pipe is None
     if own:
         t0 = time.time()
-        local = find_local(model)
+        local = local_dir(model)
         pipe = load_flux(m["repo"], local, log) if m["kind"] == "flux" else load_zimage(m["repo"], local, log)
         log(f"Model ảnh {model} sẵn sàng sau {time.time() - t0:.0f}s")
     embeds: list = []

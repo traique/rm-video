@@ -165,6 +165,26 @@ def test_plan_follows_voice():
     assert len(pl["transitions"]) == 7 and pl["transitions"][0]["start"] == pytest.approx(sc[0]["end"] - 0.25)
 
 
+def test_prefetch_copies_saved_model(tmp_path):
+    """Model đã lưu trong ổ gắn được chép về đĩa cục bộ trong luồng nền; local_dir chờ xong và trả bản chép."""
+    src = tmp_path / "input" / "notebooks" / "u" / "rmvideo-kids-models" / "flux-schnell-nf4"
+    (src / "transformer").mkdir(parents=True)
+    (src / "model_index.json").write_text("{}")
+    (src / "transformer" / "w.safetensors").write_bytes(b"x" * 5000)
+    dest = tmp_path / "local"
+    msgs = []
+    assert images_mod.find_local("schnell", str(tmp_path / "input")) == str(src)
+    th = images_mod.prefetch("schnell", msgs.append, str(tmp_path / "input"), str(dest))
+    assert th is not None
+    got = images_mod.local_dir("schnell", str(tmp_path / "input"), str(dest))
+    assert got == str(dest / "flux-schnell-nf4") and (dest / "flux-schnell-nf4" / ".done").exists()
+    assert (dest / "flux-schnell-nf4" / "transformer" / "w.safetensors").read_bytes() == b"x" * 5000
+    assert msgs and "đĩa cục bộ" in msgs[0]
+    assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "input"), str(dest)) is None   # đã có: không chép lại
+    assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "nope"), str(dest)) is None    # không có bản lưu
+    assert images_mod.local_dir("zimage", str(tmp_path / "input"), str(dest)) is None
+
+
 def test_plan_fits_max_len():
     """Lời dài (đo thật 236 chữ -> 88,9s): co đệm trước, vẫn quá thì đọc nhanh hơn; không bao giờ quá MAX_LEN khi còn co được."""
     pl = render.plan([9.0] * 8, random.Random(3), recap_dur=6.5)             # tự nhiên ≈ 90,6s

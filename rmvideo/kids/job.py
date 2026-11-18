@@ -42,6 +42,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t: dict = {}
     os.makedirs(tmp, exist_ok=True)
     t0 = time.time()
+    image_model = (spec.get("image") or {}).get("model") or "schnell"
+    images_mod.prefetch(image_model, log)           # chép model ảnh (14GB) từ ổ gắn về đĩa cục bộ trong lúc viết truyện
     try:
         st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, tmp, log)
     except llm.StoryRejected as e:                  # các lượt (kể cả chữ model viết) vào result.json để soát lời nhắc
@@ -51,8 +53,7 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     plist = [prompts.image_prompt(s, brief, data) for s in st["scenes"]]
     seeds = [int(brief.get("seed") or 1) + i for i in range(len(plist))]
     t0 = time.time()
-    imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"),
-                                   (spec.get("image") or {}).get("model") or "schnell", log)
+    imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log)
     t["images"] = round(time.time() - t0, 1)
     import kaggle_job
     t0 = time.time()
