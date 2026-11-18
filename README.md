@@ -230,7 +230,7 @@ Cài một lần:
 
 Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học chia đều, nhân vật chính luân phiên, từ tiếng Anh
 ưu tiên gắn với bài học và lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (160–240 chữ, 8 cảnh 12–40 chữ, mỗi từ tiếng Anh
-≥ 2 lần, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh, không hỏi dồn dập, không liệt kê nghĩa
+có trong lời thoại, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh, không hỏi dồn dập, không liệt kê nghĩa
 từ); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất và chèn từ còn thiếu bằng mã. Model chữ
 suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
 tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài

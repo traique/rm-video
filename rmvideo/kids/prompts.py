@@ -37,7 +37,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
     words = "; ".join(f"{w['en']} = {w['vi']}" for w in brief["words"])
-    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): ít nhất {story_mod.EN_REPEAT} lần trong lời thoại, ví dụ: "
+    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): trong lời thoại, nên 2 lần, ví dụ: "
                             f"{main['name_vi']} nói: «{w['en']}!»" for w in brief["words"])
     names_en = ", ".join(c["name_en"] for c in chars.values())
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
@@ -64,14 +64,14 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"TIẾNG ANH (English only, không một chữ tiếng Việt), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), "
             "tả hành động + cảm xúc + đồ vật trong hình, thì hiện tại; ví dụ: «White Rabbit crying and holding a red ball, "
             "Orange Cat looking sorry». Không tả ngoại hình hay quần áo (đã có sẵn), không chữ, không bảng hiệu.\n"
-            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, gợi tò mò, có tên {main['name_vi']} và một từ "
-            "tiếng Anh hôm nay.\n"
+            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, gợi tò mò, có tên {main['name_vi']}; chỉ kèm một từ "
+            "tiếng Anh hôm nay nếu đọc lên tự nhiên (ví dụ: «Thỏ Trắng và lời promise bị quên»).\n"
             "- `description`: 2-3 câu cho ba mẹ: truyện dạy bé điều gì, kể các từ tiếng Anh kèm nghĩa.\n"
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n")
     if feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh, mỗi "
-                 "từ tiếng Anh có mặt ít nhất 2 lần, action_en bằng tiếng Anh, cảnh 1 có câu hỏi/câu cảm.")
+                 "từ tiếng Anh đều có mặt trong lời thoại, action_en bằng tiếng Anh, cảnh 1 có câu hỏi/câu cảm.")
     return text
 
 

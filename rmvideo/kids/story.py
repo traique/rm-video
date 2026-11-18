@@ -28,7 +28,8 @@ WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục �
                                        # 18/11: 236 chữ -> 88,9s (render.plan tự co đệm/đọc nhanh để ≤ 87s)
 WORDS_HARD = 130                       # dưới mức này thì không chấp nhận dù đã hết lượt
 SCENE_MIN, SCENE_MAX = 12, 40          # chữ mỗi cảnh
-EN_REPEAT = 2                          # mỗi từ tiếng Anh nên xuất hiện ít nhất chừng này lần trong truyện (ôn từ cuối là lần nữa)
+EN_REPEAT = 1                          # mỗi từ tiếng Anh phải có trong lời ít nhất chừng này lần (đo thật 18/11: đòi 2 lần thì
+                                       # 4 lượt đều trượt vì mỗi từ chỉ 1 lần; thẻ nghĩa + câu ôn từ + màn kết đã nhắc lại 3 lần nữa)
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 4, 4, 5)                 # số từ tiếng Anh mỗi truyện (hay gặp nhất: 4)
