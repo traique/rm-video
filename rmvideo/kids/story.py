@@ -22,9 +22,12 @@ from rmvideo.domain import dialect
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
 N_SCENES = 8
-WORDS_MIN, WORDS_MAX = 190, 240        # chữ cả truyện: Thục Đoan ~3,4 chữ/giây -> 56-70 giây tiếng nói
-SCENE_MIN, SCENE_MAX = 15, 40          # chữ mỗi cảnh
-EN_REPEAT = 3                          # mỗi từ tiếng Anh xuất hiện ít nhất chừng này lần
+# Đo thật 18/11/2026 (Qwen3.6-35B-A3B, grammar JSON): model viết NGẮN hơn yêu cầu (74 -> 146 -> 176 chữ qua 3 lượt) và hay bỏ
+# sót từ tiếng Anh -> ngưỡng cứng thấp hơn, schema ép độ dài từng cảnh, từ thiếu chèn bằng mã, câu ôn từ cuối truyện do mã viết.
+WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục Đoan ~47s + đệm + ôn từ + màn kết ≈ 65s
+WORDS_HARD = 130                       # dưới mức này thì không chấp nhận dù đã hết lượt
+SCENE_MIN, SCENE_MAX = 12, 40          # chữ mỗi cảnh
+EN_REPEAT = 2                          # mỗi từ tiếng Anh nên xuất hiện ít nhất chừng này lần trong truyện (ôn từ cuối là lần nữa)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 4, 4, 5)                 # số từ tiếng Anh mỗi truyện (hay gặp nhất: 4)
 TITLE_MAX = 70
@@ -237,6 +240,53 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
         if len((s.get("action_en") or "").split()) < 3:
             problems.append(f"cảnh {i} thiếu action_en (một câu tiếng Anh tả hành động trong hình)")
     return problems
+
+
+def blocking(story: dict, brief: dict, data: dict) -> list[str]:
+    """Lỗi CHẶN (không chấp nhận bản này dù đã hết lượt viết lại): thiếu/thừa cảnh, từ cấm, quá ngắn, cảnh không có
+    action_en. Lỗi khác trong validate() là lỗi mềm: hết lượt thì chấp nhận bản ít lỗi nhất kèm ghi chú."""
+    scenes = story.get("scenes") or []
+    texts = [s.get("text", "") for s in scenes]
+    out = []
+    if len(scenes) != N_SCENES:
+        out.append(f"cần đúng {N_SCENES} cảnh, nhận được {len(scenes)}")
+    total = sum(word_count(t) for t in texts)
+    if total < WORDS_HARD:
+        out.append(f"cả truyện {total} chữ, quá ngắn (dưới {WORDS_HARD})")
+    low = " ".join(texts).lower()
+    bad = [b for b in BANNED if b in low]
+    if bad:
+        out.append("không dùng từ: " + ", ".join(bad))
+    if not story.get("title"):
+        out.append("thiếu tiêu đề")
+    if any(len((s.get("action_en") or "").split()) < 3 for s in scenes):
+        out.append("có cảnh thiếu action_en")
+    return out
+
+
+def inject_words(story: dict, brief: dict, data: dict) -> list[str]:
+    """Từ tiếng Anh model bỏ sót hẳn (0 lần): chèn một câu thoại của nhân vật chính vào cảnh 6 (giải quyết) hoặc 7 (bài
+    học) để bé vẫn nghe từ đó trong truyện. Trả các từ đã chèn."""
+    scenes = story.get("scenes") or []
+    if len(scenes) < N_SCENES:
+        return []
+    main = data["characters"].get(brief.get("main", ""), {}).get("name_vi", "Thỏ Trắng")
+    full = " ".join(s.get("text", "") for s in scenes)
+    added = []
+    for k, w in enumerate(brief.get("words", [])):
+        if count_word(full, w["en"]) == 0:
+            sc = scenes[5 if k % 2 == 0 else 6]
+            sc["text"] = (sc["text"].rstrip() + f" {main} nói: «{w['en']}»! {w['en']} nghĩa là {w['vi']} đó nha.").strip()
+            added.append(w["en"])
+    return added
+
+
+def recap_text(brief: dict) -> str:
+    """Câu ôn từ cuối truyện (mã viết, đọc trong màn kết): «Hôm nay mình học: turn là lượt, wait là chờ... Bé nhớ nha!»"""
+    ws = brief.get("words", [])
+    if not ws:
+        return ""
+    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Bé nhớ nha!"
 
 
 def script_text(story: dict) -> str:

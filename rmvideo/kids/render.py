@@ -35,10 +35,15 @@ TRANSITIONS = ("fade", "dissolve", "smoothleft", "smoothright", "smoothup", "cir
 STYLE = "kids"
 
 
-def plan(durs: Sequence[float], rnd: random.Random | None = None) -> dict:
+RECAP_GAP = 0.5        # câu ôn từ bắt đầu sau khi vào màn kết chừng này
+
+
+def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: float = 0.0) -> dict:
     """durs: độ dài TIẾNG NÓI từng cảnh -> {"scenes": [{start, end, voice_at, motion}], "transitions": [{start, dur,
-    type}], "length"}. Chuyển cảnh j nằm giữa ranh giới cảnh j và j+1 (lấn mỗi bên XFADE/2)."""
+    type}], "length", "outro_at", "recap_at"}. Chuyển cảnh j nằm giữa ranh giới cảnh j và j+1 (lấn mỗi bên XFADE/2).
+    recap_dur: câu ôn từ đọc trong màn kết -> màn kết dài ra cho vừa."""
     rnd = rnd or random.Random(0)
+    outro = max(OUTRO, RECAP_GAP + float(recap_dur) + 1.0) if recap_dur else OUTRO
     scenes: list[dict] = []
     t = 0.0
     prev = ""
@@ -50,10 +55,11 @@ def plan(durs: Sequence[float], rnd: random.Random | None = None) -> dict:
         scenes.append({"start": round(t, 3), "end": round(t + length, 3), "voice_at": round(t + lead, 3),
                        "motion": motion})
         t += length
-    scenes[-1]["end"] = round(t + OUTRO, 3)                      # màn kết đè lên cảnh cuối (ảnh cảnh 8 giữ nguyên)
+    scenes[-1]["end"] = round(t + outro, 3)                      # màn kết đè lên cảnh cuối (ảnh cảnh 8 giữ nguyên)
     trans = [{"start": round(s["end"] - XFADE / 2, 3), "dur": XFADE, "type": rnd.choice(TRANSITIONS)}
              for s in scenes[:-1]]
-    return {"scenes": scenes, "transitions": trans, "length": round(t + OUTRO, 3), "outro_at": round(t, 3)}
+    return {"scenes": scenes, "transitions": trans, "length": round(t + outro, 3), "outro_at": round(t, 3),
+            "recap_at": round(t + RECAP_GAP, 3)}
 
 
 def _clip_bounds(pl: dict) -> list[tuple[float, float]]:
@@ -159,14 +165,17 @@ def audio_graph(voice_idx: int, music_idx: int | None, gain_db: float, total: fl
             f"apad=whole_dur={total:.2f},atrim=duration={total:.2f}[a]")
 
 
-async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str]) -> list:
+async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
+                         recap: tuple[dict, str] | None = None) -> list:
     """[(start, end, chữ, cảnh)] rải theo khoảng có tiếng của từng đoạn giọng (đo năng lượng, không cần mốc từ)."""
     out = []
-    for k, (cl, sc, text) in enumerate(zip(clips, pl["scenes"], texts)):
+    items = [(cl, sc["voice_at"], text) for cl, sc, text in zip(clips, pl["scenes"], texts)]
+    if recap and recap[0].get("path"):
+        items.append((recap[0], pl["recap_at"], recap[1]))
+    for k, (cl, at, text) in enumerate(items):
         if not cl.get("path") or not text.strip():
             continue
         ivs = await voiceplan.voiced_intervals(cl["path"]) or []
-        at = sc["voice_at"]
         dur = float(cl.get("dur") or 0.0) or (ivs[-1][1] if ivs else 2.0)
         shifted = [(a + at, b + at) for a, b in ivs]
         out += [(a, b, w, k) for a, b, w in align.spread_voiced(text.split(), shifted, at, at + dur + 0.05)]
@@ -188,20 +197,29 @@ def gloss_times(words_timed: Sequence[tuple], brief_words: Sequence[dict]) -> li
 
 async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[str], brief: dict, out: str, tmp: str,
                  music: str | None = None, title: str = "", channel: dict | None = None, W: int = 1080, H: int = 1920,
-                 fps: int = FPS, rnd: random.Random | None = None) -> dict:
-    """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). Trả {"length", "plan", "srt", "ass"}."""
+                 fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None) -> dict:
+    """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). recap: (clip, lời) câu ôn từ đọc trong màn
+    kết. Trả {"length", "plan", "srt", "ass"}."""
     channel = channel or {}
     work = os.path.join(tmp, "kids_render")
     os.makedirs(work, exist_ok=True)
     durs = [await voiceplan.speech_duration(c["path"]) if c.get("path") else 0.0 for c in clips]
     for c, d in zip(clips, durs):
         c["dur"] = d
-    pl = plan(durs, rnd)
+    recap_dur = 0.0
+    if recap and recap[0].get("path"):
+        recap_dur = await voiceplan.speech_duration(recap[0]["path"])
+        recap[0]["dur"] = recap_dur
+    pl = plan(durs, rnd, recap_dur)
     total = pl["length"]
     vplan = [{"start": s["voice_at"], "factor": 1.0, "end": s["voice_at"] + d} for s, d in zip(pl["scenes"], durs)]
+    all_clips = list(clips)
+    if recap_dur:
+        all_clips.append(recap[0])  # type: ignore[index]
+        vplan.append({"start": pl["recap_at"], "factor": 1.0, "end": pl["recap_at"] + recap_dur})
     voice = os.path.join(work, "voice.wav")
-    await voiceplan.compose_voice(list(clips), vplan, voice, total)
-    words = await subtitle_words(clips, pl, texts)
+    await voiceplan.compose_voice(all_clips, vplan, voice, total)
+    words = await subtitle_words(clips, pl, texts, recap)
     from rmvideo.kids import story as story_mod
     ass = os.path.join(work, "subs.ass")
     hi = story_mod.english_tokens(brief)

@@ -42,7 +42,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t: dict = {}
     os.makedirs(tmp, exist_ok=True)
     t0 = time.time()
-    st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, tmp, log)
+    try:
+        st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, tmp, log)
+    except llm.StoryRejected as e:                  # các lượt (kể cả chữ model viết) vào result.json để soát lời nhắc
+        return {"ok": False, "kind": "kids", "error": str(e), "attempts": e.attempts, "timings": {"llm": round(time.time() - t0, 1)}}
     t["llm"] = round(time.time() - t0, 1)
     texts = [s["text"] for s in st["scenes"]]
     plist = [prompts.image_prompt(s, brief, data) for s in st["scenes"]]
@@ -54,8 +57,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     import kaggle_job
     t0 = time.time()
     synth = kaggle_job.make_synth(spec, None)
-    voiced = await synth(list(enumerate(texts)), tmp)
+    recap = story_mod.recap_text(brief)             # câu ôn từ (mã viết) đọc trong màn kết: mỗi từ chắc chắn được nghe kèm nghĩa
+    voiced = await synth(list(enumerate(texts + [recap])), tmp)
     clips = [voiced.get(k) or {"path": None} for k in range(len(texts))]
+    recap_clip = voiced.get(len(texts)) or {"path": None}
     t["tts"] = round(time.time() - t0, 1)
     notes: list[str] = []
     music = None
@@ -68,7 +73,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     out = os.path.join(tmp, "output.mp4")
     res = await render.render(imgs, clips, texts, brief, out, tmp, music=music, title=st["title"],
-                              channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)))
+                              channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
+                              recap=(recap_clip, recap) if recap_clip.get("path") else None)
     t["render"] = round(time.time() - t0, 1)
     bad = await qa_video(out)
     if bad:

@@ -32,6 +32,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
     words = "; ".join(f"{w['en']} = {w['vi']}" for w in brief["words"])
+    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): ít nhất {story_mod.EN_REPEAT} lần, ví dụ: {main['name_vi']} nói: "
+                            f"«{w['en']}»! rồi giải thích {w['en']} nghĩa là {w['vi']}." for w in brief["words"])
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
     keys = ", ".join(chars)
     text = (f"Viết một truyện ngắn xảy ra ở {data['world']['name']}, nơi bốn bạn nhỏ sống cùng nhau: {cast}.\n"
@@ -41,13 +43,12 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"Từ tiếng Anh bé học hôm nay: {words}.\n\n"
             f"Cấu trúc đúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             f"Yêu cầu:\n"
-            f"- Mỗi cảnh {story_mod.SCENE_MIN + 5}-{story_mod.SCENE_MAX - 8} chữ; cả truyện "
-            f"{story_mod.WORDS_MIN + 5}-{story_mod.WORDS_MAX - 10} chữ.\n"
+            f"- Mỗi cảnh 3-4 câu ngắn, tổng 24-34 chữ (KHÔNG được dưới 20 chữ); cả truyện 200-240 chữ. Viết dài, kể kỹ, "
+            "có lời thoại.\n"
             "- Cả bốn bạn đều phải được nhắc tên (gọi đúng tên: "
             + ", ".join(c["name_vi"] for c in chars.values()) + ").\n"
-            f"- Mỗi từ tiếng Anh xuất hiện ít nhất {story_mod.EN_REPEAT} lần trong lời kể / lời thoại, viết đúng chính tả "
-            "tiếng Anh, chữ thường; lần đầu kèm nghĩa (ví dụ: «sorry» nghĩa là xin lỗi), các lần sau dùng tự nhiên trong "
-            "lời thoại (ví dụ: Thỏ Trắng nói: Sorry Gấu Nâu ơi!).\n"
+            "- Từ tiếng Anh: viết đúng chính tả tiếng Anh, chữ thường, nằm trong lời thoại; MỖI từ dưới đây đều phải có "
+            "mặt, không được bỏ sót từ nào:\n" + word_lines + "\n"
             "- Cảnh 1 có một câu hỏi hoặc câu cảm gây tò mò. Cảnh 7 nói rõ bài học bằng đúng chữ: "
             + ", ".join(lesson.get("keywords", [])) + ". Cảnh 8 kết thúc vui, các bạn cười và chơi cùng nhau.\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
@@ -58,7 +59,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             "- `description`: 2-3 câu cho ba mẹ: truyện dạy bé điều gì, kể các từ tiếng Anh kèm nghĩa.\n"
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #biettxinloi, #bexinloi).\n")
     if feedback:
-        text += "\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback) + "\nHãy viết lại cho đúng mọi yêu cầu."
+        text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
+                 + "\nViết lại TOÀN BỘ truyện: giữ ý hay, viết mỗi cảnh dài hơn (3-4 câu), và thêm lời thoại có đủ từng từ "
+                 "tiếng Anh ở trên. Kiểm lại trước khi trả: đủ 8 cảnh, mỗi từ tiếng Anh có mặt, cảnh 1 có câu hỏi/câu cảm.")
     return text
 
 
@@ -71,7 +74,8 @@ def schema(data: dict) -> dict:
     """JSON schema cho grammar của llama.cpp: model không thể trả JSON hỏng hay thiếu trường."""
     keys = list(data["characters"])
     scene = {"type": "object",
-             "properties": {"text": {"type": "string", "minLength": 40, "maxLength": 400},
+             # minLength ép độ dài từng cảnh ngay trong grammar (đo thật: model viết 9-11 chữ/cảnh khi chỉ nhắc bằng lời)
+             "properties": {"text": {"type": "string", "minLength": 100, "maxLength": 230},
                             "characters": {"type": "array", "items": {"type": "string", "enum": keys},
                                            "minItems": 1, "maxItems": 2},
                             "action_en": {"type": "string", "minLength": 10, "maxLength": 300}},

@@ -116,6 +116,22 @@ def test_validate_good_and_bad():
     assert any("chữ" in p for p in probs)
 
 
+def test_blocking_inject_and_recap():
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(_good_story(brief), DATA)
+    assert story.blocking(st, brief, DATA) == []
+    missing = {"en": "rainbow", "vi": "cầu vồng"}
+    brief2 = {**brief, "words": brief["words"] + [missing]}
+    assert any("rainbow" in p for p in story.validate(st, brief2, DATA))
+    assert story.inject_words(st, brief2, DATA) == ["rainbow"]
+    assert story.count_word(story.script_text(st), "rainbow") >= 2 and "cầu vồng" in story.script_text(st)
+    assert story.inject_words(st, brief2, DATA) == []                        # đã có thì không chèn nữa
+    short = {**st, "scenes": [{**s, "text": "Hai bạn chơi vui."} for s in st["scenes"]]}
+    assert any("quá ngắn" in p for p in story.blocking(short, brief, DATA))
+    r = story.recap_text(brief)
+    assert r.startswith("Hôm nay mình học:") and all(w["en"] in r and w["vi"] in r for w in brief["words"])
+
+
 def test_prompts_and_schema():
     brief = story.pick(DATA, [], random.Random(2))
     msgs = prompts.messages(brief, DATA, {"name": "Kể Bé Nghe"})
@@ -127,6 +143,8 @@ def test_prompts_and_schema():
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "scenes", "description",
                                                                                        "hashtags"}
+    assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 100   # grammar ép độ dài cảnh
+    assert all(w["en"] in u for w in brief["words"]) and "không được bỏ sót" in u
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
     assert p.startswith("Orange Cat:") and "green t-shirt" in p and "Pixar style" in p and "jumps over a puddle" in p
     assert "White Rabbit" not in p                                           # chỉ nhân vật có mặt trong cảnh
@@ -168,9 +186,12 @@ def test_render_small_video_with_music(tmp_path):
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=6", "-c:a",
                     "libmp3lame", music], check=True)
     out = str(tmp_path / "out.mp4")
+    recap = ({"path": _wav(str(tmp_path / "recap.wav"), 3.0)}, story.recap_text(brief))
     res = asyncio.run(render.render(imgs, clips, texts, brief, out, str(tmp_path), music=music, title="Thỏ Trắng học nói",
-                                    channel=kids_auto.channel(), W=180, H=320, fps=12, rnd=random.Random(1)))
-    assert res["length"] == pytest.approx(8 * render.SCENE_MIN + render.OUTRO)
+                                    channel=kids_auto.channel(), W=180, H=320, fps=12, rnd=random.Random(1), recap=recap))
+    outro = max(render.OUTRO, render.RECAP_GAP + recap[0]["dur"] + 1.0)
+    assert res["length"] == pytest.approx(8 * render.SCENE_MIN + outro) and recap[0]["dur"] > 2.5
+    assert "Hôm nay mình học" in res["srt"]
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0",
                             out], capture_output=True, text=True).stdout
     assert "video,180,320" in probe and "audio" in probe
@@ -183,8 +204,9 @@ def test_render_small_video_with_music(tmp_path):
 # ---------------- việc Kaggle với model giả ----------------
 
 class _FakeSrv:
-    def __init__(self, brief, fail_first=False):
-        self.brief, self.fail_first, self.calls = brief, fail_first, []
+    def __init__(self, brief, fail_first=False, drop_word=None, always_short=False):
+        self.brief, self.fail_first, self.drop_word, self.always_short = brief, fail_first, drop_word, always_short
+        self.calls = []
 
     def start(self):
         pass
@@ -194,6 +216,12 @@ class _FakeSrv:
         st = _good_story(self.brief)
         if self.fail_first and len(self.calls) == 1:
             st["scenes"][0]["text"] = "Quá ngắn."
+        if self.drop_word:                               # model luôn bỏ sót một từ (đo thật 18/11)
+            for s in st["scenes"]:
+                s["text"] = s["text"].replace(self.drop_word, "bạn")
+        if self.always_short:
+            for s in st["scenes"]:
+                s["text"] = "Hai bạn chơi vui."
         return "<think>suy nghĩ</think>\n```json\n" + json.dumps(st, ensure_ascii=False) + "\n```"
 
     def stop(self):
@@ -206,6 +234,14 @@ def test_llm_retries_with_feedback():
     st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
     assert len(attempts) == 2 and attempts[0]["problems"] and not attempts[1]["problems"]
     assert "Bản trước chưa đạt" in srv.calls[1] and st["title"]
+    # luôn thiếu một từ: hết lượt -> nhận bản ít lỗi nhất, chèn từ thiếu bằng mã
+    srv = _FakeSrv(brief, drop_word=brief["words"][0]["en"])
+    st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
+    assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["injected"] == [brief["words"][0]["en"]]
+    assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 2 and "accepted_with" in attempts[-1]
+    with pytest.raises(llm.StoryRejected) as e:                      # luôn quá ngắn: lỗi chặn -> từ chối, kèm các lượt
+        llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=_FakeSrv(brief, always_short=True))
+    assert len(e.value.attempts) == 1 + llm.RETRIES and e.value.attempts[0]["text"]
     assert llm.parse_json('<think>x</think> {"a": 1}')["a"] == 1
     assert llm.find_binary("/khong/co") is None and llm.find_gguf("*.gguf", "/khong/co") is None
 

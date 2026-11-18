@@ -30,7 +30,7 @@ DEFAULT_HF = "lmstudio-community/Qwen3.6-35B-A3B-GGUF"   # một file Q4_K_M 20,
 DEFAULT_PATTERN = "*Qwen3.6-35B-A3B*Q4_K_M*.gguf"
 PORT = 8089
 N_CTX = 8192
-RETRIES = 2                 # viết lại tối đa chừng này lần khi bộ kiểm báo lỗi
+RETRIES = 3                 # viết lại tối đa chừng này lần khi bộ kiểm báo lỗi (mỗi lượt ~11 giây, đo 18/11/2026)
 MAX_TOKENS = 2600
 TEMPERATURE = 0.75
 READY_TIMEOUT = 420         # giây chờ llama-server nạp model (nạp 21GB lên 2 GPU: đo 81-93 giây)
@@ -218,10 +218,20 @@ def backend(spec_llm: dict, tmp: str, log: Log = logging.info) -> Server | PyBac
     return PyBackend(model, int(spec_llm.get("n_ctx") or N_CTX), log)
 
 
+class StoryRejected(RuntimeError):
+    """Hết lượt mà bản tốt nhất vẫn còn lỗi chặn; mang theo nhật ký các lượt (vào result.json để soát)."""
+
+    def __init__(self, msg: str, attempts: list[dict]):
+        super().__init__(msg)
+        self.attempts = attempts
+
+
 def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                    srv: Server | PyBackend | None = None) -> tuple[dict, list[dict]]:
-    """Truyện đã chuẩn hoá + đạt bộ kiểm, cùng nhật ký các lượt [{attempt, problems, secs}]. srv: bộ chạy đã khởi
-    động (test); None thì tự chọn, chạy, rồi tắt."""
+    """Truyện đã chuẩn hoá, cùng nhật ký các lượt [{attempt, problems, secs, words, text}]. Đạt bộ kiểm thì trả ngay;
+    hết lượt thì chấp nhận bản ít lỗi nhất nếu không còn lỗi CHẶN (story.blocking), từ tiếng Anh bỏ sót chèn bằng mã
+    (story.inject_words), ghi «accepted_with» vào lượt cuối; còn lỗi chặn thì ném StoryRejected.
+    srv: bộ chạy đã khởi động (test); None thì tự chọn, chạy, rồi tắt."""
     brief, channel = spec["brief"], spec.get("channel") or {}
     own = srv is None
     if srv is None:
@@ -229,7 +239,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
         srv.start()
     run: Server | PyBackend = srv
     attempts: list[dict] = []
-    best: tuple[int, dict] | None = None
+    best: tuple[tuple[int, int], dict] | None = None
     feedback: list[str] | None = None
     try:
         for k in range(1 + RETRIES):
@@ -245,16 +255,29 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                 continue
             st = story_mod.normalize(parsed, data)
             problems = story_mod.validate(st, brief, data)
-            attempts.append({"attempt": k + 1, "problems": problems, "secs": round(time.time() - t0, 1),
-                             "words": sum(story_mod.word_count(s["text"]) for s in st["scenes"])})
+            hard = story_mod.blocking(st, brief, data)
+            attempts.append({"attempt": k + 1, "problems": problems, "blocking": hard, "secs": round(time.time() - t0, 1),
+                             "words": sum(story_mod.word_count(s["text"]) for s in st["scenes"]),
+                             "text": story_mod.script_text(st)[:1500]})
             log(f"Truyện bé: lượt {k + 1} {attempts[-1]['secs']}s, {attempts[-1]['words']} chữ"
                 + (f", lỗi: {'; '.join(problems)[:300]}" if problems else ", đạt"))
             if not problems:
                 return st, attempts
-            if best is None or len(problems) < best[0]:
-                best = (len(problems), st)
+            score = (len(hard), len(problems))
+            if best is None or score < best[0]:
+                best = (score, st)
             feedback = problems
     finally:
         if own:
             run.stop()
-    raise RuntimeError("Kịch bản chưa đạt sau %d lượt: %s" % (1 + RETRIES, "; ".join(attempts[-1]["problems"])[:400]))
+    if best is not None and not story_mod.blocking(best[1], brief, data):
+        st = best[1]
+        added = story_mod.inject_words(st, brief, data)
+        soft = story_mod.validate(st, brief, data)
+        attempts[-1]["accepted_with"] = soft
+        attempts[-1]["injected"] = added
+        log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f", chèn từ thiếu: {', '.join(added)}" if added else "")
+            + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
+        return st, attempts
+    raise StoryRejected("Kịch bản chưa đạt sau %d lượt: %s" % (1 + RETRIES, "; ".join(attempts[-1]["problems"])[:400]),
+                        attempts)
