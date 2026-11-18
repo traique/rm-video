@@ -11,6 +11,8 @@ _STYLES = {
     "outline": "Style: Default,Be Vietnam Pro ExtraBold,58,&H00FFFFFF,&H00FFFFFF,&H00141414,&H96000000,-1,0,0,0,100,100,0,0,1,4,2,2,60,60,330,1",
     # plain: chữ vàng viền mảnh, gọn
     "plain": "Style: Default,Be Vietnam Pro ExtraBold,52,&H0000E1FF,&H0000E1FF,&H00141414,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,2,60,60,330,1",
+    # kids: chữ trắng to, viền tối dày, cao hơn đáy một chút (kênh truyện bé; từ tiếng Anh tô màu qua `highlight`)
+    "kids": "Style: Default,Be Vietnam Pro ExtraBold,62,&H00FFFFFF,&H00FFFFFF,&H00202020,&H96000000,-1,0,0,0,100,100,0,0,1,5,2,2,56,56,400,1",
 }
 
 _HEADER = """[Script Info]
@@ -118,24 +120,33 @@ def style_line(style: str, brand_color: str = "") -> str:
     return line
 
 
-def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke", until: float | None = None):
+def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke", until: float | None = None,
+              highlight: set | None = None, highlight_color: str = "#FFD43B"):
     """Phụ đề kiểu CapCut: mỗi dòng 3-4 từ, chữ đang đọc sáng dần sang vàng đúng nhịp giọng (\\kf).
-    pos_y: tâm phụ đề theo trục dọc (0-1280) để đè lên dải chữ gốc; None = đáy màn hình."""
+    pos_y: tâm phụ đề theo trục dọc (0-1280) để đè lên dải chữ gốc; None = đáy màn hình.
+    highlight: các chữ (đã qua _tok, viết thường) in màu `highlight_color` — từ tiếng Anh bé học (kênh truyện bé)."""
     bs = chr(92)
     lines = group_words(words, until=until)
     pos = ("%san5%spos(360,%d)" % (bs, bs, int(pos_y))) if pos_y else ""
     with open(path, "w", encoding="utf-8") as f:
         import config
-        f.write(_HEADER.replace("{style}", style_line(style, config.brand_text("BRAND_COLOR"))))
+        sline = style_line(style, config.brand_text("BRAND_COLOR"))
+        f.write(_HEADER.replace("{style}", sline))
         karaoke = style == "karaoke"
+        primary = sline.split(",")[3].strip()                         # màu chữ của style, để trả lại sau chữ tô màu
+        hi = ("{%sc%s&}" % (bs, ass_color(highlight_color)), "{%sc%s&}" % (bs, primary))
         for start, end, ln in lines:
             parts = []
             for j, wd in enumerate(ln):
                 ws, we, wt = wd[0], wd[1], wd[2]
                 nxt = ln[j + 1][0] if j + 1 < len(ln) else we
                 cs = max(1, int(round((max(nxt, we) - ws) * 100)))
+                raw = wt
                 wt = wt.replace("\\", "/").replace("{", "(").replace("}", ")")   # \N, {\...} là lệnh ASS
-                parts.append(("{%skf%d}%s" % (bs, cs, wt)) if karaoke else wt)
+                part = ("{%skf%d}%s" % (bs, cs, wt)) if karaoke else wt
+                if highlight and _tok(raw) in highlight:
+                    part = hi[0] + part + hi[1]
+                parts.append(part)
             head = "{%s%sfad(60,40)}" % (pos, bs) if pos else "{%sfad(60,40)}" % bs
             f.write(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{head}" + " ".join(parts) + "\n")
     return len(lines)

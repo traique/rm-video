@@ -95,6 +95,14 @@ def _bgm_links(v: str) -> str:
     return ",".join(dict.fromkeys(links))
 
 
+def _kaggle_sources(v: str) -> str:
+    """notebook:user/slug, dataset:user/slug hoặc slug (notebook của mình), cách nhau dấu phẩy."""
+    for item in re.split(r"[,\s]+", v):
+        if item and not re.fullmatch(r"(?:(?:notebook|dataset):)?[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?", item):
+            raise ValueError("KIDS_KAGGLE_SOURCES: mỗi mục dạng notebook:user/slug hoặc dataset:user/slug")
+    return v
+
+
 def _kaggle_user(v: str) -> str:
     """Nhận cả dạng dán link: https://www.kaggle.com/<tên>."""
     v = re.sub(r"(?i)^(https?://)?(www\.)?kaggle\.com/", "", v).strip("/@ ").split("/")[0].lower()
@@ -392,6 +400,46 @@ SCHEMA: tuple[Setting, ...] = (
       help="Page access token dài hạn, quyền pages_manage_posts + pages_read_engagement + pages_show_list. Bấm «Thử "
            "token Fanpage» ở mục Tự động đăng để kiểm.", link="https://developers.facebook.com/tools/explorer/",
       need="optional", secret=True, reauth=True, live=True),
+    # ----- 🧸 truyện bé (kênh «Kể Bé Nghe», docs/KE_HOACH_KIDS_STORY.md) -----
+    S("KIDS_AUTO", "0", "kids", "Tự động làm + đăng truyện bé",
+      options=(("0", "Tắt (làm tay bằng nút «Làm 1 truyện ngay»)"),
+               ("1", "Bật: làm trước cho các khung giờ trong 36 giờ tới, đăng Fanpage truyện bé")),
+      choices=ON_OFF, live=True),
+    S("KIDS_TIMES", "08:00,19:00", "kids", "Giờ đăng truyện bé", help="Giờ Việt Nam, cách nhau dấu phẩy.",
+      validate=_regex(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*",
+                      "KIDS_TIMES dạng 08:00,19:00 (giờ Việt Nam)"), live=True),
+    S("KIDS_FB_PAGE_ID", "", "kids", "ID Fanpage truyện bé",
+      help="Fanpage RIÊNG của kênh truyện bé (khác Fanpage kênh bếp). Lấy id + token như FB_PAGE_TOKEN: me/accounts liệt "
+           "kê cả hai Page.", validate=_digits("KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_ID là dãy số id của Fanpage"),
+      reauth=True, live=True),
+    S("KIDS_FB_PAGE_TOKEN", "", "kids", "Token Fanpage truyện bé",
+      help="Page access token dài hạn của Fanpage truyện bé. Bấm «Thử token» ở mục 🧸 Truyện bé để kiểm.",
+      link="https://developers.facebook.com/tools/explorer/", secret=True, reauth=True, live=True),
+    S("KIDS_VOICE", "Thục Đoan", "kids", "Giọng kể (VieNeu miền Nam)",
+      options=(("Thục Đoan", "Thục Đoan (kể chuyện)"), ("Mỹ Duyên", "Mỹ Duyên (đọc truyện, chậm, ấm)"),
+               ("Kim Thanh", "Kim Thanh (đọc truyện)"), ("Thùy Dung", "Thùy Dung (rõ, nhanh)")),
+      validate=_max_len("KIDS_VOICE", 40)),
+    S("KIDS_IMAGE_MODEL", "schnell", "kids", "Model vẽ ảnh",
+      options=(("schnell", "FLUX.1-schnell 4-bit (Apache-2.0, 4 bước — mặc định)"),
+               ("zimage", "Z-Image-Turbo (Apache-2.0, 8 bước — thử nghiệm)")), choices=("schnell", "zimage")),
+    S("KIDS_LLM_PATTERN", "*Qwen3.6-35B-A3B*Q4_K_M*.gguf", "kids", "File model chữ (.gguf)",
+      help="Mẫu tên file tìm trong /kaggle/input; không thấy thì tải từ repo Hugging Face bên dưới.",
+      validate=_max_len("KIDS_LLM_PATTERN", 200)),
+    S("KIDS_LLM_HF", "unsloth/Qwen3.6-35B-A3B-GGUF", "kids", "Repo Hugging Face của model chữ",
+      validate=_regex(r"[\w.\-]+/[\w.\-]+", "KIDS_LLM_HF dạng user/repo trên Hugging Face")),
+    S("KIDS_KAGGLE_SOURCES", "", "kids", "Nguồn gắn vào phiên Kaggle",
+      help="Trống = notebook rmvideo-kids-models (lệnh kids_setup tạo: llama-server đã biên dịch + FLUX 4-bit). Hoặc "
+           "notebook:user/slug, dataset:user/slug cách nhau dấu phẩy.", validate=_kaggle_sources),
+    S("KIDS_CHANNEL_NAME", "Kể Bé Nghe", "kids", "Tên kênh truyện bé", validate=_max_len("KIDS_CHANNEL_NAME", 60)),
+    S("KIDS_WORLD_NAME", "Đồi Cỏ Non", "kids", "Tên thế giới truyện", help="Nơi bốn bạn nhỏ sống; vào lời nhắc và màn mở đầu.",
+      validate=_max_len("KIDS_WORLD_NAME", 60)),
+    S("KIDS_TAGLINE", "Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh", "kids",
+      "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
+    S("KIDS_HASHTAGS", "#kebenghe #doiconon #truyenchobe #hoctienganhchobe #kidsstory", "kids", "Hashtag cố định",
+      validate=_max_len("KIDS_HASHTAGS", 300), live=True),
+    S("KIDS_BGM_LINKS", "", "kids", "Link nhạc nền trẻ em",
+      help="Link mp3 / YouTube / TikTok (Kaggle tự tải), cách nhau dấu phẩy; hoặc chép file nhạc vào assets/kids_bgm/ "
+           "(cần PUBLIC_URL). Chỉ dùng nhạc được phép dùng thương mại.", validate=_bgm_links, live=True),
 )
 del S
 
@@ -408,6 +456,8 @@ GROUPS: list[tuple[str, str, str]] = [
     ("brand", "🎨 Nhận diện kênh", "Màu, tông, màn kết, âm hiệu, ảnh bìa: cố định để người xem nhận ra kênh."),
     ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
     ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
+    ("kids", "🧸 Truyện bé", "Kênh «Kể Bé Nghe»: model trên Kaggle tự viết truyện, vẽ 8 cảnh, đọc giọng miền Nam, dựng rồi "
+             "đăng Fanpage riêng. Chạy lệnh console kids_setup một lần để chuẩn bị model."),
     ("telegram", "💬 Telegram & thông báo", "Ai được dùng bot qua Telegram, báo job làm trên web / tự đăng."),
     ("zoom", "🎥 Zoom", "Gửi link cho bot và nhận thông báo qua Zoom Team Chat (chỉ chữ + link tải, không gửi file "
              "video). Khoá Zoom (Client ID / Secret, Bot JID, Secret Token) điền ở nhóm 🔑 Tài khoản & API."),
@@ -429,6 +479,9 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_IMAGE_MODEL",
+    "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME", "KIDS_TAGLINE",
+    "KIDS_HASHTAGS", "KIDS_BGM_LINKS",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )
@@ -437,7 +490,7 @@ assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê
 SECRET_KEYS = frozenset(s.key for s in SCHEMA if s.secret)
 REAUTH_KEYS = frozenset(s.key for s in SCHEMA if s.reauth)
 # khoá KHÔNG gửi sang notebook Kaggle: bí mật + tài khoản/quyền/tự đăng (Kaggle không cần, lộ ra là thiệt)
-SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_")
+SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_FB_")
 
 
 # ---------------- lưu trữ ----------------

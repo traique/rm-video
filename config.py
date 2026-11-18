@@ -66,6 +66,9 @@ BRAND_LOOK: str; BRAND_GRAIN: str; BRAND_TAGLINE: str; BRAND_CLOSE: str; BRAND_S
 COVER_TEMPLATE: str; AUTO_SKIP_ADS: str; AUTO_MIN_HEIGHT: str; SHORT_VERSION: str; AUTO_POST_VERSION: str
 NOTIFY_JOBS: str; ZOOM_CLIENT_ID: str; ZOOM_CLIENT_SECRET: str; ZOOM_BOT_JID: str; ZOOM_SECRET_TOKEN: str
 ZOOM_APP_TYPE: str; ZOOM_ALLOWED_USERS: str; ZOOM_ADMIN: str
+KIDS_AUTO: str; KIDS_TIMES: str; KIDS_FB_PAGE_ID: str; KIDS_FB_PAGE_TOKEN: str; KIDS_VOICE: str; KIDS_IMAGE_MODEL: str
+KIDS_LLM_PATTERN: str; KIDS_LLM_HF: str; KIDS_KAGGLE_SOURCES: str; KIDS_CHANNEL_NAME: str; KIDS_WORLD_NAME: str
+KIDS_TAGLINE: str; KIDS_HASHTAGS: str; KIDS_BGM_LINKS: str
 
 # ===== Chỉ đặt qua biến môi trường =====
 # (BOT_TOKEN đổi là phải restart polling; WEB_PASSWORD không cho sửa từ web để kẻ lạ không tự đổi khóa)

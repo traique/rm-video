@@ -4,6 +4,7 @@
     remake      video có lời (nấu ăn / review): phân tích -> quyết định -> AI viết lời -> duyệt -> đọc giọng + dựng
     analysis    bóc lời + phân tích hình trên Kaggle (cache theo video), dò chữ OCR
     teaser      đoạn mở đầu cảnh món đã xong
+    kids        🧸 truyện bé: đề -> Kaggle (model chữ, ảnh, giọng, dựng) -> QA -> giao (1.1.0)
     music       video không lời chèn nhạc nền; lấy nhạc của job
     photo       📸 ảnh + nhạc
     long_video  ✂️ cắt phần / ✨ đoạn hay, gom một phiên Kaggle

@@ -12,6 +12,7 @@ os.environ.setdefault("JOBS_DB", os.path.join(_TMP, "jobs.db"))
 os.environ.setdefault("RECENT_LOOKS", os.path.join(_TMP, "recent_looks.json"))   # lịch sử công thức hiệu ứng 📸
 os.environ.setdefault("RENDER_SPEED_FILE", os.path.join(_TMP, "render_speed.json"))   # tốc độ dựng đo được
 os.environ.setdefault("AUTOPOST_STATE", os.path.join(_TMP, "autopost.json"))   # trạng thái tự động đăng
+os.environ.setdefault("KIDS_STATE", os.path.join(_TMP, "kids_auto.json"))      # 🧸 truyện bé: truyện đã làm, lịch (1.1.0)
 os.environ.setdefault("VOICE_BANK", os.path.join(_TMP, "voice_bank.json"))   # kho lời đã duyệt (sổ giọng)
 os.environ.setdefault("ZOOM_TARGETS", os.path.join(_TMP, "zoom_targets.json"))   # nơi trả lời Zoom đã học (1.0.0)
 os.environ.setdefault("VERSION_STATE", os.path.join(_TMP, "version_announced.json"))   # đã báo phiên bản nào

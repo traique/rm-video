@@ -6,6 +6,7 @@ Không cần key API nào: lời đã viết xong ở Botkeep. Các loại việ
 - "music": 🎵 thay nhạc / nhạc nền (core_video.render_music) với thông số khớp beat Botkeep đã tính.
 - "photo": 📸 ảnh + nhạc (slideshow.render) với seed + lịch sử công thức hiệu ứng của Botkeep.
 - "batch": nhiều việc trong MỘT phiên (video dài cắt nhiều phần): nạp model + tải nguồn một lần.
+- "kids": 🧸 truyện bé (rmvideo/kids/job.py): model chữ viết truyện theo đề -> 8 ảnh -> giọng VieNeu -> dựng.
 Đầu vào (fetch): link nền tảng (Kaggle tự tải) -> không được thì link tạm của Botkeep (PUBLIC_URL); "cut" = cắt
 một đoạn của nguồn khác. Kết quả trong /kaggle/working: output[_k].mp4 + result[_k].json."""
 import asyncio
@@ -345,6 +346,9 @@ async def run_one(spec: dict, tmp: str) -> dict:
     kind = spec.get("kind") or "remake"
     if kind == "analyze":
         return await analyze(spec, tmp)
+    if kind == "kids":                                  # 🧸 truyện bé: chữ -> ảnh -> giọng -> dựng (rmvideo/kids/job.py)
+        from rmvideo.kids import job as kids_job
+        return await kids_job.run(spec, tmp)
     if kind == "photo":
         import slideshow
         images = [await fetch(r, tmp, f"img{k}") for k, r in enumerate(spec["images"])]

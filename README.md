@@ -209,6 +209,34 @@ Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
 Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
 bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình nhưng không thay được quyền tác giả.
 
+## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
+
+Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),
+một bài học, 3–5 từ tiếng Anh, giọng kể miền Nam. Toàn bộ chạy trên **Kaggle** (GPU): model chữ Qwen3.6-35B-A3B (llama.cpp) viết
+truyện theo đề, FLUX.1-schnell 4-bit vẽ 8 cảnh, VieNeu đọc, FFmpeg dựng; Botkeep chỉ chọn đề, kiểm, giao và đăng. Kế hoạch và lý do
+từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
+
+Cài một lần:
+1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`), Fanpage riêng `KIDS_FB_PAGE_ID` +
+   `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`) và nên có
+   `PUBLIC_URL` (nhạc nền chép vào `assets/kids_bgm/` đi qua link tạm; không có thì dùng `KIDS_BGM_LINKS`).
+2. Gõ `kids_setup` (console hoặc nút trên web): notebook `rmvideo-kids-models` biên dịch llama.cpp cho T4 và lượng tử FLUX.1-schnell
+   4-bit, lưu làm đầu vào cho mọi phiên sau (~45–60 phút GPU, một lần). Đã có sẵn bản llama-server biên dịch (vd dataset của bài đo
+   Qwen) thì điền `KIDS_KAGGLE_SOURCES=dataset:user/slug` thay vì chạy `kids_setup`. Model chữ GGUF (~21GB) tải từ Hugging Face mỗi
+   phiên (~3 phút) vì vượt giới hạn 20GB đầu ra notebook.
+3. Bấm **🧸 Làm 1 truyện ngay** (hoặc `kids_now`): job vào hàng đợi như job thường, xong thì tải về soát (video, phụ đề `.srt`, ảnh
+   bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
+   (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+
+Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học chia đều, nhân vật chính luân phiên, từ tiếng Anh
+ưu tiên gắn với bài học và lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (190–240 chữ, 8 cảnh 15–40 chữ, mỗi từ tiếng Anh
+≥ 3 lần, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm); chưa đạt thì model viết lại tối đa 2 lần kèm lý do. Video kiểm
+bằng mã (60–88 giây, 1080×1920, có tiếng) cả trên Kaggle lẫn khi tải về. Thêm bài học / bối cảnh / từ mới: sửa
+`rmvideo/kids/data.json`.
+
+Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
+khung giờ khác. Ước tính mỗi truyện ~20–30 phút phiên GPU (chờ máy riêng); 2 truyện/ngày ≈ 4–6 giờ GPU/tuần.
+
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 
 H.264 High 4.1, yuv420p, bt709, 30 fps CFR, GOP 2s, faststart; AAC 192 kbps **48 kHz**; loudness **−14 LUFS, true peak −1 dBTP** (alimiter); fade in 0.3s / out 0.4s hình + tiếng; phụ đề trong vùng an toàn (cách đáy ~26%, không bị thanh công cụ TikTok/Reels che). `QUALITY` trong Cài đặt: `fast` (superfast, crf 23), `balanced` (mặc định: veryfast, crf 20, 1080p ~9 Mbps), `high` (chuẩn TVC: medium, crf 18, làm nét thích ứng `cas`, chậm ~2x). Âm lượng ra đúng −14 LUFS, đỉnh ≤ −1 dBFS ngay từ render (alimiter `level=false`; có test chặn tái phát).
@@ -521,6 +549,7 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
 | `bgm.py` | Thư viện nhạc nền cho video không lời (link + file tải lên, chọn không lặp) |
 | `autopost.py` | 🤖 Tự động đăng: kênh nguồn Facebook / TikTok, chống trùng, giờ vàng, đăng qua Graph API |
+| `kids_auto.py`, `rmvideo/kids/` | 🧸 Truyện bé: chọn đề + kho từ (`story.py`), lời nhắc + prompt ảnh (`prompts.py`), phần chạy trên Kaggle (`llm.py`, `images.py`, `render.py`, `job.py`), lịch + đăng Fanpage riêng |
 | `slideshow.py` | 📸 Ảnh + nhạc: phân tích nhạc, chọn hiệu ứng/chuyển cảnh theo nhịp, dựng FFmpeg |
 | `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
 | `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |

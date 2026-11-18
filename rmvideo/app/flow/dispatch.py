@@ -32,6 +32,9 @@ async def process(job: Job, tmp: str, allow_review: bool = True, local_only: boo
 
 async def _process(job: Job, tmp: str, allow_review: bool, tasks: list, local_only: bool = False,
                    teaser_ok: bool = True):
+    if job.mode == Mode.KIDS:                     # 🧸 truyện bé (1.1.0): không có nguồn, làm trọn trên Kaggle
+        from rmvideo.app.flow import kids
+        return await kids.process_kids(job, tmp)
     if job.mode == Mode.PHOTO:
         return await photo.process_photo(job, tmp)
     inp, title, desc = await acquire(job, tmp)

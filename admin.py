@@ -26,7 +26,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | clean (dọn bộ nhớ đệm pip + cache) | "
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py) | "
                 "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
-                "kaggle_test (thử token Kaggle + giờ GPU còn lại)")
+                "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
+                "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_fb_test | kids_resume")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -142,6 +143,37 @@ async def console():
                     logging.info("✅ Token dùng được cho Fanpage: %s", await autopost.check_token())
                 except Exception as e:
                     logging.info("❌ Token Fanpage lỗi: %s", e)
+            elif low in ("kids", "kids_status"):
+                import kids_auto
+                logging.info(kids_auto.status_text())
+            elif low == "kids_now":
+                import kids_auto
+                job = kids_auto.make_now("web")
+                logging.info("🧸 Đã xếp job #%s: %s", job.id, job.title_hint)
+            elif low == "kids_tick":
+                import kids_auto
+                logging.info("Truyện bé: %s", await kids_auto.tick(force=True))
+            elif low == "kids_resume":
+                import kids_auto
+                logging.info("Truyện bé: %s", await kids_auto.resume())
+            elif low == "kids_setup":
+                import kaggle_worker
+                try:
+                    logging.info("🧸 %s", await asyncio.to_thread(kaggle_worker.kids_setup))
+                except Exception as e:
+                    logging.info("❌ kids_setup lỗi: %s", e)
+            elif low == "kids_setup_status":
+                import kaggle_worker
+                try:
+                    logging.info("🧸 %s", await asyncio.to_thread(kaggle_worker.kids_setup_status))
+                except Exception as e:
+                    logging.info("❌ %s", e)
+            elif low == "kids_fb_test":
+                try:
+                    logging.info("✅ Token dùng được cho Fanpage truyện bé: %s",
+                                 await autopost.check_token(page=config.KIDS_FB_PAGE_ID, token=config.KIDS_FB_PAGE_TOKEN))
+                except Exception as e:
+                    logging.info("❌ Token Fanpage truyện bé lỗi: %s", e)
             elif low.startswith("cancel "):
                 logging.info(cancel_job(int(low.split()[1])))
             else:

@@ -435,13 +435,19 @@ async def _json(resp) -> dict:
     return d
 
 
-async def check_token(session=None) -> str:
-    """Tên Page nếu token dùng được cho FB_PAGE_ID; không thì ném FBError."""
+def _page(page: str = "", token: str = "") -> tuple:
+    """(id Page, token) để đăng: tham số (Fanpage truyện bé, 1.1.0) hay Fanpage kênh bếp trong Cài đặt."""
+    return (page or config.FB_PAGE_ID).strip(), (token or config.FB_PAGE_TOKEN).strip()
+
+
+async def check_token(session=None, page: str = "", token: str = "") -> str:
+    """Tên Page nếu token dùng được cho Page đó (mặc định FB_PAGE_ID); không thì ném FBError."""
     own = session is None
     session = session or aiohttp.ClientSession()
+    pid, tok = _page(page, token)
     try:
-        async with session.get(f"{GRAPH}/{API_VER}/{config.FB_PAGE_ID.strip()}",
-                               params={"fields": "id,name", "access_token": config.FB_PAGE_TOKEN.strip()},
+        async with session.get(f"{GRAPH}/{API_VER}/{pid}",
+                               params={"fields": "id,name", "access_token": tok},
                                timeout=aiohttp.ClientTimeout(total=30)) as r:
             d = await _json(r)
         return d.get("name") or d.get("id", "")
@@ -450,8 +456,9 @@ async def check_token(session=None) -> str:
             await session.close()
 
 
-async def _upload_reel(session, path: str, description: str, when: float | None) -> str:
-    page, tok = config.FB_PAGE_ID.strip(), config.FB_PAGE_TOKEN.strip()
+async def _upload_reel(session, path: str, description: str, when: float | None, page: str = "",
+                       token: str = "") -> str:
+    page, tok = _page(page, token)
     async with session.post(f"{GRAPH}/{API_VER}/{page}/video_reels",
                             json={"upload_phase": "start", "access_token": tok}) as r:
         d = await _json(r)
@@ -486,10 +493,11 @@ def _schedule_fields(when: float | None) -> dict:
     return {"published": "false", "unpublished_content_type": "SCHEDULED", "scheduled_publish_time": str(int(when))}
 
 
-async def _upload_video_chunked(session, path: str, title: str, description: str, when: float | None) -> str:
+async def _upload_video_chunked(session, path: str, title: str, description: str, when: float | None,
+                                page: str = "", token: str = "") -> str:
     """Video thường, file lớn: giao thức gửi từng khúc của Graph API (upload_phase start -> transfer... -> finish).
     Facebook tự chọn cỡ khúc qua start_offset/end_offset; mỗi khúc gửi lỗi mạng thì gửi lại tối đa 3 lần."""
-    page, tok = config.FB_PAGE_ID.strip(), config.FB_PAGE_TOKEN.strip()
+    page, tok = _page(page, token)
     url = f"{GRAPH_VIDEO}/{API_VER}/{page}/videos"
     size = os.path.getsize(path)
     async with session.post(url, data={"access_token": tok, "upload_phase": "start", "file_size": str(size)},
@@ -528,11 +536,11 @@ async def _upload_video_chunked(session, path: str, title: str, description: str
 
 
 async def _upload_video(session, path: str, title: str, description: str, when: float | None,
-                        thumb: str = "") -> str:
-    page, tok = config.FB_PAGE_ID.strip(), config.FB_PAGE_TOKEN.strip()
+                        thumb: str = "", page: str = "", token: str = "") -> str:
+    page, tok = _page(page, token)
     if os.path.getsize(path) > RESUMABLE_MIN:
-        vid = await _upload_video_chunked(session, path, title, description, when)
-        await _set_cover(session, vid, thumb)            # giao thức từng khúc không có chỗ gửi ảnh bìa: gắn sau
+        vid = await _upload_video_chunked(session, path, title, description, when, page, tok)
+        await _set_cover(session, vid, thumb, tok)       # giao thức từng khúc không có chỗ gửi ảnh bìa: gắn sau
         return vid
     form = aiohttp.FormData()
     form.add_field("access_token", tok)
@@ -555,14 +563,14 @@ async def _upload_video(session, path: str, title: str, description: str, when: 
     return str(d.get("id") or d.get("video_id") or "")
 
 
-async def _set_cover(session, vid: str, thumb: str) -> bool:
+async def _set_cover(session, vid: str, thumb: str, token: str = "") -> bool:
     """Gắn ảnh bìa AI chọn cho video/Reel vừa đăng (/{video-id}/thumbnails, is_preferred): API đăng Reels và giao thức
     gửi từng khúc không có chỗ gửi ảnh bìa. Facebook có cho đổi ảnh bìa theo đường này hay không còn tuỳ Page / phiên
     bản API, nên lỗi chỉ ghi log, bài vẫn giữ nguyên — video nấu ăn có đoạn mở đầu thì khung đầu đã là cảnh món đẹp nhất."""
     if not vid or not thumb or not os.path.exists(thumb):
         return False
     form = aiohttp.FormData()
-    form.add_field("access_token", config.FB_PAGE_TOKEN.strip())
+    form.add_field("access_token", _page("", token)[1])
     form.add_field("is_preferred", "true")
     try:
         with open(thumb, "rb") as f:
@@ -579,24 +587,25 @@ async def _set_cover(session, vid: str, thumb: str) -> bool:
 
 
 async def publish(path: str, title: str, description: str, duration: float, when: float | None,
-                  thumb: str = "", session=None) -> tuple:
-    """Đăng (hoặc hẹn giờ) lên Page. Trả (id video Facebook, "reel" | "video")."""
+                  thumb: str = "", session=None, page: str = "", token: str = "") -> tuple:
+    """Đăng (hoặc hẹn giờ) lên Page. Trả (id video Facebook, "reel" | "video"). page/token: Fanpage khác Fanpage kênh
+    bếp trong Cài đặt (truyện bé, 1.1.0)."""
     own = session is None
     session = session or aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600))
     try:
         if duration <= REEL_MAX:
-            vid = await _upload_reel(session, path, description, when)
-            await _set_cover(session, vid, thumb)            # thử gắn ảnh bìa; lỗi cũng không làm hỏng bài đã đăng
+            vid = await _upload_reel(session, path, description, when, page, token)
+            await _set_cover(session, vid, thumb, token)     # thử gắn ảnh bìa; lỗi cũng không làm hỏng bài đã đăng
             return vid, "reel"
-        return await _upload_video(session, path, title, description, when, thumb), "video"
+        return await _upload_video(session, path, title, description, when, thumb, page, token), "video"
     finally:
         if own:
             await session.close()
 
 
-async def views_of(video_id: str, session) -> int | None:
+async def views_of(video_id: str, session, token: str = "") -> int | None:
     async with session.get(f"{GRAPH}/{API_VER}/{video_id}/video_insights",
-                           params={"access_token": config.FB_PAGE_TOKEN.strip()}) as r:
+                           params={"access_token": _page("", token)[1]}) as r:
         d = await _json(r)
     vals = {x.get("name"): x for x in d.get("data", [])}
     for m in VIEW_METRICS:

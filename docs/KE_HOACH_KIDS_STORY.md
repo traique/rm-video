@@ -3,6 +3,20 @@
 **Mục tiêu (ý tưởng ngày 18/11/2026):** 2 video/ngày, 60-90 giây, 9:16, giọng Việt kể chuyện, một bài học, học 3-5 từ
 tiếng Anh, tự động 100%, đăng Facebook Reels lúc 08:00 và 19:00, chạy trên GPU Kaggle, không dùng model sinh video.
 
+**Trạng thái 18/11/2026: ĐÃ CODE bản MVP (1.1.0)** — `rmvideo/kids/`, `kids_auto.py`, `rmvideo/app/flow/kids.py`, cài đặt nhóm 🧸,
+mục trên web, lệnh console; test không cần token (`tests/test_kids.py`). Chưa chạy thật trên Kaggle: bước kế là `kids_setup` rồi
+«Làm 1 truyện ngay», soát vài video, chỉnh theo lần chạy đầu, rồi bật `KIDS_AUTO`.
+
+**Quyết định sau bài đo Qwen offline của kênh bếp (17/11, `Bài đo Qwen offline.html`):**
+- **Model chữ: Qwen3.6-35B-A3B** (GGUF 4-bit, llama.cpp đã biên dịch, 57 token/giây trên 2×T4, nạp 81–93 giây) thay cho
+  Qwen3-30B-A3B: bài đo cho thấy 3.6-35B viết đúng đoạn hình, ít «nha», số liệu đúng; cặp 30B + VL-7B kém hơn. Không dùng Gemini.
+- **Model ảnh mặc định: FLUX.1-schnell 4-bit** (Apache-2.0, chạy được T4 fp16 + NF4, có bản lượng tử sẵn qua `kids_setup`);
+  Z-Image-Turbo giữ làm lựa chọn `KIDS_IMAGE_MODEL=zimage` để thử sau. Nhất quán nhân vật: khối mô tả nhân vật cố định đặt đầu prompt,
+  1–2 nhân vật mỗi ảnh, cùng khối phong cách; LoRA nhân vật sau khi có 20–30 ảnh đẹp.
+- **Giọng: Thục Đoan** (VieNeu, kể chuyện, miền Nam); lời model qua bộ đổi từ miền Nam của kênh bếp + từ trẻ em.
+- **Tên kênh: Kể Bé Nghe**, thế giới **Đồi Cỏ Non** (bạn đã chốt).
+- **Vận hành:** làm tay vài video đầu để soát (`kids_now` / nút web, không tự đăng), đạt rồi bật `KIDS_AUTO=1`.
+
 **Quyết định đã chốt (18/11/2026, sau bản đầu):**
 - **Model chữ: Qwen3-30B-A3B** (bản Instruct-2507, không có chế độ suy nghĩ) chạy trên Kaggle, KHÔNG dùng Gemini cho kênh
   này — hạn mức Gemini miễn phí không gánh nổi hai kênh. Lý do chọn MoE 30B-A3B thay 32B dense: mỗi bước chỉ 3B tham số

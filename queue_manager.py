@@ -78,6 +78,7 @@ class Job:
     teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t"} (bản duyệt dùng lại)
     edit: dict = field(default_factory=dict)     # kế hoạch dựng đã quyết (REMAKE_STYLE, rmvideo/media/edl.py; bản duyệt dùng lại)
     recipe: dict = field(default_factory=dict)   # món + định lượng đã đối chiếu với lời gốc (rmvideo/domain/recipe.py)
+    brief: dict = field(default_factory=dict)    # 🧸 truyện bé: đề đã chọn {lesson, setting, conflict, words, main, seed}
 
     def __setattr__(self, name, value):
         old = self.__dict__.get(name, _MISSING)
@@ -149,6 +150,8 @@ REVIEW_TTL = 24 * 3600      # job chờ duyệt quá 24 giờ thì hết hạn, 
 
 def inputs_available(d: dict) -> bool:
     """Job còn đủ đầu vào để chạy lại không (link, file Telegram, hoặc file tải lên còn trên đĩa)."""
+    if d.get("mode") == "kids":                   # không có đầu vào: model tự viết truyện (đề nằm trong job.brief)
+        return True
     if d.get("mode") == "photo":
         imgs_ok = bool(d.get("tg_images")) or (bool(d.get("images")) and all(os.path.exists(p) for p in d["images"]))
         music_ok = bool(d.get("music_url") or d.get("music_tg_file_id")) or (

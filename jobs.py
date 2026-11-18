@@ -175,6 +175,8 @@ def job_budget(job: Job) -> float:
     """Hạn thời gian theo độ dài video và mức chất lượng (máy Botkeep 1.5 vCPU):
     tối thiểu 25 phút; 95s balanced ≈ 41 phút; video dài tối đa 3 giờ."""
     base = JOB_TIMEOUT.get(job.long_mode, 25 * 60)
+    if job.mode == "kids":                        # toàn bộ trên Kaggle: chờ máy + nạp 3 model + viết + vẽ + dựng
+        return kaggle_worker.KIDS_TIMEOUT + 10 * 60
     if not job.out_dur:
         return base
     per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)

@@ -15,6 +15,7 @@ class Mode(StrEnum):
     MUSIC = "music"            # 🎵 thay nhạc khớp beat / chèn nhạc nền
     PHOTO = "photo"            # 📸 ảnh + nhạc
     DOWNLOAD = "download"      # ⬇️ chỉ tải về
+    KIDS = "kids"              # 🧸 truyện bé: không có nguồn, model trên Kaggle tự viết truyện + vẽ ảnh (1.1.0)
 
     @property
     def narrated(self) -> bool:

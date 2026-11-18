@@ -105,14 +105,17 @@ def quota() -> dict:
             "gpu_used": secs(g.get("timeUsed")), "refresh": d.get("quotaRefreshTime", "")}
 
 
-def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: list | None = None) -> dict:
-    """kernel_sources: slug các notebook khác của mình mà notebook này đọc đầu ra (gắn ở
-    /kaggle/input/notebooks/<tên>/<slug>/, bản chạy xong gần nhất — đo thật 13/11/2026)."""
+def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: list | None = None,
+         dataset_sources: list | None = None) -> dict:
+    """kernel_sources: slug các notebook khác mà notebook này đọc đầu ra (gắn ở /kaggle/input/notebooks/<tên>/<slug>/,
+    bản chạy xong gần nhất — đo thật 13/11/2026); dataset_sources: dataset gắn vào /kaggle/input/datasets/... Mục có
+    dấu «/» là của người khác (user/slug), không có thì là của chính tài khoản."""
     u = user()
     body = {"slug": f"{u}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
-            "isPrivate": True, "enableGpu": gpu, "enableInternet": True, "datasetDataSources": [],
-            "kernelDataSources": [f"{u}/{k}" for k in kernel_sources or []], "competitionDataSources": [],
-            "modelDataSources": [], "categoryIds": []}
+            "isPrivate": True, "enableGpu": gpu, "enableInternet": True,
+            "datasetDataSources": [d if "/" in d else f"{u}/{d}" for d in dataset_sources or []],
+            "kernelDataSources": [k if "/" in k else f"{u}/{k}" for k in kernel_sources or []],
+            "competitionDataSources": [], "modelDataSources": [], "categoryIds": []}
     if gpu:
         body["machineShape"] = "NvidiaTeslaT4"
     try:

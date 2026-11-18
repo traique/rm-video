@@ -13,6 +13,36 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.0 — kênh truyện bé «Kể Bé Nghe» (18/11/2026)
+
+- Thêm chế độ 🧸 Truyện bé: model trên Kaggle tự viết truyện 60–90 giây ở Đồi Cỏ Non (4 nhân vật cố định, một bài học, 3–5 từ tiếng Anh), vẽ 8 cảnh, đọc giọng miền Nam, dựng rồi đăng Fanpage RIÊNG.
+- Đề truyện chọn bằng mã (bài học × bối cảnh × xung đột × kho từ), không lặp trong 30 ngày; kịch bản kiểm bằng mã, model viết lại khi chưa đạt.
+- Nút «Làm 1 truyện ngay» trên web / lệnh `kids_now` để soát vài video đầu; bật `KIDS_AUTO=1` là tự làm 2 truyện/ngày, hẹn đăng 08:00 và 19:00.
+- Lệnh `kids_setup` chuẩn bị model trên Kaggle một lần (biên dịch llama.cpp, lượng tử FLUX.1-schnell 4-bit).
+
+### Chi tiết
+- **Kiến trúc** (kế hoạch: `docs/KE_HOACH_KIDS_STORY.md`): Botkeep chọn đề (`rmvideo/kids/story.pick`) rồi gửi MỘT việc `kind="kids"`
+  sang notebook `rmvideo-kids`; trên Kaggle `rmvideo/kids/job.py` chạy lần lượt model chữ (`llm.py`: llama-server + Qwen3.6-35B-A3B
+  GGUF 4-bit, JSON theo schema, viết lại tối đa 2 lần theo lỗi bộ kiểm), model ảnh (`images.py`: FLUX.1-schnell NF4 hoặc Z-Image-Turbo,
+  832×1472 → 1080×1920), giọng VieNeu (`KIDS_VOICE`, mặc định Thục Đoan), dựng (`render.py`). Không có đường lùi về Botkeep: Kaggle lỗi là
+  job lỗi, vòng lịch chọn khung giờ khác và báo admin.
+- **Dựng**: độ dài cảnh theo giọng đọc (tối thiểu 5 giây), Ken Burns + xfade êm dùng lại biểu thức của 📸, thẻ tiêu đề 3 giây đầu, thẻ
+  «sorry = xin lỗi» khi từ được đọc lần đầu, màn kết «Hôm nay bé học» + tagline, phụ đề rải theo khoảng có tiếng, từ tiếng Anh tô màu
+  (`subs.write_ass(highlight=…)`, style `kids`), nhạc nền ~16 dB dưới giọng tự hạ khi đang đọc (`assets/kids_bgm/` hoặc `KIDS_BGM_LINKS`),
+  loudness −14 LUFS, NVENC. Ảnh bìa = khung lúc thẻ tiêu đề đang hiện.
+- **Giọng miền Nam**: lời model qua `rmvideo/domain/dialect.south` + vài từ trẻ em (`story.south_kids`: ba, trái banh, cái nón, té, mắc cỡ, nha).
+- **Đăng**: `autopost.publish/check_token/views_of` nhận `page`/`token` (Fanpage truyện bé: `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, không bao giờ
+  gửi sang Kaggle). `kids_auto.py`: trạng thái `kids_auto.json`, khung `KIDS_TIMES`, làm trước 36 giờ, 3 truyện lỗi liên tiếp thì dừng.
+- **Kaggle**: `kaggle_api.push` nhận notebook của người khác (`user/slug`) và dataset; `kaggle_worker._run_sync` theo `spec["slug"]`, gắn
+  `kernel_sources`/`dataset_sources` của việc, tải thêm `fetch_files` (ảnh bìa, story.json); việc kids không chạy CPU khi hết giờ GPU.
+  `KIDS_KAGGLE_SOURCES` trỏ tới notebook/dataset có sẵn llama-server (vd bản bạn đã biên dịch khi đo Qwen).
+- **Cài đặt** nhóm 🧸 Truyện bé: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, `KIDS_VOICE`, `KIDS_IMAGE_MODEL`,
+  `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`, `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`.
+- Web: mục 🧸 Truyện bé (trạng thái, làm ngay, thử token, chuẩn bị model, chạy lại); API `/api/kids`, `/api/kids/{now|test|setup|setup_status|resume|tick}`.
+  Console: `kids`, `kids_now`, `kids_tick`, `kids_setup`, `kids_setup_status`, `kids_fb_test`, `kids_resume`.
+- Test: `tests/test_kids.py` (chọn đề, kiểm kịch bản, prompt, kế hoạch cảnh, dựng thật cỡ nhỏ, việc Kaggle với model giả, luồng Botkeep,
+  lịch đăng, cài đặt, route). Chưa chạy thật trên Kaggle: phần model (llama-server, diffusers) sẽ chỉnh theo lần chạy đầu.
+
 ## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)
 
 - Thẻ MẸO không còn bị logo che chữ: thẻ phía trên (mẹo, tua nhanh) đặt xuống dưới logo.

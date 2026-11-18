@@ -26,6 +26,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 SLUG = "rmvideo-worker"
 SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
 SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
+SLUG_KIDS = "rmvideo-kids"               # 🧸 truyện bé: notebook riêng (không ghi đè phiên remake)
+SLUG_KIDS_MODELS = "rmvideo-kids-models"  # chạy một lần (kids_setup): llama.cpp đã biên dịch + FLUX.1-schnell 4-bit
 # mã gửi kèm notebook: tính tự động từ import thật của kaggle_job.py (rmvideo/services/kaggle_bundle.py)
 BUNDLE = list(kaggle_bundle.files())
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
@@ -34,6 +36,10 @@ PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu
 # phiên phân tích: Whisper (faster-whisper) + tách giọng trên GPU (onnxruntime-gpu thay bản CPU mà faster-whisper kéo về)
 PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
                "pip install -q onnxruntime-gpu)")
+# truyện bé: giọng VieNeu + diffusers (FLUX 4-bit) + huggingface_hub (tải GGUF); llama-server là file đã biên dịch gắn vào
+PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.33' accelerate bitsandbytes sentencepiece protobuf huggingface_hub"
+KIDS_TIMEOUT = 80 * 60           # truyện bé: chờ máy + nạp 3 model + viết + vẽ 8 ảnh + dựng (đo K0 rồi siết)
+KIDS_RUN_RESERVE = 40 * 60       # giờ chạy cần cho một truyện: phiên chưa được cấp máy khi chỉ còn ngần này thì bỏ
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
@@ -213,11 +219,17 @@ def needs_vieneu(spec: dict) -> bool:
                if (j.get("kind") or "remake") == "remake")
 
 
+def is_kids(spec: dict) -> bool:
+    return any(j.get("kind") == "kids" for j in _jobs(spec))
+
+
 def needs_gpu(spec: dict) -> bool:
-    return needs_vieneu(spec) or any(j.get("kind") == "analyze" for j in _jobs(spec))
+    return needs_vieneu(spec) or is_kids(spec) or any(j.get("kind") == "analyze" for j in _jobs(spec))
 
 
 def pip_for(spec: dict) -> str:
+    if is_kids(spec):
+        return PIP_KIDS
     if any(j.get("kind") == "analyze" for j in _jobs(spec)):
         return PIP_ANALYZE
     return PIP if needs_vieneu(spec) else PIP_LIGHT
@@ -350,6 +362,91 @@ def photo_spec(job, images: list, music: str, seed: int, recent: list) -> dict:
                                  "audio")})
 
 
+# ---------------- 🧸 truyện bé ----------------
+
+def kids_sources() -> tuple[list, list]:
+    """(notebook, dataset) gắn vào phiên truyện bé: KIDS_KAGGLE_SOURCES («notebook:user/slug», «dataset:user/slug»,
+    hoặc chỉ «slug» = notebook của mình); trống = notebook rmvideo-kids-models do lệnh kids_setup tạo."""
+    nbs, dss = [], []
+    for item in re.split(r"[,\s]+", config.KIDS_KAGGLE_SOURCES or ""):
+        if not item:
+            continue
+        kind, _, slug = item.partition(":")
+        if not slug:
+            kind, slug = "notebook", kind
+        (dss if kind.lower() == "dataset" else nbs).append(slug.strip("/ "))
+    return (nbs or [SLUG_KIDS_MODELS]), dss
+
+
+def kids_spec(job, brief: dict, music: dict | None = None) -> dict:
+    """Việc truyện bé: đề đã chọn + dữ liệu (nhân vật, bài học, kho từ) + giọng + model + nhận diện kênh. Không gửi logo /
+    âm hiệu kênh bếp. Botkeep tải về thêm cover.jpg / thumb.jpg / story.json (fetch_files)."""
+    from rmvideo.kids import story as story_mod
+    data = json.loads(json.dumps(story_mod.load()))
+    if (config.KIDS_WORLD_NAME or "").strip():
+        data["world"]["name"] = config.KIDS_WORLD_NAME.strip()
+    nbs, dss = kids_sources()
+    spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
+            "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE},
+            "image": {"model": config.KIDS_IMAGE_MODEL},
+            "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF},
+            "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,
+                        "hashtags": config.KIDS_HASHTAGS},
+            "music": music, "kernel_sources": nbs, "dataset_sources": dss,
+            "fetch_files": ["cover.jpg", "thumb.jpg", "story.json"]}
+    spec = _common(spec)
+    spec.pop("logo_b64", None)
+    spec.pop("sting_b64", None)
+    return spec
+
+
+KIDS_MODELS_KERNEL = r'''# rm-video: chuẩn bị model cho truyện bé (bot tạo, chạy MỘT lần, ~45-60 phút trên GPU). Không chứa key.
+import os, shutil, subprocess, sys, time, glob
+W = "/kaggle/working"
+def run(cmd):
+    print(">>", cmd, flush=True); t0 = time.time()
+    r = subprocess.run(cmd, shell=True, text=True, capture_output=True)
+    print(r.stdout[-3000:], r.stderr[-3000:], f"({time.time() - t0:.0f}s)", flush=True)
+    if r.returncode: raise SystemExit(f"lệnh lỗi: {cmd}")
+# 1. llama.cpp (CUDA, kiến trúc T4 = 75) -> /kaggle/working/llama/llama-server (+ thư viện .so cạnh nó)
+run("git clone --depth 1 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp")
+run("cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=75 -DLLAMA_CURL=OFF "
+    "-DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release")
+run("cmake --build /tmp/llama.cpp/build --config Release -j4 --target llama-server")
+os.makedirs(f"{W}/llama", exist_ok=True)
+for p in glob.glob("/tmp/llama.cpp/build/bin/*"):
+    shutil.copy(p, f"{W}/llama/")
+print("llama-server:", os.listdir(f"{W}/llama"), flush=True)
+# 2. FLUX.1-schnell 4-bit (NF4 transformer + T5 8-bit), lưu để phiên dựng nạp ~1 phút thay vì tải 24GB
+run("pip install -q 'diffusers>=0.33' accelerate bitsandbytes sentencepiece protobuf 'transformers==4.57.6'")
+import torch
+from diffusers import BitsAndBytesConfig as DiffBnb, FluxPipeline, FluxTransformer2DModel
+from transformers import BitsAndBytesConfig as TfBnb, T5EncoderModel
+repo = "black-forest-labs/FLUX.1-schnell"
+q4 = DiffBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
+tr = FluxTransformer2DModel.from_pretrained(repo, subfolder="transformer", quantization_config=q4, torch_dtype=torch.float16)
+t5 = T5EncoderModel.from_pretrained(repo, subfolder="text_encoder_2", quantization_config=TfBnb(load_in_8bit=True), torch_dtype=torch.float16)
+pipe = FluxPipeline.from_pretrained(repo, transformer=tr, text_encoder_2=t5, torch_dtype=torch.float16)
+pipe.save_pretrained(f"{W}/flux-schnell-nf4")
+print("đã lưu flux-schnell-nf4:", os.listdir(f"{W}/flux-schnell-nf4"), flush=True)
+# (model chữ GGUF ~21GB vượt giới hạn 20GB đầu ra notebook: phiên dựng tải từ Hugging Face, ~3 phút)
+'''
+
+
+def kids_setup() -> str:
+    """Đẩy notebook chuẩn bị model (chạy một lần). Trả câu báo; lỗi thì ném KaggleError."""
+    if not kaggle_api.configured():
+        raise KaggleError("chưa điền KAGGLE_API_TOKEN trong Cài đặt")
+    kaggle_api.push(SLUG_KIDS_MODELS, "rmvideo kids models", KIDS_MODELS_KERNEL, gpu=True)
+    return (f"Đã gửi notebook {SLUG_KIDS_MODELS} (biên dịch llama.cpp + lượng tử FLUX.1-schnell, ~45-60 phút GPU). "
+            "Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
+
+
+def kids_setup_status() -> str:
+    st, why = kaggle_api.status(SLUG_KIDS_MODELS)
+    return f"notebook {SLUG_KIDS_MODELS}: {st}" + (f" — {why[:200]}" if why else "")
+
+
 # ---------------- chạy ----------------
 
 def _run_sync(spec: dict, tmp: str, on_step) -> list:
@@ -364,17 +461,22 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
         except Exception:
             gpu = True
     n = len(jobs)
+    kids = is_kids(spec)
+    if kids and not gpu:                                 # model chữ + model ảnh trên CPU: vô vọng, không có đường lùi
+        raise KaggleError("hết giờ GPU tuần này: truyện bé chờ tới khi Kaggle làm mới giờ GPU")
     on_step(f"Kaggle: gửi {'lô ' + str(n) + ' việc' if n > 1 else 'job'} ({'GPU' if gpu else 'CPU'})")
     reuse = any(j.get("amb_token") for j in jobs)        # tiếng nền đã tách ở phiên phân tích: gắn vào, khỏi tách lại
-    total = TIMEOUT + TIMEOUT_PER_EXTRA * (n - 1)
-    queue_max = total - RUN_RESERVE - TIMEOUT_PER_EXTRA * (n - 1)
-    kaggle_api.push(SLUG, "rmvideo worker", kernel_text(with_expiry(spec, queue_max)), gpu=gpu,
-                    kernel_sources=[SLUG_ANALYZE] if reuse else None)
+    total = (KIDS_TIMEOUT if kids else TIMEOUT) + TIMEOUT_PER_EXTRA * (n - 1)
+    queue_max = total - (KIDS_RUN_RESERVE if kids else RUN_RESERVE) - TIMEOUT_PER_EXTRA * (n - 1)
+    slug = spec.get("slug") or SLUG
+    sources = list(spec.get("kernel_sources") or []) + ([SLUG_ANALYZE] if reuse else [])
+    kaggle_api.push(slug, spec.get("title") or "rmvideo worker", kernel_text(with_expiry(spec, queue_max)), gpu=gpu,
+                    kernel_sources=sources or None, dataset_sources=list(spec.get("dataset_sources") or []) or None)
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _wait_session(SLUG, total, st, queue_max=queue_max)
-    d = kaggle_api.outputs(SLUG)
+    _wait_session(slug, total, st, queue_max=queue_max)
+    d = kaggle_api.outputs(slug)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
     out = []
     for k in range(n):
@@ -403,6 +505,19 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             if dur < 1:
                 raise KaggleError("video Kaggle trả về hỏng")
             res["video"], res["gpu"] = vid, gpu
+            got: dict = {}
+            for name in jobs[k].get("fetch_files") or []:         # file phụ (ảnh bìa, story.json của truyện bé)
+                base, ext = os.path.splitext(name)
+                remote = f"{base}{tag}{ext}"
+                if remote in files:
+                    try:
+                        p = os.path.join(tmp, f"kaggle_{remote}")
+                        kaggle_api.download(files[remote], p, 50 << 20)
+                        got[name] = p
+                    except Exception as e:
+                        logging.warning("Không tải được %s từ Kaggle: %s", remote, e)
+            if got:
+                res["files"] = got
             out.append(res)
         except Exception as e:
             out.append(e if isinstance(e, KaggleError) else KaggleError(str(e)))
