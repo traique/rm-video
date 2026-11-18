@@ -110,8 +110,9 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
         action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
     descs = ". ".join(chars[k]["prompt_en"] for k in keys)
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")
-    who = "Two friends" if len(keys) == 2 else "One character"
-    return f"{who}: {action}. {descs}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}"
+    # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
+    who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"
+    return f"{who}: {action}. {descs}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}, no other animals"
 
 
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:

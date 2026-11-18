@@ -153,7 +153,8 @@ def test_prompts_and_schema():
     assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 80    # grammar ép độ dài cảnh
     assert all(w["en"] in u for w in brief["words"]) and "không được bỏ sót" in u
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
-    assert p.startswith("One character: Orange Cat jumps over a puddle. Orange Cat,") and "green t-shirt" in p
+    assert p.startswith("Exactly one character in the picture: Orange Cat jumps over a puddle. Orange Cat,")
+    assert "green t-shirt" in p and p.endswith("no other animals")
     assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5
     assert "White Rabbit" not in p                                           # chỉ nhân vật có mặt trong cảnh
     # đo thật 18/11: model viết action_en bằng tiếng Việt -> ảnh không có hành động; giờ bị báo lỗi, và nếu vẫn vậy thì
@@ -163,7 +164,8 @@ def test_prompts_and_schema():
     probs = story.validate(bad_act, brief, DATA)
     assert len(probs) == 8 and all("TIẾNG ANH" in q for q in probs)
     p2 = prompts.image_prompt(bad_act["scenes"][2], brief, DATA, 2)
-    assert p2.startswith("Two friends: White Rabbit and Brown Bear arguing, upset faces.") and "nhìn" not in p2
+    assert p2.startswith("Exactly two friends in the picture: White Rabbit and Brown Bear arguing, upset faces.")
+    assert "nhìn" not in p2
     spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
     spam["scenes"][4]["text"] += " ".join(f"«{w['en']}» nghĩa là {w['vi']}." for w in brief["words"]) + " a nghĩa là b."
