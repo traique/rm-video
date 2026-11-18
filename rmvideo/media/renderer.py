@@ -50,6 +50,10 @@ DEFAULT_SPEED_FILE = os.path.join(ff.ROOT, "render_speed.json")
 SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or DEFAULT_SPEED_FILE
 
 
+# RAM trống tối thiểu để dựng 1080p (MB). Đo 17/11/2026, video mực 1080x1920, ffmpeg 2 luồng: bản ngắn dựng mạnh 86s
+# (21 khúc, balanced) 1235 MB; bản đầy đủ dựng mạnh 59 khúc preset medium (high) 2465 MB; cùng bản đó 720p 571 MB.
+# Botkeep 2 GB (bot chiếm một phần) bị giết từ ~970 MB (job 6) -> bản ngắn 1080p trên Botkeep chắc chắn chết.
+HD_RAM_MB = {"balanced": 1800, "high": 3000}
 RENDER_BUDGET = float(os.environ.get("RENDER_BUDGET", "600") or 0)     # giây; 0 = tắt (luôn 1080p khi nguồn đủ nét)
 
 
@@ -111,6 +115,13 @@ def output_size(src_h: int, allow_hd: bool, out_dur: float, notes: list | None =
     if not (config.OUTPUT_HD and allow_hd and src_h >= 1600):
         return 720, 1280
     if config.QUALITY == "fast":
+        return 720, 1280
+    need, free = HD_RAM_MB.get(config.QUALITY, HD_RAM_MB["balanced"]), ff.mem_available_mb()
+    if free is not None and free < need:
+        logging.info("Còn %d MB RAM, 1080p cần ~%d MB -> xuất 720p", free, need)
+        if notes is not None:
+            notes.append(f"ℹ️ Máy dựng chỉ còn ~{free / 1024:.1f} GB RAM trống, bản 1080p cần ~{need / 1024:.1f} GB nên "
+                         f"xuất 720p (dựng trên Kaggle thì được 1080p). ")
         return 720, 1280
     sp = render_speed()
     if config.QUALITY == "balanced" and RENDER_BUDGET > 0 and sp and sp * out_dur > RENDER_BUDGET:
@@ -221,6 +232,7 @@ def brand_hex(alpha: float | None = None) -> str:
 
 
 OUTRO_DUR = 2.2
+LOGO_Y = 0.09                # mép trên của logo theo chiều cao khung (dưới vùng nút của TikTok / Shorts / Reels)
 STING_PEAK = -4.0          # dBFS: đỉnh của âm hiệu trước khi trộn (bản 46: file mặc định đỉnh -29 dBFS, ra video còn
                            # ~-40 dB, gần như không nghe thấy; file tải lên to nhỏ đủ kiểu -> chuẩn hoá lúc trộn)
 _STING_GAIN: dict = {}
@@ -298,10 +310,13 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
             f"fontcolor=white:borderw={int(3 * k)}:bordercolor=black@0.9:box=1:boxcolor={box}:boxborderw={pad}:"
             + when)
     if outro_file and out_dur > 6:
+        # màn kết SÁNG (bản 50): giữ cảnh món, chỉ một dải mờ sau tên kênh. Trước đây cả khung tối 72% rồi mờ đen:
+        # dấu hiệu "hết rồi" khiến người xem TikTok / Shorts lướt đi trước khi video tự quay vòng (lượt xem lại tính
+        # vào thời lượng xem) — khung cuối sáng nối vòng về khung đầu mượt hơn
         st = out_dur - OUTRO_DUR
-        f += (f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.72:t=fill:enable='gte(t,{st:.2f})'"
+        f += (f",drawbox=x=0:y=ih*0.40:w=iw:h=ih*0.20:color=black@0.42:t=fill:enable='gte(t,{st:.2f})'"
               f",drawtext=fontfile={ff.FONT_PATH}:textfile={outro_file}:expansion=none:fontsize={outro_fs or int(62 * k)}:fontcolor=white:"
-              f"borderw={int(2 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
+              f"borderw={int(3 * k)}:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2-{int(30 * k)}:"
               f"enable='gte(t,{st:.2f})':alpha='min(1,(t-{st:.2f})/0.4)'")
         if tagline_file:                               # câu dưới tên kênh (BRAND_TAGLINE), màu kênh
             f += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={tagline_file}:expansion=none:fontsize={tagline_fs or int(34 * k)}:"
@@ -309,8 +324,10 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
                   f"y=(h-text_h)/2+{int(48 * k)}:enable='gte(t,{st + 0.25:.2f})':alpha='min(1,(t-{st + 0.25:.2f})/0.4)'")
         # bỏ dòng "Theo dõi để xem thêm": không kêu gọi đăng ký/theo dõi kênh ở cuối video (yêu cầu 13/11/2026)
     if logo_idx is not None:
+        # logo góc phải, hạ xuống ~9% chiều cao (bản 50): góc trên cùng là chỗ nút tìm kiếm / tab của TikTok, Shorts,
+        # Reels — logo sát mép trên bị che
         f += (f"[vb];[{logo_idx}:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
-              f"[vb][lg]overlay=W-w-{int(24 * k)}:{int(24 * k)}")
+              f"[vb][lg]overlay=W-w-{int(24 * k)}:{int(H * LOGO_Y)}")
     return f
 
 
@@ -462,8 +479,10 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
     if cards:
         brand = overlay_filter(cards, W, H, T, tmp) + brand
-    # có đoạn mở đầu thì vào thẳng cảnh món (không mờ từ đen): khung đầu tiên hay được lấy làm ảnh bìa
-    fades = ("" if T else ",fade=t=in:st=0:d=0.3") + f",fade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4"
+    # vào thẳng hình, KHÔNG mờ từ đen (bản 50): khung đầu là thứ người xem TikTok / Reels thấy đầu tiên khi lướt tới
+    # (và hay được lấy làm ảnh bìa); job 7: 0,33 giây đầu tối đen -> mất cú chạm đầu tiên. Cuối video cũng không mờ
+    # về đen: TikTok / Shorts tự quay vòng, khung cuối sáng nối thẳng về khung đầu (tiếng vẫn nhỏ dần 0,4 giây)
+    fades = ""
     fc = fc.replace("[v];", brand + fades + "[v];", 1)
     if sting_idx is not None:
         # âm hiệu kênh vang lúc màn kết hiện (hoặc 1,6 giây cuối nếu không có màn kết), trộn trên giọng + tiếng nền

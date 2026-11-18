@@ -251,9 +251,9 @@ class Remake:
         try:
             job.note(f"ℹ️ {plan.summary} ")
             job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
-            timed = await prompt_engine.generate_timed_any(
+            timed = await self.polish(await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, scenes.snap_to_cuts(segs, cuts) if len(segs) >= 2 else segs,
-                self.content_end, images_for=self.keyframes_for, **self._timed_kw(T))
+                self.content_end, images_for=self.keyframes_for, **self._timed_kw(T)))
             if not timed:
                 job.note("ℹ️ Bản ngắn: AI viết lời lỗi, bỏ bản ngắn. ")
                 return None
@@ -535,8 +535,7 @@ class Remake:
     def content_end(self) -> float:
         """Giây hết phần video thật (trước màn kết nối thêm): lời đọc phải dứt trước đó. Bản 47: giọng được xếp tới hết
         CẢ màn kết -> câu chốt đọc đè lên màn kết, âm hiệu chen vào chữ cuối, phụ đề hiện xuyên qua màn kết."""
-        tail = getattr(self, "tail", 0.0)
-        return round(self.out_dur - tail, 3) if tail else self.out_dur
+        return brand.speak_end(self.out_dur)
 
     def add_tail(self):
         """Màn kết nối thêm sau video (bản 43) khi video giữ độ dài tự nhiên; không vượt Reels 90 giây (video ≤ 90 giây)
@@ -570,17 +569,28 @@ class Remake:
             self.segs = scenes.snap_to_cuts(self.segs, self.cuts)     # câu mới vang lên đúng lúc chuyển cảnh
             job.step = (f"Viết lại {len(self.segs)} đoạn theo mốc lời"
                         + (f" + {len(self.cuts)} điểm chuyển cảnh" if self.cuts else "") + " (AI)")
-            return await prompt_engine.generate_timed_any(
+            return await self.polish(await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, self.segs, self.content_end,
                 images_for=self.keyframes_for,            # AI nhìn ảnh từng đoạn để lời khớp hình
-                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0))
+                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0)))
         if len(self.cuts) >= 2 or (not self.cuts and scenes.mode() == "light" and await self.late_cuts()):
             sc = scenes.scene_segments(self.cuts, self.content_end)   # video không lời: AI nhìn ảnh từng cảnh
             job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
-            return await prompt_engine.generate_scenes(self.title, self.desc, job.mode, sc,
-                                                       await self.keyframes_for(sc), self.content_end,
-                                                       **self._timed_kw(0.0))
+            return await self.polish(await prompt_engine.generate_scenes(self.title, self.desc, job.mode, sc,
+                                                                         await self.keyframes_for(sc), self.content_end,
+                                                                         **self._timed_kw(0.0, hook=False)))
         return None
+
+    async def polish(self, timed: dict | None) -> dict | None:
+        """Soát lời lần cuối cho kịch bản AI vừa viết (bản 50): sửa chữ dùng sai nghĩa / vô nghĩa, ghi chú chỗ đã sửa."""
+        if not timed or not timed.get("segments"):
+            return timed
+        fixed = await prompt_engine.proofread(timed["segments"])
+        if fixed:
+            timed["script"] = spoken_script(timed["segments"])
+            _, old, new = fixed[0]
+            self.job.note(f"ℹ️ Soát lời: sửa {len(fixed)} câu (vd «{old}» → «{new}»). ")
+        return timed
 
     def apply_script(self, timed: dict):
         job = self.job
@@ -632,8 +642,10 @@ class Remake:
         # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
         sep_r = {"ok": self.sep.ok, "windows": self.sep.windows, "secs": self.sep.secs, "why": self.sep.why,
                  "engines": self.sep.engines, "ok_remote": job.mode == Mode.COOK and config.VOICE_SEPARATION != "0"}
+        # bản đầy đủ trên Kaggle cũng được 1080p (bản 50: video đăng YouTube / Facebook; Kaggle đủ RAM, còn giới hạn
+        # thời gian dựng của renderer.output_size thì vẫn áp); trên Botkeep bản đầy đủ giữ 720p cho nhanh, đủ RAM
         return kaggle_worker.build_spec(
-            job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, common.post_title(job, self.title),
+            job, segs_t, self.out_dur, self.render_dur, self.stretch, True, common.post_title(job, self.title),
             self.bands, self.pos_y, sep_r, self.speech,
             config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
             local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
@@ -795,12 +807,25 @@ class Remake:
             self._examples = voice_book.pick(ctx, self.job.url or self.job.local or self.title or "")
         return self._examples
 
-    def _timed_kw(self, teaser: float) -> dict[str, Any]:
-        """Tham số tuỳ chọn cho AI viết lời: chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test)."""
+    def _timed_kw(self, teaser: float, hook: bool = True) -> dict[str, Any]:
+        """Tham số tuỳ chọn cho AI viết lời: chỉ truyền khi có (giữ chữ ký cũ cho các bản giả trong test).
+        hook=False: lời theo cảnh (generate_scenes) không có câu hook theo mẹo."""
         kw: dict[str, Any] = {"teaser": teaser} if teaser else {}
         if ex := self.voice_examples():
             kw["examples"] = ex
+        if hook and (tip := self.hook_tip()):
+            kw["hook_tip"] = tip
         return kw
+
+    def hook_tip(self) -> str:
+        """Mẹo chính của video cho câu hook (bản 50): mẹo người gốc nói (đã đối chiếu lời gốc), ưu tiên mẹo đầu tiên.
+        Job 7: hook «Mực hấp gừng giữ trọn vị ngọt tươi» (khen chung) trong khi điểm ăn tiền là «mực đông đá không cần
+        rã đông, thả thẳng vô nước sôi». Mẹo AI tự thêm không dùng (không có trong lời gốc)."""
+        facts = getattr(self, "facts", None)
+        if facts is None or not facts.is_recipe:
+            return ""
+        return next((str(t.get("text") or "").strip() for t in facts.tips
+                     if isinstance(t, dict) and t.get("source") == "src" and t.get("text")), "")
 
     def keyframes_for(self, sg: list):
         """Ảnh cho AI: ảnh GIỮA mỗi đoạn, lấy trên video gốc."""

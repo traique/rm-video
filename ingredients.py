@@ -47,6 +47,7 @@ GROUPS = [
 ]
 
 _ALIASES = sorted(((a, gi) for gi, g in enumerate(GROUPS) for a in g), key=lambda x: -len(x[0].split()))
+_ALIAS_SYL = [a.split() for a, _ in _ALIASES]
 
 
 def _syllables(text: str) -> list:
@@ -85,7 +86,11 @@ def _ctx_skip(alias: str, syl: list, i: int) -> bool:
         return False
     prev = syl[i - 1] if i > 0 else ""
     nxt = syl[i + 1] if i + 1 < len(syl) else ""
-    return prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt)
+    if prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt):
+        return True
+    # "mùi gừng", "mùi tỏi phi", "mùi nước mắm": mùi = hương của nguyên liệu đứng sau, không phải rau mùi (bản 50: AI
+    # viết "Mùi gừng bốc lên thơm lừng" bị coi là BỊA nguyên liệu "mùi", bản viết lại tốt hơn bị bỏ)
+    return alias == "mùi" and any(syl[i + 1:i + 1 + len(a)] == a for a in _ALIAS_SYL if a != ["mùi"])
 
 
 def counts(text: str) -> dict:
@@ -246,10 +251,79 @@ def _clean_num(n: str) -> str:
     return n.rstrip("0").rstrip(".") if "." in n else n
 
 
+# ---------- số đọc bằng chữ ("một trăm bảy mươi độ") ----------
+# Máy nghe hay để nguyên chữ số ghép; trước đây chỉ hiểu MỘT chữ số đứng ngay trước đơn vị ("hai muỗng"), nên gốc «dầu
+# nóng khoảng một trăm bảy mươi độ» coi như không có số, AI viết đúng «170 độ» lại bị coi là BỊA và bị xoá (bản 50).
+# rmvideo/domain/recipe.py có bộ đọc riêng cho thẻ điểm danh (recipe nhập module này nên không dùng chung ngược lại).
+_VI_DIGIT = {"không": 0, "một": 1, "mốt": 1, "hai": 2, "ba": 3, "bốn": 4, "tư": 4, "năm": 5, "lăm": 5, "nhăm": 5,
+             "sáu": 6, "bảy": 7, "bẩy": 7, "tám": 8, "chín": 9}
+# "nghìn / ngàn" là ĐƠN VỊ giá ("năm mươi nghìn" = 50 nghìn, như AI viết "50 nghìn"), không ghép vào số
+_VI_WORDS = set(_VI_DIGIT) | {"mười", "mươi", "chục", "trăm", "linh", "lẻ", "rưỡi"}
+_VI_W = "|".join(sorted(_VI_WORDS, key=len, reverse=True))
+_UNIT_ALT = "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
+_VI_RUN_RE = re.compile(r"(?<![\w])((?:(?:" + _VI_W + r")\s+)+)(?=(?:" + _UNIT_ALT + r")(?![\w]))")
+_VI_LO_RE = re.compile(r"(?<![\w])((?:(?:" + _VI_W + r")\s+)*(?:" + _VI_W + r"))(?=" + _RANGE_SEP + r"\d)")
+
+
+def _vi_below_1000(ws: list) -> int | None:
+    """Phần dưới 1000: "một trăm bảy mươi" 170, "mười lăm" 15, "hai mươi mốt" 21, "hai lăm" 25, "một trăm linh năm" 105,
+    "một trăm hai" 120 (nói tắt), "trăm rưỡi" 150. Không hợp lệ -> None."""
+    hundreds, rest, after_hundred = 0, ws, False
+    if "trăm" in ws:
+        k = ws.index("trăm")
+        if len(ws[:k]) > 1 or (ws[:k] and ws[0] not in _VI_DIGIT):
+            return None
+        hundreds = _VI_DIGIT[ws[0]] * 100 if k else 100
+        rest, after_hundred = ws[k + 1:], True
+    if not rest:
+        return hundreds or None
+    if rest == ["rưỡi"]:
+        return hundreds + 50 if after_hundred else None
+    if rest[0] in ("linh", "lẻ"):
+        return hundreds + _VI_DIGIT[rest[1]] if len(rest) == 2 and rest[1] in _VI_DIGIT and after_hundred else None
+    if rest[0] == "mười":
+        if len(rest) == 1:
+            return hundreds + 10
+        return hundreds + 10 + _VI_DIGIT[rest[1]] if len(rest) == 2 and rest[1] in _VI_DIGIT else None
+    if rest[0] not in _VI_DIGIT or (rest[0] in ("mốt", "lăm", "nhăm", "tư") and not after_hundred):
+        return None                                                      # "mốt / lăm" chỉ đứng sau hàng chục
+    d = _VI_DIGIT[rest[0]]
+    if len(rest) == 1:
+        return hundreds + d * (10 if after_hundred else 1)               # "một trăm hai" = 120
+    if rest[1] in ("mươi", "chục"):
+        if len(rest) == 2:
+            return hundreds + d * 10
+        return hundreds + d * 10 + _VI_DIGIT[rest[2]] if len(rest) == 3 and rest[2] in _VI_DIGIT else None
+    if len(rest) == 2 and rest[1] in ("lăm", "nhăm", "mốt", "tư") and d > 1:   # "hai lăm" = 25, "ba mốt" = 31
+        return hundreds + d * 10 + _VI_DIGIT[rest[1]]
+    return None
+
+
+def spoken_number(words: list) -> int | None:
+    """Dãy chữ số đọc bằng chữ (chữ thường) -> số nguyên dương; không phải số hợp lệ -> None."""
+    if not words or any(w not in _VI_WORDS for w in words):
+        return None
+    v = _vi_below_1000(list(words))
+    return v if v else None
+
+
+def _spell_digits(m: re.Match) -> str:
+    """Thay dãy chữ số bằng chữ số; chữ đầu dãy không thuộc số ("luộc chín năm phút") thì giữ chữ đó."""
+    ws = m.group(1).split()
+    for s in range(len(ws)):
+        v = spoken_number(ws[s:])
+        if v is not None:
+            keep = " ".join(ws[:s])
+            return (keep + " " if keep else "") + str(v) + (" " if m.group(1).endswith(tuple(" \t\n")) else "")
+    return m.group(0)
+
+
 def numbers(text: str) -> list:
     """Danh sách số có đơn vị: ['2 quả', '1 muỗng', '200 g', '15 phút'] (chuẩn hóa số).
     Số viết bằng chữ ("hai muỗng") cũng tính. Bỏ "1 cái/1 chiếc" vì đó là mạo từ ("cho vào 1 cái tô")."""
-    t = _WORDNUM_RE.sub(lambda m: _WORDNUM[m.group(1)] + " ", (text or "").lower())
+    t = _VI_RUN_RE.sub(_spell_digits, (text or "").lower())                # "một trăm bảy mươi độ" = "170 độ"
+    t = _VI_LO_RE.sub(_spell_digits, t)                                   # "một trăm năm mươi tới 200 gam"
+    t = _WORDNUM_RE.sub(lambda m: _WORDNUM[m.group(1)] + " ", t)
     t = _WORDNUM_LO_RE.sub(lambda m: _WORDNUM[m.group(1)], t)
     t = _RANGE_RE.sub(lambda m: f"{m.group(1)}-{m.group(2)}", t)
     t = re.sub(r"\b(\d+)\s+phần\s+(\d+)\b", r"\1/\2", t)                 # "1 phần 3 muỗng" = "1/3 muỗng"
@@ -272,9 +346,22 @@ _APPROX = r"(?:(?:khoảng chừng|khoảng tầm|tầm khoảng|độ chừng|c
 # bỏ số thì giữ lại (soát độc lập PR #8: trước đây ra "chiên mực ở nhiệt cho tới khi...")
 _APPROX_COMPOUND = {"nhiệt", "mức", "tốc", "nồng", "cấp", "góc", "chế", "kích", "trình", "thái"}
 # "1/2 muỗng" là MỘT số (trước đây khớp "2 muỗng" bên trong -> bỏ số thành "Thêm 1/ đường")
-_QTY_RE = re.compile(r"(?<![\w/])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + "|".join(_WORDNUM) + r")" + _RANGE_SEP + r")?(?:\d+/\d+|\d+(?:[.,]\d+)?|"
-                     + "|".join(_WORDNUM) + r"))\s+(" +
+# số bằng chữ (cả số ghép "một trăm bảy mươi") cũng bỏ được trọn cụm
+_WORDS_ALL = "|".join(sorted(_VI_WORDS | set(_WORDNUM), key=len, reverse=True))
+_WORD_RUN = r"(?:(?:" + _WORDS_ALL + r")\s+)*(?:" + _WORDS_ALL + r")"
+_QTY_RE = re.compile(r"(?<![\w/])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + _WORD_RUN + r")" + _RANGE_SEP + r")?(?:\d+/\d+|\d+(?:[.,]\d+)?|"
+                     + _WORD_RUN + r"))\s+(" +
                      "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
+
+
+def _qty_value(x: str) -> str | None:
+    """Một vế số trong cụm định lượng -> chuỗi số ("2", "0.5", "1/2", "170"); chữ không phải số hợp lệ -> None."""
+    if x in _WORDNUM:
+        return _WORDNUM[x]
+    if re.fullmatch(r"[\d.,/]+", x):
+        return x
+    v = spoken_number(x.split())
+    return None if v is None else str(v)
 
 
 def drop_numbers(text: str, bad: set) -> str:
@@ -283,10 +370,22 @@ def drop_numbers(text: str, bad: set) -> str:
     bad={"1"} -> "Nêm bột ngọt, đường". Khoảng "3-4 muỗng" bỏ trọn. Giữ nguyên tên nguyên liệu và mọi chữ khác."""
     def one(m):
         parts = [x for x in re.split(r"\s*(?:-|–|\bđến\b|\btới\b|\bhoặc\b)\s*", m.group(1).lower()) if x]
-        n = "-".join(_clean_num(_WORDNUM.get(x, x)) for x in parts)
+        keep = ""
+        vals = [_qty_value(x) for x in parts]
+        if len(parts) == 1 and vals[0] is None:          # "luộc chín năm phút": chữ đầu không thuộc số -> giữ chữ đó
+            ws = parts[0].split()
+            s = next((s for s in range(1, len(ws)) if _qty_value(" ".join(ws[s:])) is not None), None)
+            if s is None:
+                return m.group(0)
+            keep, vals = " ".join(m.group(1).split()[:s]) + " ", [_qty_value(" ".join(ws[s:]))]
+        if None in vals:
+            return m.group(0)
+        n = "-".join(_clean_num(v) for v in vals if v is not None)
         u = _norm_num(f"{n} {m.group(2).lower()}").split(" ", 1)[1]
         if not (n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad}):
             return m.group(0)
+        if keep:
+            return m.group(0)[:m.start(1) - m.start(0)] + keep
         pre = m.group(0)[:m.start(1) - m.start(0)]           # chữ ước lượng đứng trước số (có thể rỗng)
         prev = m.string[:m.start()].split()[-1:]
         if pre.strip().lower() in ("độ", "cỡ") and prev and prev[0].lower().strip(",.;:") in _APPROX_COMPOUND:

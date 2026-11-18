@@ -101,9 +101,25 @@ def end_tail(content: float, cap: float) -> float:
     return t if t and content > 6 and content + t <= cap + 0.01 else 0.0
 
 
+END_BREATH = 0.3     # lời đọc dứt trước màn kết chừng này giây (bản 50, job 7: chữ "nha" cuối dứt đúng lúc hình tối lại)
+
+
 def tail_len() -> float:
     """Độ dài màn kết nối thêm nếu có tên kênh (để chừa chỗ trước, vd. bản ngắn ≤ 90 giây)."""
     return renderer.OUTRO_DUR if config.brand_text("BRAND_NAME") else 0.0
+
+
+def card_len(out_dur: float) -> float:
+    """Số giây cuối video có màn kết — nối thêm, hoặc đè lên cuối khi không nối thêm được (chạm trần độ dài). Renderer
+    vẽ màn kết khi có tên kênh và video dài hơn 6 giây."""
+    return renderer.OUTRO_DUR if config.brand_text("BRAND_NAME") and out_dur > 6 else 0.0
+
+
+def speak_end(out_dur: float) -> float:
+    """Giây lời đọc / phụ đề phải dứt: trước màn kết END_BREATH giây (bản 50). Codex PR #9: cả khi màn kết ĐÈ lên cuối
+    video (không nối thêm được) — trước đây lời đọc chạy xuyên qua màn kết, âm hiệu chen vào câu."""
+    card = card_len(out_dur)
+    return round(out_dur - card - END_BREATH, 3) if card else out_dur
 
 
 # ---------------- bộ nhận diện mặc định (bản 43) ----------------

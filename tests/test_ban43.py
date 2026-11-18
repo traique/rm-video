@@ -258,10 +258,12 @@ def test_render_appends_end_card_after_content(tmp_path, monkeypatch):
                                       tail=2.2, sting_after=9.0))
     assert dur == pytest.approx(10.2, abs=0.05)
     assert asyncio.run(ff.probe_duration(out)) == pytest.approx(10.2, abs=0.15)
-    # khung cuối của video (giây 7,9) vẫn hiện nguyên trước màn kết; màn kết là khung đó giữ lại, tối đi
+    # khung cuối của video (giây 7,9) vẫn hiện nguyên trước màn kết; màn kết là khung đó giữ lại. Bản 50: màn kết
+    # SÁNG (video tự quay vòng trên TikTok / Shorts): chỉ dải giữa khung (40-60% chiều cao) tối đi sau tên kênh
     a = str(tmp_path / "a.rgb")
     _ff("-ss", "7.6", "-i", out, "-frames:v", "1", "-vf", "scale=36:64,format=gray", "-f", "rawvideo", a)
     b = str(tmp_path / "b.rgb")
     _ff("-ss", "9.6", "-i", out, "-frames:v", "1", "-vf", "scale=36:64,format=gray", "-f", "rawvideo", b)
-    fa, fb = np.fromfile(a, np.uint8).astype(float), np.fromfile(b, np.uint8).astype(float)
-    assert fa.mean() > fb.mean() * 1.5                                         # màn kết tối đi (chỉ từ giây 8)
+    fa, fb = (np.fromfile(x, np.uint8).astype(float).reshape(64, 36) for x in (a, b))
+    assert fb[:20].mean() > fa[:20].mean() * 0.9 and fb[46:].mean() > fa[46:].mean() * 0.9   # trên / dưới dải: còn sáng
+    assert fb[27:37, :3].mean() < fa[27:37, :3].mean() * 0.8                    # mép dải (không có chữ): tối đi

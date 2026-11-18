@@ -13,6 +13,52 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## Bản 50 — số đọc bằng chữ + soát video job 7 dưới góc nhìn đạo diễn TikTok (17/11/2026)
+
+**Số đọc bằng chữ.** Gốc «dầu nóng khoảng một trăm bảy mươi độ»: bộ kiểm số trước đây chỉ hiểu MỘT chữ số đứng ngay
+trước đơn vị, nên coi như gốc không có số, và AI viết đúng «170 độ» lại bị coi là bịa rồi bị xoá. Giờ hiểu hàng trăm /
+chục / đơn vị, «linh / lẻ», «mốt / tư / lăm» và cách nói tắt («hai lăm» 25, «một trăm hai» 120, «trăm rưỡi» 150). Bỏ số
+bịa viết bằng chữ cũng bỏ được trọn cụm.
+
+**Góc nhìn đạo diễn (job 7, 3:08, 720p).** Đo trên video ra:
+- 0,33 giây đầu tối đen (mờ từ đen vào).
+- Câu hook khen chung chung.
+- Hình đổi trung bình 3 giây một lần, nhưng có quãng 13 giây không đổi khung.
+- 3 quãng lặng 4-5 giây.
+- Câu cuối dứt sát màn kết.
+- Âm lượng -14 LUFS, đúng chuẩn TikTok.
+
+| Vấn đề | Sửa |
+| --- | --- |
+| Khung đầu tiên đen (mờ từ đen 0,33 giây): người lướt TikTok thấy màn đen trước | Vào thẳng hình từ khung đầu (đo lại: khung 0 sáng như khung giữa) |
+| Câu hook «Mực hấp gừng giữ trọn vị ngọt tươi» khen chung, trong khi điểm ăn tiền là mẹo «mực đông đá không cần rã đông, thả thẳng vô nước sôi» (đã có sẵn trong phân tích món) | Lệnh viết lời nhận mẹo chính của video (mẹo người gốc nói, đã đối chiếu lời gốc): câu hook + chữ hook xoáy vào điều bất ngờ / kết quả của mẹo |
+| Quãng 13 giây không đổi khung (người gốc nói một mạch, không ngắt câu nên không có chỗ đổi cỡ) | Không cỡ khung nào giữ quá 6 giây: quãng dài chia đều, đổi cận / xa. Video mực: 46 → 59 khúc, khúc dài nhất 13,6 → 5,6 giây. RAM dựng đo lại vẫn 571 MB |
+| 3 quãng lặng 4-5 giây (1:35, 2:10, 2:24): khe dài 8-10 giây mà AI viết ~55% mức tối thiểu, lọt luật «quá ngắn» (dưới 60%) | Đoạn đọc xong còn lặng quá 3,5 giây mà chưa tới mức tối thiểu là «quá ngắn»; từ 2 đoạn như vậy thì bắt viết lại (tả thêm điều đang thấy) |
+| 2:28 «Dĩa mực nóng hổi» khi mực còn trong vợt (gốc tới 2:43 mới «đổ ra») | Bắt lời gọi «dĩa + món» trước đoạn gốc đổ / bày ra dĩa → viết lại; vẫn còn thì đổi thành «mẻ mực». Chạy trên kịch bản các job trước: bắt đúng 2 chỗ cùng lỗi |
+| 3:01 «thơm lừng rảnh rỗi nè» (chữ lạc nghĩa) | Thêm một lượt AI soát lời sau khi viết: chỉ sửa chữ sai nghĩa / vô nghĩa. Chỗ sửa phải nhỏ (≤ 30% số chữ), giữ nguyên liệu và con số, không chép lời gốc; sai thì bỏ chỗ sửa |
+| Chữ «nha» cuối dứt đúng lúc màn kết tối lại | Lời đọc và phụ đề dứt trước màn kết 0,3 giây |
+| (thấy khi viết test) «Mùi gừng bốc lên thơm lừng» bị coi là BỊA nguyên liệu «mùi» (rau mùi), bản viết lại tốt hơn bị bỏ | «mùi» đứng trước tên nguyên liệu khác là hương của nó, không phải rau mùi |
+
+### Sửa theo đề xuất + góc nhìn đạo diễn TVC / YouTube
+
+| Vấn đề | Sửa |
+| --- | --- |
+| Màn kết tối 72% cả khung rồi mờ về đen: dấu hiệu «hết rồi», người xem TikTok / Shorts lướt đi trước khi video tự quay vòng | Màn kết SÁNG: giữ cảnh món, chỉ một dải mờ (40-60% chiều cao) sau tên kênh + câu dưới tên; cuối video không mờ về đen (tiếng vẫn nhỏ dần 0,4 giây) — khung cuối nối thẳng về khung đầu |
+| Logo sát mép trên bị nút tìm kiếm / tab của TikTok, Shorts, Reels che | Logo hạ xuống 9% chiều cao |
+| Bản đầy đủ luôn 720p (thiết kế cũ để dựng nhanh), kể cả khi dựng trên Kaggle | Dựng trên Kaggle: bản đầy đủ cũng 1080p (Kaggle đủ RAM; giới hạn thời gian dựng vẫn áp). Trên Botkeep bản đầy đủ giữ 720p. Bản ngắn ≤ 90 giây vốn đã 1080p |
+| Bài đăng của bản đầy đủ 3:08 vẫn ghi «YouTube Shorts … #Shorts» — YouTube chỉ xếp video dọc ≤ 3 phút vào Shorts | Bản dài hơn 3 phút: ghi «YouTube (video thường; muốn lên Shorts thì đăng bản ngắn)», bỏ #Shorts |
+| Tiêu đề khen chung, không nêu điểm ăn tiền | Lệnh viết lời: tiêu đề nêu tên món kèm đúng mẹo chính (YouTube / Facebook bấm vì lời hứa trong tiêu đề) |
+| (thấy khi đo cho mục 1080p) Bản ngắn ≤ 90 giây dựng 1080p: đo thật ffmpeg ngốn **1.235 MB** (dựng mạnh, cân bằng, 2 luồng); bản đầy đủ 1080p preset Chuẩn TVC **2.465 MB**. Botkeep 2 GB bị giết từ ~970 MB (job 6) → hễ Kaggle chờ máy, lùi về Botkeep là bản ngắn chết ở bước cuối | Trước khi chọn 1080p, đọc RAM trống của container: dưới 1,8 GB (cân bằng) / 3 GB (Chuẩn TVC) thì xuất 720p, kèm ghi chú «dựng trên Kaggle thì được 1080p» |
+
+Codex PR #9:
+- Lượt soát lời không được đổi THỨ TỰ số hay nguyên liệu. Trước đây chỉ so tập hợp, nên tráo «2 muỗng nước mắm, 1 muỗng đường» thành «1 muỗng nước mắm, 2 muỗng đường» vẫn lọt.
+- Lời đọc dứt trước màn kết cả khi màn kết đè lên cuối video (chạm trần độ dài, không nối thêm được).
+
+Đề xuất còn lại (cần quyết định của bạn, chưa làm bằng mã):
+- **Nhạc nền nhẹ dưới lời đọc** (TVC luôn có): cần thư viện nhạc có bản quyền / miễn phí bản quyền. Nhạc có bản quyền sẽ bị YouTube Content ID nhận và TikTok tắt tiếng. Muốn thì làm ở bản sau (trộn -24 dB, tự nhỏ lại khi có lời).
+- **Tông màu:** mặc định «tươi sáng» làm nồi inox, tường xám càng nhạt. Món luộc / hấp nên thử «ấm mộc» (Cài đặt → Tông màu video).
+- **YouTube Shorts:** đăng bản ngắn ≤ 90 giây; bản 3 phút để đăng Facebook / YouTube video thường.
+
 ## Bản 49 — job 6 lỗi khi dựng trên Botkeep (17/11/2026)
 
 Job 6: Kaggle chờ máy quá 35 phút (hàng chờ GPU T4 hôm đó 12-45 phút) → lùi về Botkeep → ffmpeg dựng mạnh chết ở giây
