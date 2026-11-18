@@ -264,8 +264,12 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
 def listed_words(text: str, words: Sequence[str]) -> int:
     """Số từ tiếng Anh (của đề) nhiều nhất đứng liền nhau trong một đoạn ngắn (chỉ cách nhau dấu phẩy / «và»): đo thật
     18/11, model viết «jump, scared, try, new, bird, nha!» cho đủ từ. Trả 0-n."""
-    toks = [align_norm(t) for t in re.split(r"[\s,]+", text) if t]
-    targets = {align_norm(p) for w in words for p in w.split()}
+    low = text.lower()
+    for w in words:                     # cụm nhiều chữ («thank you») tính là MỘT từ
+        if " " in w:
+            low = re.sub(r"\b" + re.escape(w.lower()) + r"\b", w.lower().replace(" ", "_"), low)
+    toks = [align_norm(t) for t in re.split(r"[\s,]+", low) if t]
+    targets = {align_norm(w.lower().replace(" ", "_")) for w in words}
     best = cur = 0
     for t in toks:
         if t in targets:
@@ -319,9 +323,16 @@ def inject_words(story: dict, brief: dict, data: dict) -> list[str]:
     for k, w in enumerate(brief.get("words", [])):
         if count_word(full, w["en"]) == 0:
             sc = scenes[5 if k % 2 == 0 else 6]
-            sc["text"] = (sc["text"].rstrip() + f" {main} nói: «{w['en']}»! {w['en']} nghĩa là {w['vi']} đó nha.").strip()
+            sc["text"] = (sc["text"].rstrip() + f" {main} nói: «{word_line(w, data)}»").strip()
             added.append(w["en"])
     return added
+
+
+def word_line(w: dict, data: dict) -> str:
+    """Câu mẫu tự nhiên có từ tiếng Anh (kho từ data.json, viết tay): đưa vào lời nhắc làm mẫu và chèn khi model bỏ sót.
+    Đo thật 18/11: model hay hô từ trống không («Mèo Cam nói: jump!») hoặc dịch sang tiếng Việt rồi bỏ từ tiếng Anh."""
+    line = (word_info(data, w["en"]) or {}).get("line") or w.get("line")
+    return str(line) if line else f"{w['en']} nghĩa là {w['vi']} đó nha."
 
 
 def recap_text(brief: dict) -> str:

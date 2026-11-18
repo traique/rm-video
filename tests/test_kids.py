@@ -131,7 +131,7 @@ def test_blocking_inject_and_recap():
     brief2 = {**brief, "words": brief["words"] + [missing]}
     assert any("rainbow" in p for p in story.validate(st, brief2, DATA))
     assert story.inject_words(st, brief2, DATA) == ["rainbow"]
-    assert story.count_word(story.script_text(st), "rainbow") >= 2 and "cầu vồng" in story.script_text(st)
+    assert story.count_word(story.script_text(st), "rainbow") >= 1 and "cầu vồng" in story.script_text(st)
     assert story.inject_words(st, brief2, DATA) == []                        # đã có thì không chèn nữa
     short = {**st, "scenes": [{**s, "text": "Hai bạn chơi vui."} for s in st["scenes"]]}
     assert any("quá ngắn" in p for p in story.blocking(short, brief, DATA))
@@ -173,6 +173,8 @@ def test_prompts_and_schema():
     assert any("hỏi dồn dập" in q for q in probs) and any("giải nghĩa từ" in q for q in probs)
     ws = [w["en"] for w in brief["words"]]
     assert story.listed_words("Thỏ Trắng kể: «" + ", ".join(ws) + ", nha!»", ws) == len(ws)
+    assert story.listed_words("Thank you, cảm ơn bạn nha!", ["thank you", "sorry"]) == 1
+    assert story.listed_words("Thank you, sorry, please!", ["thank you", "sorry", "please"]) == 3
     assert story.listed_words(f"Mình {ws[0]} quá đi! Thử {ws[-1]} một lần thôi.", ws) == 1
     lst = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     lst["scenes"][7]["text"] += " Thỏ Trắng kể: «" + ", ".join(ws[:3]) + " nha!»"
@@ -212,6 +214,18 @@ def test_prefetch_copies_saved_model(tmp_path):
     assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "input"), str(dest)) is None   # đã có: không chép lại
     assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "nope"), str(dest)) is None    # không có bản lưu
     assert images_mod.local_dir("zimage", str(tmp_path / "input"), str(dest)) is None
+
+
+def test_word_lines_natural():
+    """Mỗi từ trong kho có câu mẫu ngắn, chứa đúng từ tiếng Anh (ranh giới từ), miền Nam, không liệt kê từ khác."""
+    ens = [w["en"] for w in DATA["words"]]
+    for w in DATA["words"]:
+        line = story.word_line(w, DATA)
+        assert story.count_word(line, w["en"]) >= 1 and len(line.split()) <= 12, (w["en"], line)
+        assert story.south_kids(line) == line, line
+        assert story.listed_words(line, ens) <= 1, line
+    assert "remember" in story.word_line({"en": "remember", "vi": "nhớ"}, DATA)
+    assert story.word_line({"en": "zzz", "vi": "x"}, DATA) == "zzz nghĩa là x đó nha."
 
 
 def test_sub_tokens_drop_quotes():
@@ -309,7 +323,7 @@ def test_llm_retries_with_feedback():
     srv = _FakeSrv(brief, drop_word=brief["words"][0]["en"])
     st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
     assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["injected"] == [brief["words"][0]["en"]]
-    assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 2 and "accepted_with" in attempts[-1]
+    assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1 and "accepted_with" in attempts[-1]
     with pytest.raises(llm.StoryRejected) as e:                      # luôn quá ngắn: lỗi chặn -> từ chối, kèm các lượt
         llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=_FakeSrv(brief, always_short=True))
     assert len(e.value.attempts) == 1 + llm.RETRIES and e.value.attempts[0]["text"]
