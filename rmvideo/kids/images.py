@@ -58,9 +58,18 @@ def load_flux(repo: str, local: str | None, log: Log) -> Any:
         t5 = T5EncoderModel.from_pretrained(repo, subfolder="text_encoder_2", quantization_config=TfBnb(load_in_8bit=True),
                                             torch_dtype=torch.float16)
         pipe = FluxPipeline.from_pretrained(repo, transformer=tr, text_encoder_2=t5, torch_dtype=torch.float16)
-    pipe.enable_model_cpu_offload()
+    _place(pipe, log)
     pipe.vae.to(torch.float32)                      # giải mã fp32: tránh ảnh đen do tràn fp16
     return pipe
+
+
+def _place(pipe: Any, log: Log) -> None:
+    """Đặt pipeline lên GPU: tuần tự từng model (cpu offload, ~12GB lúc cao nhất vừa T4); không được thì cả pipeline lên cuda."""
+    try:
+        pipe.enable_model_cpu_offload()
+    except Exception as e:
+        log(f"enable_model_cpu_offload lỗi ({str(e)[:120]}), đưa cả pipeline lên GPU")
+        pipe.to("cuda")
 
 
 def load_zimage(repo: str, local: str | None, log: Log) -> Any:
@@ -81,7 +90,7 @@ def load_zimage(repo: str, local: str | None, log: Log) -> Any:
                                        quantization_config=TfBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                                                  bnb_4bit_compute_dtype=torch.float16))
         pipe = ZImagePipeline.from_pretrained(repo, transformer=tr, text_encoder=te, torch_dtype=torch.float16)
-    pipe.enable_model_cpu_offload()
+    _place(pipe, log)
     pipe.vae.to(torch.float32)
     return pipe
 

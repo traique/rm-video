@@ -14,8 +14,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
 import subprocess
+import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Iterator
@@ -98,25 +100,35 @@ class Server:
     def __init__(self, binary: str, model: str, n_ctx: int = N_CTX, port: int = PORT, log: Log = logging.info):
         self.binary, self.model, self.n_ctx, self.port, self.log = binary, model, n_ctx, port, log
         self.proc: subprocess.Popen | None = None
+        self.log_path = os.path.join(tempfile.gettempdir(), "rm_llama_server.log")
 
     def start(self) -> None:
+        # /kaggle/input chỉ đọc và file đầu ra notebook mất quyền chạy (lỗi thật 18/11/2026): chép cả thư mục (binary +
+        # các .so cạnh nó) sang chỗ ghi được rồi đặt quyền chạy
+        src_dir = os.path.dirname(self.binary)
+        if not os.access(src_dir, os.W_OK):
+            dst_dir = os.path.join(tempfile.gettempdir(), "rm_llama")
+            if not os.path.exists(os.path.join(dst_dir, os.path.basename(self.binary))):
+                shutil.copytree(src_dir, dst_dir, dirs_exist_ok=True)
+            self.binary = os.path.join(dst_dir, os.path.basename(self.binary))
         mode = os.stat(self.binary).st_mode
         if not mode & stat.S_IXUSR:
-            os.chmod(self.binary, mode | stat.S_IXUSR)
+            os.chmod(self.binary, mode | stat.S_IXUSR | stat.S_IRUSR)
         env = dict(os.environ)
         lib = os.path.dirname(self.binary)
         env["LD_LIBRARY_PATH"] = lib + ":" + env.get("LD_LIBRARY_PATH", "")
+        self.log_path = os.path.join(tempfile.gettempdir(), "rm_llama_server.log")
         args = [self.binary, "-m", self.model, "-c", str(self.n_ctx), "-ngl", "999", "--port", str(self.port),
                 "--host", "127.0.0.1", "--jinja", "--reasoning-budget", "0",
                 "--chat-template-kwargs", '{"enable_thinking": false}', "-np", "1", "--no-warmup", "--flash-attn", "on"]
         self.log(f"llama-server: nạp {os.path.basename(self.model)} ({os.path.getsize(self.model) >> 20}MB)")
-        self.proc = subprocess.Popen(args, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        # log ra FILE: ống PIPE không ai đọc đầy sau ~64KB là llama-server kẹt khi ghi log, request treo mãi
+        self._logf = open(self.log_path, "w", encoding="utf-8")
+        self.proc = subprocess.Popen(args, env=env, stdout=self._logf, stderr=subprocess.STDOUT, text=True)
         t0 = time.time()
-        tail: list[str] = []
         while time.time() - t0 < READY_TIMEOUT:
             if self.proc.poll() is not None:
-                out = self.proc.stdout.read() if self.proc.stdout else ""
-                raise RuntimeError("llama-server thoát sớm: " + (out or "")[-1500:])
+                raise RuntimeError("llama-server thoát sớm: " + self._log_tail())
             try:
                 with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/health", timeout=5) as r:
                     if json.loads(r.read().decode() or "{}").get("status") == "ok":
@@ -125,7 +137,14 @@ class Server:
             except Exception:
                 pass
             time.sleep(3)
-        raise RuntimeError(f"llama-server không sẵn sàng sau {READY_TIMEOUT}s: " + "".join(tail[-20:]))
+        raise RuntimeError(f"llama-server không sẵn sàng sau {READY_TIMEOUT}s: " + self._log_tail())
+
+    def _log_tail(self, n: int = 1500) -> str:
+        try:
+            with open(self.log_path, encoding="utf-8", errors="ignore") as f:
+                return f.read()[-n:]
+        except OSError:
+            return ""
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = MAX_TOKENS,
              temperature: float = TEMPERATURE, seed: int | None = None) -> str:
@@ -152,6 +171,9 @@ class Server:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
         self.proc = None
+        f = getattr(self, "_logf", None)
+        if f:
+            f.close()
 
 
 class PyBackend:
