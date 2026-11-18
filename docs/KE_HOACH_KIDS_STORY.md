@@ -173,7 +173,7 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | `rmvideo/domain/job.py` | `Mode.KIDS = "kids"` |
 | `rmvideo/app/job_factory.py` | `kids(*, source, chat_id, brief)` — `brief` = đề đã chọn (bộ ba + từ), ghi vào Job (trường mới `brief: dict`) |
 | `queue_manager.inputs_available` | mode kids không cần file → `True` (restart không báo «file không còn») |
-| `jobs.job_budget` | kids: 75 phút (chờ máy + chạy ~20 phút + dự phòng) |
+| `jobs.job_budget` | kids: `KIDS_TIMEOUT` 125 phút + 10 phút (chờ máy tới 75 phút + chạy ~20 phút + dự phòng) |
 | `rmvideo/app/flow/dispatch.py` | `Mode.KIDS → rmvideo/app/flow/kids.py` |
 | `rmvideo/app/flow/kids.py` | Botkeep: gửi Kaggle, nhận, QA, ghi memory, `job.post`, `job.parts` (Video, Phụ đề, Ảnh bìa) |
 | `rmvideo/kids/pick.py` | chọn đề + từ, chống trùng (thuần, test được) |
@@ -192,19 +192,24 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | `static/index.html` | nút «🧸 Truyện bé: làm ngay» + bảng truyện đã làm (sau MVP cũng được; MVP dùng console + tự động) |
 | `tests/test_kids.py` | chọn đề/chống trùng, kiểm kịch bản (mẫu đúng/sai), ghép prompt, kế hoạch cảnh theo giọng, dựng thật bằng ảnh `testsrc2` + giọng giả (ffmpeg), QA, Kaggle giả (theo `test_kaggle.py`) |
 
-## 7. Ước lượng (2 × T4, sẽ đo lại ở K0)
+## 7. Thời gian đo thật (18/11/2026, 2 × T4, lần chạy thứ 7)
 
-| Bước | Ước |
-| --- | --- |
-| Chờ máy Kaggle | 0-30 phút (ngoài tầm; làm trước 36 giờ nên không lo trễ giờ đăng) |
-| Khởi động: giải nén bundle, pip (llama-cpp-python wheel CUDA, diffusers, bitsandbytes, vieneu) | 3-5 phút |
-| Nạp Qwen3-30B-A3B Q4_K_M (~18GB) từ notebook giữ model lên 2 GPU | 2-4 phút |
-| Sinh chữ: 2 lượt × ~900 token; MoE chỉ 3B tham số hoạt động mỗi bước, ước 15-25 token/giây | 2-4 phút (viết lại +1,5 phút/lần) |
-| Nạp model ảnh + sinh 8 ảnh 832×1472 | schnell NF4: 5-9 phút · Z-Image: ước 6-12 phút · (FLUX.1-dev NF4 28 bước: 25-40 phút — quá nặng) |
-| VieNeu: nạp 1 phút + đọc 8 đoạn | ~1,5 phút |
-| Dựng FFmpeg 75 giây 1080×1920 (NVENC) | 1-2 phút |
-| **Một video** | **18-28 phút phiên, ~15-22 phút GPU** |
-| 2 video/ngày | ~4-6 giờ GPU/tuần (Kaggle cho 30 giờ; kênh nấu ăn đang dùng ~3-5 giờ) |
+| Bước | Đo thật | Ghi chú |
+| --- | --- | --- |
+| Chờ máy Kaggle | 0-60 phút (giờ cao điểm) | ngoài tầm; `KIDS_TIMEOUT` 125 phút, chừa 50 phút chạy -> chờ tối đa 75 phút |
+| Khởi động: giải nén bundle, pip (diffusers, bitsandbytes, vieneu…) | ~35 giây | llama-server lấy từ notebook `rmvideo-kids-models` (không build lại) |
+| Tải Qwen3.6-35B-A3B Q4_K_M (20,2 GB) từ Hugging Face | 97 giây | ~200 MB/s, nhanh hơn đọc từ ổ Kaggle gắn vào |
+| llama-server nạp model lên 2 GPU | 96 giây | |
+| Sinh chữ | 14-16 giây/lượt, thường 2 lượt | lượt 1 hay quá dài/ngắn, lượt 2 đạt |
+| Nạp FLUX.1-schnell NF4 (14 GB) từ `/kaggle/input` | 420-512 giây | chậm nhất; ổ gắn vào chỉ ~30 MB/s |
+| Vẽ 8 ảnh 768×1344, 4 bước | 31 giây/ảnh = 4,2 phút | T5 đã bỏ khỏi GPU sau khi mã hoá prompt |
+| VieNeu: nạp + đọc 8 đoạn + câu ôn từ | ~33 giây | |
+| Dựng FFmpeg 89 giây 1080×1920 (NVENC) | 94 giây | |
+| **Một video** | **~19,5 phút GPU** (+ chờ máy) | |
+| 2 video/ngày | ~4,5 giờ GPU/tuần | Kaggle cho 30 giờ; kênh nấu ăn đang dùng ~3-5 giờ |
+
+Bài học đo được: 236 chữ -> video 88,9 giây (trượt QA 60-88 nửa giây) -> `render.plan` tự co đệm rồi đọc nhanh hơn
+(≤ ×1,15) để không quá 87 giây; lời nhắc nhắm 185-225 chữ.
 
 ## 8. Rủi ro
 

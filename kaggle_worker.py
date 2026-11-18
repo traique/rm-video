@@ -38,8 +38,8 @@ PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall 
                "pip install -q onnxruntime-gpu)")
 # truyện bé: giọng VieNeu + diffusers (FLUX 4-bit) + huggingface_hub (tải GGUF); llama-server là file đã biên dịch gắn vào
 PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
-KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-43 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
-KIDS_RUN_RESERVE = 50 * 60       # giờ chạy cần cho một truyện (đo: ~25-35 phút): chưa được cấp máy khi chỉ còn ngần này thì bỏ
+KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-60 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
+KIDS_RUN_RESERVE = 50 * 60       # giờ chạy cần cho một truyện (đo 18/11: ~20 phút, nạp FLUX từ ổ gắn 7-8 phút): chưa được cấp máy khi chỉ còn ngần này thì bỏ
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
