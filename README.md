@@ -229,13 +229,17 @@ Cài một lần:
    (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
 
 Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học chia đều, nhân vật chính luân phiên, từ tiếng Anh
-ưu tiên gắn với bài học và lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (190–240 chữ, 8 cảnh 15–40 chữ, mỗi từ tiếng Anh
-≥ 3 lần, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm); chưa đạt thì model viết lại tối đa 2 lần kèm lý do. Video kiểm
-bằng mã (60–88 giây, 1080×1920, có tiếng) cả trên Kaggle lẫn khi tải về. Thêm bài học / bối cảnh / từ mới: sửa
-`rmvideo/kids/data.json`.
+ưu tiên gắn với bài học và lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (160–240 chữ, 8 cảnh 12–40 chữ, mỗi từ tiếng Anh
+≥ 2 lần, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh, không hỏi dồn dập, không liệt kê nghĩa
+từ); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất và chèn từ còn thiếu bằng mã. Model chữ
+suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
+tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài
+học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json`.
 
 Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
-khung giờ khác. Ước tính mỗi truyện ~20–30 phút phiên GPU (chờ máy riêng); 2 truyện/ngày ≈ 4–6 giờ GPU/tuần.
+khung giờ khác. Đo thật 18/11/2026: một truyện ~20 phút GPU (tải GGUF 20GB 1,5 phút, nạp model chữ 1,5 phút, viết 15 giây/lượt,
+nạp FLUX từ ổ Kaggle 7–8 phút — giờ chép về đĩa cục bộ song song lúc viết truyện, vẽ 31 giây/ảnh, đọc 0,5 phút, dựng 1,5 phút)
+cộng chờ máy 0–60 phút; 2 truyện/ngày ≈ 4–5 giờ GPU/tuần. Bảng đo trong `docs/KE_HOACH_KIDS_STORY.md` mục 7.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 

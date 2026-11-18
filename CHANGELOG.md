@@ -23,9 +23,15 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 ### Chi tiết
 - **Kiến trúc** (kế hoạch: `docs/KE_HOACH_KIDS_STORY.md`): Botkeep chọn đề (`rmvideo/kids/story.pick`) rồi gửi MỘT việc `kind="kids"`
   sang notebook `rmvideo-kids`; trên Kaggle `rmvideo/kids/job.py` chạy lần lượt model chữ (`llm.py`: llama-server + Qwen3.6-35B-A3B
-  GGUF 4-bit, JSON theo schema, viết lại tối đa 2 lần theo lỗi bộ kiểm), model ảnh (`images.py`: FLUX.1-schnell NF4 hoặc Z-Image-Turbo,
-  832×1472 → 1080×1920), giọng VieNeu (`KIDS_VOICE`, mặc định Thục Đoan), dựng (`render.py`). Không có đường lùi về Botkeep: Kaggle lỗi là
-  job lỗi, vòng lịch chọn khung giờ khác và báo admin.
+  GGUF 4-bit, JSON theo schema, suy nghĩ trước tối đa `KIDS_LLM_THINK` token, viết lại tối đa 3 lần theo lỗi bộ kiểm), model ảnh
+  (`images.py`: FLUX.1-schnell NF4 hoặc Z-Image-Turbo, 768×1344 → 1080×1920), giọng VieNeu (`KIDS_VOICE`, mặc định Thục Đoan), dựng
+  (`render.py`). Không có đường lùi về Botkeep: Kaggle lỗi là job lỗi, vòng lịch chọn khung giờ khác và báo admin.
+- **Đo thật 18/11 (9 lần chạy Kaggle, video đầu tiên 84 giây đạt QA)**: `/kaggle/input` chỉ đọc và file đầu ra mất quyền chạy → chép
+  llama-server ra `/tmp`; `huggingface_hub<1.0` cho diffusers; T5 8-bit + transformer NF4 tràn T4 → mã hoá 8 prompt trước rồi bỏ T5, vẽ
+  768×1344; VAE giải mã fp32 trên đúng thiết bị; chờ máy giờ cao điểm tới 60 phút → `KIDS_TIMEOUT` 125 phút; 236 chữ → 88,9 giây trượt
+  QA → `render.plan` tự co đệm rồi đọc nhanh hơn (≤ ×1,15) cho ≤ 87 giây, QA hỏng vẫn giữ video + ảnh để xem; nạp FLUX từ ổ gắn 7–8 phút
+  → chép về đĩa cục bộ bằng 4 luồng ngay đầu việc; model viết `action_en` bằng tiếng Việt, hỏi dồn dập và liệt kê «X nghĩa là Y» cho
+  đủ chữ → bộ kiểm báo lỗi để viết lại (hành động dự phòng theo vai cảnh), prompt ảnh gọn cho 256 token T5, màu áo nói trước tên.
 - **Dựng**: độ dài cảnh theo giọng đọc (tối thiểu 5 giây), Ken Burns + xfade êm dùng lại biểu thức của 📸, thẻ tiêu đề 3 giây đầu, thẻ
   «sorry = xin lỗi» khi từ được đọc lần đầu, màn kết «Hôm nay bé học» + tagline, phụ đề rải theo khoảng có tiếng, từ tiếng Anh tô màu
   (`subs.write_ass(highlight=…)`, style `kids`), nhạc nền ~16 dB dưới giọng tự hạ khi đang đọc (`assets/kids_bgm/` hoặc `KIDS_BGM_LINKS`),
@@ -37,7 +43,8 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   `kernel_sources`/`dataset_sources` của việc, tải thêm `fetch_files` (ảnh bìa, story.json); việc kids không chạy CPU khi hết giờ GPU.
   `KIDS_KAGGLE_SOURCES` trỏ tới notebook/dataset có sẵn llama-server (vd bản bạn đã biên dịch khi đo Qwen).
 - **Cài đặt** nhóm 🧸 Truyện bé: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, `KIDS_VOICE`, `KIDS_IMAGE_MODEL`,
-  `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`, `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`.
+  `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_LLM_THINK`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`,
+  `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`.
 - Web: mục 🧸 Truyện bé (trạng thái, làm ngay, thử token, chuẩn bị model, chạy lại); API `/api/kids`, `/api/kids/{now|test|setup|setup_status|resume|tick}`.
   Console: `kids`, `kids_now`, `kids_tick`, `kids_setup`, `kids_setup_status`, `kids_fb_test`, `kids_resume`.
 - Test: `tests/test_kids.py` (chọn đề, kiểm kịch bản, prompt, kế hoạch cảnh, dựng thật cỡ nhỏ, việc Kaggle với model giả, luồng Botkeep,

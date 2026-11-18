@@ -187,7 +187,7 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | `subs.write_ass(highlight=...)` | tô màu từ tiếng Anh |
 | `autopost.publish(..., page=None, token=None)` | tham số hoá Page (mặc định như cũ) |
 | `kids_auto.py` | vòng lịch 2 khung/ngày, làm trước 36 giờ, đăng hẹn giờ, báo admin, lệnh `kids_now` / `kids_status` / `kids_resume` |
-| `rmvideo/app/settings.py` | nhóm `kids`: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_PER_DAY`, `KIDS_FB_PAGE_ID` (reauth), `KIDS_FB_PAGE_TOKEN` (secret), `KIDS_VOICE`, `KIDS_IMAGE_MODEL`, `KIDS_LLM_MODEL`, `KIDS_CHANNEL_NAME`; tiền tố `KIDS_FB_` vào `SNAPSHOT_EXCLUDE_PREFIXES` |
+| `rmvideo/app/settings.py` | nhóm `kids`: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_VOICE`, `KIDS_IMAGE_MODEL`, `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_LLM_THINK`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`, `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`; nhóm `api`: `KIDS_FB_PAGE_ID` (reauth), `KIDS_FB_PAGE_TOKEN` (secret); tiền tố `KIDS_` vào `SNAPSHOT_EXCLUDE_PREFIXES` |
 | `main.py`, `admin.py` | `spawn(kids_auto.run_forever())`, lệnh console |
 | `static/index.html` | nút «🧸 Truyện bé: làm ngay» + bảng truyện đã làm (sau MVP cũng được; MVP dùng console + tự động) |
 | `tests/test_kids.py` | chọn đề/chống trùng, kiểm kịch bản (mẫu đúng/sai), ghép prompt, kế hoạch cảnh theo giọng, dựng thật bằng ảnh `testsrc2` + giọng giả (ffmpeg), QA, Kaggle giả (theo `test_kaggle.py`) |

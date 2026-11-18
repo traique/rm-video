@@ -97,8 +97,12 @@ def parse_json(text: str) -> dict:
 class Server:
     """llama-server: một tiến trình, API OpenAI-compatible ở localhost."""
 
-    def __init__(self, binary: str, model: str, n_ctx: int = N_CTX, port: int = PORT, log: Log = logging.info):
+    def __init__(self, binary: str, model: str, n_ctx: int = N_CTX, port: int = PORT, log: Log = logging.info,
+                 think: int = 0):
+        """think: số token model được suy nghĩ trước khi viết (0 = tắt). Đo cơ chế 18/11 (llama-server, Qwen3): grammar
+        JSON chỉ áp cho phần trả lời, phần nghĩ về riêng trong reasoning_content; --reasoning-budget cắt khi quá."""
         self.binary, self.model, self.n_ctx, self.port, self.log = binary, model, n_ctx, port, log
+        self.think = max(0, int(think or 0))
         self.proc: subprocess.Popen | None = None
         self.log_path = os.path.join(tempfile.gettempdir(), "rm_llama_server.log")
 
@@ -118,10 +122,13 @@ class Server:
         lib = os.path.dirname(self.binary)
         env["LD_LIBRARY_PATH"] = lib + ":" + env.get("LD_LIBRARY_PATH", "")
         self.log_path = os.path.join(tempfile.gettempdir(), "rm_llama_server.log")
+        think = self.think > 0
         args = [self.binary, "-m", self.model, "-c", str(self.n_ctx), "-ngl", "999", "--port", str(self.port),
-                "--host", "127.0.0.1", "--jinja", "--reasoning-budget", "0",
-                "--chat-template-kwargs", '{"enable_thinking": false}', "-np", "1", "--no-warmup", "--flash-attn", "on"]
-        self.log(f"llama-server: nạp {os.path.basename(self.model)} ({os.path.getsize(self.model) >> 20}MB)")
+                "--host", "127.0.0.1", "--jinja", "--reasoning-budget", str(self.think if think else 0),
+                "--chat-template-kwargs", json.dumps({"enable_thinking": think}), "-np", "1", "--no-warmup",
+                "--flash-attn", "on"]
+        self.log(f"llama-server: nạp {os.path.basename(self.model)} ({os.path.getsize(self.model) >> 20}MB)"
+                 + (f", suy nghĩ tối đa {self.think} token" if think else ""))
         # log ra FILE: ống PIPE không ai đọc đầy sau ~64KB là llama-server kẹt khi ghi log, request treo mãi
         self._logf = open(self.log_path, "w", encoding="utf-8")
         self.proc = subprocess.Popen(args, env=env, stdout=self._logf, stderr=subprocess.STDOUT, text=True)
@@ -148,9 +155,9 @@ class Server:
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = MAX_TOKENS,
              temperature: float = TEMPERATURE, seed: int | None = None) -> str:
-        body = {"messages": messages, "max_tokens": max_tokens, "temperature": temperature, "top_p": 0.9,
+        body = {"messages": messages, "max_tokens": max_tokens + self.think, "temperature": temperature, "top_p": 0.9,
                 "response_format": {"type": "json_schema", "json_schema": {"name": "story", "schema": schema}},
-                "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": True}
+                "chat_template_kwargs": {"enable_thinking": self.think > 0}, "cache_prompt": True}
         if seed is not None:
             body["seed"] = int(seed)
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/v1/chat/completions",
@@ -208,7 +215,7 @@ def backend(spec_llm: dict, tmp: str, log: Log = logging.info) -> Server | PyBac
                                                 os.path.join(tmp, "llm_model"), log)
     binary = find_binary()
     if binary:
-        return Server(binary, model, int(spec_llm.get("n_ctx") or N_CTX), log=log)
+        return Server(binary, model, int(spec_llm.get("n_ctx") or N_CTX), log=log, think=int(spec_llm.get("think") or 0))
     try:
         import llama_cpp  # noqa: F401
     except ImportError:

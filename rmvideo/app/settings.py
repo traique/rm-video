@@ -427,6 +427,9 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_max_len("KIDS_LLM_PATTERN", 200)),
     S("KIDS_LLM_HF", "lmstudio-community/Qwen3.6-35B-A3B-GGUF", "kids", "Repo Hugging Face của model chữ",
       validate=_regex(r"[\w.\-]+/[\w.\-]+", "KIDS_LLM_HF dạng user/repo trên Hugging Face")),
+    S("KIDS_LLM_THINK", "1200", "kids", "Model chữ suy nghĩ trước khi viết (token)",
+      help="0 = tắt. Suy nghĩ giúp truyện mạch lạc, đủ từ tiếng Anh hơn; ~60 token/giây trên 2 T4 (1200 token ≈ +20 giây "
+           "mỗi lượt).", validate=_regex(r"\d{1,5}", "KIDS_LLM_THINK là số token (0 = tắt)")),
     S("KIDS_KAGGLE_SOURCES", "", "kids", "Nguồn gắn vào phiên Kaggle",
       help="Trống = notebook rmvideo-kids-models (lệnh kids_setup tạo: llama-server đã biên dịch + FLUX 4-bit). Hoặc "
            "notebook:user/slug, dataset:user/slug cách nhau dấu phẩy.", validate=_kaggle_sources),
@@ -481,7 +484,8 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
     "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_IMAGE_MODEL",
-    "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME", "KIDS_TAGLINE",
+    "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
+    "KIDS_TAGLINE",
     "KIDS_HASHTAGS", "KIDS_BGM_LINKS",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",

@@ -377,6 +377,7 @@ def test_flow_kids_on_botkeep(tmp_path, monkeypatch):
     assert os.path.exists(out) and os.path.exists(os.path.join(os.path.dirname(out), "cover.jpg"))
     spec = calls[0]
     assert spec["kind"] == "kids" and spec["slug"] == "rmvideo-kids" and spec["voice"]["name"] == "Thục Đoan"
+    assert spec["llm"]["think"] == 1200 and spec["llm"]["hf_repo"].endswith("GGUF")
     assert spec["kernel_sources"] == ["rmvideo-kids-models"] and "logo_b64" not in spec
     assert spec["fetch_files"] == ["cover.jpg", "thumb.jpg", "story.json"] and spec["data"]["world"]["name"] == "Đồi Cỏ Non"
     assert "▶ Facebook:" in job.post and "🔤" in job.post and job.hook.startswith("Thỏ Trắng") and job.out_dur == 72.0
