@@ -249,11 +249,35 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
         if t.count("?") > QUESTIONS_MAX:
             problems.append(f"cảnh {i} hỏi dồn dập ({t.count('?')} câu hỏi): kể bằng hành động và lời thoại, tối đa "
                             f"{QUESTIONS_MAX} câu hỏi một cảnh")
+    for i, t in enumerate(texts, 1):
+        run_len = listed_words(t, [w["en"] for w in brief.get("words", [])])
+        if run_len >= 3:
+            problems.append(f"cảnh {i} xếp {run_len} từ tiếng Anh liền nhau thành danh sách: mỗi từ phải nằm trong một câu "
+                            "có nghĩa riêng")
     n_gloss = len(re.findall(r"nghĩa là", low))
     if n_gloss > len(brief.get("words", [])):
         problems.append(f"giải nghĩa từ {n_gloss} lần: mỗi từ tiếng Anh chỉ giải nghĩa («nghĩa là») tối đa MỘT lần, các "
                         "lần khác dùng tự nhiên trong lời thoại, không liệt kê nghĩa các từ liền nhau")
     return problems
+
+
+def listed_words(text: str, words: Sequence[str]) -> int:
+    """Số từ tiếng Anh (của đề) nhiều nhất đứng liền nhau trong một đoạn ngắn (chỉ cách nhau dấu phẩy / «và»): đo thật
+    18/11, model viết «jump, scared, try, new, bird, nha!» cho đủ từ. Trả 0-n."""
+    toks = [align_norm(t) for t in re.split(r"[\s,]+", text) if t]
+    targets = {align_norm(p) for w in words for p in w.split()}
+    best = cur = 0
+    for t in toks:
+        if t in targets:
+            cur += 1
+            best = max(best, cur)
+        elif t not in ("và", "rồi", "nha", "nè"):
+            cur = 0
+    return best
+
+
+def align_norm(tok: str) -> str:
+    return re.sub(r"[^\w]", "", tok.lower().strip("«»\"“”'"))
 
 
 def is_english(text: str) -> bool:

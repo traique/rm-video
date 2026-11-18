@@ -85,7 +85,7 @@ def test_south_kids_words():
 
 
 def _good_story(brief):
-    """Kịch bản đạt mọi điều kiện (8 cảnh, mỗi từ ≥ 3 lần, đủ 4 bạn, hook, bài học, kết vui)."""
+    """Kịch bản đạt mọi điều kiện (8 cảnh, mỗi từ ≥ 2 lần, đủ 4 bạn, hook, bài học, kết vui)."""
     ws = [w["en"] for w in brief["words"]]
     lesson = story.by_id(DATA["lessons"], brief["lesson"])
     filler = "Hai bạn nhỏ đi dạo trên đồi cỏ xanh, gió thổi mát rượi."
@@ -99,8 +99,8 @@ def _good_story(brief):
         f"Gấu Nâu nói: tụi mình phải {lesson['keywords'][0]} nha. {filler} Các bạn cùng gật đầu.",
         f"Bốn bạn ôm nhau cười vui. {filler} Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ chơi cùng nhau.",
     ]
-    for j, w in enumerate(ws[1:]):                                          # các từ còn lại cũng ≥ 3 lần
-        base[3 + j % 3] += f" {w} {w} {w}."
+    for j, w in enumerate(ws[1:]):                                          # các từ còn lại cũng ≥ 2 lần, mỗi từ trong một câu
+        base[3 + j % 3] += f" Mình {w} nè. Bạn {w} đi."
     while sum(story.word_count(t) for t in base) < story.WORDS_MIN + 5:       # đủ số chữ tối thiểu
         k = min(range(8), key=lambda i: story.word_count(base[i]))
         base[k] += " Nắng vàng nhẹ nhàng."
@@ -171,6 +171,12 @@ def test_prompts_and_schema():
     spam["scenes"][4]["text"] += " ".join(f"«{w['en']}» nghĩa là {w['vi']}." for w in brief["words"]) + " a nghĩa là b."
     probs = story.validate(spam, brief, DATA)
     assert any("hỏi dồn dập" in q for q in probs) and any("giải nghĩa từ" in q for q in probs)
+    ws = [w["en"] for w in brief["words"]]
+    assert story.listed_words("Thỏ Trắng kể: «" + ", ".join(ws) + ", nha!»", ws) == len(ws)
+    assert story.listed_words(f"Mình {ws[0]} quá đi! Thử {ws[-1]} một lần thôi.", ws) == 1
+    lst = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
+    lst["scenes"][7]["text"] += " Thỏ Trắng kể: «" + ", ".join(ws[:3]) + " nha!»"
+    assert any("liền nhau thành danh sách" in q for q in story.validate(lst, brief, DATA))
     title, desc, tags = prompts.post_pack(story.normalize(_good_story(brief), DATA), brief, kids_auto.channel(), DATA)
     assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#kebenghe") and "#bexinloi" in tags
 

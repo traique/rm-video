@@ -37,8 +37,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
     words = "; ".join(f"{w['en']} = {w['vi']}" for w in brief["words"])
-    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): trong lời thoại, nên 2 lần, ví dụ: "
-                            f"{main['name_vi']} nói: «{w['en']}!»" for w in brief["words"])
+    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']})" for w in brief["words"])
     names_en = ", ".join(c["name_en"] for c in chars.values())
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
     keys = ", ".join(chars)
@@ -55,9 +54,10 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             + ", ".join(c["name_vi"] for c in chars.values()) + ").\n"
             "- Từ tiếng Anh: viết đúng chính tả tiếng Anh, chữ thường, nằm trong lời thoại; MỖI từ dưới đây đều phải có "
             "mặt, không được bỏ sót từ nào:\n" + word_lines + "\n"
-            "  Mỗi từ chỉ giải nghĩa («... nghĩa là ...») tối đa MỘT lần, tự nhiên trong lời thoại (ví dụ: Gấu Nâu nói: "
-            "«promise nghĩa là lời hứa đó, Thỏ Trắng ơi»); các lần khác dùng từ đó như một câu nói bình thường. Nghĩa "
-            "của từ đã hiện trên màn hình, không cần liệt kê nghĩa các từ liền nhau.\n"
+            "  Mỗi từ nằm trong MỘT CÂU CÓ NGHĨA của nhân vật, tiếng Việt chen từ tiếng Anh đúng chỗ, như trẻ con nói chuyện "
+            "(ví dụ: «Cao quá, mình scared quá đi!», «Thử đi, try một lần thôi Thỏ Trắng!», «Gấu Nâu ơi, mình sorry nha»). "
+            "KHÔNG hô một từ trống không kiểu «Mèo Cam nói: jump!», KHÔNG xếp các từ tiếng Anh liền nhau thành danh sách. Mỗi "
+            "từ chỉ giải nghĩa («... nghĩa là ...») tối đa MỘT lần; nghĩa đã hiện trên màn hình.\n"
             "- Cảnh 1 có MỘT câu hỏi hoặc câu cảm gây tò mò (chỉ một). Cảnh 7 nói rõ bài học bằng đúng chữ: "
             + ", ".join(lesson.get("keywords", [])) + ". Cảnh 8 kết thúc vui, các bạn cười và chơi cùng nhau.\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
