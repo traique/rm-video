@@ -48,6 +48,7 @@ bịa viết bằng chữ cũng bỏ được trọn cụm.
 | Bản đầy đủ luôn 720p (thiết kế cũ để dựng nhanh), kể cả khi dựng trên Kaggle | Dựng trên Kaggle: bản đầy đủ cũng 1080p (Kaggle đủ RAM; giới hạn thời gian dựng vẫn áp). Trên Botkeep bản đầy đủ giữ 720p. Bản ngắn ≤ 90 giây vốn đã 1080p |
 | Bài đăng của bản đầy đủ 3:08 vẫn ghi «YouTube Shorts … #Shorts» — YouTube chỉ xếp video dọc ≤ 3 phút vào Shorts | Bản dài hơn 3 phút: ghi «YouTube (video thường; muốn lên Shorts thì đăng bản ngắn)», bỏ #Shorts |
 | Tiêu đề khen chung, không nêu điểm ăn tiền | Lệnh viết lời: tiêu đề nêu tên món kèm đúng mẹo chính (YouTube / Facebook bấm vì lời hứa trong tiêu đề) |
+| (thấy khi đo cho mục 1080p) Bản ngắn ≤ 90 giây dựng 1080p: đo thật ffmpeg ngốn **1.235 MB** (dựng mạnh, cân bằng, 2 luồng); bản đầy đủ 1080p preset Chuẩn TVC **2.465 MB**. Botkeep 2 GB bị giết từ ~970 MB (job 6) → hễ Kaggle chờ máy, lùi về Botkeep là bản ngắn chết ở bước cuối | Trước khi chọn 1080p, đọc RAM trống của container: dưới 1,8 GB (cân bằng) / 3 GB (Chuẩn TVC) thì xuất 720p, kèm ghi chú «dựng trên Kaggle thì được 1080p» |
 
 Đề xuất còn lại (cần quyết định của bạn, chưa làm bằng mã):
 - **Nhạc nền nhẹ dưới lời đọc** (TVC luôn có): cần thư viện nhạc có bản quyền / miễn phí bản quyền. Nhạc có bản quyền sẽ bị YouTube Content ID nhận và TikTok tắt tiếng. Muốn thì làm ở bản sau (trộn -24 dB, tự nhỏ lại khi có lời).

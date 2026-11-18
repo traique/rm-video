@@ -208,3 +208,19 @@ def test_long_full_version_is_not_labelled_youtube_shorts():
     long = common.post_for_length(post, 188.39)
     assert "YouTube Shorts" not in long and "#Shorts" not in long and "đăng bản ngắn" in long
     assert common.post_for_length(post, 89.0) == post and common.post_for_length("", 200.0) == ""
+
+
+def test_low_ram_machine_renders_720p(monkeypatch, tmp_path):
+    """Đo thật: bản ngắn 1080p dựng mạnh ngốn 1,2 GB, bản đầy đủ preset medium 2,5 GB; Botkeep 2 GB bị giết từ ~1 GB."""
+    from rmvideo.media import ff, renderer
+    monkeypatch.setattr(renderer, "SPEED_FILE", str(tmp_path / "rs.json"))
+    monkeypatch.setattr(config, "OUTPUT_HD", True)
+    for q, free, want in (("balanced", 1300, (720, 1280)), ("balanced", 2500, (1080, 1920)), ("high", 2500, (720, 1280)),
+                          ("high", 6000, (1080, 1920))):
+        monkeypatch.setattr(config, "QUALITY", q)
+        monkeypatch.setattr(ff, "mem_available_mb", lambda free=free: free)
+        notes: list = []
+        assert renderer.output_size(1920, True, 80, notes) == want, (q, free)
+        assert bool(notes) == (want == (720, 1280)) and (not notes or "RAM" in notes[0])
+    monkeypatch.setattr(ff, "mem_available_mb", lambda: None)                 # không đọc được RAM: như trước
+    assert renderer.output_size(1920, True, 80) == (1080, 1920)

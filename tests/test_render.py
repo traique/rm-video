@@ -345,6 +345,8 @@ def test_output_size_adapts_to_machine_speed(monkeypatch, tmp_path):
     monkeypatch.setattr(core_video, "RENDER_BUDGET", 600)
     monkeypatch.setattr(config, "OUTPUT_HD", True)
     monkeypatch.setattr(config, "QUALITY", "balanced")
+    from rmvideo.media import ff
+    monkeypatch.setattr(ff, "mem_available_mb", lambda: 8000)               # đủ RAM (bản 50: thiếu RAM -> 720p)
     assert core_video.output_size(1920, True, 88) == (1080, 1920)            # chưa đo: giữ 1080p như trước
     assert core_video.record_render_speed(40.0, 10, 1920, source="bench") == 4.0
     # lần dựng thật đầu tiên thay hẳn số bài đo; 720p quy đổi x2 ra 1080p

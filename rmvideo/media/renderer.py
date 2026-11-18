@@ -50,6 +50,10 @@ DEFAULT_SPEED_FILE = os.path.join(ff.ROOT, "render_speed.json")
 SPEED_FILE = os.environ.get("RENDER_SPEED_FILE") or DEFAULT_SPEED_FILE
 
 
+# RAM trống tối thiểu để dựng 1080p (MB). Đo 17/11/2026, video mực 1080x1920, ffmpeg 2 luồng: bản ngắn dựng mạnh 86s
+# (21 khúc, balanced) 1235 MB; bản đầy đủ dựng mạnh 59 khúc preset medium (high) 2465 MB; cùng bản đó 720p 571 MB.
+# Botkeep 2 GB (bot chiếm một phần) bị giết từ ~970 MB (job 6) -> bản ngắn 1080p trên Botkeep chắc chắn chết.
+HD_RAM_MB = {"balanced": 1800, "high": 3000}
 RENDER_BUDGET = float(os.environ.get("RENDER_BUDGET", "600") or 0)     # giây; 0 = tắt (luôn 1080p khi nguồn đủ nét)
 
 
@@ -111,6 +115,13 @@ def output_size(src_h: int, allow_hd: bool, out_dur: float, notes: list | None =
     if not (config.OUTPUT_HD and allow_hd and src_h >= 1600):
         return 720, 1280
     if config.QUALITY == "fast":
+        return 720, 1280
+    need, free = HD_RAM_MB.get(config.QUALITY, HD_RAM_MB["balanced"]), ff.mem_available_mb()
+    if free is not None and free < need:
+        logging.info("Còn %d MB RAM, 1080p cần ~%d MB -> xuất 720p", free, need)
+        if notes is not None:
+            notes.append(f"ℹ️ Máy dựng chỉ còn ~{free / 1024:.1f} GB RAM trống, bản 1080p cần ~{need / 1024:.1f} GB nên "
+                         f"xuất 720p (dựng trên Kaggle thì được 1080p). ")
         return 720, 1280
     sp = render_speed()
     if config.QUALITY == "balanced" and RENDER_BUDGET > 0 and sp and sp * out_dur > RENDER_BUDGET:
