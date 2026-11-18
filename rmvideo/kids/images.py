@@ -98,12 +98,14 @@ def load_zimage(repo: str, local: str | None, log: Log) -> Any:
 
 
 def _flux_decode(pipe: Any, latents: Any, w: int, h: int) -> Any:
-    """Giải mã latent bằng VAE fp32 (pipe.vae đã chuyển fp32)."""
+    """Giải mã latent bằng VAE fp32 (pipe.vae đã chuyển fp32). Latent đặt lên thiết bị CHẠY (cuda): với cpu offload,
+    pipe.vae.device là cpu lúc chưa gọi, hook đưa VAE lên GPU khi decode nhưng không đưa đầu vào theo (lỗi thật 18/11)."""
     import torch
+    dev = pipe._execution_device
     lat = pipe._unpack_latents(latents, h, w, pipe.vae_scale_factor)
     lat = (lat / pipe.vae.config.scaling_factor) + pipe.vae.config.shift_factor
     with torch.no_grad():
-        img = pipe.vae.decode(lat.to(pipe.vae.device, torch.float32), return_dict=False)[0]
+        img = pipe.vae.decode(lat.to(dev, torch.float32), return_dict=False)[0]
     return pipe.image_processor.postprocess(img, output_type="pil")[0]
 
 
