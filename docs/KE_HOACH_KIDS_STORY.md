@@ -3,6 +3,13 @@
 **Mục tiêu (ý tưởng ngày 18/11/2026):** 2 video/ngày, 60-90 giây, 9:16, giọng Việt kể chuyện, một bài học, học 3-5 từ
 tiếng Anh, tự động 100%, đăng Facebook Reels lúc 08:00 và 19:00, chạy trên GPU Kaggle, không dùng model sinh video.
 
+**Quyết định đã chốt (18/11/2026, sau bản đầu):**
+- **Model chữ: Qwen3-30B-A3B** (bản Instruct-2507, không có chế độ suy nghĩ) chạy trên Kaggle, KHÔNG dùng Gemini cho kênh
+  này — hạn mức Gemini miễn phí không gánh nổi hai kênh. Lý do chọn MoE 30B-A3B thay 32B dense: mỗi bước chỉ 3B tham số
+  hoạt động nên sinh chữ nhanh gấp 3-5 lần mà chất lượng gần 32B (đã so ở `KE_HOACH_AI_KAGGLE.md` mục 4).
+- **Fanpage riêng** cho kênh trẻ em (mục 13).
+- **Tên kênh:** đề xuất ở mục 12, chờ bạn chọn.
+
 **Kết luận ngắn:** làm được, và làm được NHANH vì RM-VIDEO đã có sẵn 70% phần nền (gửi việc Kaggle, giọng VieNeu, xếp
 giọng + phụ đề không cần mốc từ, hiệu ứng Ken Burns + chuyển cảnh, chuẩn loudness, đăng Reels hẹn giờ, hàng đợi, thông
 báo). Phần phải viết mới là: chọn đề + chống trùng, lời nhắc cho model chữ, sinh ảnh, bộ dựng riêng cho truyện, vòng lịch
@@ -84,7 +91,7 @@ truyện là đường riêng, không đi qua `renderer.render` (vốn dựng vi
 Botkeep (điều khiển, không GPU)                              Kaggle (một phiên GPU, không chứa key)
 ┌──────────────────────────────────────────────┐             ┌─────────────────────────────────────────────┐
 │ kids_auto: còn khung giờ trống trong 36h?    │             │ rmvideo/kids/job.py (kind="kids")           │
-│  └ chọn đề: bài học + bối cảnh + xung đột    │  spec JSON  │ 1. Qwen3-8B: truyện (190-230 chữ)           │
+│  └ chọn đề: bài học + bối cảnh + xung đột    │  spec JSON  │ 1. Qwen3-30B-A3B: truyện (190-230 chữ)      │
 │    + 3-5 từ tiếng Anh (chưa dùng 30 ngày)    │ ──────────► │    → kiểm mã → 8 cảnh → 8 prompt → tiêu đề   │
 │  └ tạo Job(mode="kids") vào hàng đợi         │             │    (viết lại ≤ 2 lần; giải phóng VRAM)       │
 │ worker → flow/kids.process_kids              │             │ 2. schnell / Z-Image: 8 ảnh 832×1472 → 1080p │
@@ -99,16 +106,26 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 - Model không chạy được trên Botkeep (1,5 vCPU, 2GB ổ) → **không có đường lùi về Botkeep** như remake. Kaggle lỗi / hết
   giờ GPU thì job báo lỗi, `kids_auto` bỏ khung giờ đó và báo admin; hết giờ GPU tuần thì tạm dừng tới thứ Bảy (đã có
   `kaggle_api.quota`).
-- Trọng số model: notebook một lần `rmvideo-kids-models` tải Qwen3-8B (4-bit) + model ảnh về đầu ra của nó (giới hạn
-  20GB), phiên dựng gắn vào bằng `kernel_sources` (đúng mẫu `rmvideo-phowhisper` đang dùng) → không tải 20GB mỗi phiên,
-  không cần token Hugging Face trong notebook tự động (schnell và Z-Image không bị khoá tải).
+- Trọng số model: HAI notebook chạy một lần giữ model, phiên dựng gắn cả hai bằng `kernel_sources` (đúng mẫu
+  `rmvideo-phowhisper` đang dùng; đầu ra mỗi notebook tối đa 20GB):
+  - `rmvideo-kids-llm`: Qwen3-30B-A3B-Instruct-2507 **lượng tử sẵn** — GGUF Q4_K_M (~18GB, của Unsloth/Qwen) cho
+    llama.cpp, hoặc bản bnb-4bit sẵn của Unsloth (~17GB) cho transformers. KHÔNG lượng tử tại chỗ: phải nạp 60GB bf16,
+    RAM Kaggle 31GB không đủ.
+  - `rmvideo-kids-image`: FLUX.1-schnell NF4 hoặc Z-Image-Turbo (7-12GB).
+  → không tải ~30GB mỗi phiên, không cần token Hugging Face trong notebook tự động (các model này không bị khoá tải).
+- Bộ chạy model chữ trên T4 (SM 7.5): **llama-cpp-python** (wheel CUDA dựng sẵn, chia model lên 2 GPU bằng
+  `tensor_split`, MoE chạy tốt trên GPU cũ, ước 15-25 token/giây) là lựa chọn chính; dự phòng transformers + bitsandbytes
+  (bnb chạy được SM 7.5, nhưng MoE trong transformers chậm hơn). vLLM/GPTQ-Marlin KHÔNG dùng: Marlin cần SM 8.0, cài vLLM
+  trên Kaggle hay vỡ phiên bản torch. Nạp xong sinh chữ, rồi giải phóng hẳn VRAM trước khi nạp model ảnh.
+- Bộ nạp này viết chung (`rmvideo/kids/llm.py` → sau tách thành `rmvideo/services/local_llm.py`) để kênh bếp dùng lại
+  khi làm K1 của `KE_HOACH_AI_KAGGLE.md`: bỏ hẳn Gemini cho cả hai kênh.
 
 ## 4. Thiết kế từng bước (đối chiếu 12 bước của ý tưởng)
 
 | # | Ý tưởng | Làm ở đâu | Cách làm |
 | --- | --- | --- | --- |
 | 1 | Story generator (Qwen) | **Botkeep, mã** | `rmvideo/kids/pick.py`: chọn bộ ba + từ, tránh 30 ngày (mục 2.b) |
-| 2 | Script generator | Kaggle, Qwen3-8B | Lời nhắc tiếng Việt: cấu trúc HOOK → VẤN ĐỀ → XUNG ĐỘT → GIẢI QUYẾT → BÀI HỌC → KẾT VUI, câu ngắn, 4 nhân vật đúng tên trong bible, mỗi từ tiếng Anh ≥ 3 lần, tuổi 3-8, không bạo lực/sợ hãi. Qwen3 tắt chế độ suy nghĩ (`enable_thinking=False`), ép JSON `{script, scenes[8]{text, characters[], action}}` — kịch bản và 8 cảnh trong MỘT lượt (bước 4 gộp vào) |
+| 2 | Script generator | Kaggle, Qwen3-30B-A3B | Lời nhắc tiếng Việt: cấu trúc HOOK → VẤN ĐỀ → XUNG ĐỘT → GIẢI QUYẾT → BÀI HỌC → KẾT VUI, câu ngắn, 4 nhân vật đúng tên trong bible, mỗi từ tiếng Anh ≥ 3 lần, tuổi 3-8, không bạo lực/sợ hãi. bản Instruct-2507 không có chế độ suy nghĩ; ép JSON bằng grammar theo schema của llama.cpp (không còn JSON hỏng), kiểm lại bằng mã `{script, scenes[8]{text, characters[], action}}` — kịch bản và 8 cảnh trong MỘT lượt (bước 4 gộp vào) |
 | 3 | Kiểm kịch bản bằng mã | Kaggle (ngay sau sinh) | 190-230 chữ; đủ 8 cảnh, mỗi cảnh 15-40 chữ; mỗi từ tiếng Anh xuất hiện ≥ 3 lần (không phân biệt hoa thường); đủ 4 tên nhân vật; không có từ cấm (danh sách ngắn); cảnh 1 có câu hỏi/câu cảm (hook); cảnh 7 chứa bài học; cảnh 8 kết vui. Lỗi → báo lý do cho model viết lại (tối đa 2 lần) → vẫn lỗi thì việc thất bại, Botkeep chọn đề khác |
 | 4 | Scene splitter | gộp vào bước 2 | Mỗi cảnh = một đoạn giọng + một ảnh; không cần lượt riêng |
 | 5 | Image prompt generator | Kaggle, Qwen (lượt 2, ngắn) | Model chỉ viết **phần hành động** bằng tiếng Anh cho mỗi cảnh (≤ 25 từ, 1-2 nhân vật, bối cảnh). Mã ghép: `[mô tả nhân vật từ bible] + [hành động] + [khối phong cách cố định: Pixar style, cute 3D cartoon, children storybook, bright colors, soft lighting, vertical composition]`. Không cho model đụng khối nhân vật và khối phong cách |
@@ -148,7 +165,7 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | `rmvideo/kids/pick.py` | chọn đề + từ, chống trùng (thuần, test được) |
 | `rmvideo/kids/validate.py` | kiểm kịch bản / cảnh / metadata bằng mã (thuần, chạy cả hai bên) |
 | `rmvideo/kids/prompts.py` | lời nhắc Qwen + ghép prompt ảnh (chụp snapshot như `tests/test_snapshot_prompts.py`) |
-| `rmvideo/kids/llm.py` | Kaggle: nạp Qwen3-8B 4-bit (transformers + bitsandbytes, có sẵn trên Kaggle), sinh JSON, giải phóng |
+| `rmvideo/kids/llm.py` | Kaggle: nạp Qwen3-30B-A3B-Instruct-2507 Q4_K_M bằng llama-cpp-python chia 2 GPU (dự phòng bnb-4bit + transformers), sinh JSON theo grammar, giải phóng VRAM |
 | `rmvideo/kids/images.py` | Kaggle: diffusers schnell / Z-Image, phóng ảnh |
 | `rmvideo/kids/render.py` | Kaggle: kế hoạch cảnh theo giọng + FFmpeg (dùng `slideshow.zoompan_expr`, `_prep`, `encode_args`, `two_pass_loudness`) |
 | `rmvideo/kids/job.py` | Kaggle: chuỗi 1→5, trả result.json; `kaggle_job.run_one` gọi khi `kind == "kids"` |
@@ -166,20 +183,21 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | Bước | Ước |
 | --- | --- |
 | Chờ máy Kaggle | 0-30 phút (ngoài tầm; làm trước 36 giờ nên không lo trễ giờ đăng) |
-| Khởi động: giải nén bundle, pip (diffusers, bitsandbytes, vieneu) | 2-4 phút |
-| Nạp Qwen3-8B 4-bit từ notebook giữ model | 1-2 phút |
-| Sinh chữ: 2 lượt × ~900 token, ~10-15 token/giây trên T4 | 3-5 phút (viết lại +2 phút/lần) |
+| Khởi động: giải nén bundle, pip (llama-cpp-python wheel CUDA, diffusers, bitsandbytes, vieneu) | 3-5 phút |
+| Nạp Qwen3-30B-A3B Q4_K_M (~18GB) từ notebook giữ model lên 2 GPU | 2-4 phút |
+| Sinh chữ: 2 lượt × ~900 token; MoE chỉ 3B tham số hoạt động mỗi bước, ước 15-25 token/giây | 2-4 phút (viết lại +1,5 phút/lần) |
 | Nạp model ảnh + sinh 8 ảnh 832×1472 | schnell NF4: 5-9 phút · Z-Image: ước 6-12 phút · (FLUX.1-dev NF4 28 bước: 25-40 phút — quá nặng) |
 | VieNeu: nạp 1 phút + đọc 8 đoạn | ~1,5 phút |
 | Dựng FFmpeg 75 giây 1080×1920 (NVENC) | 1-2 phút |
-| **Một video** | **15-25 phút phiên, ~12-20 phút GPU** |
-| 2 video/ngày | ~3-5 giờ GPU/tuần (Kaggle cho 30 giờ; kênh nấu ăn đang dùng ~3-5 giờ) |
+| **Một video** | **18-28 phút phiên, ~15-22 phút GPU** |
+| 2 video/ngày | ~4-6 giờ GPU/tuần (Kaggle cho 30 giờ; kênh nấu ăn đang dùng ~3-5 giờ) |
 
 ## 8. Rủi ro
 
 | Rủi ro | Mức | Cách giảm |
 | --- | --- | --- |
-| Qwen3-8B viết tiếng Việt cho trẻ em chưa hay (câu lủng củng, từ Bắc, lặp ý) | Cao | K0 chấm mù 3 truyện so với Gemini (key đang có); bộ kiểm mã + sửa từ miền Bắc bằng mã (đã có cách ở `KE_HOACH_AI_KAGGLE.md`); nếu kém: Qwen3-14B 4-bit (~9GB, vẫn vừa T4) hoặc Qwen3-30B-A3B chia 2 T4; đường cuối: phần chữ gọi Gemini trên Botkeep (đã có sẵn `prompt_engine`, schema JSON) rồi chỉ gửi Kaggle sinh ảnh + giọng + dựng |
+| Qwen3-30B-A3B viết tiếng Việt cho trẻ em chưa hay (câu lủng củng, từ Bắc, lặp ý) | Trung bình | K0 chấm mù 3 truyện (bản Gemini chỉ làm MỐC so sánh, không dùng vận hành); bộ kiểm mã + sửa từ miền Bắc bằng mã (đã có cách ở `KE_HOACH_AI_KAGGLE.md`); sinh 2-3 bản chọn bản điểm cao nhất (best-of-N, MoE sinh nhanh nên rẻ); 5-10 truyện mẫu bạn duyệt đưa vào lời nhắc (few-shot) |
+| Model 30B trên T4: Q4_K_M 18GB phải chia 2 GPU, wheel llama-cpp-python CUDA không khớp CUDA của Kaggle, hoặc tốc độ < 8 token/giây | Trung bình | K0 đo thật cả llama.cpp lẫn bnb-4bit; ghim phiên bản wheel; chậm quá thì Q3_K_M (~14GB) hoặc tắt best-of-N; đường cuối Qwen3-14B dense 4-bit (~9GB, một GPU) |
 | Nhân vật đổi dáng giữa các cảnh | Cao | Mục 2.g; LoRA nhân vật sau MVP |
 | Giấy phép model ảnh | Trung bình | schnell / Z-Image (Apache-2.0); không dùng FLUX.1-dev nếu chưa mua giấy phép |
 | VieNeu đọc sai từ tiếng Anh | Trung bình | Model song ngữ; K0 nghe thử; kho từ có ô phiên âm dự phòng |
@@ -189,11 +207,14 @@ Botkeep (điều khiển, không GPU)                              Kaggle (một
 | Kaggle xem việc chạy kênh nội dung là lạm dụng | Đã ghi ở `KAGGLE_PLAN.md` | Giữ 2 video/ngày, không chạy liên tục |
 | Notebook > 1MB khi bundle lớn lên | Thấp | `kernel_text` đã kiểm; data json nhỏ (< 30KB) |
 
-## 9. K0 — thử trước khi code (điểm dừng, ~1 ngày công, ~2 giờ GPU)
+## 9. K0 — thử trước khi code (điểm dừng, ~1,5 ngày công, ~3 giờ GPU)
 
 Một notebook tay trên Kaggle (2 × T4), chưa đụng mã bot:
-1. **Chữ:** Qwen3-8B 4-bit viết 3 truyện theo 3 đề cho sẵn, đúng lời nhắc dự kiến; đo token/giây; chấm bằng bộ kiểm mã; bạn
-   chấm mù 1-5 cùng bản Gemini làm mốc.
+1. **Chữ:** Qwen3-30B-A3B-Instruct-2507 Q4_K_M qua llama.cpp (chia 2 T4) và bản bnb-4bit qua transformers: đo thời gian
+   nạp, VRAM, token/giây; viết 3 truyện theo 3 đề cho sẵn, đúng lời nhắc dự kiến; chấm bằng bộ kiểm mã; bạn chấm mù 1-5
+   cùng bản Gemini làm mốc (chỉ để so, không dùng vận hành).
+1b. **Nhận diện kênh:** sinh thử avatar + ảnh bìa Page (4 bạn trên đồi cỏ) và màn mở/kết bằng model ảnh đã chọn, với tên
+   kênh bạn chốt ở mục 12.
 2. **Ảnh:** cùng 8 prompt (1 truyện) sinh bằng FLUX.1-schnell NF4 và Z-Image-Turbo; đo giây/ảnh, VRAM; bạn chấm mù: đẹp,
    đúng phong cách Pixar, nhân vật có giống nhau giữa các cảnh không.
 3. **Giọng:** Thục Đoan + Mỹ Duyên đọc 1 kịch bản có 4 từ tiếng Anh; nghe từ tiếng Anh có rõ không; đo chữ/giây.
@@ -210,18 +231,53 @@ Kết quả K0 chốt: model ảnh, model chữ (8B hay lớn hơn / Gemini), gi
 | K4 | Nút trên web, bảng truyện đã làm, sửa theo soát; tài liệu README | 1 ngày |
 | (sau) | LoRA nhân vật; học giờ vàng từ lượt xem; YouTube Shorts (chỉ thêm uploader, phần còn lại dùng chung) | 1-2 ngày |
 
-## 11. Cần bạn quyết
+## 11. Cần bạn quyết (còn lại)
+
+Đã chốt: model chữ Qwen3-30B-A3B trên Kaggle (không Gemini), Fanpage riêng, 4-6 giờ GPU/tuần.
 
 1. **Model ảnh:** đồng ý thay FLUX.1-dev bằng FLUX.1-schnell / Z-Image-Turbo (Apache-2.0) và chọn theo K0? Hay bạn sẽ mua
    giấy phép dev?
-2. **Model chữ:** giữ Qwen3-8B làm chính, nhưng nếu K0 kém mốc Gemini rõ rệt thì ưu tiên lên 14B/30B-A3B trên Kaggle hay
-   chuyển phần chữ sang Gemini trên Botkeep (nhanh nhất, ít GPU nhất)?
-3. **Fanpage riêng** cho kênh trẻ em: bạn tạo Page + token (quyền `pages_manage_posts`, `publish_video`) rồi điền ở Cài đặt.
-4. **Tên kênh, giọng kể** (Thục Đoan hay Mỹ Duyên; hay nhân bản giọng), màn mở/kết muốn có gì.
-5. **Nhạc nền:** 5-10 bài nhạc vui trẻ em có giấy phép dùng thương mại (Pixabay, Mixkit…) tải lên thư mục nhạc trẻ em.
-6. **Duyệt hay tự động hoàn toàn:** MVP tự động 100% như ý tưởng; hay tuần đầu dừng ở bước «chờ duyệt kịch bản» trên
+2. **Tên kênh:** chọn một trong mục 12 (hoặc sửa). Tên thế giới truyện «Đồi Cỏ Non» dùng chung cho mọi phương án.
+3. **Giọng kể:** Thục Đoan (kể chuyện, nhanh hơn ~10%) hay Mỹ Duyên (đọc truyện, chậm, ấm); hay nhân bản giọng.
+4. **Nhạc nền:** 5-10 bài nhạc vui trẻ em có giấy phép dùng thương mại (Pixabay, Mixkit…) tải lên thư mục nhạc trẻ em.
+5. **Duyệt hay tự động hoàn toàn:** MVP tự động 100% như ý tưởng; hay tuần đầu dừng ở bước «chờ duyệt kịch bản» trên
    web (đã có cơ chế `REVIEW_SCRIPT`) để bạn soát lời trước khi tốn GPU sinh ảnh?
-7. Bạn OK ~3-5 giờ GPU/tuần thêm cho kênh này (cộng kênh bếp vẫn dưới 30 giờ)?
+
+## 12. Tên kênh và thế giới truyện (đề xuất)
+
+Tiêu chí: 2-4 âm tiết, trẻ 3 tuổi đọc theo được, nói lên «kể chuyện + bài học + tiếng Anh», làm hashtag không dấu không
+trùng, và tìm trên web ngày 18/11/2026 chưa thấy kênh / sách nào mang đúng tên (chưa kiểm được trên Facebook: khi tạo
+Page hãy gõ thử tên vào ô tìm kiếm Facebook trước).
+
+| Tên | Hashtag | Ưu | Nhược |
+| --- | --- | --- | --- |
+| **Kể Bé Nghe** (đề xuất chính) | #kebenghe | 3 âm tiết, đúng lời ba mẹ nói mỗi tối; vừa là tên vừa là lời mời («Kể Bé Nghe: Thỏ Trắng làm vỡ bình hoa»); đọc rõ, nhớ lâu | Cần tagline để nói phần tiếng Anh |
+| **Đồi Cỏ Non** | #doiconon | Gợi hình, thơ, dễ vẽ logo (ngọn đồi xanh + 4 bạn); dùng luôn tên thế giới truyện | Chưa nói «truyện / tiếng Anh» |
+| **Bốn Bạn Nhỏ** | #bonbannho | Nhấn 4 nhân vật, dễ nhớ | Chung chung, khó tìm kiếm |
+| **Chuyện Nhỏ Lớn Khôn** | #chuyennholonkhon | Nêu rõ bài học, có vần | 4 âm tiết, hashtag dài |
+| **Thỏ Trắng Kể Chuyện** | #thotrangkechuyen | Nhân vật chính dẫn chuyện (kiểu Peppa Pig) | Nhiều kênh «thỏ» / «kể chuyện» na ná; đổi nhân vật chính là kẹt tên |
+
+**Đề xuất chốt:** tên kênh **Kể Bé Nghe**, thế giới truyện **Đồi Cỏ Non** (nơi Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ sống).
+- Tên Page: «Kể Bé Nghe – Truyện & tiếng Anh cho bé»; username `@kebenghe`.
+- Tagline (mô tả Page + màn kết): «Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh».
+- Hashtag cố định: `#kebenghe #doiconon #truyenchobe #hoctienganhchobe #kidsstory` (+2 theo bài học).
+- Tên thế giới đi vào mã: lời nhắc («mọi chuyện xảy ra ở Đồi Cỏ Non»), khối phong cách prompt ảnh («green grassy hill
+  village»), màn mở đầu 1,5 giây («Đồi Cỏ Non · Kể Bé Nghe»), màn kết (3 từ hôm nay + tagline). Thế giới có tên làm
+  mọi truyện cùng một bối cảnh → thương hiệu nhất quán, và ảnh các cảnh cùng «chất» hơn.
+- Cài đặt: `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`, `KIDS_HASHTAGS` (đổi được trên web, không sửa mã).
+
+## 13. Fanpage riêng: việc cần làm
+
+1. Tạo Page mới (facebook.com/pages/create), hạng mục Giáo dục / Giải trí, tên theo mục 12, đặt username; tải avatar + ảnh bìa
+   sinh ở K0 (1b).
+2. Lấy token y như hướng dẫn «Lấy `FB_PAGE_TOKEN`» trong README (cùng app Facebook, cùng token người dùng dài hạn): gọi
+   `me/accounts` sẽ liệt kê CẢ HAI Page → lấy `id` + `access_token` của Page mới. Quyền: `pages_show_list`,
+   `pages_read_engagement`, `pages_manage_posts` (đủ cho Reels API như kênh bếp đang dùng).
+3. Điền `KIDS_FB_PAGE_ID` / `KIDS_FB_PAGE_TOKEN` ở Cài đặt → 🔑 Tài khoản & API (nhập lại mật khẩu web như `FB_PAGE_ID`);
+   nút «Thử token» riêng (`kids_fb_test`) in tên Page để không nhầm với Page bếp.
+4. Trong mã: `autopost.publish(..., page=, token=)` tham số hoá (mặc định như cũ cho kênh bếp); `kids_auto` luôn truyền Page
+   trẻ em; token Page trẻ em không bao giờ đi vào notebook Kaggle (tiền tố `KIDS_FB_` vào `SNAPSHOT_EXCLUDE_PREFIXES`).
+5. Lượt xem đọc riêng theo Page (`views_of` dùng token của Page đó) để sau này học giờ vàng cho kênh trẻ em.
 
 ## Nguồn đã kiểm (18/11/2026)
 
@@ -233,3 +289,8 @@ Kết quả K0 chốt: model ảnh, model chữ (8B hay lớn hơn / Gemini), gi
 - FLUX.1-dev 4-bit (bitsandbytes/diffusers, chạy được Colab miễn phí): https://huggingface.co/diffusers/FLUX.1-dev-bnb-4bit
 - VieNeu-TTS v3 Turbo song ngữ Anh-Việt (code-switching), sea-g2p: https://huggingface.co/pnnbao-ump/VieNeu-TTS-v3-Turbo ;
   https://pypi.org/project/vieneu/
+- Qwen3-30B-A3B: ~17GB ở INT4, bảng tốc độ chính chủ (GPTQ-Int4 trên SGLang/Marlin 120 token/giây, không phải T4):
+  https://qwen.readthedocs.io/en/latest/getting_started/speed_benchmark.html ; ước VRAM của bên thứ ba:
+  https://dev.co/ai/llms/qwen3-30b-a3b-gptq-int4 — chưa có số đo trên 2 × T4, K0 phải đo.
+- Tên kênh: tìm «Kể Bé Nghe», «Đồi Cỏ Non», «Rừng Nhỏ Kể Chuyện», «Chuyện Nhỏ Lớn Khôn», «Bốn Bạn Nhỏ» ngày 18/11/2026
+  không thấy kênh / sách trùng tên (gần nhất: podcast «Kể Chuyện Bé Nghe» của Hello Bacsi, khác tên).
