@@ -74,7 +74,7 @@ _CTX = {
              {"động", "trình", "khách", "lang", "lý", "chính", "quân", "xử", "nghề", "tinh", "tây", "công"}),
     "cá": (set(), {"nhân", "biệt", "tính", "thể", "cược", "độ", "mập"}),
     "cơm": ({"với", "kèm", "cùng", "ăn", "bữa"}, set()),
-    "mùi": ({"có", "bay", "át", "khử", "hết", "bớt", "đủ", "cái", "nặng", "đậm", "dậy", "toàn", "ra", "thơm"},
+    "mùi": ({"có", "bay", "át", "khử", "hết", "bớt", "đủ", "cái", "nặng", "đậm", "dậy", "toàn", "ra", "thơm", "sạch"},
             {"thơm", "hôi", "vị", "tanh", "khét", "gì", "rất", "của", "đặc", "hấp", "lạ", "nồng", "hăng", "khó", "quá",
              "lắm", "ghê", "này", "đó", "bay", "dầu", "khói", "nhẹ"}),
 }
@@ -93,19 +93,29 @@ def _ctx_skip(alias: str, syl: list, i: int) -> bool:
     return alias == "mùi" and any(syl[i + 1:i + 1 + len(a)] == a for a in _ALIAS_SYL if a != ["mùi"])
 
 
-def counts(text: str) -> dict:
-    """{chỉ số nhóm nguyên liệu: số lần nhắc} (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+def spans(text: str) -> list:
+    """[(vị trí âm tiết, số âm tiết, chỉ số nhóm)] từng lần nhắc tên nguyên liệu, theo thứ tự trong câu (vị trí theo
+    _syllables: chữ thường, bỏ dấu câu). Cụm dài ưu tiên trước, từ đa nghĩa xét chữ đứng trước / sau như counts
+    («tiến hành», «khử mùi», «ăn kèm với cơm» không phải nguyên liệu)."""
     syl = _syllables(text)
     used = [False] * len(syl)
-    found: dict = {}
+    out: list = []
     for alias, gi in _ALIASES:
         a = alias.split()
         n = len(a)
         for i in range(len(syl) - n + 1):
             if syl[i:i + n] == a and not any(used[i:i + n]) and not (n == 1 and _ctx_skip(alias, syl, i)):
-                found[gi] = found.get(gi, 0) + 1
+                out.append((i, n, gi))
                 for j in range(i, i + n):
                     used[j] = True
+    return sorted(out)
+
+
+def counts(text: str) -> dict:
+    """{chỉ số nhóm nguyên liệu: số lần nhắc} (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+    found: dict = {}
+    for _i, _n, gi in spans(text):
+        found[gi] = found.get(gi, 0) + 1
     return found
 
 

@@ -4,6 +4,7 @@ LUẬT CỨNG: giữ nguyên văn định lượng công thức, giá, địa ch
 import asyncio
 import contextvars
 import difflib
+import functools
 import json
 import logging
 import re
@@ -911,7 +912,8 @@ _COOK_WORDS = set("hấp luộc chiên xào nấu kho nướng rang trụng ch�
                   "nước sôi lửa món mẻ con".split())
 
 
-def _idea_grams(text: str) -> set:
+@functools.lru_cache(maxsize=4096)
+def _idea_grams(text: str) -> frozenset:
     toks = re.findall(r"\w+", (text or "").lower())
     out = set()
     for i in range(len(toks) - 2):
@@ -924,7 +926,7 @@ def _idea_grams(text: str) -> set:
         if all(t in _COOK_WORDS or ingredients.find(t) for t in content):
             continue
         out.add(" ".join(g))
-    return out
+    return frozenset(out)
 
 
 # Cụm 2 chữ (bản 1.0.2, job 2: «…thơm lừng cả gian bếp» rồi đoạn kế «…thơm lừng mũi»): chỉ bắt khi lặp SÁT nhau (trong
@@ -935,11 +937,12 @@ _PAIR_STOP = _REPEAT_STOP | set("mọi bạn bà con các anh chị em quá lắ
                                 "dữ hết sạch đều liền ngay lại vừa mới không chẳng".split())
 
 
-def _idea_pairs(text: str) -> set:
+@functools.lru_cache(maxsize=4096)
+def _idea_pairs(text: str) -> frozenset:
     toks = re.findall(r"\w+", (text or "").lower())
-    return {f"{a} {b}" for a, b in zip(toks, toks[1:])
-            if not ({a, b} & (_PAIR_STOP | _COOK_WORDS)) and not _qty_word(a) and not _qty_word(b)
-            and not ingredients.find(f"{a} {b}")}
+    return frozenset(f"{a} {b}" for a, b in zip(toks, toks[1:])
+                     if not ({a, b} & (_PAIR_STOP | _COOK_WORDS)) and not _qty_word(a) and not _qty_word(b)
+                     and not ingredients.find(f"{a} {b}"))
 
 
 def repeated_ideas(items: list) -> dict:
@@ -967,9 +970,17 @@ def repeated_ideas(items: list) -> dict:
 # Lời gốc tách «…nửa muỗng đường» | «thêm nửa muỗng hạt nêm nữa» thành hai đoạn; AI viết luôn «thêm nửa muỗng hạt nêm»
 # vào đoạn trước, đoạn sau lại đọc «Thêm nửa muỗng hạt nêm nữa» -> người xem nghe thành 1 muỗng hạt nêm. Đếm theo bộ
 # (định lượng, nguyên liệu) nên kiểm số theo TẬP hợp (check_numbers) không thấy.
-_QTY_TOK_RE = re.compile(r"\d+(?:[.,/]\d+)*|\w+")
-_QTY_MOD = {"canh", "cà", "phê", "café", "lớn", "nhỏ", "vun", "gạt", "đầy", "to"}
-_TIME_UNITS = {"phút", "giây", "tiếng", "giờ", "ngày", "độ", "%"}      # «luộc mực 4 phút»: thời gian, không phải lượng
+_QTY_MOD = {"canh", "lớn", "nhỏ", "vun", "gạt", "đầy", "to"}
+# chỉ định lượng kiểu nêm nếm: nói lại «nửa muỗng hạt nêm» là người xem nêm hai lần; nói lại «1 kg mực» thì không (soát
+# độc lập 1.0.2). Thời gian («luộc mực 4 phút») không phải định lượng.
+_SEASON_UNITS = {"muỗng", "thìa", "giọt", "nhúm", "chén", "bát", "ly", "cốc", "ml", "lít", "l"}
+# «muỗng / thìa cà phê» là đơn vị, không phải nguyên liệu cà phê; «1/2» đọc theo âm tiết là «1 phần 2»
+_CF_RE = re.compile(r"(?<![\w])(muỗng|thìa)\s+cà\s+phê(?![\w])", re.IGNORECASE)
+_FRAC_RE = re.compile(r"(?<![\w])(\d+)\s*/\s*(\d+)(?![\w])")
+
+
+def _unit_text(text: str) -> str:
+    return _CF_RE.sub(r"\1 nhỏ", text or "")
 
 
 def _qty_run(toks: list, tail: bool) -> list:
@@ -981,29 +992,31 @@ def _qty_run(toks: list, tail: bool) -> list:
             break
         run.append(w)
     run = run[::-1] if tail else run
-    return run if any(re.fullmatch(r"[\d.,/]+", w) or w in ingredients._WORDNUM for w in run) else []
+    return run if any(re.fullmatch(r"[\d.,]+", w) or w in ingredients._WORDNUM for w in run) else []
+
+
+@functools.lru_cache(maxsize=4096)
+def _qty_pairs(text: str) -> tuple:
+    out: list = []
+    for clause in re.split(r"[,.;!?…]", _FRAC_RE.sub(r"\1 phần \2", _unit_text(text)).lower()):
+        toks = ingredients._syllables(clause)
+        free = 0                       # chữ định lượng trước vị trí này đã thuộc về nguyên liệu đứng trước
+        for p, n, g in ingredients.spans(clause):
+            before = _qty_run(toks[max(free, p - 5):p], tail=True)
+            after = [] if before else _qty_run(toks[p + n:p + n + 5], tail=False)
+            q = [x for x in ingredients.numbers(" ".join(before or after))
+                 if x.split(" ", 2)[1:2] and x.split(" ", 2)[1] in _SEASON_UNITS]
+            if q:
+                out.append((q[-1] if before else q[0], g))
+            free = p + n + (len(after) if q else 0)
+    return tuple(out)
 
 
 def qty_pairs(text: str) -> list:
-    """[(định lượng, nhóm nguyên liệu)] của các cụm «định lượng + tên» / «tên + định lượng» trong câu: «thêm nửa muỗng
-    hạt nêm», «hạt nêm nửa muỗng» -> [("0.5 muỗng", nhóm hạt nêm)]."""
-    out: list = []
-    for clause in re.split(r"[,.;!?…]", (text or "").lower()):
-        toks = _QTY_TOK_RE.findall(clause)
-        p = 0
-        while p < len(toks):
-            got = ingredients.find(" ".join(toks[p:p + 3])) - ingredients.find(" ".join(toks[p + 1:p + 3]))
-            if not got:
-                p += 1
-                continue
-            n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), 3)
-            before, after = _qty_run(toks[max(0, p - 5):p], tail=True), _qty_run(toks[p + n:p + n + 5], tail=False)
-            q = ingredients.numbers(" ".join(before)) if before else ingredients.numbers(" ".join(after))
-            q = [x for x in q if x.split(" ", 1)[-1] not in _TIME_UNITS]
-            if q:
-                out += [(q[-1] if before else q[0], g) for g in sorted(got)]
-            p += n
-    return out
+    """[(định lượng, nhóm nguyên liệu)] của các cụm «định lượng + tên» / «tên + định lượng» kiểu nêm nếm trong câu:
+    «thêm nửa muỗng hạt nêm», «hạt nêm nửa muỗng» -> [("0.5 muỗng", nhóm hạt nêm)]. Lời không dấu phẩy «nêm đường 1 muỗng
+    nước mắm 2 muỗng»: định lượng đã đứng sau nguyên liệu trước thì không gán lại cho nguyên liệu sau."""
+    return list(_qty_pairs(text or ""))
 
 
 def anticipated_items(items: list) -> dict:
@@ -1034,8 +1047,7 @@ def drop_anticipated(text: str, pairs: set) -> str:
     groups = {g for _q, g in pairs}
 
     def ahead_only(p: str) -> bool:
-        mine = set(qty_pairs(p))
-        return bool(mine & pairs) and ingredients.find(p) <= groups
+        return bool(set(qty_pairs(p)) & pairs) and ingredients.find(_unit_text(p)) <= groups
     keep = [p for p in parts if not ahead_only(p)]
     if len(keep) == len(parts):
         return text
@@ -1052,7 +1064,8 @@ def drop_anticipated(text: str, pairs: set) -> str:
 # («mực hấp gừng»), câu sơ chế / chuẩn bị (hình bày sẵn nguyên liệu trên thớt), câu hook, khúc điểm danh / tóm tắt.
 EARLY_AHEAD = 15.0
 _DISH_METHODS = set("hấp luộc chiên xào nấu kho nướng rang rim om hầm sốt xốt trộn quay chưng tiềm um áp".split())
-_PREP_VERBS = set("thái cắt băm xắt gọt rửa đập giã bóc lột lặt ngâm sơ chuẩn".split())
+_PREP_VERBS = set("thái cắt băm xắt gọt rửa đập giã bóc lột lặt ngâm".split())
+_PREP_PHRASES = (" sơ chế ", " chuẩn bị ")
 _COOK_VERBS = {"luộc", "nấu", "hấp", "chiên", "xào", "kho", "nướng", "rang", "trụng", "chần", "hầm", "om", "rim"}
 
 
@@ -1069,28 +1082,23 @@ def _adjective(toks: list, p: int, n: int) -> bool:
     return not ((p and toks[p - 1] in _FRUIT_UNITS) or after in (["vô"], ["vào"]) or (after and after[0] in _PREP_VERBS))
 
 
-def _item_mentions(text: str) -> list:
-    """[(vị trí chữ, số chữ, {nhóm}, là đuôi tên món)] các tên nguyên liệu trong câu (chữ thường, bỏ dấu câu). Đuôi tên
-    món: nguyên liệu đứng ngay sau một cách nấu mà ngay trước cách nấu là nguyên liệu khác («mực hấp gừng», «thịt ba chỉ
-    kho tiêu»), hoặc nối liền đuôi tên món trước («mực xào sả ớt»). «thơm» chỉ mùi thơm: không tính."""
-    toks = _norm_words(text)
+@functools.lru_cache(maxsize=4096)
+def _item_mentions(text: str) -> tuple:
+    """((vị trí chữ, số chữ, {nhóm}, là đuôi tên món), …) các tên nguyên liệu trong câu (chữ theo _norm_words của
+    _unit_text(text)). Tra như ingredients.spans: có xét chữ đứng trước / sau («tiến hành», «khử mùi», «ăn kèm với cơm»
+    không phải nguyên liệu). Đuôi tên món: nguyên liệu đứng ngay sau một cách nấu mà ngay trước cách nấu là nguyên liệu
+    khác («mực hấp gừng», «thịt ba chỉ kho tiêu»), hoặc nối liền đuôi tên món trước («mực xào sả ớt»). «thơm» chỉ mùi
+    thơm: không tính."""
+    toks = _norm_words(_unit_text(text))
     out: list = []
-    p = 0
-    while p < len(toks):
-        got = ingredients.find(" ".join(toks[p:p + 3])) - ingredients.find(" ".join(toks[p + 1:p + 3]))
-        if not got:
-            p += 1
-            continue
-        n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), 3)
+    for p, n, g in ingredients.spans(" ".join(toks)):
         if _adjective(toks, p, n):
-            p += n
             continue
         prev = out[-1] if out else None
         tail = prev is not None and ((toks[p - 1] in _DISH_METHODS and prev[0] + prev[1] == p - 1)
                                      or (prev[3] and prev[0] + prev[1] == p))
-        out.append((p, n, got, tail))
-        p += n
-    return out
+        out.append((p, n, frozenset({g}), tail))
+    return tuple(out)
 
 
 def first_mentions(segs: list) -> dict:
@@ -1100,26 +1108,33 @@ def first_mentions(segs: list) -> dict:
     for st, text in segs:
         if _side(text):
             continue
-        for _p, _n, groups, tail in _item_mentions(text):
+        for _p, _n, groups, tail in _item_mentions(text or ""):
             if not tail:
                 for g in groups:
                     out.setdefault(g, st)
     return out
 
 
+def _prep_talk(toks: list) -> bool:
+    """Câu nói chuyện sơ chế / chuẩn bị («thái sẵn ít gừng, hành tây với ớt sừng», «gừng, ớt mình đã chuẩn bị sẵn»):
+    hình đang bày sẵn nguyên liệu, nhắc tới là đúng."""
+    return bool(set(toks) & _PREP_VERBS) or any(x in f" {' '.join(toks)} " for x in _PREP_PHRASES)
+
+
 def early_items(items: list, first: dict, ahead: float = EARLY_AHEAD) -> dict:
     """items: [(k, giây bắt đầu, lời mới)] (bỏ câu hook, khúc điểm danh / tóm tắt, đoạn giữ tiếng gốc). first: lần đầu
-    lời gốc nói tới từng nguyên liệu (first_mentions, cả video). Trả {k: [tên nguyên liệu]} nói trước khi có."""
+    lời gốc nói tới từng nguyên liệu (first_mentions, cả video). Trả {k: [tên nguyên liệu]} nói trước khi có. Cả câu
+    nói chuyện sơ chế / chuẩn bị thì không tính."""
     out: dict = {}
     for k, st, text in items:
-        toks = _norm_words(text)
         names = []
-        for p, n, groups, tail in _item_mentions(text):
-            if tail or set(toks[max(0, p - 6):p]) & _PREP_VERBS:     # «thái sẵn gừng với ớt sừng»: cả cụm sơ chế
+        for sent in re.split(r"(?<=[.!?…])\s+", text or ""):
+            toks = _norm_words(_unit_text(sent))
+            if _prep_talk(toks):
                 continue
-            late = [g for g in groups if g in first and first[g] - st >= ahead]
-            if late:
-                names.append(" ".join(toks[p:p + n]))
+            for p, n, groups, tail in _item_mentions(sent):
+                if not tail and any(g in first and first[g] - st >= ahead for g in groups):
+                    names.append(" ".join(toks[p:p + n]))
         if names:
             out[k] = names
     return out
@@ -1127,12 +1142,19 @@ def early_items(items: list, first: dict, ahead: float = EARLY_AHEAD) -> dict:
 
 def drop_early(text: str, names: list) -> str:
     """Bỏ tên nguyên liệu nói trước khi có, chỉ khi nó đứng ngay sau động từ nấu («lúc luộc gừng thế này» -> «lúc luộc
-    thế này»): cách nói khác thì giữ (AI viết lại là chính, đây chỉ là chốt cuối)."""
+    thế này») và không phải đầu một tên dài hơn («xào hành tây» giữ nguyên khi tên là «hành»): cách nói khác thì giữ
+    (AI viết lại là chính, đây chỉ là chốt cuối)."""
     out = text or ""
     for name in names:
-        pat = re.compile(r"(?<![\w])(" + "|".join(sorted(_COOK_VERBS)) + r")\s+" + re.escape(name) + r"(?![\w])",
+        pat = re.compile(r"(?<![\w])(" + "|".join(sorted(_COOK_VERBS)) + r")\s+(" + re.escape(name) + r")(?![\w])",
                          re.IGNORECASE)
-        out = pat.sub(r"\1", out, count=1)
+        for m in pat.finditer(out):
+            nxt = re.match(r"\s+(\w+)", out[m.end():])
+            longer = nxt and any(i == 0 and n > len(name.split())
+                                 for i, n, _g in ingredients.spans(f"{m.group(2)} {nxt.group(1)}"))
+            if not longer:
+                out = out[:m.start(2)].rstrip() + out[m.end(2):]
+                break
     return re.sub(r"\s{2,}", " ", out).strip()
 
 
@@ -1337,7 +1359,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return repeated_ideas([(k, got.get(k, "")) for k, st, slot, mx, tx, span in slots
                                if k and osts.get(k) != "orig" and k in got and not _side(tx)])
 
-    plate_k = None if plate_at is None else next((k for k, st, *_ in slots if st >= plate_at - 0.3), len(slots))
+    # đoạn CHỨA mốc lên dĩa tính là đã lên dĩa: mốc đầu đoạn bị dời sớm (bám điểm chuyển cảnh, gộp câu) nên đoạn có câu
+    # «đổ ra cho mình» có khi bắt đầu trước mốc vài trăm mili giây (soát độc lập 1.0.2)
+    plate_k = None if plate_at is None else next((k for k, st, slot, *_ in slots if st + slot > plate_at), len(slots))
 
     def _plates(got, osts):
         """Đoạn nói «dĩa + món» khi món chưa được bày ra dĩa (early_plate). Đoạn 0 (câu hook, hay chiếu món xong) không

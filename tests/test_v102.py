@@ -260,3 +260,100 @@ def test_subtitles_follow_voice_past_outro_deadline():
     assert assemble.subtitle_until([(174.5, 174.7, "nha.")], 174.76, 177.26) == 174.76   # như cũ, không kéo thêm
     assert assemble.subtitle_until(words, 177.26, 177.26) is None             # không có màn kết
     assert assemble.subtitle_until([(176.9, 177.5, "nha")], 174.76, 177.26) == 177.26   # không quá hết video
+
+
+# ---------------- soát độc lập 1.0.2: các ca bắt nhầm / bỏ sót ----------------
+
+def test_plating_slot_itself_counts_as_plated(monkeypatch):
+    """Mốc đầu đoạn bị dời sớm (bám điểm chuyển cảnh, gộp câu): đoạn CHỨA mốc lên dĩa không bị bắt «dĩa» sớm."""
+    segs = [(0.0, 2.0, "Mực đông hấp kiểu này ngon ghê"), (3.0, 9.0, "Sắp chín rồi thì rưới chút dầu mè vô cho thơm"),
+            (9.4, 14.0, "Rồi xong lúc này mình sẽ đổ ra cho mình")]
+    new = ["Mực đông hấp kiểu này giòn ngọt ghê luôn á cả nhà.", "Sắp chín thì rưới dầu mè, mùi thơm bay lên phức luôn.",
+           "Giờ đổ hết ra dĩa, dĩa mực hấp gừng nóng hổi thơm phức nè cả nhà."]
+    seen = _fake_ai(monkeypatch, [new] * 3)
+    out = asyncio.run(pe.generate_timed("", "", "cook", segs, 15.0, plate_at=10.2))   # mốc nằm trong đoạn 2 (9.4-…)
+    assert not any("CHƯA được bày ra dĩa" in p for p in seen) and out["segments"][2]["text"] == new[2]
+
+
+def test_amount_goes_to_the_right_item_in_unpunctuated_speech():
+    pairs = pe.qty_pairs("giờ mình nêm đường 1 muỗng nước mắm 2 muỗng")
+    assert [(q, pe.ingredients.GROUPS[g][0]) for q, g in pairs] == [("1 muỗng", "đường"), ("2 muỗng", "nước mắm")]
+    items = [(1, "giờ mình nêm đường 1 muỗng nước mắm 2 muỗng", "Giờ mình nêm 1 muỗng đường, 2 muỗng nước mắm cho đậm đà."),
+             (2, "rồi thêm 2 muỗng nước mắm nữa cho đậm", "Rồi thêm 2 muỗng nước mắm nữa cho đậm vị nha.")]
+    assert pe.anticipated_items(items) == {}                      # gốc cũng nêm nước mắm hai lần
+
+
+def test_teaspoon_is_a_unit_not_coffee():
+    text = "Giờ mình thả mực vô nồi, rồi nêm nửa muỗng cà phê bột ngọt, nửa muỗng cà phê đường, thêm nửa muỗng cà phê hạt nêm."
+    got = pe.qty_pairs(text)
+    assert {pe.ingredients.GROUPS[g][0] for _q, g in got} == {"bột ngọt", "đường", "hạt nêm"}
+    hat_nem = {p for p in got if pe.ingredients.GROUPS[p[1]][0] == "hạt nêm"}
+    assert pe.drop_anticipated(text, hat_nem) == \
+        "Giờ mình thả mực vô nồi, rồi nêm nửa muỗng cà phê bột ngọt, nửa muỗng cà phê đường."
+    assert pe._item_mentions("nêm nửa muỗng cà phê đường") and all(
+        "cà phê" not in pe.ingredients.GROUPS[next(iter(m[2]))] for m in pe._item_mentions("nêm nửa muỗng cà phê đường"))
+
+
+def test_restating_main_ingredient_amount_is_fine():
+    items = [(1, "chuẩn bị 1 kg mực đông đá", "Chuẩn bị sẵn 1 kg mực đông đá nha."),
+             (2, "thả hết vô nồi nước sôi", "Thả hết 1 kg mực vô nồi nước sôi luôn.")]
+    assert pe.anticipated_items(items) == {}                      # chỉ định lượng nêm nếm (muỗng, giọt…) mới tính
+
+
+def test_early_items_keep_word_context():
+    first = {next(iter(pe.ingredients.find(n))): 150.0 for n in ("rau mùi", "hành lá", "cơm trắng")}
+    first[next(iter(pe.ingredients.find("mực")))] = 0.0
+    items = [(1, 10.0, "Mực luộc khéo thì khử sạch mùi."), (2, 12.0, "Món này mà ăn kèm với cơm trắng là hết sảy."),
+             (3, 14.0, "Rồi mình tiến hành luộc mực nha."),
+             (4, 16.0, "Trong lúc chờ mực chín thì mình tranh thủ thái sẵn ít gừng, hành tây với ớt sừng nha."),
+             (5, 18.0, "Hình là gừng, hành tây, ớt sừng mình đã chuẩn bị sẵn.")]
+    first.update({next(iter(pe.ingredients.find(n))): 150.0 for n in ("gừng", "hành tây", "ớt sừng")})
+    assert pe.early_items(items, first) == {}
+
+
+def test_drop_early_keeps_longer_names():
+    text = "Xào hành tây với mực cho thơm, rồi mình xào hành luôn nha."
+    assert pe.drop_early(text, ["hành"]) == "Xào hành tây với mực cho thơm, rồi mình xào luôn nha."
+
+
+def test_plate_time_picks_plating_from_the_plate_step_within_cut():
+    plan = edl.EditPlan(pieces=[edl.Piece(0.0, 200.0)], level="light")
+    steps = [r.Step("plate", 0, 0, t0=99.0, t1=105.0)]
+    base = dict(facts=r.Facts(is_recipe=True, steps=steps), edit=plan, stretch=1.0, end_src=200.0)
+    sauce = SimpleNamespace(raw_segs=[(58.0, 59.0, "nó sẽ được đổ ra"), (100.0, 101.0, "múc ra dĩa"),
+                                      (140.0, 141.0, "Giờ pha chút nước chấm, mình múc ra chén nha")], **base)
+    assert remake.Remake.plate_kw(sauce, 0.0) == {"plate_at": 100.0}    # câu đầu tiên từ lúc bước bày món bắt đầu
+    late = SimpleNamespace(raw_segs=[(58.0, 59.0, "nó sẽ được đổ ra")], **base)
+    assert remake.Remake.plate_kw(late, 0.0) == {"plate_at": 99.0}      # không có câu nào sau đó: lấy bước bày món
+    cut = SimpleNamespace(raw_segs=[(150.0, 151.0, "múc ra dĩa")], facts=None, edit=None, stretch=1.25, end_src=120.0)
+    assert remake.Remake.plate_kw(cut, 2.0) == {}                       # câu nằm sau phần được dựng: bỏ
+    loose = SimpleNamespace(raw_segs=[(100.0, 101.0, "múc ra dĩa")], facts=None, edit=None, stretch=1.25, end_src=0.0)
+    assert remake.Remake.plate_kw(loose, 2.0) == {"plate_at": 127.0}    # không kế hoạch dựng: kéo chậm + đoạn mở đầu
+
+
+def test_cross_batch_anticipated_amount_dropped(monkeypatch):
+    async def fake(title, desc, mode, part, end, images_for=None, extra="", intro=True, **kw):
+        out = []
+        for k, s in enumerate(part):
+            text = f"Lời mới cho đoạn số {s[0]:.0f} nè."
+            if s[0] == 54.0:                                       # đoạn cuối lô 1 nói trước hạt nêm của lô 2
+                text = "Giờ mình nêm nửa muỗng đường, thêm nửa muỗng hạt nêm cho đậm."
+            if s[0] == 56.0:
+                text = "Thêm nửa muỗng hạt nêm nữa, khuấy cho tan đều."
+            out.append({"i": k, "start": s[0], "slot": 1.0, "text": text, "orig": s[2], "ost": "new"})
+        return {"segments": out, "title": "t", "caption": "c", "hashtags": "#a"}
+    monkeypatch.setattr(pe, "generate_timed", fake)
+    segs = [(2.0 * i, 2.0 * i + 1.0, f"gốc số {i}.") for i in range(60)]
+    segs[27] = (54.0, 55.0, "Rồi mình nêm nửa muỗng đường.")
+    segs[28] = (56.0, 57.0, "Thêm nửa muỗng hạt nêm nữa.")
+    out = asyncio.run(pe.generate_timed_any("", "", "cook", segs, 121.0))
+    by_start = {s["start"]: s["text"] for s in out["segments"]}
+    assert by_start[54.0] == "Giờ mình nêm nửa muỗng đường." and by_start[56.0].startswith("Thêm nửa muỗng hạt nêm")
+
+
+def test_recap_at_the_end_does_not_start_early():
+    segs = [{"start": 168.1, "slot": 3.6, "text": "Làm mực hấp gừng tại nhà xong rồi đó."},
+            {"start": 171.7, "slot": 3.06, "text": "Tóm lại là luộc mực 4 phút rồi cho hành tây vô.",
+             "orig": "Tóm lại: luộc mực 4 phút, cho hành tây vô."}]
+    plan, _ = voiceplan.plan_voice([2.5, 4.4], segs, 174.76)
+    assert plan[1]["start"] >= 171.7 - voiceplan.VOICE_BACK - 1e-6     # thẻ TÓM TẮT hiện đúng mốc: không lùi xa

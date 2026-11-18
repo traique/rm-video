@@ -44,6 +44,18 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   - `repeated_ideas` bắt thêm cụm 2 chữ lặp trong 2 đoạn kế tiếp (không tính chữ gọi «mọi người», chữ nhấn «cực kỳ», định lượng).
   - Cụm 3 chữ không còn tính chữ định lượng («thêm nửa muỗng» ở hai bước nêm khác nhau không phải lặp ý).
   - Trên lời job 2 bắt «thơm lừng», «sốc nhiệt», «4 phút»; không còn bắt nhầm «thêm nửa muỗng», «làm mực hấp».
+- **Soát độc lập trước khi gộp** (đã sửa, có test, chạy lại trên lời gốc thật của video mực):
+  - Đoạn chứa mốc lên dĩa tính là đã lên dĩa. Mốc đầu đoạn bị dời sớm khi bám điểm chuyển cảnh, nên trước đó chính câu «đổ ra cho mình» bị bắt nhầm.
+  - Mốc lên dĩa:
+    - có bước «bày món» thì lấy câu đổ / bày ra ĐẦU TIÊN từ lúc bước đó bắt đầu, không có thì lấy chính bước đó;
+    - chỉ tính phần video được dựng, nên câu «múc nước chấm ra chén» cuối video không làm mốc trễ.
+  - Lời không dấu phẩy «nêm đường 1 muỗng nước mắm 2 muỗng»: định lượng không bị gán nhầm cho nguyên liệu sau.
+  - «muỗng / thìa cà phê» là đơn vị, không phải cà phê; chỉ tính định lượng kiểu nêm nếm (muỗng, giọt…). Nói lại «1 kg mực» không bị bắt.
+  - Tra nguyên liệu có xét chữ đứng trước / sau (`ingredients.spans`): «tiến hành», «khử sạch mùi», «ăn kèm với cơm» không còn bị coi là nguyên liệu.
+  - Cả câu nói chuyện sơ chế / chuẩn bị không bị bắt «nhắc sớm».
+  - Bỏ tên nguyên liệu không cắt đầu tên dài hơn: «xào hành tây» giữ nguyên.
+  - Không lùi câu tóm tắt cuối 1,5 giây.
+  - Có bộ nhớ đệm cho các bộ dò: một lô 30 đoạn × 3 lượt AI soát mất 0,3-0,4 giây (trước khi đệm 4,6 giây).
 - Test: `tests/test_v102.py`; snapshot `short_version_after_full`, `style_strong_botkeep` ghi thêm mốc lên dĩa gửi cho AI.
 
 ## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)

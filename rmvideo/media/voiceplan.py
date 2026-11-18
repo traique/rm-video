@@ -119,7 +119,9 @@ def plan_voice(durs: list, segs: list, total_dur: float):
         start = max(s["start"], prev_end + 0.12)
         f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
-            start = max(prev_end + 0.12, s["start"] - (VOICE_BACK_LAST if last else VOICE_BACK), min(start, nxt - d / f))
+            # lùi xa chỉ cho câu cuối thường, không cho khúc tóm tắt (thẻ TÓM TẮT hiện đúng mốc theo hình)
+            back = VOICE_BACK_LAST if last and not side_orig(s.get("orig")) else VOICE_BACK
+            start = max(prev_end + 0.12, s["start"] - back, min(start, nxt - d / f))
         limit = total_dur - 0.05 if last else nxt + (0.0 if hard or pin else _spill(durs, segs, i, base, total_dur))
         if start + d / f > limit:                   # (2) đã lấn hết phần cho phép -> (3) nhanh hơn tốc độ chung chút
             f = max(base, min(d / max(0.3, limit - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung

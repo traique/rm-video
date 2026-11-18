@@ -56,6 +56,7 @@ SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
 NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") = video KHÔNG LỜI
 PLATE_SKIP = 3.0         # mốc món lên dĩa: bỏ mấy giây đầu (câu hook khoe món đã bày xong)
+PLATE_TOL = 3.0          # ... câu «trút ra dĩa» nói sớm hơn lúc bước «bày món» bắt đầu chừng này vẫn tính
 FULL_GATE = [(0.0, 99999.0)]   # không có mốc lời: tắt tiếng nền cả bài
 SHORT_LABEL = "Bản ngắn"
 # job.id -> hàm làm bản ngắn (SHORT_VERSION): dispatch.run_job gọi SAU khi đã giao bản đầy đủ
@@ -862,15 +863,21 @@ class Remake:
         return kw
 
     def plate_kw(self, teaser: float) -> dict[str, Any]:
-        """{"plate_at": giây video ra món lên dĩa} cho AI viết lời (bản 1.0.2), {} nếu không biết. Bằng chứng: câu gốc
-        nói đổ / bày ra dĩa (CUỐI CÙNG, trên TOÀN BỘ lời gốc — bản ngắn hay bỏ câu đó: job 2, bản ngắn 1:05 «nhìn dĩa mực
-        bóng bẩy» khi mực còn trong nồi) và bước «bày món» đầu tiên AI xem video thấy; lấy cái MUỘN hơn: câu gốc có khi
-        khớp nhầm (video mực giây 58: «nở ra» nghe thành «đổ ra» lúc mực đang luộc). Bỏ PLATE_SKIP giây đầu (câu hook
-        khoe món xong). Quy ra trục video ra theo kế hoạch dựng đang dùng: nằm ở quãng đã bỏ thì lấy đầu khúc kế tiếp."""
-        said = [a for a, _b, t in (self.raw_segs or []) if a >= PLATE_SKIP and prompt_engine.plating_said(t)]
+        """{"plate_at": giây video ra món lên dĩa} cho AI viết lời (bản 1.0.2), {} nếu không biết. Tìm trên TOÀN BỘ lời
+        gốc phần được dựng (bản ngắn hay bỏ câu «trút ra dĩa»: job 2, bản ngắn 1:05 «nhìn dĩa mực bóng bẩy» khi mực còn
+        trong nồi): có bước «bày món» AI xem video thấy thì lấy câu gốc nói đổ / bày ra ĐẦU TIÊN từ lúc bước đó bắt đầu
+        (câu khớp sớm hơn có khi là nghe nhầm: video mực giây 58 «nở ra» thành «đổ ra» lúc mực đang luộc; câu muộn hơn có
+        khi là múc nước chấm ra chén), không có câu nào thì lấy chính bước đó; không có bước thì lấy câu gốc cuối cùng.
+        Bỏ PLATE_SKIP giây đầu (câu hook khoe món xong). Quy ra trục video ra theo kế hoạch dựng đang dùng: nằm ở quãng đã
+        bỏ thì lấy đầu khúc kế tiếp."""
+        end = getattr(self, "end_src", 0.0) or float("inf")
+        said = [a for a, _b, t in (self.raw_segs or []) if PLATE_SKIP <= a < end and prompt_engine.plating_said(t)]
         facts = getattr(self, "facts", None)
-        seen = [s.t0 for s in (facts.steps if facts is not None else []) if s.kind == "plate" and s.t0 >= PLATE_SKIP]
-        src = max(said[-1:] + seen[:1], default=None)
+        seen = [s.t0 for s in (facts.steps if facts is not None else []) if s.kind == "plate" and PLATE_SKIP <= s.t0 < end]
+        if seen:
+            src: float | None = next((a for a in said if a >= seen[0] - PLATE_TOL), seen[0])
+        else:
+            src = said[-1] if said else None
         if src is None:
             return {}
         out = self.edit.to_out(src) if self.edit else src * self.stretch
