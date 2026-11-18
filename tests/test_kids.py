@@ -150,11 +150,25 @@ def test_prompts_and_schema():
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "scenes", "description",
                                                                                        "hashtags"}
-    assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 100   # grammar ép độ dài cảnh
+    assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 80    # grammar ép độ dài cảnh
     assert all(w["en"] in u for w in brief["words"]) and "không được bỏ sót" in u
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
-    assert p.startswith("Orange Cat:") and "green t-shirt" in p and "Pixar style" in p and "jumps over a puddle" in p
+    assert p.startswith("One character: Orange Cat jumps over a puddle. Orange Cat,") and "green t-shirt" in p
+    assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5
     assert "White Rabbit" not in p                                           # chỉ nhân vật có mặt trong cảnh
+    # đo thật 18/11: model viết action_en bằng tiếng Việt -> ảnh không có hành động; giờ bị báo lỗi, và nếu vẫn vậy thì
+    # prompt ảnh dùng hành động dự phòng theo vai cảnh
+    st = story.normalize(_good_story(brief), DATA)
+    bad_act = dict(st, scenes=[dict(sc, action_en="Thỏ Trắng nhìn quanh lo lắng") for sc in st["scenes"]])
+    probs = story.validate(bad_act, brief, DATA)
+    assert len(probs) == 8 and all("TIẾNG ANH" in q for q in probs)
+    p2 = prompts.image_prompt(bad_act["scenes"][2], brief, DATA, 2)
+    assert p2.startswith("Two friends: White Rabbit and Brown Bear arguing, upset faces.") and "nhìn" not in p2
+    spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
+    spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
+    spam["scenes"][4]["text"] += " ".join(f"«{w['en']}» nghĩa là {w['vi']}." for w in brief["words"]) + " a nghĩa là b."
+    probs = story.validate(spam, brief, DATA)
+    assert any("hỏi dồn dập" in q for q in probs) and any("giải nghĩa từ" in q for q in probs)
     title, desc, tags = prompts.post_pack(story.normalize(_good_story(brief), DATA), brief, kids_auto.channel(), DATA)
     assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#kebenghe") and "#bexinloi" in tags
 

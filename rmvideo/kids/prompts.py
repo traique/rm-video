@@ -7,9 +7,14 @@ from __future__ import annotations
 
 from rmvideo.kids import story as story_mod
 
-STYLE_EN = ("Pixar style 3D animation, cute children's storybook illustration, soft rounded shapes, big expressive eyes, "
-            "bright cheerful colors, soft warm lighting, clean simple background, vertical 9:16 composition, "
-            "same character design, same clothes, consistent appearance, no text, no letters")
+# Ngắn gọn: T5 của FLUX chỉ đọc 256 token; prompt 2 nhân vật + bối cảnh dài dễ bị cắt mất phần cuối (đo thật 18/11).
+STYLE_EN = ("Pixar style 3D animation, cute children's storybook, soft rounded shapes, big expressive eyes, bright cheerful "
+            "colors, soft warm light, vertical 9:16, no text")
+# Hành động dự phòng theo vai của cảnh khi model không viết action_en bằng tiếng Anh (đo thật: viết tiếng Việt)
+FALLBACK_ACTIONS_EN = ("looking around curiously", "playing together happily", "arguing, upset faces",
+                       "sad and looking down", "a friend comforting the other, talking gently",
+                       "helping each other, smiling", "hugging and making up, happy",
+                       "all friends laughing and playing together")
 
 SOUTH_VI = ("ba, má, trái banh, cái nón, cây dù, đôi vớ, chén, muỗng, dĩa, té, coi, mắc cỡ, tụi mình, mấy bạn, nha, hen, "
             "dễ thương, ngộ ghê")
@@ -32,8 +37,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
     words = "; ".join(f"{w['en']} = {w['vi']}" for w in brief["words"])
-    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): ít nhất {story_mod.EN_REPEAT} lần, ví dụ: {main['name_vi']} nói: "
-                            f"«{w['en']}»! rồi giải thích {w['en']} nghĩa là {w['vi']}." for w in brief["words"])
+    word_lines = "\n".join(f"  - «{w['en']}» ({w['vi']}): ít nhất {story_mod.EN_REPEAT} lần trong lời thoại, ví dụ: "
+                            f"{main['name_vi']} nói: «{w['en']}!»" for w in brief["words"])
+    names_en = ", ".join(c["name_en"] for c in chars.values())
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
     keys = ", ".join(chars)
     text = (f"Viết một truyện ngắn xảy ra ở {data['world']['name']}, nơi bốn bạn nhỏ sống cùng nhau: {cast}.\n"
@@ -43,25 +49,29 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"Từ tiếng Anh bé học hôm nay: {words}.\n\n"
             f"Cấu trúc đúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             f"Yêu cầu:\n"
-            f"- Mỗi cảnh 3-4 câu ngắn, tổng 22-30 chữ (KHÔNG được dưới 20 chữ); cả truyện 185-225 chữ. Kể kỹ, "
-            "có lời thoại.\n"
+            f"- Mỗi cảnh 2-4 câu, 18-30 chữ; cả truyện 170-220 chữ. Kể có chuyện xảy ra thật (ai làm gì, rồi sao), "
+            "bằng hành động và lời thoại; KHÔNG hỏi dồn dập, KHÔNG liệt kê.\n"
             "- Cả bốn bạn đều phải được nhắc tên (gọi đúng tên: "
             + ", ".join(c["name_vi"] for c in chars.values()) + ").\n"
             "- Từ tiếng Anh: viết đúng chính tả tiếng Anh, chữ thường, nằm trong lời thoại; MỖI từ dưới đây đều phải có "
             "mặt, không được bỏ sót từ nào:\n" + word_lines + "\n"
-            "- Cảnh 1 có một câu hỏi hoặc câu cảm gây tò mò. Cảnh 7 nói rõ bài học bằng đúng chữ: "
+            "  Mỗi từ chỉ giải nghĩa («... nghĩa là ...») tối đa MỘT lần, tự nhiên trong lời thoại (ví dụ: Gấu Nâu nói: "
+            "«promise nghĩa là lời hứa đó, Thỏ Trắng ơi»); các lần khác dùng từ đó như một câu nói bình thường. Nghĩa "
+            "của từ đã hiện trên màn hình, không cần liệt kê nghĩa các từ liền nhau.\n"
+            "- Cảnh 1 có MỘT câu hỏi hoặc câu cảm gây tò mò (chỉ một). Cảnh 7 nói rõ bài học bằng đúng chữ: "
             + ", ".join(lesson.get("keywords", [])) + ". Cảnh 8 kết thúc vui, các bạn cười và chơi cùng nhau.\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
-            "tiếng Anh ngắn (tối đa 25 từ) tả hành động và cảm xúc trong hình, thì hiện tại, không tả ngoại hình hay "
-            "quần áo (đã có sẵn), không chữ, không bảng hiệu.\n"
+            f"TIẾNG ANH (English only, không một chữ tiếng Việt), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), "
+            "tả hành động + cảm xúc + đồ vật trong hình, thì hiện tại; ví dụ: «White Rabbit crying and holding a red ball, "
+            "Orange Cat looking sorry». Không tả ngoại hình hay quần áo (đã có sẵn), không chữ, không bảng hiệu.\n"
             f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, gợi tò mò, có tên {main['name_vi']} và một từ "
             "tiếng Anh hôm nay.\n"
             "- `description`: 2-3 câu cho ba mẹ: truyện dạy bé điều gì, kể các từ tiếng Anh kèm nghĩa.\n"
-            "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #biettxinloi, #bexinloi).\n")
+            "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n")
     if feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
-                 + "\nViết lại TOÀN BỘ truyện: giữ ý hay, viết mỗi cảnh dài hơn (3-4 câu), và thêm lời thoại có đủ từng từ "
-                 "tiếng Anh ở trên. Kiểm lại trước khi trả: đủ 8 cảnh, mỗi từ tiếng Anh có mặt, cảnh 1 có câu hỏi/câu cảm.")
+                 + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh, mỗi "
+                 "từ tiếng Anh có mặt ít nhất 2 lần, action_en bằng tiếng Anh, cảnh 1 có câu hỏi/câu cảm.")
     return text
 
 
@@ -75,7 +85,7 @@ def schema(data: dict) -> dict:
     keys = list(data["characters"])
     scene = {"type": "object",
              # minLength ép độ dài từng cảnh ngay trong grammar (đo thật: model viết 9-11 chữ/cảnh khi chỉ nhắc bằng lời)
-             "properties": {"text": {"type": "string", "minLength": 100, "maxLength": 230},
+             "properties": {"text": {"type": "string", "minLength": 80, "maxLength": 230},
                             "characters": {"type": "array", "items": {"type": "string", "enum": keys},
                                            "minItems": 1, "maxItems": 2},
                             "action_en": {"type": "string", "minLength": 10, "maxLength": 300}},
@@ -89,15 +99,19 @@ def schema(data: dict) -> dict:
             "required": ["title", "scenes", "description", "hashtags"], "additionalProperties": False}
 
 
-def image_prompt(scene: dict, brief: dict, data: dict) -> str:
-    """[mô tả nhân vật nguyên văn] + [hành động model viết] + [bối cảnh + thế giới] + [phong cách cố định]."""
+def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
+    """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx)] + [mô tả nhân
+    vật nguyên văn, áo màu gì nói trước] + [bối cảnh + thế giới] + [phong cách cố định]. Giữ ngắn cho vừa 256 token T5."""
     chars = data["characters"]
     keys = [k for k in scene.get("characters", []) if k in chars][:2] or [brief["main"]]
+    action = (scene.get("action_en") or "").strip().rstrip(".")
+    if not story_mod.is_english(action) or len(action.split()) < 3:
+        names = " and ".join(chars[k]["name_en"] for k in keys)
+        action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
     descs = ". ".join(chars[k]["prompt_en"] for k in keys)
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")
-    action = (scene.get("action_en") or "").strip().rstrip(".")
-    n = "Two friends" if len(keys) == 2 else "One character"
-    return (f"{descs}. {n} in the scene: {action}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}")
+    who = "Two friends" if len(keys) == 2 else "One character"
+    return f"{who}: {action}. {descs}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}"
 
 
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:

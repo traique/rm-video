@@ -50,7 +50,7 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
         return {"ok": False, "kind": "kids", "error": str(e), "attempts": e.attempts, "timings": {"llm": round(time.time() - t0, 1)}}
     t["llm"] = round(time.time() - t0, 1)
     texts = [s["text"] for s in st["scenes"]]
-    plist = [prompts.image_prompt(s, brief, data) for s in st["scenes"]]
+    plist = [prompts.image_prompt(s, brief, data, i) for i, s in enumerate(st["scenes"])]
     seeds = [int(brief.get("seed") or 1) + i for i in range(len(plist))]
     t0 = time.time()
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log)

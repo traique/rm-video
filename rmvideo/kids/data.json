@@ -1,27 +1,27 @@
 {
   "world": {
     "name": "Đồi Cỏ Non",
-    "prompt_en": "a cozy little village on a green grassy hill, small round wooden houses, colorful flowers, a big friendly oak tree, blue sky with fluffy clouds"
+    "prompt_en": "a cozy village on a green hill, round wooden houses, flowers, a big oak tree, blue sky"
   },
   "characters": {
     "white_rabbit": {
       "name_vi": "Thỏ Trắng", "name_en": "White Rabbit",
-      "prompt_en": "White Rabbit: a small cute bunny with soft pure white fur, big round brown eyes, long upright ears, pink nose, wearing a plain red t-shirt",
+      "prompt_en": "White Rabbit, a small cute white bunny in a plain red t-shirt, big round brown eyes, long upright ears, pink nose",
       "personality_vi": "tốt bụng, hay lo cho bạn"
     },
     "brown_bear": {
       "name_vi": "Gấu Nâu", "name_en": "Brown Bear",
-      "prompt_en": "Brown Bear: a chubby friendly bear cub with warm brown fur, small round ears, gentle dark eyes, wearing a plain blue t-shirt",
+      "prompt_en": "Brown Bear, a chubby friendly brown bear cub in a plain blue t-shirt, small round ears, gentle dark eyes",
       "personality_vi": "điềm tĩnh, hiền lành"
     },
     "orange_cat": {
       "name_vi": "Mèo Cam", "name_en": "Orange Cat",
-      "prompt_en": "Orange Cat: a playful kitten with bright orange fur and white belly, big green eyes, long tail, wearing a plain green t-shirt",
+      "prompt_en": "Orange Cat, a playful orange kitten with white belly in a plain green t-shirt, big green eyes, long tail",
       "personality_vi": "tinh nghịch, hay cười"
     },
     "little_squirrel": {
       "name_vi": "Sóc Nhỏ", "name_en": "Little Squirrel",
-      "prompt_en": "Little Squirrel: a tiny curious squirrel with light brown fur, a big fluffy tail, bright black eyes, wearing a plain yellow t-shirt",
+      "prompt_en": "Little Squirrel, a tiny light-brown squirrel in a plain yellow t-shirt, big fluffy tail, bright black eyes",
       "personality_vi": "tò mò, nhanh nhẹn"
     }
   },

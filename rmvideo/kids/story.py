@@ -29,6 +29,7 @@ WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục �
 WORDS_HARD = 130                       # dưới mức này thì không chấp nhận dù đã hết lượt
 SCENE_MIN, SCENE_MAX = 12, 40          # chữ mỗi cảnh
 EN_REPEAT = 2                          # mỗi từ tiếng Anh nên xuất hiện ít nhất chừng này lần trong truyện (ôn từ cuối là lần nữa)
+QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 4, 4, 5)                 # số từ tiếng Anh mỗi truyện (hay gặp nhất: 4)
 TITLE_MAX = 70
@@ -238,9 +239,25 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
     if not 6 <= len(title) <= TITLE_MAX:
         problems.append(f"tiêu đề {len(title)} ký tự, cần 6-{TITLE_MAX} ký tự")
     for i, s in enumerate(scenes, 1):
-        if len((s.get("action_en") or "").split()) < 3:
+        act = s.get("action_en") or ""
+        if len(act.split()) < 3:
             problems.append(f"cảnh {i} thiếu action_en (một câu tiếng Anh tả hành động trong hình)")
+        elif not is_english(act):            # đo thật 18/11: model viết action_en bằng tiếng Việt -> ảnh không có hành động
+            problems.append(f"cảnh {i}: action_en phải viết bằng TIẾNG ANH (English only), đang là «{act[:40]}»")
+    for i, t in enumerate(texts, 1):
+        if t.count("?") > QUESTIONS_MAX:
+            problems.append(f"cảnh {i} hỏi dồn dập ({t.count('?')} câu hỏi): kể bằng hành động và lời thoại, tối đa "
+                            f"{QUESTIONS_MAX} câu hỏi một cảnh")
+    n_gloss = len(re.findall(r"nghĩa là", low))
+    if n_gloss > len(brief.get("words", [])):
+        problems.append(f"giải nghĩa từ {n_gloss} lần: mỗi từ tiếng Anh chỉ giải nghĩa («nghĩa là») tối đa MỘT lần, các "
+                        "lần khác dùng tự nhiên trong lời thoại, không liệt kê nghĩa các từ liền nhau")
     return problems
+
+
+def is_english(text: str) -> bool:
+    """action_en có phải tiếng Anh (toàn ký tự ASCII, không dấu tiếng Việt)."""
+    return bool(text.strip()) and all(ord(c) < 128 for c in text)
 
 
 def blocking(story: dict, brief: dict, data: dict) -> list[str]:
