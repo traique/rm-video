@@ -88,7 +88,7 @@ def _good_story(brief):
     """Kịch bản đạt mọi điều kiện (8 cảnh, mỗi từ ≥ 2 lần, đủ 4 bạn, hook, bài học, kết vui)."""
     ws = [w["en"] for w in brief["words"]]
     lesson = story.by_id(DATA["lessons"], brief["lesson"])
-    filler = "Hai bạn nhỏ đi dạo trên đồi cỏ xanh, gió thổi mát rượi."
+    filler = "Hai bạn đi dạo trên đồi cỏ xanh."
     base = [
         f"Ôi không, chuyện gì vậy ta? {filler} Thỏ Trắng chạy tới hỏi Gấu Nâu nè.",
         f"Mèo Cam và Sóc Nhỏ đang chơi. {filler} «{ws[0]}» nghĩa là {brief['words'][0]['vi']} đó nha.",
