@@ -235,7 +235,9 @@ class Remake:
         end = self.end_src
         segs_src = [(a, min(b, end), t) for a, b, t in self.raw_segs if a < end]
         # màn kết nối thêm cũng nằm trong 90 giây của Reels
-        plan, why = short.plan_short(end, segs_src, self.facts, short.budget(T) - brand.tail_len(), self.stretch)
+        # có đoạn mở đầu (cảnh món xong chiếu trước) thì đó là hook; không có thì giữ câu đầu của nguồn làm hook
+        plan, why = short.plan_short(end, segs_src, self.facts, short.budget(T) - brand.tail_len(), self.stretch,
+                                     hook=not T)
         if plan is None:
             job.note(f"ℹ️ Không làm bản ngắn ({why}). ")
             return None

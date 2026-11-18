@@ -117,7 +117,7 @@
         "role": "main",
         "speed": 1.0,
         "tag": "",
-        "zoom": 1.12
+        "zoom": 1.25
        },
        {
         "a": 6.3,
@@ -137,7 +137,7 @@
         "role": "main",
         "speed": 1.0,
         "tag": "",
-        "zoom": 1.0
+        "zoom": 1.1
        },
        {
         "a": 4.25,
@@ -181,7 +181,7 @@
        }
       ],
       "stretch": 1.0,
-      "summary": "Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 4 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s.",
+      "summary": "Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 5 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s.",
       "texts": [
        {
         "dur": 2.1,
@@ -330,7 +330,7 @@
        "role": "main",
        "speed": 1.0,
        "tag": "",
-       "zoom": 1.12
+       "zoom": 1.25
       },
       {
        "a": 6.3,
@@ -350,7 +350,7 @@
        "role": "main",
        "speed": 1.0,
        "tag": "",
-       "zoom": 1.0
+       "zoom": 1.1
       },
       {
        "a": 4.25,
@@ -394,7 +394,7 @@
       }
      ],
      "stretch": 1.0,
-     "summary": "Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 4 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s.",
+     "summary": "Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 5 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s.",
      "texts": [
       {
        "dur": 2.1,
@@ -405,7 +405,7 @@
      ],
      "v": 1
     },
-    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 4 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s. ℹ️ Lời đọc: 20 chữ, giọng phủ 36% video, 0/5 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 5 đoạn giọng, 9 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 5 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s. ℹ️ Lời đọc: 20 chữ, giọng phủ 36% video, 0/5 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 5 đoạn giọng, 9 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
     "final_segments": [
      {
       "end": 3.3,

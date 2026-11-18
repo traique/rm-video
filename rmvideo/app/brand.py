@@ -68,6 +68,25 @@ def _drop_try(text: str) -> str:
     return out if len(out.split()) >= 2 else text
 
 
+# lời gọi cuối câu ("…thơm ngon này nha cả nhà"): câu chốt của kênh cũng gọi «cả nhà» thì bỏ, khỏi nghe hai lần liền
+_VOC_END_RE = re.compile(r"[,\s]*(?:cả nhà(?: mình)?|mọi người|bà con|các bạn)(?:\s+(?:ơi|nha|nhé|nè))?\s*([.!?…]*)\s*$",
+                         re.IGNORECASE)
+
+
+def _join_close(text: str, line: str) -> str:
+    """Nối câu chốt vào lời đoạn cuối THÀNH CÂU RIÊNG. Bản 1.0.1 (job 1): AI viết «…thơm ngon này nha cả nhà» không
+    chấm câu, câu chốt nối bằng dấu cách -> một câu dài, phụ đề chia đều thành «cả nhà Đong | đủ là ngon» (tên kênh bị
+    cắt đôi, đọc thành «cả nhà đông»), và «cả nhà» nghe hai lần."""
+    t = (text or "").rstrip()
+    if re.search(r"(?<![\w])cả nhà(?![\w])", line, re.IGNORECASE):
+        cut = _VOC_END_RE.sub(r"\1", t).rstrip(" ,")
+        if len(cut.split()) >= 2:
+            t = cut
+    if t and t[-1] not in ".!?…":
+        t += "."
+    return (t + " " + line).strip()
+
+
 def add_close(segs: list) -> bool:
     """Gắn câu chốt vào đoạn đọc cuối cùng (bản viết mới, chưa duyệt). True nếu đã gắn. Câu chốt có mời nấu thử thì bỏ
     lời mời AI tự viết ở hai đoạn cuối (bản 48: "…cả nhà tranh thủ làm thử nha. Dễ làm nha. Đong đủ là ngon, cả nhà nấu
@@ -87,7 +106,7 @@ def add_close(segs: list) -> bool:
                     sg["text"] = cut
     sg = spoken[-1]
     if line.lower() not in sg["text"].lower():
-        sg["text"] = (sg["text"].rstrip() + " " + line).strip()
+        sg["text"] = _join_close(sg["text"], line)
     return True
 
 

@@ -111,7 +111,8 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     await voiceplan.compose_voice(clips, plan, voice_track, out_dur)
     srt, ass = "", None
     if subs:
-        words = await voiceplan.words_for_track(clips, plan, voice_track, filtergraph.subtitle_texts(segs, teaser))
+        words = await voiceplan.words_for_track(clips, plan, voice_track,
+                                                filtergraph.subtitle_texts(segs, teaser, title_shown=bool(title)))
         if words:
             until = speak_end if speak_end < out_dur else None
             srt = subs_mod.to_srt(words, until)

@@ -265,11 +265,25 @@ def teaser_window(t: float, cuts: list, end: float, dur: float = TEASER_DUR) -> 
     return round(t, 3), True
 
 
-def subtitle_texts(segs: list, teaser: dict | None = None) -> list:
-    """Chữ phụ đề của từng đoạn: đoạn giữ tiếng gốc không có chữ; có đoạn mở đầu và chữ hook to trên màn hình
-    (BRAND_INTRO) thì câu hook không hiện phụ đề nữa (hai lớp chữ chồng nhau che mất món)."""
-    hide0 = bool(teaser) and config.BRAND_INTRO != "0"
-    return ["" if s.get("ost") == "orig" or (hide0 and k == 0 and float(s.get("start", 1.0)) < 0.05) else s["text"]
+HOOK_TITLE_UNTIL = 3.3      # chữ hook to hiện tới chừng này khi không có đoạn mở đầu (renderer.hook_title_end)
+
+
+def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = False) -> list:
+    """Chữ phụ đề của từng đoạn: đoạn giữ tiếng gốc không có chữ; chữ hook to đang hiện trên màn hình (BRAND_INTRO)
+    thì câu hook không hiện phụ đề nữa (hai lớp chữ chồng nhau che mất món). Bản 1.0.1: cả khi không có đoạn mở đầu
+    (title_shown) — job 1 hiện cùng lúc «MỰC ĐÔNG HẤP KHÔNG RÃ ĐÔNG» và phụ đề «Mực đông hấp kiểu này ngon ghê» —
+    với điều kiện câu hook dứt trong lúc chữ hook còn hiện (câu dài hơn thì vẫn cần phụ đề)."""
+    on = config.BRAND_INTRO != "0"
+
+    def hook_hidden(s: dict) -> bool:
+        if not on or float(s.get("start", 1.0)) >= 0.05:
+            return False
+        if teaser:
+            return True
+        end = float(s.get("start", 0.0)) + float(s.get("slot") or s.get("span") or 99.0)
+        return title_shown and end <= HOOK_TITLE_UNTIL + 0.3
+
+    return ["" if s.get("ost") == "orig" or (k == 0 and hook_hidden(s)) else s["text"]
             for k, s in enumerate(segs)]
 
 

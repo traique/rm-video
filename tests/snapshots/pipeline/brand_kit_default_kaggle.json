@@ -17,7 +17,7 @@
     [
      [
       3,
-      "Lời mới3 mới3 mới3",
+      "Lời mới3 mới3 mới3.",
       3
      ]
     ]
@@ -83,13 +83,23 @@
       "pieces": [
        {
         "a": 0.0,
-        "b": 5.0,
+        "b": 2.5,
         "fx": "",
         "push": 0.0,
         "role": "main",
         "speed": 1.0,
         "tag": "",
         "zoom": 1.0
+       },
+       {
+        "a": 2.5,
+        "b": 5.0,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.25
        },
        {
         "a": 5.0,
@@ -99,11 +109,11 @@
         "role": "main",
         "speed": 1.0,
         "tag": "",
-        "zoom": 1.12
+        "zoom": 1.1
        }
       ],
       "stretch": 1.0,
-      "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+      "summary": "Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s.",
       "texts": [],
       "v": 1
      },
@@ -306,13 +316,23 @@
      "pieces": [
       {
        "a": 0.0,
-       "b": 5.0,
+       "b": 2.5,
        "fx": "",
        "push": 0.0,
        "role": "main",
        "speed": 1.0,
        "tag": "",
        "zoom": 1.0
+      },
+      {
+       "a": 2.5,
+       "b": 5.0,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.25
       },
       {
        "a": 5.0,
@@ -322,15 +342,15 @@
        "role": "main",
        "speed": 1.0,
        "tag": "",
-       "zoom": 1.12
+       "zoom": 1.1
       }
      ],
      "stretch": 1.0,
-     "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+     "summary": "Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s.",
      "texts": [],
      "v": 1
     },
-    "error": "🎨 Tông màu tự chọn: Ấm mộc (ánh sáng gốc ám xanh / lạnh). ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 23 chữ, giọng phủ 52% video, 1/4 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "error": "🎨 Tông màu tự chọn: Ấm mộc (ánh sáng gốc ám xanh / lạnh). ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 23 chữ, giọng phủ 52% video, 1/4 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
     "final_segments": [
      {
       "end": 2.1,

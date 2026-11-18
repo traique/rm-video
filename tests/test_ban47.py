@@ -153,7 +153,12 @@ def test_sparse_script_is_rewritten(monkeypatch):
             "Cả nhà để yên, khuấy hoài là tróc vỏ.", "Hạ lửa nhỏ xíu, giữ sủi tăm nhè nhẹ.",
             "Món này ăn với cơm nóng là hết sẩy.", "Nước sôi già thì mực mới săn chắc lại.",
             "Đừng khuấy mạnh tay, vỏ mực dễ bong lắm.", "Lửa nhỏ giữ cho thịt mực mềm ngọt hơn."]
-    full = [t[:-1] + ", nhìn là thấy mê liền, cả nhà để ý giúp mình." for t in thin]
+    # mỗi đoạn một ý tả thêm khác nhau (bản 1.0.1: cùng một câu độn lặp ở mọi đoạn thì bị bắt viết lại lần nữa)
+    extras = ["màu trắng hồng nhìn rất bắt mắt luôn", "khói bốc lên nghi ngút thơm phức gian bếp",
+              "con nào con nấy còn nguyên vẹn đẹp lắm", "mặt nước chỉ lăn tăn chứ không sủi mạnh",
+              "chấm thêm chén mắm gừng là tuyệt vời", "thân mực cong lại tròn trịa căng bóng",
+              "lớp da tím nhạt vẫn bám chắc trên thân", "cắn vô nghe giòn sựt ngọt lịm đầu lưỡi"]
+    full = [t[:-1] + f", {x}." for t, x in zip(thin, extras)]
     seen: list = []
     monkeypatch.setattr(config, "GEMINI_API_KEY", "test-key")
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")

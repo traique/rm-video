@@ -233,6 +233,27 @@ def brand_hex(alpha: float | None = None) -> str:
 
 OUTRO_DUR = 2.2
 LOGO_Y = 0.09                # mép trên của logo theo chiều cao khung (dưới vùng nút của TikTok / Shorts / Reels)
+LOGO_W = 0.16                # bề ngang logo theo bề ngang khung
+
+
+def _png_ratio(path: str) -> float:
+    """Cao / ngang của ảnh PNG (đọc khối IHDR, khỏi cần thư viện ảnh); không đọc được thì coi là vuông."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        w, h = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+        return h / w if head[:8] == b"\x89PNG\r\n\x1a\n" and w > 0 and h > 0 else 1.0
+    except OSError:
+        return 1.0
+
+
+def logo_bottom(W: int, H: int, logo_file: str | None) -> float:
+    """Mép dưới của logo theo chiều cao khung (0 = không có logo). Thẻ chữ phía trên đặt dưới mức này: bản 50 hạ logo
+    xuống 9% chiều cao thì thẻ MẸO (12%) nằm ngay dưới logo, logo vẽ sau che mất chữ cuối dòng đầu (job 1 bản 1.0.0,
+    «Không cần rã đông mự[c]»)."""
+    if not logo_file:
+        return 0.0
+    return round((H * LOGO_Y + int(W * LOGO_W) * _png_ratio(logo_file)) / H, 4)
 STING_PEAK = -4.0          # dBFS: đỉnh của âm hiệu trước khi trộn (bản 46: file mặc định đỉnh -29 dBFS, ra video còn
                            # ~-40 dB, gần như không nghe thấy; file tải lên to nhỏ đủ kiểu -> chuẩn hoá lúc trộn)
 _STING_GAIN: dict = {}
@@ -326,15 +347,19 @@ def _brand_filter(W: int, H: int, out_dur: float, title_files: list | None, outr
     if logo_idx is not None:
         # logo góc phải, hạ xuống ~9% chiều cao (bản 50): góc trên cùng là chỗ nút tìm kiếm / tab của TikTok, Shorts,
         # Reels — logo sát mép trên bị che
-        f += (f"[vb];[{logo_idx}:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
+        f += (f"[vb];[{logo_idx}:v]scale={int(W * LOGO_W)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
               f"[vb][lg]overlay=W-w-{int(24 * k)}:{int(H * LOGO_Y)}")
     return f
 
 
 
-def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
+CARD_Y = {"skip": 0.16, "ingredient": 0.62, "tip": 0.12, "price": 0.62}    # mép trên của thẻ theo chiều cao khung
+
+
+def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str, below: float = 0.0) -> str:
     """Thẻ chữ của kế hoạch dựng (⏩ tua nhanh, nguyên liệu kèm định lượng, mẹo, giá) theo màu kênh, hiện mờ dần
-    vào/ra. Mốc của kế hoạch chưa tính đoạn mở đầu: cộng offset."""
+    vào/ra. Mốc của kế hoạch chưa tính đoạn mở đầu: cộng offset. below: mép dưới logo (logo_bottom) — thẻ phía trên
+    không được chen vào vùng logo."""
     k = H / 1280
     out = ""
     pad = int(14 * k)
@@ -348,7 +373,10 @@ def overlay_filter(overlays, W: int, H: int, offset: float, tmp: str) -> str:
             f.write("\n".join(lines))
         t0, t1 = o.t + offset, o.t + offset + o.dur
         box = brand_hex(0.9) or "0xFFE100@0.9"
-        y = {"skip": "h*0.16", "ingredient": "h*0.62", "tip": "h*0.12", "price": "h*0.62"}.get(o.kind, "h*0.16")
+        top = CARD_Y.get(o.kind, 0.16)
+        if below and top < 0.5:                   # thẻ phía trên: xuống dưới logo (cách 1% chiều cao)
+            top = max(top, below + 0.01)
+        y = f"h*{top:.4f}"
         alpha = f"alpha='min(1,min((t-{t0:.2f})/0.25,({t1:.2f}-t)/0.25))'"
         out += (f",drawtext=fontfile={ff.FONT_PATH}:textfile={p}:expansion=none:fontsize={fs}:fontcolor=white:"
                 f"borderw={int(2 * k)}:bordercolor=black@0.8:box=1:boxcolor={box}:boxborderw={pad}:"
@@ -490,7 +518,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                           tagline_file=tagline_file, title_fs=title_fs, outro_fs=outro_fs, tagline_fs=tagline_fs)
     cards = list(plan.overlays if plan else []) + [edl.Overlay(**o) for o in overlays or []]
     if cards:
-        brand = overlay_filter(cards, W, H, T, tmp) + brand
+        brand = overlay_filter(cards, W, H, T, tmp, below=logo_bottom(W, H, logo_file) if use_logo else 0.0) + brand
     # vào thẳng hình, KHÔNG mờ từ đen (bản 50): khung đầu là thứ người xem TikTok / Reels thấy đầu tiên khi lướt tới
     # (và hay được lấy làm ảnh bìa); job 7: 0,33 giây đầu tối đen -> mất cú chạm đầu tiên. Cuối video cũng không mờ
     # về đen: TikTok / Shorts tự quay vòng, khung cuối sáng nối thẳng về khung đầu (tiếng vẫn nhỏ dần 0,4 giây)
