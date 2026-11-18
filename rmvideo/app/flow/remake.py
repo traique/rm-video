@@ -643,8 +643,10 @@ class Remake:
         # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
         sep_r = {"ok": self.sep.ok, "windows": self.sep.windows, "secs": self.sep.secs, "why": self.sep.why,
                  "engines": self.sep.engines, "ok_remote": job.mode == Mode.COOK and config.VOICE_SEPARATION != "0"}
+        # bản đầy đủ trên Kaggle cũng được 1080p (bản 50: video đăng YouTube / Facebook; Kaggle đủ RAM, còn giới hạn
+        # thời gian dựng của renderer.output_size thì vẫn áp); trên Botkeep bản đầy đủ giữ 720p cho nhanh, đủ RAM
         return kaggle_worker.build_spec(
-            job, segs_t, self.out_dur, self.render_dur, self.stretch, not self.is_long, common.post_title(job, self.title),
+            job, segs_t, self.out_dur, self.render_dur, self.stretch, True, common.post_title(job, self.title),
             self.bands, self.pos_y, sep_r, self.speech,
             config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
             local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",

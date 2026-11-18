@@ -189,3 +189,22 @@ def test_no_framing_holds_longer_than_shot_max():
     assert style._split_long([0.0, 13.2], [(0.0, 3.9), (4.5, 13.0)]) == [0.0, 4.2, 8.8, 13.2]
     t = style._calm_point(174.44, 170.08, 178.81, [(170.3, 171.66), (174.02, 174.92)])
     assert t is not None and not 174.32 <= t < 174.92
+
+
+# ---------------- màn kết sáng, logo, YouTube (góc nhìn đạo diễn TVC / YouTube) ----------------
+
+def test_end_card_keeps_the_dish_bright_and_logo_clears_app_buttons():
+    from rmvideo.media import renderer
+    f = renderer._brand_filter(1080, 1920, 60.0, None, "/tmp/outro.txt", 3)
+    assert "black@0.72" not in f and "drawbox=x=0:y=0:w=iw:h=ih" not in f   # không tối cả khung
+    assert "y=ih*0.40:w=iw:h=ih*0.20" in f                                    # chỉ một dải sau tên kênh
+    assert f"overlay=W-w-{int(24 * 1920 / 1280)}:{int(1920 * renderer.LOGO_Y)}" in f and renderer.LOGO_Y >= 0.08
+
+
+def test_long_full_version_is_not_labelled_youtube_shorts():
+    from rmvideo.app.flow import common
+    post = prompt_engine.platform_post("Mực hấp gừng", "Ngon lắm", "#muc #monngon")
+    assert "▶ YouTube Shorts:" in post and "#Shorts" in post
+    long = common.post_for_length(post, 188.39)
+    assert "YouTube Shorts" not in long and "#Shorts" not in long and "đăng bản ngắn" in long
+    assert common.post_for_length(post, 89.0) == post and common.post_for_length("", 200.0) == ""

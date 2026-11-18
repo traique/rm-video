@@ -39,11 +39,20 @@ bịa viết bằng chữ cũng bỏ được trọn cụm.
 | Chữ «nha» cuối dứt đúng lúc màn kết tối lại | Lời đọc và phụ đề dứt trước màn kết 0,3 giây |
 | (thấy khi viết test) «Mùi gừng bốc lên thơm lừng» bị coi là BỊA nguyên liệu «mùi» (rau mùi), bản viết lại tốt hơn bị bỏ | «mùi» đứng trước tên nguyên liệu khác là hương của nó, không phải rau mùi |
 
-Đề xuất của đạo diễn, không sửa bằng mã:
-- Đăng TikTok bằng **bản ngắn ≤ 90 giây** (Cài đặt «Thêm bản ngắn» đang bật; «Bản đăng khi có bản ngắn» = bản ngắn). Bản 3 phút để cho YouTube / Facebook.
-- Xuất **1080p** cho TikTok: bản này 720p vì máy chủ chậm. Muốn luôn 1080p: Cài đặt → Chất lượng = Chuẩn TVC, hoặc dựng trên Kaggle.
-- Màn kết tối 2,2 giây làm người xem lướt đi trước khi video quay vòng. Nếu muốn video tự quay vòng (giữ người xem lâu hơn): kết bằng cảnh món đẹp nhất kèm chữ, không làm tối.
-- Logo góc phải trên dễ bị nút tìm kiếm của TikTok che: cân nhắc hạ logo xuống khoảng 10% chiều cao.
+### Sửa theo đề xuất + góc nhìn đạo diễn TVC / YouTube
+
+| Vấn đề | Sửa |
+| --- | --- |
+| Màn kết tối 72% cả khung rồi mờ về đen: dấu hiệu «hết rồi», người xem TikTok / Shorts lướt đi trước khi video tự quay vòng | Màn kết SÁNG: giữ cảnh món, chỉ một dải mờ (40-60% chiều cao) sau tên kênh + câu dưới tên; cuối video không mờ về đen (tiếng vẫn nhỏ dần 0,4 giây) — khung cuối nối thẳng về khung đầu |
+| Logo sát mép trên bị nút tìm kiếm / tab của TikTok, Shorts, Reels che | Logo hạ xuống 9% chiều cao |
+| Bản đầy đủ luôn 720p (thiết kế cũ để dựng nhanh), kể cả khi dựng trên Kaggle | Dựng trên Kaggle: bản đầy đủ cũng 1080p (Kaggle đủ RAM; giới hạn thời gian dựng vẫn áp). Trên Botkeep bản đầy đủ giữ 720p. Bản ngắn ≤ 90 giây vốn đã 1080p |
+| Bài đăng của bản đầy đủ 3:08 vẫn ghi «YouTube Shorts … #Shorts» — YouTube chỉ xếp video dọc ≤ 3 phút vào Shorts | Bản dài hơn 3 phút: ghi «YouTube (video thường; muốn lên Shorts thì đăng bản ngắn)», bỏ #Shorts |
+| Tiêu đề khen chung, không nêu điểm ăn tiền | Lệnh viết lời: tiêu đề nêu tên món kèm đúng mẹo chính (YouTube / Facebook bấm vì lời hứa trong tiêu đề) |
+
+Đề xuất còn lại (cần quyết định của bạn, chưa làm bằng mã):
+- **Nhạc nền nhẹ dưới lời đọc** (TVC luôn có): cần thư viện nhạc có bản quyền / miễn phí bản quyền. Nhạc có bản quyền sẽ bị YouTube Content ID nhận và TikTok tắt tiếng. Muốn thì làm ở bản sau (trộn -24 dB, tự nhỏ lại khi có lời).
+- **Tông màu:** mặc định «tươi sáng» làm nồi inox, tường xám càng nhạt. Món luộc / hấp nên thử «ấm mộc» (Cài đặt → Tông màu video).
+- **YouTube Shorts:** đăng bản ngắn ≤ 90 giây; bản 3 phút để đăng Facebook / YouTube video thường.
 
 ## Bản 49 — job 6 lỗi khi dựng trên Botkeep (17/11/2026)
 

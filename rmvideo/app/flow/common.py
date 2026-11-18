@@ -93,6 +93,18 @@ def credit_line(job: Job, narrated: bool = True) -> str:
     return " · ".join(parts)
 
 
+SHORTS_MAX = 180.0       # YouTube Shorts: video dọc tối đa 3 phút
+
+
+def post_for_length(post: str, dur: float) -> str:
+    """Bài đăng của bản dài hơn 3 phút (bản 50): YouTube KHÔNG xếp vào Shorts dù gắn #Shorts (job 7 bản đầy đủ 3:08 vẫn
+    ghi «YouTube Shorts … #Shorts») -> ghi rõ đăng video thường, lên Shorts thì dùng bản ngắn."""
+    if dur <= SHORTS_MAX or "▶ YouTube Shorts:" not in (post or ""):
+        return post
+    return post.replace("▶ YouTube Shorts:", "▶ YouTube (dài hơn 3 phút nên là video thường; muốn lên Shorts thì đăng bản "
+                        "ngắn):").replace(" #Shorts", "")
+
+
 def post_title(job: Job, title: str) -> str:
     """Chữ in lên màn hình 3 giây đầu + ảnh bìa: câu hook AI viết, không có thì dòng đầu bài đăng, cuối cùng tiêu đề
     gốc. (Trước đây biểu thức này lặp 4 lần trong pipeline.)"""

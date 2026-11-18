@@ -983,7 +983,7 @@ def merge_sentences(segments: list, out_dur: float) -> list:
 
 TEASER_SPILL = 0.4      # câu hook của đoạn mở đầu được lấn sang video chính tối đa chừng này giây
 HOOK_TIP = """
-- ĐIỂM ĂN TIỀN của video (mẹo chính người gốc nói, đã kiểm trong lời gốc): «{tip}». Câu hook (đoạn 0) và chữ "hook" xoáy vào điều BẤT NGỜ hoặc KẾT QUẢ mà mẹo này mang lại, nói như một lời hứa ngắn cho người đang lướt; KHÔNG khen chung chung kiểu "giữ trọn vị ngọt", "thơm ngon khó cưỡng". Nguyên liệu, con số trong câu hook chỉ lấy từ mẹo này hoặc lời gốc."""
+- ĐIỂM ĂN TIỀN của video (mẹo chính người gốc nói, đã kiểm trong lời gốc): «{tip}». Câu hook (đoạn 0) và chữ "hook" xoáy vào điều BẤT NGỜ hoặc KẾT QUẢ mà mẹo này mang lại, nói như một lời hứa ngắn cho người đang lướt; KHÔNG khen chung chung kiểu "giữ trọn vị ngọt", "thơm ngon khó cưỡng". "title" cũng nêu tên món kèm đúng điểm này (người xem YouTube / Facebook bấm vì lời hứa trong tiêu đề). Nguyên liệu, con số trong câu hook và tiêu đề chỉ lấy từ mẹo này hoặc lời gốc."""
 
 TEASER_HINT = """
 - ĐOẠN MỞ ĐẦU: đoạn 0 chiếu trước cảnh MÓN ĐÃ HOÀN THÀNH trong {dur:.0f} giây đầu (xem ảnh đoạn 0), rồi video mới bắt đầu làm từ đầu. Câu hook nói về đúng món đang thấy (giòn, thơm, mềm, màu, độ hấp dẫn) hoặc gợi tò mò cách làm, đọc vừa {dur:.0f} giây; KHÔNG kể bước làm, không nhắc nguyên liệu hay con số mà lời gốc không có."""

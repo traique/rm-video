@@ -177,7 +177,7 @@
    [
     [
      {
-      "allow_hd": false,
+      "allow_hd": true,
       "bands": [
        [
         0.7,

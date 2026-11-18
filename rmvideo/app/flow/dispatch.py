@@ -100,7 +100,7 @@ async def run_job(job: Job, tmp: str):
         after = remake.SHORT_AFTER.pop(job.id, None)
         if out == "REVIEW":
             return "REVIEW"
-        await delivery.deliver(job, out, "Video", job.post or job.script or "")
+        await delivery.deliver(job, out, "Video", common.post_for_length(job.post, job.out_dur) or job.script or "")
         if after is not None:                  # bản ngắn ≤ 90s (SHORT_VERSION): làm SAU khi đã giao bản đầy đủ
             short = await after()
             if short and os.path.exists(short):
