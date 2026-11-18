@@ -231,6 +231,24 @@ def test_word_lines_natural():
     assert story.word_line({"en": "zzz", "vi": "x"}, DATA) == "zzz nghĩa là x đó nha."
 
 
+def test_is_blank_catches_black_band():
+    from PIL import Image
+    import numpy as np
+    rng = np.random.default_rng(1)
+    good = Image.fromarray(rng.integers(40, 220, (200, 100, 3), dtype=np.uint8))
+    assert not images_mod.is_blank(good)
+    assert images_mod.is_blank(Image.new("RGB", (100, 200), (7, 7, 7)))
+    arr = np.asarray(good).copy()
+    arr[:16] = 0                                                # dải đen 8% phía trên
+    assert images_mod.is_blank(Image.fromarray(arr))
+    arr = np.asarray(good).copy()
+    arr[-16:] = 0
+    assert images_mod.is_blank(Image.fromarray(arr))
+    arr = np.asarray(good).copy()
+    arr[:4] = 0                                                 # 2%: viền nhỏ thì bỏ qua
+    assert not images_mod.is_blank(Image.fromarray(arr))
+
+
 def test_sub_tokens_drop_quotes():
     assert render.sub_tokens("Thỏ Trắng nói: «Giờ clean đồ chơi đi.» Gấu Nâu giúp.") == \
            ["Thỏ", "Trắng", "nói:", "Giờ", "clean", "đồ", "chơi", "đi.", "Gấu", "Nâu", "giúp."]

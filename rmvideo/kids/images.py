@@ -171,10 +171,15 @@ def _flux_decode(pipe: Any, latents: Any, w: int, h: int) -> Any:
     return pipe.image_processor.postprocess(img, output_type="pil")[0]
 
 
-def is_blank(img: Any) -> bool:
+def is_blank(img: Any, band: float = 0.05) -> bool:
+    """Ảnh đen/NaN/phẳng, hoặc có DẢI ĐEN ở mép trên/dưới (đo thật 18/11: 1/48 ảnh FLUX có dải đen ~8% phía trên)."""
     import numpy as np
     a = np.asarray(img.convert("L"), dtype=np.float32)
-    return bool(np.isnan(a).any() or a.std() < 3.0)
+    if np.isnan(a).any() or a.std() < 3.0:
+        return True
+    rows = a.mean(axis=1)
+    n = max(1, int(len(rows) * band))
+    return bool((rows[:n] < 12).all() or (rows[-n:] < 12).all())
 
 
 def flux_encode_all(pipe: Any, prompt_list: Sequence[str], log: Log) -> list[tuple[Any, Any]]:
@@ -241,7 +246,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
             emb = embeds[i - 1] if embeds else None
             img = generate_one(pipe, m["kind"], prompt, seed, int(m["steps"]), float(m["guidance"]), embeds=emb)
             if is_blank(img):
-                log(f"Ảnh cảnh {i} đen/hỏng, sinh lại với seed khác")
+                log(f"Ảnh cảnh {i} đen/hỏng/có dải đen, sinh lại với seed khác")
                 img = generate_one(pipe, m["kind"], prompt, seed + 7919, int(m["steps"]), float(m["guidance"]), embeds=emb)
             raw = os.path.join(out_dir, f"raw_{i:02d}.png")
             img.save(raw)
