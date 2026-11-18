@@ -234,7 +234,8 @@ có trong lời thoại, đủ 4 bạn, có hook, có bài học, kết vui, kh�
 từ); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất và chèn từ còn thiếu bằng mã. Model chữ
 suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
 tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài
-học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json`.
+học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json` (mỗi từ kèm một câu mẫu `line` tự nhiên, vừa làm mẫu cho model vừa
+chèn vào truyện khi model bỏ sót từ).
 
 Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
 khung giờ khác. Đo thật 18/11/2026: một truyện ~20 phút GPU (tải GGUF 20GB 1,5 phút, nạp model chữ 1,5 phút, viết 15 giây/lượt,
