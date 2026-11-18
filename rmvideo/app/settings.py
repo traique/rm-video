@@ -425,7 +425,7 @@ SCHEMA: tuple[Setting, ...] = (
     S("KIDS_LLM_PATTERN", "*Qwen3.6-35B-A3B*Q4_K_M*.gguf", "kids", "File model chữ (.gguf)",
       help="Mẫu tên file tìm trong /kaggle/input; không thấy thì tải từ repo Hugging Face bên dưới.",
       validate=_max_len("KIDS_LLM_PATTERN", 200)),
-    S("KIDS_LLM_HF", "unsloth/Qwen3.6-35B-A3B-GGUF", "kids", "Repo Hugging Face của model chữ",
+    S("KIDS_LLM_HF", "lmstudio-community/Qwen3.6-35B-A3B-GGUF", "kids", "Repo Hugging Face của model chữ",
       validate=_regex(r"[\w.\-]+/[\w.\-]+", "KIDS_LLM_HF dạng user/repo trên Hugging Face")),
     S("KIDS_KAGGLE_SOURCES", "", "kids", "Nguồn gắn vào phiên Kaggle",
       help="Trống = notebook rmvideo-kids-models (lệnh kids_setup tạo: llama-server đã biên dịch + FLUX 4-bit). Hoặc "

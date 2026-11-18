@@ -21,8 +21,9 @@ INPUT_ROOT = "/kaggle/input"
 GEN_W, GEN_H = 832, 1472
 OUT_W, OUT_H = 1080, 1920
 MODELS: dict[str, dict[str, Any]] = {
-    "schnell": {"repo": "black-forest-labs/FLUX.1-schnell", "steps": 4, "guidance": 0.0, "kind": "flux",
-                "names": ("schnell", "flux")},
+    # repo gốc black-forest-labs/FLUX.1-schnell đã khoá (gated, cần token HF): dùng bản sao công khai nguyên vẹn
+    "schnell": {"repo": "unsloth/FLUX.1-schnell", "steps": 4, "guidance": 0.0, "kind": "flux",
+                "names": ("schnell", "flux"), "mirrors": ("Niansuh/FLUX.1-schnell", "cocktailpeanut/xulf-s")},
     "zimage": {"repo": "Tongyi-MAI/Z-Image-Turbo", "steps": 8, "guidance": 0.0, "kind": "zimage",
                "names": ("z-image", "zimage", "z_image")},
 }
@@ -63,11 +64,25 @@ def load_flux(repo: str, local: str | None, log: Log) -> Any:
 
 
 def load_zimage(repo: str, local: str | None, log: Log) -> Any:
+    """Z-Image-Turbo: 6B + text encoder Qwen3 4B, bf16 gốc không vừa T4 -> 4-bit (bản đã lưu, hoặc lượng tử tại chỗ)."""
     import torch
     from diffusers import ZImagePipeline
-    log(f"Nạp Z-Image-Turbo: {local or repo}")
-    pipe = ZImagePipeline.from_pretrained(local or repo, torch_dtype=torch.float16)
+    if local:
+        log(f"Nạp Z-Image-Turbo 4-bit đã lưu: {local}")
+        pipe = ZImagePipeline.from_pretrained(local, torch_dtype=torch.float16)
+    else:
+        from diffusers import BitsAndBytesConfig as DiffBnb, ZImageTransformer2DModel
+        from transformers import AutoModel, BitsAndBytesConfig as TfBnb
+        log(f"Tải {repo} và lượng tử 4-bit tại chỗ (lần đầu, chậm; chạy kids_setup để lưu lại)")
+        q4 = DiffBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
+        tr = ZImageTransformer2DModel.from_pretrained(repo, subfolder="transformer", quantization_config=q4,
+                                                      torch_dtype=torch.float16)
+        te = AutoModel.from_pretrained(repo, subfolder="text_encoder", torch_dtype=torch.float16,
+                                       quantization_config=TfBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                                                 bnb_4bit_compute_dtype=torch.float16))
+        pipe = ZImagePipeline.from_pretrained(repo, transformer=tr, text_encoder=te, torch_dtype=torch.float16)
     pipe.enable_model_cpu_offload()
+    pipe.vae.to(torch.float32)
     return pipe
 
 

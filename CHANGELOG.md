@@ -42,6 +42,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   Console: `kids`, `kids_now`, `kids_tick`, `kids_setup`, `kids_setup_status`, `kids_fb_test`, `kids_resume`.
 - Test: `tests/test_kids.py` (chọn đề, kiểm kịch bản, prompt, kế hoạch cảnh, dựng thật cỡ nhỏ, việc Kaggle với model giả, luồng Botkeep,
   lịch đăng, cài đặt, route). Chưa chạy thật trên Kaggle: phần model (llama-server, diffusers) sẽ chỉnh theo lần chạy đầu.
+- Đo trên Kaggle 18/11 khi chạy `kids_setup`: cmake của llama.cpp đòi `libcuda.so` mà Kaggle chỉ có `libcuda.so.1` -> build với
+  `GGML_CUDA_NO_VMM=ON`; repo `black-forest-labs/FLUX.1-schnell` đã khoá (gated) -> lấy bản sao công khai `unsloth/FLUX.1-schnell`;
+  model chữ mặc định `lmstudio-community/Qwen3.6-35B-A3B-GGUF` (một file Q4_K_M 20,2GB). Notebook chuẩn bị lưu thêm Z-Image-Turbo
+  4-bit khi còn chỗ.
 
 ## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)
 

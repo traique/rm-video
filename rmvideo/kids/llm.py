@@ -24,7 +24,7 @@ from typing import Any
 from rmvideo.kids import prompts, story as story_mod
 
 INPUT_ROOT = "/kaggle/input"
-DEFAULT_HF = "unsloth/Qwen3.6-35B-A3B-GGUF"
+DEFAULT_HF = "lmstudio-community/Qwen3.6-35B-A3B-GGUF"   # một file Q4_K_M 20,2GB (unsloth chỉ có UD-/MXFP4)
 DEFAULT_PATTERN = "*Qwen3.6-35B-A3B*Q4_K_M*.gguf"
 PORT = 8089
 N_CTX = 8192

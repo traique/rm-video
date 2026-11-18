@@ -403,26 +403,27 @@ def kids_spec(job, brief: dict, music: dict | None = None) -> dict:
 KIDS_MODELS_KERNEL = r'''# rm-video: chuẩn bị model cho truyện bé (bot tạo, chạy MỘT lần, ~45-60 phút trên GPU). Không chứa key.
 import os, shutil, subprocess, sys, time, glob
 W = "/kaggle/working"
-def run(cmd, env=None):
+def run(cmd, env=None, check=True):
     print(">>", cmd, flush=True); t0 = time.time()
     r = subprocess.run(cmd, shell=True, text=True, capture_output=True, env=env)
     print(r.stdout[-3000:], r.stderr[-3000:], f"({time.time() - t0:.0f}s)", flush=True)
-    if r.returncode: raise RuntimeError(f"lệnh lỗi: {cmd}")
+    if check and r.returncode: raise RuntimeError(f"lệnh lỗi: {cmd}")
+    return r
+def used_gb(path=W):
+    return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs) / 2**30
 done = {}
+run("nvidia-smi -L; df -h / /kaggle/working /tmp | tail -3; python -c 'import torch;print(torch.__version__, torch.cuda.is_available())'; "
+    "ls /usr/local/cuda/lib64/stubs /usr/local/cuda/targets/x86_64-linux/lib/stubs 2>/dev/null | head; find / -name 'libcuda.so*' 2>/dev/null | head",
+    check=False)
 # 1. llama.cpp (CUDA, kiến trúc T4 = 75) -> /kaggle/working/llama/llama-server (+ thư viện .so cạnh nó)
+# GGML_CUDA_NO_VMM=ON: không cần libcuda.so lúc link (Kaggle không có symlink libcuda.so -> cmake báo thiếu CUDA::cuda_driver,
+# lỗi thật 18/11/2026); lúc chạy vẫn dùng driver libcuda.so.1 của phiên GPU.
 try:
-    # cmake đòi CUDA::cuda_driver (libcuda.so): Kaggle chỉ có libcuda.so.1 (driver) và bản stub của toolkit, không có
-    # symlink libcuda.so -> tạo symlink cạnh driver, dự phòng thì trỏ cmake vào thư mục stubs (lỗi thật 18/11/2026)
-    drv = glob.glob("/usr/lib/x86_64-linux-gnu/libcuda.so.1") + glob.glob("/usr/lib64/libcuda.so.1") + glob.glob("/usr/lib/libcuda.so.1")
-    stubs = "/usr/local/cuda/lib64/stubs"
-    if drv and not os.path.exists(os.path.join(os.path.dirname(drv[0]), "libcuda.so")):
-        os.symlink(drv[0], os.path.join(os.path.dirname(drv[0]), "libcuda.so"))
-    env = dict(os.environ, LIBRARY_PATH=stubs + ":" + os.environ.get("LIBRARY_PATH", ""))
     run("git clone --depth 1 https://github.com/ggml-org/llama.cpp /tmp/llama.cpp")
-    run("cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=75 -DLLAMA_CURL=OFF "
-        "-DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release "
-        f"-DCUDAToolkit_ROOT=/usr/local/cuda -DCMAKE_LIBRARY_PATH={stubs}", env)
-    run("cmake --build /tmp/llama.cpp/build --config Release -j4 --target llama-server", env)
+    run("cmake -S /tmp/llama.cpp -B /tmp/llama.cpp/build -DGGML_CUDA=ON -DGGML_CUDA_NO_VMM=ON -DCMAKE_CUDA_ARCHITECTURES=75 "
+        "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release "
+        "-DCUDAToolkit_ROOT=/usr/local/cuda")
+    run("cmake --build /tmp/llama.cpp/build --config Release -j4 --target llama-server")
     os.makedirs(f"{W}/llama", exist_ok=True)
     for p in glob.glob("/tmp/llama.cpp/build/bin/*"):
         shutil.copy(p, f"{W}/llama/")
@@ -430,26 +431,54 @@ try:
     print("llama-server:", done["llama"], flush=True)
 except Exception as e:
     print("!! llama.cpp lỗi:", e, flush=True)
-# 2. FLUX.1-schnell 4-bit (NF4 transformer + T5 8-bit), lưu để phiên dựng nạp ~1 phút thay vì tải 24GB
+# 2. model ảnh 4-bit (bitsandbytes NF4), lưu để phiên dựng nạp ~1 phút thay vì tải 20-30GB mỗi lần
+run("pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf 'transformers==4.57.6'", check=False)
+import torch
+from diffusers import BitsAndBytesConfig as DiffBnb
+from transformers import BitsAndBytesConfig as TfBnb
+q4 = DiffBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
+# 2a. FLUX.1-schnell: repo gốc black-forest-labs đã khoá (gated) -> dùng bản sao công khai nguyên vẹn (unsloth, ...)
+for repo in ("unsloth/FLUX.1-schnell", "Niansuh/FLUX.1-schnell", "cocktailpeanut/xulf-s", "ParkSol/flux-schnell"):
+    try:
+        from diffusers import FluxPipeline, FluxTransformer2DModel
+        from transformers import T5EncoderModel
+        print("FLUX.1-schnell từ", repo, flush=True)
+        tr = FluxTransformer2DModel.from_pretrained(repo, subfolder="transformer", quantization_config=q4, torch_dtype=torch.float16)
+        t5 = T5EncoderModel.from_pretrained(repo, subfolder="text_encoder_2", quantization_config=TfBnb(load_in_8bit=True), torch_dtype=torch.float16)
+        pipe = FluxPipeline.from_pretrained(repo, transformer=tr, text_encoder_2=t5, torch_dtype=torch.float16)
+        pipe.save_pretrained(f"{W}/flux-schnell-nf4")
+        del pipe, tr, t5
+        done["flux"] = os.listdir(f"{W}/flux-schnell-nf4")
+        print("đã lưu flux-schnell-nf4 (%.1f GB):" % used_gb(f"{W}/flux-schnell-nf4"), done["flux"], flush=True)
+        break
+    except Exception as e:
+        print("!! FLUX", repo, "lỗi:", str(e)[:400], flush=True)
+        shutil.rmtree(f"{W}/flux-schnell-nf4", ignore_errors=True)
+    finally:
+        shutil.rmtree(os.path.expanduser("~/.cache/huggingface"), ignore_errors=True)
+        torch.cuda.empty_cache()
+# 2b. Z-Image-Turbo (Apache-2.0, không khoá): transformer NF4 + text encoder Qwen3 4-bit; chỉ khi còn chỗ (đầu ra tối đa 20GB)
 try:
-    run("pip install -q 'diffusers>=0.33' accelerate bitsandbytes sentencepiece protobuf 'transformers==4.57.6'")
-    import torch
-    from diffusers import BitsAndBytesConfig as DiffBnb, FluxPipeline, FluxTransformer2DModel
-    from transformers import BitsAndBytesConfig as TfBnb, T5EncoderModel
-    repo = "black-forest-labs/FLUX.1-schnell"
-    q4 = DiffBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
-    tr = FluxTransformer2DModel.from_pretrained(repo, subfolder="transformer", quantization_config=q4, torch_dtype=torch.float16)
-    t5 = T5EncoderModel.from_pretrained(repo, subfolder="text_encoder_2", quantization_config=TfBnb(load_in_8bit=True), torch_dtype=torch.float16)
-    pipe = FluxPipeline.from_pretrained(repo, transformer=tr, text_encoder_2=t5, torch_dtype=torch.float16)
-    pipe.save_pretrained(f"{W}/flux-schnell-nf4")
-    done["flux"] = os.listdir(f"{W}/flux-schnell-nf4")
-    print("đã lưu flux-schnell-nf4:", done["flux"], flush=True)
-    shutil.rmtree(os.path.expanduser("~/.cache/huggingface"), ignore_errors=True)
+    if used_gb() > 13.0:
+        raise RuntimeError("đầu ra đã %.1f GB, bỏ Z-Image để không vượt 20GB" % used_gb())
+    from diffusers import ZImagePipeline, ZImageTransformer2DModel
+    from transformers import AutoModel
+    repo = "Tongyi-MAI/Z-Image-Turbo"
+    tr = ZImageTransformer2DModel.from_pretrained(repo, subfolder="transformer", quantization_config=q4, torch_dtype=torch.float16)
+    te = AutoModel.from_pretrained(repo, subfolder="text_encoder", torch_dtype=torch.float16,
+                                   quantization_config=TfBnb(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16))
+    pipe = ZImagePipeline.from_pretrained(repo, transformer=tr, text_encoder=te, torch_dtype=torch.float16)
+    pipe.save_pretrained(f"{W}/zimage-turbo-nf4")
+    done["zimage"] = os.listdir(f"{W}/zimage-turbo-nf4")
+    print("đã lưu zimage-turbo-nf4 (%.1f GB):" % used_gb(f"{W}/zimage-turbo-nf4"), done["zimage"], flush=True)
 except Exception as e:
-    print("!! FLUX lỗi:", e, flush=True)
-# (model chữ GGUF ~21GB vượt giới hạn 20GB đầu ra notebook: phiên dựng tải từ Hugging Face, ~3 phút)
-print("KẾT QUẢ:", {k: len(v) for k, v in done.items()}, flush=True)
-if len(done) < 2: raise SystemExit("thiếu: " + ", ".join(k for k in ("llama", "flux") if k not in done))
+    print("!! Z-Image lỗi:", str(e)[:400], flush=True)
+    shutil.rmtree(f"{W}/zimage-turbo-nf4", ignore_errors=True)
+finally:
+    shutil.rmtree(os.path.expanduser("~/.cache/huggingface"), ignore_errors=True)
+# (model chữ GGUF ~20GB vượt giới hạn đầu ra notebook: phiên dựng tải từ Hugging Face, ~3 phút)
+print("KẾT QUẢ:", {k: len(v) for k, v in done.items()}, "| đầu ra %.1f GB" % used_gb(), flush=True)
+if "llama" not in done or not ({"flux", "zimage"} & set(done)): raise SystemExit("thiếu: " + ", ".join(k for k in ("llama", "flux/zimage") if k not in done and not ({"flux", "zimage"} & set(done))))
 '''
 
 
