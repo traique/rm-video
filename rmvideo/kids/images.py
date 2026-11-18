@@ -18,7 +18,9 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 INPUT_ROOT = "/kaggle/input"
-GEN_W, GEN_H = 832, 1472
+# Đo thật 18/11/2026 (T4 14,5GB): T5 8-bit nằm cố định trên GPU (4,8GB) + transformer NF4 (6,5GB) + kích hoạt ở 832x1472 -> hết
+# VRAM. Giờ: mã hoá cả 8 prompt trước, bỏ T5 khỏi GPU, rồi mới chạy transformer; sinh ở 768x1344 (~1 MP, bội số 16).
+GEN_W, GEN_H = 768, 1344
 OUT_W, OUT_H = 1080, 1920
 MODELS: dict[str, dict[str, Any]] = {
     # repo gốc black-forest-labs/FLUX.1-schnell đã khoá (gated, cần token HF): dùng bản sao công khai nguyên vẹn
@@ -111,20 +113,45 @@ def is_blank(img: Any) -> bool:
     return bool(np.isnan(a).any() or a.std() < 3.0)
 
 
+def flux_encode_all(pipe: Any, prompt_list: Sequence[str], log: Log) -> list[tuple[Any, Any]]:
+    """Mã hoá mọi prompt bằng CLIP + T5 trước (giữ ở CPU), rồi BỎ T5 khỏi pipeline để trả VRAM cho transformer."""
+    import gc
+
+    import torch
+    out = []
+    with torch.no_grad():
+        for p in prompt_list:
+            pe, ppe, _ = pipe.encode_prompt(prompt=p, prompt_2=None, max_sequence_length=256)
+            out.append((pe.to("cpu"), ppe.to("cpu")))
+    pipe.text_encoder_2 = None                      # T5 8-bit không dời được: xoá hẳn, torch trả VRAM
+    gc.collect()
+    torch.cuda.empty_cache()
+    log(f"Đã mã hoá {len(out)} prompt, bỏ T5 khỏi GPU (còn trống {torch.cuda.mem_get_info()[0] >> 20}MB)")
+    return out
+
+
 def generate_one(pipe: Any, kind: str, prompt: str, seed: int, steps: int, guidance: float, w: int = GEN_W,
-                 h: int = GEN_H) -> Any:
+                 h: int = GEN_H, embeds: tuple[Any, Any] | None = None) -> Any:
     import torch
     g = torch.Generator("cpu").manual_seed(int(seed))
     if kind == "flux":
-        lat = pipe(prompt=prompt, width=w, height=h, num_inference_steps=steps, guidance_scale=guidance, generator=g,
-                   max_sequence_length=256, output_type="latent").images
+        dev = pipe._execution_device
+        if embeds is not None:
+            lat = pipe(prompt_embeds=embeds[0].to(dev, torch.float16), pooled_prompt_embeds=embeds[1].to(dev, torch.float16),
+                       width=w, height=h, num_inference_steps=steps, guidance_scale=guidance, generator=g,
+                       output_type="latent").images
+        else:
+            lat = pipe(prompt=prompt, width=w, height=h, num_inference_steps=steps, guidance_scale=guidance, generator=g,
+                       max_sequence_length=256, output_type="latent").images
         return _flux_decode(pipe, lat, w, h)
     return pipe(prompt=prompt, width=w, height=h, num_inference_steps=steps, guidance_scale=guidance, generator=g).images[0]
 
 
 def upscale(src: str, dst: str, w: int = OUT_W, h: int = OUT_H) -> str:
+    """Phóng lên 1080x1920: phủ kín khung rồi cắt (768x1344 lệch tỉ lệ 9:16 ~1,6%, không kéo méo)."""
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf",
-                    f"scale={w}:{h}:flags=lanczos,unsharp=5:5:0.4:3:3:0.0", "-frames:v", "1", dst], check=True)
+                    f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},unsharp=5:5:0.4:3:3:0.0",
+                    "-frames:v", "1", dst], check=True)
     return dst
 
 
@@ -132,6 +159,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
              log: Log = logging.info, pipe: Any = None) -> list[str]:
     """Sinh từng prompt -> scene_01.png ... (1080x1920). pipe: pipeline đã nạp (test); None thì tự nạp và giải phóng."""
     os.makedirs(out_dir, exist_ok=True)
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     m = MODELS.get(model) or MODELS["schnell"]
     own = pipe is None
     if own:
@@ -139,14 +167,18 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
         local = find_local(model)
         pipe = load_flux(m["repo"], local, log) if m["kind"] == "flux" else load_zimage(m["repo"], local, log)
         log(f"Model ảnh {model} sẵn sàng sau {time.time() - t0:.0f}s")
+    embeds: list = []
+    if m["kind"] == "flux" and getattr(pipe, "text_encoder_2", None) is not None:
+        embeds = flux_encode_all(pipe, prompt_list, log)
     out = []
     try:
         for i, (prompt, seed) in enumerate(zip(prompt_list, seeds), 1):
             t0 = time.time()
-            img = generate_one(pipe, m["kind"], prompt, seed, int(m["steps"]), float(m["guidance"]))
+            emb = embeds[i - 1] if embeds else None
+            img = generate_one(pipe, m["kind"], prompt, seed, int(m["steps"]), float(m["guidance"]), embeds=emb)
             if is_blank(img):
                 log(f"Ảnh cảnh {i} đen/hỏng, sinh lại với seed khác")
-                img = generate_one(pipe, m["kind"], prompt, seed + 7919, int(m["steps"]), float(m["guidance"]))
+                img = generate_one(pipe, m["kind"], prompt, seed + 7919, int(m["steps"]), float(m["guidance"]), embeds=emb)
             raw = os.path.join(out_dir, f"raw_{i:02d}.png")
             img.save(raw)
             out.append(upscale(raw, os.path.join(out_dir, f"scene_{i:02d}.png")))
