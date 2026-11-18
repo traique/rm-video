@@ -23,6 +23,13 @@ DATA = story.load()
 
 
 @pytest.fixture(autouse=True)
+def _big_queue(monkeypatch):
+    """Hàng đợi dùng chung (state.queue) có thể còn job của các test trước trong cả bộ -> không để make_now/tick vướng
+    «hàng đợi đầy» (MAX_QUEUE = 5)."""
+    monkeypatch.setattr(config, "MAX_QUEUE", 1000)
+
+
+@pytest.fixture(autouse=True)
 def _state(monkeypatch, tmp_path):
     monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids.json"))
     monkeypatch.setattr(kids_auto, "_POSTED", {})
