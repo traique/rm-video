@@ -202,7 +202,22 @@ async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
         ivs = await voiceplan.voiced_intervals(cl["path"]) or []
         dur = float(cl.get("dur") or 0.0) or (ivs[-1][1] / f if ivs else 2.0)
         shifted = [(a / f + at, b / f + at) for a, b in ivs]
-        out += [(a, b, w, k) for a, b, w in align.spread_voiced(text.split(), shifted, at, at + dur + 0.05)]
+        out += [(a, b, w, k) for a, b, w in align.spread_voiced(sub_tokens(text), shifted, at, at + dur + 0.05)]
+    return out
+
+
+QUOTES = "«»\"“”‘’'"
+
+
+def sub_tokens(text: str) -> list[str]:
+    """Chữ để rải phụ đề: bỏ dấu ngoặc kép (model hay viết «...» quanh lời thoại; đo thật: chữ «đi.»» lạc sang cụm sau)."""
+    out = []
+    for w in text.split():
+        w = w.strip(QUOTES)
+        if w.strip(".,;:!?…"):
+            out.append(w)
+        elif out:
+            out[-1] += w                  # dấu câu lẻ sau ngoặc («nha.» -> nha.) dính vào chữ trước
     return out
 
 

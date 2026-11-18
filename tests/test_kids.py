@@ -206,6 +206,12 @@ def test_prefetch_copies_saved_model(tmp_path):
     assert images_mod.local_dir("zimage", str(tmp_path / "input"), str(dest)) is None
 
 
+def test_sub_tokens_drop_quotes():
+    assert render.sub_tokens("Thỏ Trắng nói: «Giờ clean đồ chơi đi.» Gấu Nâu giúp.") == \
+           ["Thỏ", "Trắng", "nói:", "Giờ", "clean", "đồ", "chơi", "đi.", "Gấu", "Nâu", "giúp."]
+    assert render.sub_tokens('«Thank you, bạn thân! »') == ["Thank", "you,", "bạn", "thân!"]
+
+
 def test_plan_fits_max_len():
     """Lời dài (đo thật 236 chữ -> 88,9s): co đệm trước, vẫn quá thì đọc nhanh hơn; không bao giờ quá MAX_LEN khi còn co được."""
     pl = render.plan([9.0] * 8, random.Random(3), recap_dur=6.5)             # tự nhiên ≈ 90,6s
