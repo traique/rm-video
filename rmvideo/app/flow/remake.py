@@ -535,8 +535,7 @@ class Remake:
     def content_end(self) -> float:
         """Giây hết phần video thật (trước màn kết nối thêm): lời đọc phải dứt trước đó. Bản 47: giọng được xếp tới hết
         CẢ màn kết -> câu chốt đọc đè lên màn kết, âm hiệu chen vào chữ cuối, phụ đề hiện xuyên qua màn kết."""
-        tail = getattr(self, "tail", 0.0)
-        return round(self.out_dur - tail - brand.END_BREATH, 3) if tail else self.out_dur
+        return brand.speak_end(self.out_dur)
 
     def add_tail(self):
         """Màn kết nối thêm sau video (bản 43) khi video giữ độ dài tự nhiên; không vượt Reels 90 giây (video ≤ 90 giây)

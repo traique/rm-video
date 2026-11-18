@@ -9,6 +9,7 @@
 import json
 import os
 
+import config
 import ingredients
 import prompt_engine
 import queue_manager
@@ -95,11 +96,14 @@ def test_unit_change_is_caught_and_only_that_phrase_dropped():
     assert ingredients.drop_numbers("Luộc khoảng 4 phút rồi thêm 1 muỗng dầu.", {"1"}) == "Luộc khoảng 4 phút rồi thêm dầu."
 
 
-def test_narration_stops_before_end_card():
+def test_narration_stops_before_end_card(monkeypatch):
+    monkeypatch.setattr(config, "BRAND_NAME", "Bếp Đong Đủ")
     r = Remake.__new__(Remake)
     r.out_dur, r.tail = 188.39, 2.2
     assert r.content_end == 185.89                  # bản 50: chừa 0,3 giây thở trước màn kết
-    r.tail = 0.0
+    r.tail = 0.0                                    # màn kết đè lên cuối (chạm trần độ dài): vẫn dứt trước màn kết
+    assert r.content_end == 185.89
+    monkeypatch.setattr(config, "BRAND_NAME", "0")  # không có tên kênh: không có màn kết
     assert r.content_end == 188.39
 
 

@@ -50,6 +50,10 @@ bịa viết bằng chữ cũng bỏ được trọn cụm.
 | Tiêu đề khen chung, không nêu điểm ăn tiền | Lệnh viết lời: tiêu đề nêu tên món kèm đúng mẹo chính (YouTube / Facebook bấm vì lời hứa trong tiêu đề) |
 | (thấy khi đo cho mục 1080p) Bản ngắn ≤ 90 giây dựng 1080p: đo thật ffmpeg ngốn **1.235 MB** (dựng mạnh, cân bằng, 2 luồng); bản đầy đủ 1080p preset Chuẩn TVC **2.465 MB**. Botkeep 2 GB bị giết từ ~970 MB (job 6) → hễ Kaggle chờ máy, lùi về Botkeep là bản ngắn chết ở bước cuối | Trước khi chọn 1080p, đọc RAM trống của container: dưới 1,8 GB (cân bằng) / 3 GB (Chuẩn TVC) thì xuất 720p, kèm ghi chú «dựng trên Kaggle thì được 1080p» |
 
+Codex PR #9:
+- Lượt soát lời không được đổi THỨ TỰ số hay nguyên liệu. Trước đây chỉ so tập hợp, nên tráo «2 muỗng nước mắm, 1 muỗng đường» thành «1 muỗng nước mắm, 2 muỗng đường» vẫn lọt.
+- Lời đọc dứt trước màn kết cả khi màn kết đè lên cuối video (chạm trần độ dài, không nối thêm được).
+
 Đề xuất còn lại (cần quyết định của bạn, chưa làm bằng mã):
 - **Nhạc nền nhẹ dưới lời đọc** (TVC luôn có): cần thư viện nhạc có bản quyền / miễn phí bản quyền. Nhạc có bản quyền sẽ bị YouTube Content ID nhận và TikTok tắt tiếng. Muốn thì làm ở bản sau (trộn -24 dB, tự nhỏ lại khi có lời).
 - **Tông màu:** mặc định «tươi sáng» làm nồi inox, tường xám càng nhạt. Món luộc / hấp nên thử «ấm mộc» (Cài đặt → Tông màu video).

@@ -1290,6 +1290,23 @@ Trả về DUY NHẤT JSON: {{"fixes": [{{"i": số, "text": "câu đã sửa"}}
 PROOF_MAX = 75.0        # giây: lượt soát lời tối đa chừng này (kể cả thử lại)
 
 
+def _ingredient_seq(text: str) -> list:
+    """Các nhóm nguyên liệu theo đúng thứ tự xuất hiện trong câu (tên dài ưu tiên: "hành tây" không tính thêm "hành")."""
+    toks = _norm_words(text)
+    out: list = []
+    p = 0
+    while p < len(toks):
+        head = toks[p:p + 3]
+        got = ingredients.find(" ".join(head)) - ingredients.find(" ".join(head[1:]))
+        if got:
+            n = next((L for L in (1, 2, 3) if got <= ingredients.find(" ".join(toks[p:p + L]))), len(head))
+            out.append(sorted(got))
+            p += n
+        else:
+            p += 1
+    return out
+
+
 def _minor_edit(old: str, new: str) -> bool:
     """Bản soát chỉ được sửa nhỏ: thay / bỏ / thêm tối đa 30% số chữ (ít nhất 2 chữ)."""
     a, b = _norm_words(old), _norm_words(new)
@@ -1324,8 +1341,10 @@ async def proofread(segments: list) -> list:
         if seg is None or not new:
             continue
         old = seg["text"]
-        if new == old or not _minor_edit(old, new) or ingredients.find(new) != ingredients.find(old) \
-                or sorted(ingredients.numbers(new)) != sorted(ingredients.numbers(old)) \
+        # số và nguyên liệu phải giữ ĐÚNG THỨ TỰ (Codex PR #9: tráo «2 muỗng nước mắm, 1 muỗng đường» thành «1 muỗng
+        # nước mắm, 2 muỗng đường» thì tập số / tập nguyên liệu vẫn y nguyên mà công thức đã đổi)
+        if new == old or not _minor_edit(old, new) or _ingredient_seq(new) != _ingredient_seq(old) \
+                or ingredients.numbers(new) != ingredients.numbers(old) \
                 or copy_ratio(new, seg.get("orig") or "") >= 0.45:
             logging.info("Soát lời: bỏ chỗ sửa đoạn %d («%s» -> «%s»)", n, old, new)
             continue

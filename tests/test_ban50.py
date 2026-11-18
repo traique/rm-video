@@ -169,10 +169,15 @@ def test_proofread_fixes_only_small_safe_slips(monkeypatch):
     assert asyncio.run(prompt_engine.proofread(segs)) == []
 
 
-def test_voice_breathes_before_the_end_card():
+def test_voice_breathes_before_the_end_card(monkeypatch):
+    monkeypatch.setattr(config, "BRAND_NAME", "Bếp Đong Đủ")
     r = SimpleNamespace(out_dur=188.39, tail=2.2)
     assert remake.Remake.content_end.fget(r) == round(188.39 - 2.2 - brand.END_BREATH, 3)
+    # Codex PR #9: chạm trần độ dài thì màn kết ĐÈ lên 2,2 giây cuối (không nối thêm) — lời vẫn dứt trước màn kết
     r.tail = 0.0
+    assert remake.Remake.content_end.fget(r) == round(188.39 - 2.2 - brand.END_BREATH, 3)
+    assert brand.speak_end(5.0) == 5.0                                      # video ≤ 6 giây: không có màn kết
+    monkeypatch.setattr(config, "BRAND_NAME", "0")
     assert remake.Remake.content_end.fget(r) == 188.39
 
 
@@ -224,3 +229,18 @@ def test_low_ram_machine_renders_720p(monkeypatch, tmp_path):
         assert bool(notes) == (want == (720, 1280)) and (not notes or "RAM" in notes[0])
     monkeypatch.setattr(ff, "mem_available_mb", lambda: None)                 # không đọc được RAM: như trước
     assert renderer.output_size(1920, True, 80) == (1080, 1920)
+
+
+
+def test_proofread_cannot_swap_amounts_or_ingredients(monkeypatch):
+    """Codex PR #9: tráo số giữa hai nguyên liệu thì tập số / tập nguyên liệu vẫn y nguyên mà công thức đã đổi."""
+    line = "Giờ mình nêm 2 muỗng nước mắm với 1 muỗng đường cho thật đậm đà nha cả nhà."
+    for bad in ("Giờ mình nêm 1 muỗng nước mắm với 2 muỗng đường cho thật đậm đà nha cả nhà.",
+                "Giờ mình nêm 2 muỗng đường với 1 muỗng nước mắm cho thật đậm đà nha cả nhà."):
+        segs = [{"text": line, "orig": "nêm hai muỗng nước mắm một muỗng đường", "ost": "new"}]
+        _fake_ai(monkeypatch, [{"fixes": [{"i": 0, "text": bad}]}])
+        assert asyncio.run(prompt_engine.proofread(segs)) == [] and segs[0]["text"] == line, bad
+    ok = "Giờ mình nêm 2 muỗng nước mắm với 1 muỗng đường cho thật đậm đà nghen cả nhà."
+    segs = [{"text": line, "orig": "nêm hai muỗng nước mắm một muỗng đường", "ost": "new"}]
+    _fake_ai(monkeypatch, [{"fixes": [{"i": 0, "text": ok}]}])
+    assert asyncio.run(prompt_engine.proofread(segs)) == [(0, line, ok)]
