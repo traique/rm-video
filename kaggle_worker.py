@@ -37,7 +37,7 @@ PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu
 PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
                "pip install -q onnxruntime-gpu)")
 # truyện bé: giọng VieNeu + diffusers (FLUX 4-bit) + huggingface_hub (tải GGUF); llama-server là file đã biên dịch gắn vào
-PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.33' accelerate bitsandbytes sentencepiece protobuf huggingface_hub"
+PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
 KIDS_TIMEOUT = 100 * 60          # truyện bé: chờ máy + cài + tải GGUF 20GB + nạp 3 model + viết + vẽ 8 ảnh + dựng (đo rồi siết)
 KIDS_RUN_RESERVE = 55 * 60       # giờ chạy cần cho một truyện: phiên chưa được cấp máy khi chỉ còn ngần này thì bỏ
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
