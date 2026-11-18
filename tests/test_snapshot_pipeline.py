@@ -671,6 +671,26 @@ def test_legacy_oneshot_ai_fallback(env, monkeypatch):
     snap("legacy_oneshot_ai_fallback", env, run(env, _job(env, 117)))
 
 
+def test_oneshot_gets_voice_bed(env, monkeypatch):
+    """1.0.0 (Codex trên PR #10): đường đọc một mạch trước đây không có nhạc lót dưới lời."""
+    monkeypatch.setattr(config, "NO_SPEECH", "narrate")
+    monkeypatch.setattr(config, "VOICE_BED", "on")
+    os.makedirs(bgm.DIR, exist_ok=True)
+    _wav(os.path.join(bgm.DIR, "nhac.mp3"), 30.0)
+    env.segs = [(0.5, 3.0, "thịt kho tộ ngon lắm luôn đó cả nhà ơi")]
+    env.cuts = []
+    got = []
+    rec_render = core_video.render
+
+    async def render(*a, **kw):
+        got.append(kw.get("voice_bed"))
+        return await rec_render(*a, **kw)
+    monkeypatch.setattr(core_video, "render", render)
+    run(env, _job(env, 118))
+    assert got and got[0] and got[0]["name"] == "nhac.mp3" and os.path.exists(got[0]["path"])
+    assert json.load(open(bgm.RECENT_FILE, encoding="utf-8")) == ["file:nhac.mp3"]      # bài vừa dùng: lần sau tránh
+
+
 def test_teaser(env, monkeypatch):
     monkeypatch.setattr(config, "TEASER", "1")
     monkeypatch.setattr(config, "CUT_PROMO", "0")

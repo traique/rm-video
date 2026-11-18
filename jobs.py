@@ -73,6 +73,8 @@ async def _run_one_held(job: Job):
         _drop_inputs(job)
         queue.save(job)
         queue.done()
+        # bản 1.0.0: trước đây job bị từ chối vì thiếu đĩa kết thúc im lặng (kể cả job Telegram)
+        await notifier.job_event(job, f"❌ Job #{job.id} lỗi: {job.error[:600]}")
         return
     job.status, job.started_at, job.timeline, job.error = "processing", time.time(), [], ""
     queue.save(job)                                # trạng thái processing vào DB: chết giữa chừng thì chạy lại

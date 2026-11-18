@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 
 import numpy as np
@@ -251,6 +252,25 @@ def test_notify_test_endpoint_needs_login(monkeypatch, tmp_path):
     asyncio.run(go())
 
 
+def test_disk_preflight_rejection_is_notified(monkeypatch):
+    """Codex trên PR #10: job bị từ chối vì thiếu đĩa trước đây kết thúc im lặng."""
+    import jobs
+    from queue_manager import Job
+    sent = []
+
+    async def fake_event(job, text, admin=True):
+        sent.append((job.id, text, admin))
+    monkeypatch.setattr(notifier, "job_event", fake_event)
+    monkeypatch.setattr(jobs, "pick_workdir", lambda need: None)
+    monkeypatch.setattr(jobs.queue, "save", lambda job: None)
+    monkeypatch.setattr(jobs.queue, "done", lambda: None)
+    job = Job(url="https://youtu.be/x", mode="cook", duration=0, voice="v", source="web")
+    job.id = 77
+    asyncio.run(jobs._run_one_held(job))
+    assert job.status == "error" and "Không đủ chỗ trống" in job.error
+    assert sent and sent[0][0] == 77 and "Không đủ chỗ trống" in sent[0][1] and sent[0][2]
+
+
 def test_zoom_target_survives_review_and_pieces():
     src = job_factory.remake(url="https://youtu.be/x", mode="cook", voice="v", source="zoom",
                              zoom={"to": "t", "account": "a", "user": "u"})
@@ -274,7 +294,7 @@ def test_part_link(monkeypatch):
 # ---------------- phiên bản ----------------
 
 def test_version_is_semver_and_changelog_has_section():
-    assert VERSION == "1.0.0"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", VERSION) and VERSION >= "1.0.0"
     title, lines = release.notes(VERSION)
     assert title and 2 <= len(lines) <= release.MAX_LINES and all(not x.startswith("**") for x in lines)
     assert release.message().startswith(f"🆕 Bot đã lên phiên bản {VERSION}")

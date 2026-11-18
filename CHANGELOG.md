@@ -34,6 +34,8 @@ và các dòng gạch đầu dòng tóm tắt: đó chính là tin bot gửi khi
   - job web / tự đăng báo về chat quản trị (`ADMIN_CHAT_ID`, trống thì người đầu tiên trong `ALLOWED_USERS`) và
     người nhận trên Zoom. Tắt bằng `NOTIFY_JOBS=0`.
 - Tin «xong» có link tải từng file (cần `PUBLIC_URL`) và ảnh bìa.
+- Job bị từ chối vì máy thiếu chỗ trống trên đĩa cũng được báo (trước đây kết thúc im lặng, kể cả job Telegram;
+  Codex soát PR #10 tìm ra).
 - Nút **🔔 Gửi thử thông báo** (Cài đặt) gửi thật một tin và trả lý do cụ thể cho từng kênh, vd:
   - chưa đặt `BOT_TOKEN`;
   - chưa đặt `ADMIN_CHAT_ID`;
@@ -98,6 +100,7 @@ và các dòng gạch đầu dòng tóm tắt: đó chính là tin bot gửi khi
 - Bản thử đầu tiên chưa bỏ bass: bass đẩy đỉnh tiếng vào bộ giới hạn, cả video nhỏ đi 2 dB. Đã sửa.
 - Video gốc có nhạc rõ (nốt ngân trong tiếng nền / ngoài quãng có người nói) thì không lót thêm.
   - Nhạc gốc rất nhỏ dưới tiếng xèo thì bộ dò có thể không thấy. Nghe hai bài chồng nhau thì tắt ở Cài đặt → 🎬 Video & lời.
+- Đường dự phòng «đọc một mạch» (AI không viết được lời có mốc thời gian) cũng có nhạc lót (Codex soát PR #10).
 - Thư viện trống thì ghi chú và làm như cũ.
 - Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
 

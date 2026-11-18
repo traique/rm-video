@@ -804,6 +804,7 @@ class Remake:
                 job.post = prompt_engine.platform_post(pack2["title"], pack2["caption"], pack2["hashtags"],
                                                        common.credit_line(job))
                 got_subs = await tts_engine.tts(job.script, voice_mp3, job.voice, ass, self.pos_y)
+        await self.pick_bed()                             # đường đọc một mạch cũng có nhạc lót (Codex, PR #10)
         job.step = "Render (FFmpeg)"
         out = os.path.join(self.tmp, "output.mp4")
         amb_wav, gate = await self.local_ambient()
@@ -813,8 +814,9 @@ class Remake:
         await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
                                 self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
-                                notes=notes, teaser=self.tz,
+                                notes=notes, teaser=self.tz, voice_bed=self.bed,
                                 **_edit_kw(self.edit.to_dict() if self.edit else None, self.cards or None, self.tail))
+        self.bed_used()
         if notes:
             job.note("".join(notes))
         await self.finish_cover(cover_task)
