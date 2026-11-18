@@ -4,7 +4,8 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 
 ## Triển khai trên Botkeep
 
-1. Upload toàn bộ thư mục này (Python Runtime **3.11 trở lên**; 3.12 khuyên dùng), lệnh chạy: `python main.py`.
+1. Upload toàn bộ thư mục này (Python Runtime **3.13**, bản CI kiểm; 3.11–3.12 vẫn chạy được nhưng không còn được
+   kiểm mỗi lần sửa), lệnh chạy: `python main.py`.
    `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (~350MB). **YouTube** cần thêm bộ giải JavaScript:
    gõ `setup_youtube` vào console (cài deno ~100MB vào `tools/`, gỡ bằng `remove_youtube`); TikTok/Facebook không cần.
    File `.config/pip/pip.conf` tắt bộ nhớ đệm của pip (Botkeep chạy với HOME = thư mục bot, nên bộ nhớ đệm ~150–250MB
@@ -258,7 +259,8 @@ Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook �
 - **Thương hiệu** (Cài đặt): `BRAND_NAME` màn kết 2.2s cuối, logo PNG upload trong Cài đặt (góc phải trên), `BRAND_INTRO` tiêu đề 3s đầu. `SUB_STYLE`: karaoke | box | outline | plain.
 - **Caption 3 nền tảng** (TikTok / Facebook / YouTube Shorts) trong nội dung đăng.
 - Tốc độ: bóc lời, dò chữ, tách cảnh chạy song song; tách giọng AI chỉ chạy các khúc có lời gốc (bật khi tổng thời gian có lời ≤ 45s và video ≤ 2 phút) và chạy song song với tạo giọng; cache nghe lời gốc (`stt_cache.json`). Kéo dài video (chọn thời lượng dài hơn gốc) làm ngay trong lần render cuối, không mã hoá trung gian. Số luồng FFmpeg/x264 theo số lõi container.
-- CI: `.github/workflows/test.yml` chạy ruff + pytest (Python 3.11 và 3.12) mỗi lần push.
+- CI: `.github/workflows/test.yml` chạy ruff + mypy + pytest song song trên Python 3.13 (bản Botkeep và Kaggle đang
+  chạy) cho mỗi PR và mỗi lần đẩy lên nhánh chính; đẩy commit mới thì huỷ lượt cũ.
 
 ## Video dài
 

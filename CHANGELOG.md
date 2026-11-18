@@ -109,6 +109,10 @@ và các dòng gạch đầu dòng tóm tắt: đó chính là tin bot gửi khi
   bản + báo một lần mỗi kênh, luật tông màu + đo khung thật, chuyển mặc định tông màu, bộ dò nhạc, đồ thị trộn nhạc
   lót, việc Kaggle mang nhạc lót + tông màu.
 - Đã dựng thật trên video gà 60 giây (có / không nhạc lót) để đo các con số trên.
+- CI chỉ chạy Python 3.13: Botkeep và Kaggle đều chạy 3.13. Mã gửi Kaggle vẫn được kiểm cú pháp 3.10.
+  - Ba bản cũ chạy song song nên bỏ bớt không nhanh hơn. Phần nhanh hơn đến từ cache thư viện + pytest song song
+    (`-n auto`), mỗi job trước đây mất 7–9 phút.
+  - Mỗi lần đẩy chỉ chạy một lượt (trước đây chạy cả lượt push lẫn lượt PR); đẩy commit mới thì huỷ lượt cũ.
 
 ## Bản 50 — số đọc bằng chữ + soát video job 7 dưới góc nhìn đạo diễn TikTok (17/11/2026)
 
