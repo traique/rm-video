@@ -36,20 +36,43 @@ STYLE = "kids"
 
 
 RECAP_GAP = 0.5        # câu ôn từ bắt đầu sau khi vào màn kết chừng này
+MAX_LEN = 87.0         # Reels nhận tới 90s, QA (job.DUR_MAX) 88s: kế hoạch tự co vào mức này (đo thật: 236 chữ -> 88,9s)
+PAD_MIN, GAP_MIN = 0.4, 0.15   # đệm tối thiểu khi phải co
+TEMPO_MAX = 1.15       # co đệm chưa đủ thì giọng đọc nhanh hơn, tối đa chừng này (atempo, nghe vẫn tự nhiên)
 
 
-def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: float = 0.0) -> dict:
+def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: float = 0.0,
+         max_len: float = MAX_LEN) -> dict:
     """durs: độ dài TIẾNG NÓI từng cảnh -> {"scenes": [{start, end, voice_at, motion}], "transitions": [{start, dur,
-    type}], "length", "outro_at", "recap_at"}. Chuyển cảnh j nằm giữa ranh giới cảnh j và j+1 (lấn mỗi bên XFADE/2).
-    recap_dur: câu ôn từ đọc trong màn kết -> màn kết dài ra cho vừa."""
-    rnd = rnd or random.Random(0)
-    outro = max(OUTRO, RECAP_GAP + float(recap_dur) + 1.0) if recap_dur else OUTRO
+    type}], "length", "outro_at", "recap_at", "factor", "pad", "gap"}. Chuyển cảnh j nằm giữa ranh giới cảnh j và
+    j+1 (lấn mỗi bên XFADE/2). recap_dur: câu ôn từ đọc trong màn kết -> màn kết dài ra cho vừa.
+    Dài quá max_len thì co đệm (PAD/GAP xuống PAD_MIN/GAP_MIN), vẫn quá thì giọng đọc nhanh hơn (factor ≤ TEMPO_MAX;
+    compose_voice dùng atempo=factor, độ dài giọng trong kế hoạch là d/factor)."""
+    seed = (rnd or random.Random(0)).random()   # cùng hạt -> cùng chuyển động dù xếp lại mấy lần
+    voice = [float(d) for d in durs]
+    pl = _lay(voice, seed, float(recap_dur), PAD, GAP, 1.0)
+    if pl["length"] > max_len:
+        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, 1.0)
+    f = 1.0
+    for _ in range(4):                      # cảnh ngắn bị chặn dưới SCENE_MIN nên tính lặp vài vòng cho đúng
+        if pl["length"] <= max_len or f >= TEMPO_MAX:
+            break
+        spoken = (sum(voice) + float(recap_dur)) / f
+        fixed = pl["length"] - spoken
+        f = min(TEMPO_MAX, f * spoken / max(1.0, max_len - fixed) + 0.002)
+        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, f)
+    return pl
+
+
+def _lay(voice: list[float], seed: float, recap_dur: float, pad: float, gap: float, f: float) -> dict:
+    rnd = random.Random(seed)
+    outro = max(OUTRO, RECAP_GAP + recap_dur / f + 1.0) if recap_dur else OUTRO
     scenes: list[dict] = []
     t = 0.0
     prev = ""
-    for i, d in enumerate(durs):
-        lead = INTRO if i == 0 else GAP
-        length = max(SCENE_MIN, lead + float(d) + PAD)
+    for i, d in enumerate(voice):
+        lead = INTRO if i == 0 else gap
+        length = max(SCENE_MIN, lead + d / f + pad)
         motion = rnd.choice([m for m in MOTIONS if m != prev])
         prev = motion
         scenes.append({"start": round(t, 3), "end": round(t + length, 3), "voice_at": round(t + lead, 3),
@@ -59,7 +82,7 @@ def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: flo
     trans = [{"start": round(s["end"] - XFADE / 2, 3), "dur": XFADE, "type": rnd.choice(TRANSITIONS)}
              for s in scenes[:-1]]
     return {"scenes": scenes, "transitions": trans, "length": round(t + outro, 3), "outro_at": round(t, 3),
-            "recap_at": round(t + RECAP_GAP, 3)}
+            "recap_at": round(t + RECAP_GAP, 3), "factor": round(f, 4), "pad": pad, "gap": gap}
 
 
 def _clip_bounds(pl: dict) -> list[tuple[float, float]]:
@@ -172,12 +195,13 @@ async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
     items = [(cl, sc["voice_at"], text) for cl, sc, text in zip(clips, pl["scenes"], texts)]
     if recap and recap[0].get("path"):
         items.append((recap[0], pl["recap_at"], recap[1]))
+    f = float(pl.get("factor") or 1.0)        # giọng đọc nhanh hơn: mốc có tiếng cũng dồn lại theo
     for k, (cl, at, text) in enumerate(items):
         if not cl.get("path") or not text.strip():
             continue
         ivs = await voiceplan.voiced_intervals(cl["path"]) or []
-        dur = float(cl.get("dur") or 0.0) or (ivs[-1][1] if ivs else 2.0)
-        shifted = [(a + at, b + at) for a, b in ivs]
+        dur = float(cl.get("dur") or 0.0) or (ivs[-1][1] / f if ivs else 2.0)
+        shifted = [(a / f + at, b / f + at) for a, b in ivs]
         out += [(a, b, w, k) for a, b, w in align.spread_voiced(text.split(), shifted, at, at + dur + 0.05)]
     return out
 
@@ -204,19 +228,23 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     work = os.path.join(tmp, "kids_render")
     os.makedirs(work, exist_ok=True)
     durs = [await voiceplan.speech_duration(c["path"]) if c.get("path") else 0.0 for c in clips]
-    for c, d in zip(clips, durs):
-        c["dur"] = d
     recap_dur = 0.0
     if recap and recap[0].get("path"):
         recap_dur = await voiceplan.speech_duration(recap[0]["path"])
-        recap[0]["dur"] = recap_dur
     pl = plan(durs, rnd, recap_dur)
+    f = pl["factor"]
+    for c, d in zip(clips, durs):
+        c["dur"] = d / f                     # độ dài sau khi đọc nhanh hơn (nếu phải co)
+    if recap_dur:
+        recap[0]["dur"] = recap_dur / f      # type: ignore[index]
     total = pl["length"]
-    vplan = [{"start": s["voice_at"], "factor": 1.0, "end": s["voice_at"] + d} for s, d in zip(pl["scenes"], durs)]
+    if f > 1.0 or pl["pad"] < PAD:
+        logging.info("Truyện bé: lời dài, co đệm còn %.2fs và đọc nhanh hơn x%.3f để vừa %.0fs", pl["pad"], f, MAX_LEN)
+    vplan = [{"start": s["voice_at"], "factor": f, "end": s["voice_at"] + d / f} for s, d in zip(pl["scenes"], durs)]
     all_clips = list(clips)
     if recap_dur:
         all_clips.append(recap[0])  # type: ignore[index]
-        vplan.append({"start": pl["recap_at"], "factor": 1.0, "end": pl["recap_at"] + recap_dur})
+        vplan.append({"start": pl["recap_at"], "factor": f, "end": pl["recap_at"] + recap_dur / f})
     voice = os.path.join(work, "voice.wav")
     await voiceplan.compose_voice(all_clips, vplan, voice, total)
     words = await subtitle_words(clips, pl, texts, recap)

@@ -24,7 +24,8 @@ DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"
 N_SCENES = 8
 # Đo thật 18/11/2026 (Qwen3.6-35B-A3B, grammar JSON): model viết NGẮN hơn yêu cầu (74 -> 146 -> 176 chữ qua 3 lượt) và hay bỏ
 # sót từ tiếng Anh -> ngưỡng cứng thấp hơn, schema ép độ dài từng cảnh, từ thiếu chèn bằng mã, câu ôn từ cuối truyện do mã viết.
-WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục Đoan ~47s + đệm + ôn từ + màn kết ≈ 65s
+WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục Đoan ~47s + đệm + ôn từ + màn kết ≈ 65s; đo thật
+                                       # 18/11: 236 chữ -> 88,9s (render.plan tự co đệm/đọc nhanh để ≤ 87s)
 WORDS_HARD = 130                       # dưới mức này thì không chấp nhận dù đã hết lượt
 SCENE_MIN, SCENE_MAX = 12, 40          # chữ mỗi cảnh
 EN_REPEAT = 2                          # mỗi từ tiếng Anh nên xuất hiện ít nhất chừng này lần trong truyện (ôn từ cuối là lần nữa)

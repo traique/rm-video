@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from rmvideo.kids import images as images_mod, llm, prompts, render, story as story_mod
 
-DUR_MIN, DUR_MAX = 60.0, 88.0          # Reels nhận 3-90 giây; chừa 2 giây
+DUR_MIN, DUR_MAX = 60.0, 88.0          # Reels nhận 3-90 giây; chừa 2 giây (render.plan tự co vào MAX_LEN = 87s)
 Log = Callable[[str], None]
 
 
@@ -76,17 +76,19 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
                               recap=(recap_clip, recap) if recap_clip.get("path") else None)
     t["render"] = round(time.time() - t0, 1)
-    bad = await qa_video(out)
-    if bad:
-        raise RuntimeError("Video dựng ra không đạt: " + "; ".join(bad))
-    cov, thumb = await render.cover(out, tmp)
     sj = os.path.join(tmp, "story.json")
     with open(sj, "w", encoding="utf-8") as f:
         json.dump({"story": st, "brief": brief, "prompts": plist, "attempts": attempts, "plan": res["plan"]}, f,
                   ensure_ascii=False, indent=1)
-    files = {"cover.jpg": cov, "thumb.jpg": thumb, "story.json": sj}
+    files = {"story.json": sj}
     for i, p in enumerate(imgs, 1):
         files[f"scene_{i:02d}.png"] = p
+    bad = await qa_video(out)
+    if bad:                     # vẫn trả video + ảnh + kịch bản về /kaggle/working để xem được vì sao hỏng (Botkeep coi là lỗi)
+        return {"ok": False, "kind": "kids", "error": "Video dựng ra không đạt: " + "; ".join(bad), "video": out,
+                "story": st, "duration": res["length"], "attempts": attempts, "timings": t, "files": files}
+    cov, thumb = await render.cover(out, tmp)
+    files.update({"cover.jpg": cov, "thumb.jpg": thumb})
     return {"ok": True, "kind": "kids", "video": out, "story": st, "srt": res["srt"], "duration": res["length"],
             "attempts": attempts, "music": bool(music), "music_gain_db": res.get("music_gain_db"),
             "notes": notes, "timings": t, "files": files}

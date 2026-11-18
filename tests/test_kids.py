@@ -165,6 +165,22 @@ def test_plan_follows_voice():
     assert len(pl["transitions"]) == 7 and pl["transitions"][0]["start"] == pytest.approx(sc[0]["end"] - 0.25)
 
 
+def test_plan_fits_max_len():
+    """Lời dài (đo thật 236 chữ -> 88,9s): co đệm trước, vẫn quá thì đọc nhanh hơn; không bao giờ quá MAX_LEN khi còn co được."""
+    pl = render.plan([9.0] * 8, random.Random(3), recap_dur=6.5)             # tự nhiên ≈ 90,6s
+    assert pl["length"] <= render.MAX_LEN and pl["pad"] == render.PAD_MIN and pl["factor"] == 1.0
+    pl2 = render.plan([10.5] * 8, random.Random(3), recap_dur=6.5)           # ≈ 102s tự nhiên: phải đọc nhanh hơn
+    assert pl2["length"] <= render.MAX_LEN + 0.05 and 1.0 < pl2["factor"] <= render.TEMPO_MAX
+    assert pl2["scenes"][1]["end"] - pl2["scenes"][1]["start"] == pytest.approx(render.GAP_MIN + 10.5 / pl2["factor"]
+                                                                               + render.PAD_MIN, abs=0.01)
+    pl3 = render.plan([20.0] * 8, random.Random(3))                           # quá sức co: dừng ở TEMPO_MAX, QA sẽ chặn
+    assert pl3["factor"] == render.TEMPO_MAX and pl3["length"] > render.MAX_LEN
+    short = render.plan([2.0] * 8, random.Random(3))
+    assert short["factor"] == 1.0 and short["pad"] == render.PAD
+    assert [s["motion"] for s in render.plan([9.0] * 8, random.Random(3))["scenes"]] == \
+           [s["motion"] for s in render.plan([2.0] * 8, random.Random(3))["scenes"]]   # cùng hạt -> cùng chuyển động
+
+
 def _png(path, hue):
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=s=180x320:d=1", "-frames:v", "1",
                     "-vf", f"hue=h={hue}", path], check=True)

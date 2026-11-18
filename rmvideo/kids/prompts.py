@@ -43,7 +43,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"Từ tiếng Anh bé học hôm nay: {words}.\n\n"
             f"Cấu trúc đúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             f"Yêu cầu:\n"
-            f"- Mỗi cảnh 3-4 câu ngắn, tổng 24-34 chữ (KHÔNG được dưới 20 chữ); cả truyện 200-240 chữ. Viết dài, kể kỹ, "
+            f"- Mỗi cảnh 3-4 câu ngắn, tổng 22-30 chữ (KHÔNG được dưới 20 chữ); cả truyện 185-225 chữ. Kể kỹ, "
             "có lời thoại.\n"
             "- Cả bốn bạn đều phải được nhắc tên (gọi đúng tên: "
             + ", ".join(c["name_vi"] for c in chars.values()) + ").\n"
