@@ -263,6 +263,9 @@ def _common(spec: dict) -> dict:
     if config.BRAND_STING != "0" and sting and os.path.getsize(sting) <= 100 * 1024:
         spec["sting_b64"] = base64.b64encode(open(sting, "rb").read()).decode()
     spec["settings"] = settings_snapshot()
+    from rmvideo.media import filtergraph
+    if filtergraph.AUTO_LOOK.get():                    # BRAND_LOOK=auto: tông Botkeep đã chọn cho job này (bản 1.0.0)
+        spec.setdefault("look", filtergraph.AUTO_LOOK.get())
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
 
@@ -270,8 +273,10 @@ def _common(spec: dict) -> dict:
 def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str,
                bands, pos_y, sep: dict, speech: list, max_duration: int, local_path: str | None = None,
                src: dict | None = None, amb_token: str = "", teaser: dict | None = None,
-               edit: dict | None = None, overlays: list | None = None, tail: float = 0.0) -> dict:
-    """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep."""
+               edit: dict | None = None, overlays: list | None = None, tail: float = 0.0,
+               voice_bed: dict | None = None) -> dict:
+    """Việc remake. src: đầu vào đã dựng sẵn (vd. một phần cắt từ video dài); không có thì từ job.url / file trên Botkeep.
+    voice_bed: nhạc lót dưới lời đã chọn trên Botkeep {path, trim, name, url} (Kaggle tải theo link / PUBLIC_URL)."""
     engine = voice_engine(job.voice)
     spec = {"kind": "remake", "job": job.id, "mode": job.mode,
             "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
@@ -293,6 +298,12 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["overlays"] = overlays
     if tail:                                     # màn kết nối thêm sau video (giây, đã tính trong out_dur)
         spec["tail"] = tail
+    if voice_bed:                                # nhạc lót dưới lời (VOICE_BED): Kaggle không lấy được thì dựng không nhạc lót
+        try:
+            spec["voice_bed"] = {"music": ref(voice_bed.get("path"), voice_bed.get("url", ""), "audio"),
+                                 "trim": voice_bed.get("trim", 0.0), "name": voice_bed.get("name", "")}
+        except KaggleError as e:
+            logging.info("Nhạc lót không gửi kèm Kaggle được (%s): dựng không nhạc lót", e)
     if voice_name(job.voice) == CLONE:
         spec["ref_b64"] = base64.b64encode(open(VOICE_REF, "rb").read()).decode()
         spec["ref_ext"] = ".mp3"

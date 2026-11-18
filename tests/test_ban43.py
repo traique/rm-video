@@ -201,7 +201,7 @@ def test_schema_defaults_are_the_kit():
     d = {k: schema.BY_KEY[k].default for k in brand.OLD_DEFAULTS}
     assert d == {"BRAND_NAME": "Bếp Đong Đủ", "BRAND_TAGLINE": "Đong đủ, nấu là ngon",
                  "BRAND_CLOSE": "Đong đủ là ngon, cả nhà nấu thử nha", "BRAND_COLOR": "#F28C28",
-                 "BRAND_LOOK": "tuoi_sang", "BRAND_SERIES": "Hôm nay nấu gì", "COVER_TEMPLATE": "kenh",
+                 "BRAND_LOOK": "auto", "BRAND_SERIES": "Hôm nay nấu gì", "COVER_TEMPLATE": "kenh",   # 1.0.0: tự chọn tông
                  "POST_RECIPE": "1", "TIPS": "video", "REMAKE_STYLE": "strong", "SHORT_VERSION": "on"}
     assert os.path.exists(KIT_LOGO) and os.path.getsize(KIT_LOGO) <= config.LOGO_MAX_BYTES
 

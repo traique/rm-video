@@ -3,6 +3,7 @@
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
 import math
 import re
+from contextvars import ContextVar
 
 import config
 from rmvideo.media import edl, ff
@@ -189,6 +190,15 @@ LOOKS = {
                  "colorbalance=rs=-0.03:bs=0.035:rh=0.045:bh=-0.04,vignette=angle=PI/5,"),
 }
 GRAIN = "noise=c0s=5:c0f=t+u"            # hạt phim rất nhẹ, chỉ kênh sáng; chỉ ở 1080p (720p bị nén thành khối)
+# BRAND_LOOK=auto (bản 1.0.0): tông đã chọn cho job đang chạy (rmvideo/media/autolook.py). Theo ngữ cảnh của task: mỗi
+# job một task riêng nên không lẫn tông giữa các job; chưa chọn thì dùng tông mặc định trước 1.0.0.
+AUTO_LOOK: ContextVar[str] = ContextVar("auto_look", default="")
+
+
+def look_name() -> str:
+    """Tông màu đang dùng: BRAND_LOOK, hoặc tông đã tự chọn cho video này khi BRAND_LOOK=auto."""
+    name = config.BRAND_LOOK or "goc"
+    return (AUTO_LOOK.get() or "tuoi_sang") if name == "auto" else name
 
 
 def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True,
@@ -203,7 +213,7 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
             f"eq=contrast=1.05:brightness=0.012:saturation={'1.06' if cook else '1.03'},"
             f"vibrance=intensity={'0.2' if cook else '0.1'},"
             + (warm_filter(6000, 0.35) if cook else ""))
-    preset = LOOKS.get(config.BRAND_LOOK or "goc")
+    preset = LOOKS.get(look_name())
     if preset:
         look = preset.replace("{warm}", warm_filter(5400, 0.4) if cook else "")
     size = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},"
@@ -272,17 +282,37 @@ def _plan_video(plan, mode: str, W: int, H: int, src_w: int, src_h: int, fps: fl
                            side_inputs=side_inputs, lead=lead)
 
 
+# Nhạc lót dưới lời đọc (VOICE_BED, bản 1.0.0): tự hạ khi giọng đọc vang lên. Đo trên video gà 60 giây: quãng lặng nhạc
+# thấp hơn giọng ~13 dB (renderer.BED_BELOW), lúc đang đọc hạ thêm ~9 dB (ngang tiếng nền đã hạ dưới giọng). Thử
+# hạ theo cả tiếng nền (xèo xèo): nhạc gần như mất hẳn trong video nấu ăn -> bỏ. Vào / ra chậm để nhạc không «thở».
+VOICE_BED_DUCK = "sidechaincompress=threshold=0.05:ratio=3:attack=150:release=900"
+
+
+def _voice_bed_chain(bed: dict, out_dur: float, ost: list) -> str:
+    """[đầu vào nhạc] -> [bed0]: đúng độ dài video, chỉnh mức (gain_db), vào 1 giây / ra 2 giây, tắt trong các quãng
+    giữ tiếng gốc (tiếng gốc ở đó đã đủ, thêm nhạc thì rối)."""
+    mute = f",volume='1-{_ost_any_expr(ost)}':eval=frame" if ost else ""
+    # highpass 150 Hz: bỏ bass của nhạc (chừa chỗ cho giọng; bass to đẩy đỉnh tiếng lên bộ giới hạn làm cả video nhỏ đi
+    # ~2 dB, đo trên bài Vibe Ace), lowpass 9 kHz: nhạc lùi ra sau, không chen tiếng «s» của giọng đọc
+    return (f"[{int(bed['idx'])}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=0:{out_dur:.2f},"
+            f"asetpts=PTS-STARTPTS,highpass=f=150,lowpass=f=9000,volume={float(bed.get('gain_db') or 0.0):.1f}dB,"
+            "afade=t=in:st=0:d=1.0,"
+            f"afade=t=out:st={max(0.0, out_dur - 2.0):.2f}:d=2.0{mute}[bed0];")
+
+
 def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
                  cover_bands=None, W: int = 720, H: int = 1280,
                  ambient_src: str = "[0:a]", speech_gate=None,
                  fps: float = 30.0, src_w: int = 0, src_h: int = 0, stretch: float = 1.0,
                  ost=None, orig_audio: bool = True, bed: bool = False, teaser: dict | None = None,
-                 edit=None, side_inputs: dict | None = None, side_audio: dict | None = None, tail: float = 0.0) -> str:
+                 edit=None, side_inputs: dict | None = None, side_audio: dict | None = None, tail: float = 0.0,
+                 voice_bed: dict | None = None) -> str:
     """Hình: look_chain (fps=30 ĐẦU TIÊN: nguồn TikTok HD thường 50-60fps, lọc trước khi bớt khung là phí 67-100%)
     + che dải chữ gốc + phụ đề mới. Tiếng: giọng mới + tiếng nền (tách giọng / cổng) + tiếng gốc giữ lại.
     teaser: đoạn mở đầu {"iv": đầu vào hình (đã tua tới cảnh món xong), "ia": đầu vào tiếng nền của cảnh đó hoặc
     None, "dur": giây, "still": ảnh tĩnh} nối TRƯỚC video chính; mọi mốc (phụ đề, cổng tiếng, cửa sổ tiếng gốc) do
-    caller đưa vào đã tính cả đoạn mở đầu."""
+    caller đưa vào đã tính cả đoạn mở đầu.
+    voice_bed: nhạc lót dưới lời {"idx": đầu vào, "gain_db": mức} (VOICE_BED) hoặc None."""
     tz = teaser if teaser and teaser.get("dur") else None
     T = float(tz["dur"]) if tz else 0.0
     plan = edit                                  # rmvideo.media.edl.EditPlan (REMAKE_STYLE) hoặc None = như cũ
@@ -335,6 +365,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     if ass_path:
         v += f",subtitles=filename={ass_path}:fontsdir={ff.ASSETS_DIR}"
     v += "[v];" + pre_audio
+    vb = voice_bed if voice_bed and voice_bed.get("idx") is not None and not bed else None
     if bed:
         # video KHÔNG LỜI: lớp nền đã trộn sẵn (nhạc nền + tiếng gốc, music_bed) là tiếng chính, không có giọng đọc;
         # không qua lọc giọng (EQ/nén/vang làm méo nhạc), không làm chậm (nhạc giữ đúng nhịp, music_bed đã tính)
@@ -353,25 +384,40 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
             pre += (f"{ambient_src}aformat=sample_rates=44100:channel_layouts=stereo[mna];"
                     "[tza][mna]concat=n=2:v=0:a=1[ambx];")
             ambient_src = "[ambx]"
+        ins, ws = ["[vo]", "[ambd]"] + (["[ost]"] if ost else []), ["1", "0.5"] + (["1"] if ost else [])
+        if vb:                                    # nhạc lót: tự hạ khi giọng đọc vang lên
+            ins, ws = ins + ["[bedd]"], ws + ["1"]
         a = (
-            pre + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() + "asplit=2[vo][sc];"
+            pre + "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx()
+            + ("asplit=3[vo][sc][bk1];" if vb else "asplit=2[vo][sc];")
             + (_gate_chain(speech_gate, ambient_src) if speech_gate else
                f"{ambient_src}aformat=sample_rates=44100:channel_layouts=stereo,")
             + "volume=0.8"
             # trong cửa sổ giữ tiếng gốc thì tắt lớp tiếng nền (tiếng gốc đã có tiếng nền, tránh nghe gấp đôi)
             + (f",volume='1-{_ost_any_expr(ost)}':eval=frame" if ost else "") + "[amb];"
             "[amb][sc]sidechaincompress=threshold=0.02:ratio=6:attack=100:release=500[ambd];"
+            + (_voice_bed_chain(vb, out_dur, ost) + f"[bed0][bk1]{VOICE_BED_DUCK}[bedd];" if vb else "")
             + ost_chain
-            + ("[vo][ambd][ost]amix=inputs=3:duration=longest:weights='1 0.5 1'," if ost else
-               "[vo][ambd]amix=inputs=2:duration=longest:weights='1 0.5',")
+            + f"{''.join(ins)}amix=inputs={len(ins)}:duration=longest:weights='{' '.join(ws)}',"
             + f"{LOUDNORM},{AOUT}[a]"
         )
     elif ost:
         # giọng mới + tiếng gốc trong các cửa sổ giữ tiếng gốc
         fx = _voice_fx().rstrip(",") or "anull"
         a = (
-            f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,{fx}[vo];" + ost_chain
-            + "[vo][ost]amix=inputs=2:duration=longest:normalize=0,"
+            f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo,{fx}"
+            + ("[vo0];[vo0]asplit=2[vo][bk1];" + _voice_bed_chain(vb, out_dur, ost) + f"[bed0][bk1]{VOICE_BED_DUCK}[bedd];"
+               if vb else "[vo];") + ost_chain
+            + ("[vo][ost][bedd]amix=inputs=3:duration=longest:normalize=0," if vb else
+               "[vo][ost]amix=inputs=2:duration=longest:normalize=0,")
+            + f"{LOUDNORM},{AOUT},apad=whole_dur={out_dur:.2f}[a]"
+        )
+    elif vb:
+        # chỉ giọng AI + nhạc lót (tự hạ khi đang đọc)
+        a = (
+            "[1:a]aformat=sample_rates=44100:channel_layouts=stereo," + _voice_fx() + "asplit=2[vo][bk1];"
+            + _voice_bed_chain(vb, out_dur, []) + f"[bed0][bk1]{VOICE_BED_DUCK}[bedd];"
+            "[vo][bedd]amix=inputs=2:duration=longest:normalize=0,"
             f"{LOUDNORM},{AOUT},apad=whole_dur={out_dur:.2f}[a]"
         )
     else:

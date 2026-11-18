@@ -17,8 +17,9 @@ import transcribe
 from queue_manager import Job
 from rmvideo.app import events, job_factory
 from rmvideo.app.flow import common, delivery, dispatch
-from rmvideo.media import fetch, ff
-from state import notify, queue
+from rmvideo.app import notifier
+from rmvideo.media import autolook, fetch, ff
+from state import queue
 
 
 async def _long_source(job: Job, tmp: str, what: str) -> tuple:
@@ -44,6 +45,8 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
     ok, fails = 0, []
     delivered = {p["label"] for p in job.parts}
     batch = job.mode != "download" and kaggle_worker.is_enabled()
+    if job.mode != "download":
+        await autolook.ensure(src, note=job.note)       # tông tự chọn trên CẢ video gốc: mọi phần cùng một tông
     # Kaggle lấy từng phần: có PUBLIC_URL thì tải đúng file phần Botkeep đã cắt (nhỏ, khớp từng khung); không có thì
     # tự tải video gốc theo link (một lần cho cả lô) rồi cắt y như Botkeep
     parent_ref = None
@@ -104,8 +107,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
         except Exception as e:
             logging.exception("%s thất bại", label)
             fails.append(f"{label}: {str(e)[:120]}")
-            if job.source == "tg":
-                await notify(job.chat_id, f"❌ {label} lỗi: {e}")
+            await notifier.job_event(job, f"❌ Job #{job.id} — {label} lỗi: {str(e)[:400]}")
         finally:
             mirror.__exit__(None, None, None)
             if not deferred:
@@ -138,8 +140,7 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
             except Exception as e:
                 logging.exception("%s thất bại", label)
                 fails.append(f"{label}: {str(e)[:120]}")
-                if job.source == "tg":
-                    await notify(job.chat_id, f"❌ {label} lỗi: {e}")
+                await notifier.job_event(job, f"❌ Job #{job.id} — {label} lỗi: {str(e)[:400]}")
             finally:
                 _cleanup(part_dir)
     return ok, fails

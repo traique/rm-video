@@ -38,3 +38,5 @@ assets/bgm/
 assets/bgm_recent.json
 voice_bank.json
 voice_bank.json.tmp
+zoom_targets.json
+.version_announced.json

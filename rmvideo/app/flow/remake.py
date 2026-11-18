@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import bgm
 import cache
 import config
 import cover as cover_mod
@@ -47,7 +48,7 @@ from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, st
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
-from rmvideo.media import edl, ff, filtergraph, renderer, tts_engine, voiceplan
+from rmvideo.media import autolook, edl, ff, filtergraph, renderer, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
@@ -131,6 +132,8 @@ class Remake:
         self.short_pass = False                  # đang làm bản ngắn: không làm lại ảnh bìa
         self.short_ready: dict | None = None     # bản ngắn đã viết lời (+ việc Kaggle)
         self.short_out: dict | None = None       # kết quả Kaggle của bản ngắn (dựng chung phiên với bản đầy đủ)
+        self.bed: dict | None = None             # nhạc lót dưới lời (VOICE_BED, bản 1.0.0): {path, trim, name, url, key}
+        self.bed_done = False
 
     # ---------------- các bước ----------------
 
@@ -169,15 +172,47 @@ class Remake:
             return await self.stop_for_review(timed)
         segs_t = timed["segments"]
         await self.pre_shorten(segs_t)
+        await self.pick_bed()
         if self.remote:
             ready = await self.prepare_short() if self.short_wanted() else None
             out = await self.render_remote(segs_t, ready.get("spec") if ready else None)
             if out is not None:
+                self.bed_used()
                 self.queue_short(out)
                 return out
         out = await self.render_local(segs_t, timed)
+        self.bed_used()
         self.queue_short(out)
         return out
+
+    # ---------------- nhạc lót dưới lời (VOICE_BED, bản 1.0.0) ----------------
+
+    async def pick_bed(self) -> dict | None:
+        """Một bài trong thư viện 🎵 Nhạc nền lót thật nhỏ dưới lời đọc (chọn một lần mỗi job, bản ngắn dùng chung).
+        Thư viện trống / tải lỗi: ghi chú, làm như cũ (không nhạc lót)."""
+        if self.bed_done:
+            return self.bed
+        self.bed_done = True
+        job = self.job
+        if config.VOICE_BED != "on" or job.mode not in (Mode.COOK, Mode.REVIEW):
+            return None
+        if not bgm.library():
+            job.note("ℹ️ Nhạc lót dưới lời đang bật nhưng thư viện 🎵 Nhạc nền trống: thêm nhạc miễn phí bản quyền "
+                     "trên web để video có nhạc lót. ")
+            return None
+        job.step = "Chọn nhạc lót dưới lời"
+        prefer_links = self.remote and not (config.PUBLIC_URL or "").strip()   # Kaggle không lấy được file Botkeep
+        item, music, trim, why = await music_flow._pick_bgm(self.tmp, prefer_links, self.out_dur)
+        if not music:
+            job.note(f"ℹ️ Chưa lót được nhạc dưới lời ({why}). ")
+            return None
+        self.bed = {"path": music, "trim": round(float(trim), 3), "name": item["name"], "url": item.get("url", ""),
+                    "key": item["key"]}
+        return self.bed
+
+    def bed_used(self):
+        if self.bed:
+            bgm.remember({"key": self.bed["key"]})       # bài vừa dùng: lần sau tránh (như nhạc video không lời)
 
     # ---------------- bản ngắn ≤ 90 giây (SHORT_VERSION) ----------------
 
@@ -309,6 +344,8 @@ class Remake:
         job = self.job
         self.src_dur = src_dur = await ff.probe_duration(self.inp)
         await self.check_duplicate()
+        # BRAND_LOOK=auto (bản 1.0.0): chọn tông theo video gốc MỘT lần, trước đoạn mở đầu / ảnh bìa / render
+        await autolook.ensure(self.inp, src_dur, job.note)
         if common.auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
             job.long_mode = LongMode.FULL.value
             job.note(f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
@@ -650,7 +687,7 @@ class Remake:
             config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
             local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
             teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None,
-            tail=self.tail)
+            tail=self.tail, voice_bed=self.bed)
 
     async def render_remote(self, segs_t: list, extra: dict | None = None) -> Any:
         """Đọc giọng + tách giọng + dựng trên Kaggle. None = không gửi được / Kaggle lỗi (đã ghi chú): làm trên Botkeep.
@@ -720,7 +757,8 @@ class Remake:
             shorten=lambda idx, durs: self.shorten(segs_t, idx, durs), on_step=lambda st: setattr(job, "step", st),
             tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep.ok else ""),
             wait_step="Chờ tách giọng gốc xong" if sep.ok else "Render (FFmpeg)", before_render=cover_now,
-            edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None, tail=self.tail)
+            edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None, tail=self.tail,
+            voice_bed=self.bed)
         if res.srt:
             job.srt = res.srt
         if res.notes:

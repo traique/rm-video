@@ -9,7 +9,7 @@ import subprocess
 import time
 
 import config
-from rmvideo.media import edl, ff, filtergraph, textfit
+from rmvideo.media import autolook, edl, ff, filtergraph, textfit
 
 
 async def measure_lufs(input_args: list, audio_fc: str, out_dur: float) -> float | None:
@@ -395,7 +395,8 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                  ambient_wav: str | None = None, speech_gate=None, allow_hd: bool = True,
                  title: str = "", tmp: str | None = None, stretch: float = 1.0, ost=None, notes: list | None = None,
                  music_bed: bool = False, teaser: dict | None = None, edit: dict | None = None,
-                 overlays: list | None = None, tail: float = 0.0, sting_after: float | None = None):
+                 overlays: list | None = None, tail: float = 0.0, sting_after: float | None = None,
+                 voice_bed: dict | None = None):
     """Chế độ cook: ambient_wav = tiếng nền đã tách giọng AI; không có thì speech_gate =
     [(start, end)] lúc người gốc nói để tắt tiếng nền khi đó (không bao giờ để lọt giọng gốc).
     duration: 0 = giữ nguyên thời lượng gốc; 30/60/90 = cắt đúng ngần đó giây.
@@ -405,8 +406,11 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     notes: danh sách nhận lời nhắn cho người dùng (vd. máy chậm nên ra 720p).
     teaser: đoạn mở đầu {"a": giây bắt đầu trên video gốc, "dur", "still"} chiếu trước video chính (bản 29).
     tail: giây màn kết NỐI THÊM sau video (giữ khung cuối; bản 43), 0 = màn kết đè lên cuối video như cũ.
-    sting_after: giọng đọc dứt lúc nào: âm hiệu màn kết vang sau đó (trong phạm vi màn kết)."""
+    sting_after: giọng đọc dứt lúc nào: âm hiệu màn kết vang sau đó (trong phạm vi màn kết).
+    voice_bed: nhạc lót dưới lời {"path", "trim", "name"} (VOICE_BED, bản 1.0.0); video gốc đã có nhạc thì bỏ."""
     t_start = time.time()
+    # BRAND_LOOK=auto: Botkeep đã chọn tông lúc đầu job (hoặc Kaggle nhận sẵn trong việc) thì không đo lại
+    await autolook.ensure(input_mp4, note=notes.append if notes is not None else None)
     T = float(teaser["dur"]) if teaser and teaser.get("dur") else 0.0
     plan = edl.EditPlan.from_dict(edit) if edit else None   # kế hoạch dựng (REMAKE_STYLE): khúc, tốc độ, cỡ khung
     vid_dur = (plan.out_dur() if plan else await ff.probe_duration(input_mp4) * stretch) + T + max(0.0, tail)
@@ -445,6 +449,14 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
     if config.BRAND_STING != "0" and sting_file and out_dur > 6 and not music_bed:
         sting_idx = audio_in.count("-i")
         audio_in += ["-i", sting_file]
+    vb = None
+    if voice_bed and not music_bed and mode in ("cook", "review"):
+        vb = await _bed_level(voice_bed, voice_mp3, ambient_wav or (input_mp4 if ambient else None),
+                              None if ambient_wav else speech_gate, out_dur, notes)
+        if vb is not None:
+            vb["idx"] = audio_in.count("-i")
+            audio_in += ["-stream_loop", "-1", "-ss", f"{float(voice_bed.get('trim') or 0.0):.3f}",
+                         "-i", voice_bed["path"]]
     side_inputs: dict = {}
     side_audio: dict = {}
     if plan:
@@ -472,7 +484,7 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                       "[2:a]" if ambient_wav else "[0:a]", None if ambient_wav else speech_gate,
                       fps=fps, src_w=src_w, src_h=src_h, stretch=stretch, ost=ost, orig_audio=ambient,
                       bed=bool(music_bed and ambient_wav), teaser=tz, edit=plan, side_inputs=side_inputs,
-                      side_audio=side_audio, tail=max(0.0, tail))
+                      side_audio=side_audio, tail=max(0.0, tail), voice_bed=vb)
     title_end = hook_title_end(T, plan)
     brand = _brand_filter(W, H, out_dur, title_files, outro_file, logo_idx, title_end=title_end,
                           tagline_file=tagline_file, title_fs=title_fs, outro_fs=outro_fs, tagline_fs=tagline_fs)
@@ -517,6 +529,47 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
 
 
 MUSIC_BG_LEVEL = 0.32          # nhạc nền ≈ -10 dB so với tiếng gốc, tự hạ thêm khi tiếng gốc to (sidechain)
+
+
+BED_BELOW = 18.0               # nhạc lót: trung bình (đã bỏ bass) thấp hơn trung bình giọng 18 dB -> quãng lặng ~13 dB dưới lời
+
+
+async def _mean_db(args: list, pre: str = "") -> float | None:
+    """Âm lượng trung bình (dBFS, volumedetect) của một đầu vào ffmpeg (pre: bộ lọc chạy trước khi đo); lỗi -> None."""
+    from rmvideo.media import proc
+    try:
+        r = await proc.run(["ffmpeg", "-v", "info", "-nostats", *args, "-vn", "-af", pre + "volumedetect", "-f", "null",
+                            "-"],
+                           timeout=120, stderr_keep=None)
+        m = re.search(r"mean_volume:\s*(-?[\d.]+) dB", r.stderr or "")
+        return float(m.group(1)) if m else None
+    except Exception as e:
+        logging.info("Không đo được âm lượng: %s", str(e)[:120])
+        return None
+
+
+async def _bed_level(bed: dict, voice: str, orig: str | None, speech, out_dur: float, notes: list | None) -> dict | None:
+    """Nhạc lót dưới lời: None = không lót (không có file, video gốc đã có nhạc); không thì {"gain_db"} để nhạc thấp hơn
+    giọng đọc BED_BELOW dB, bất kể bài gốc được master to hay nhỏ."""
+    import asyncio
+
+    from rmvideo.media import voicebed
+    path = bed.get("path") or ""
+    if not os.path.exists(path):
+        return None
+    if orig and await asyncio.to_thread(voicebed.source_has_music, orig, speech):
+        if notes is not None:
+            notes.append("🎵 Video gốc đã có nhạc: không lót thêm nhạc dưới lời. ")
+        return None
+    music = await _mean_db(["-ss", f"{float(bed.get('trim') or 0.0):.3f}", "-t", f"{out_dur:.2f}", "-i", path],
+                           "highpass=f=150,lowpass=f=9000,")              # đo đúng phần nhạc sẽ nghe (đã bỏ bass)
+    vo = await _mean_db(["-i", voice])
+    if music is None or music < -70:
+        return None
+    gain = max(-45.0, min(6.0, ((vo if vo is not None and vo > -70 else -20.0) - BED_BELOW) - music))
+    if notes is not None:
+        notes.append(f"🎵 Nhạc lót dưới lời: «{bed.get('name') or 'thư viện nhạc'}» (nhỏ, tự hạ khi đang đọc). ")
+    return {"gain_db": round(gain, 1)}
 
 
 BED_ORIG_LOW = 0.25             # BGM_ORIG=low: tiếng gốc (xèo xèo, tiếng dao...) ≈ -12 dB dưới nhạc nền

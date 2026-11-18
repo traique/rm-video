@@ -123,7 +123,7 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 <body>
 <a class="skip" href="#main">Bỏ qua, tới nội dung chính</a>
 <header>
-  <h1>🎬 Video Bot <small>bảng điều khiển</small></h1>
+  <h1>🎬 Video Bot <small>bảng điều khiển <span id="app_ver" translate="no"></span></small></h1>
   <p id="authed_box" class="mut">✅ Đã đăng nhập · <button type="button" id="logout_link" class="link">Đăng xuất</button></p>
 </header>
 <main id="main">
@@ -181,6 +181,8 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
     <input id="vref_file" name="ref" type="file" accept="audio/*,video/*">
     <button type="submit" id="save_set" class="btn btn-full">Lưu cài đặt</button>
     <p class="mut">Bỏ trống = không đổi · nhập <b>-</b> = xóa, quay về biến môi trường · key hiển thị dạng che bớt.</p>
+    <button type="button" id="notify_test" class="btn">🔔 Gửi thử thông báo (Telegram + Zoom)</button>
+    <p id="notify_msg" class="status mut" role="status" aria-live="polite" style="white-space:pre-line"></p>
     </form>
   </details>
 </section>
@@ -268,6 +270,7 @@ const hdr=()=>({'Content-Type':'application/json'});
 async function checkAuth(){   // phiên hết hạn (30 ngày) hoặc đã đăng xuất ở tab khác -> về trang đăng nhập
   try{const d=await (await fetch('/api/me')).json();
     if(!d.authed){location.replace('/login');return false;}
+    if(d.version)$('app_ver').textContent='v'+d.version;
     return true;
   }catch(e){return false}
 }
@@ -353,6 +356,16 @@ async function loadSettings(){
     }).join('');
   }catch(e){$('set_fields').innerHTML='<p class="mut">Không tải được cài đặt: '+esc(String(e))+'</p>';}
 }
+$('notify_test').onclick=async()=>{
+  const b=$('notify_test');if(b.disabled)return;b.disabled=true;$('notify_msg').textContent='Đang gửi thử…';
+  try{
+    const r=await fetch('/api/notify/test',{method:'POST',headers:hdr()});
+    if(!r.ok){$('notify_msg').textContent='❌ '+await r.text();return;}
+    const d=await r.json();const line=(n,v)=>n+': '+(v=='ok'?'✅ đã gửi, kiểm tra tin nhắn':'❌ '+v);
+    $('notify_msg').textContent=[line('Telegram',d.telegram),d.zoom?line('Zoom',d.zoom):'Zoom: chưa cài (nhóm 🎥 Zoom)'].join('\n')+
+      (d.zoom_endpoint?'\nBot endpoint URL cho Zoom: '+d.zoom_endpoint:'');
+  }catch(e){$('notify_msg').textContent='❌ '+e}finally{b.disabled=false}
+};
 $('settings_form').onsubmit=async e=>{
   e.preventDefault();
   const btn=$('save_set');if(btn.disabled)return;btn.disabled=true;

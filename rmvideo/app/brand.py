@@ -131,10 +131,18 @@ OLD_DEFAULTS = {"BRAND_NAME": "", "BRAND_TAGLINE": "", "BRAND_CLOSE": "", "BRAND
                 "SHORT_VERSION": "off"}
 
 
+# Các lần đổi mặc định (theo thứ tự): mã lần đổi -> {khoá: mặc định CŨ}. Bản 1.0.0: tông màu mặc định thành «Tự động»
+# (người dùng yêu cầu 18/11/2026) — máy đang lưu «Tươi sáng» (mặc định cũ) chuyển sang tự động; đã chọn tông khác thì giữ.
+KITS: tuple[tuple[str, dict], ...] = (
+    (KIT_ID, OLD_DEFAULTS),
+    ("auto_look@1.0.0", {"BRAND_LOOK": "tuoi_sang"}),
+)
+
+
 def apply_default_kit(path: str | None = None) -> list:
-    """Chạy MỘT lần lúc khởi động: trang cài đặt lưu cả các ô chọn để nguyên mặc định, nên đổi mặc định trong mã không
-    tới được máy đã từng bấm Lưu. Khoá nào đang đúng mặc định CŨ thì bỏ bản lưu để dùng mặc định mới (bộ «Bếp Đong
-    Đủ»); khoá bạn đã chọn khác thì giữ nguyên. Trả danh sách khoá đã chuyển."""
+    """Chạy lúc khởi động, mỗi lần đổi mặc định MỘT lần: trang cài đặt (bản cũ) lưu cả các ô chọn để nguyên mặc định,
+    nên đổi mặc định trong mã không tới được máy đã từng bấm Lưu. Khoá nào đang đúng mặc định CŨ thì bỏ bản lưu để dùng
+    mặc định mới; khoá bạn đã chọn khác thì giữ nguyên. Trả danh sách khoá đã chuyển."""
     from rmvideo.app import settings as schema
     path = path or STATE_FILE
     with _LOCK:
@@ -143,17 +151,22 @@ def apply_default_kit(path: str | None = None) -> list:
                 st = json.load(f)
         except (OSError, ValueError):
             st = {}
-        if st.get("kit") == KIT_ID:
+        done = set(st.get("kits") or []) | ({st["kit"]} if st.get("kit") else set())
+        todo = [(kid, olds) for kid, olds in KITS if kid not in done]
+        if not todo:
             return []
         try:
             over = schema.read_overrides(config.SETTINGS_FILE)
         except Exception as e:                        # settings.json hỏng: để lần sau, không đánh dấu đã làm
             logging.warning("Chưa áp được bộ nhận diện mặc định: %s", e)
             return []
-        changed = [k for k, old in OLD_DEFAULTS.items() if k in over and over[k] == old]
+        changed: list = []
+        for _, olds in todo:
+            changed += [k for k, old in olds.items() if k in over and over[k] == old and k not in changed]
         if changed:
             config.save_settings({k: "-" for k in changed})
         st["kit"] = KIT_ID
+        st["kits"] = sorted(done | {kid for kid, _ in todo})
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(st, f)

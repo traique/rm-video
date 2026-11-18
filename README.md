@@ -84,6 +84,26 @@ mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nh�
 
 `/start` → gửi link **hoặc gửi thẳng file video đính kèm (≤ 20MB, giới hạn Bot API)** → chọn chế độ (🍲/📦) → chọn thời lượng → nhận output.mp4, caption là content đăng luôn.
 
+**Thông báo (bản 1.0.0):** job làm trên web / tự đăng cũng được báo (xong kèm link tải, lỗi, chờ duyệt) về chat
+quản trị (`ADMIN_CHAT_ID`, trống = người đầu tiên trong `ALLOWED_USERS`; tắt bằng `NOTIFY_JOBS=0`). Không nhận được
+tin: Cài đặt → **🔔 Gửi thử thông báo**, bot nói rõ lý do (chưa đặt token / chat id, chưa bấm /start, bot bị chặn...).
+
+## Zoom Team Chat (bản 1.0.0)
+
+Ngang hàng Telegram nhưng chỉ chữ: nhắn link cho chatbot Zoom → bot làm video → nhắn lại link tải (Zoom không nhận
+file video qua bot). Thêm chữ sau link để đổi: `review`, `30`/`60`/`90`, `full`/`split60`/`split90`/`highlight`,
+`tải` (chỉ tải về), `duyệt` (duyệt kịch bản trên web). Lệnh khác: `trạng thái`, `huỷ`, `id`, `help`.
+
+Cài một lần ở Zoom App Marketplace → Develop → Build App → **General App**:
+1. App Credentials: Client ID, Client Secret. Features → Access: Secret Token.
+2. Features → Surface → Team Chat → Chatbot: Bot endpoint URL = `<PUBLIC_URL>/zoom/events`; ghi lại Bot JID.
+3. Điền 4 khoá ở Cài đặt → 🔑 Tài khoản & API (nhập lại mật khẩu web).
+4. Cài app vào tài khoản (Local Test → Add App), nhắn bot `id` → điền JID vào Cài đặt → 🎥 Zoom.
+
+Thông báo chung (job web / tự đăng, cảnh báo, phiên bản mới) đi tới `ZOOM_ADMIN` (trống = người đầu tiên được phép);
+người đó phải nhắn bot ít nhất một lần để bot biết nơi gửi. Phiên bản mới (số `MAJOR.MINOR.PATCH`, xem CHANGELOG) được
+báo một lần qua cả Telegram và Zoom.
+
 ## 🎙 Giọng miền Nam VieNeu + phần nặng chạy trên Kaggle (mặc định)
 
 `TTS_PROVIDER=vieneu`: giọng nữ **Mỹ Duyên**, nam **Adam** (VieNeu-TTS v3 Turbo, Apache-2.0, giọng có sẵn dùng được
@@ -335,6 +355,9 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
 - `BGM_ORIG`: **off** (mặc định) chỉ nhạc mới; **low** giữ tiếng gốc nhỏ dưới nhạc (video ASMR tiếng xèo, tiếng dao);
   **keep** giữ tiếng gốc to, nhạc nằm dưới.
 - Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
+- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài trong thư viện này, lót
+  thật nhỏ dưới giọng (quãng lặng ~13 dB dưới lời, tự hạ thêm khi đang đọc, bỏ bass), video gốc đã có nhạc rõ thì
+  không lót. Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
 
 ## Giọng văn miền Nam + giọng bớt chất AI
 
@@ -349,6 +372,9 @@ Sau khi tách, tiếng nền được **lọc giọng sót bằng mặt nạ ph�
 Dự phòng khi RAM trống < 1.45GB hoặc lỗi: tắt hẳn tiếng nền đúng những lúc người gốc nói (theo mốc từng từ), giữ tiếng xèo ở khoảng nghỉ. Tắt tách AI bằng `VOICE_SEPARATION=0` trong Cài đặt.
 
 ## Hình đẹp hơn bản gốc
+
+**Tông màu** (`BRAND_LOOK`, mặc định **auto** từ bản 1.0.0): bot đo 8 khung video gốc rồi tự chọn — ánh sáng lạnh / ám
+xanh → Ấm mộc; tối, màu nhạt hoặc đã ám vàng → Tươi sáng; còn lại → Gốc. Ảnh bìa cùng tông; chọn tay vẫn được.
 
 Khử nhiễu nén (hqdn3d) → scale lanczos → tương phản/sáng nhẹ → vibrance (tăng màu nhạt, không cháy màu da) → ấm nhẹ cho món ăn → làm nét thích ứng (CAS). Nguồn ≥1600px (ví dụ TikTok HD qua tikwm) xuất **1080x1920**, còn lại 720x1280; `OUTPUT_HD=0` để luôn 720p nếu thiếu RAM (1080p dùng ~370MB RAM, render lâu gấp đôi).
 

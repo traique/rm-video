@@ -13,6 +13,100 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.0.0 — phiên bản mới: Zoom, thông báo, tông màu tự động, nhạc lót (18/11/2026)
+
+- Telegram báo cả job làm trên web / tự đăng (xong kèm link tải, lỗi, chờ duyệt); nút «🔔 Gửi thử thông báo» trong Cài đặt nói rõ vì sao chưa nhận được.
+- Thêm kênh Zoom Team Chat ngang hàng Telegram: nhắn link cho bot, nhận thông báo kèm link tải (không gửi file video).
+- Tông màu tự chọn theo từng video: ánh sáng lạnh → Ấm mộc; tối, màu nhạt hoặc đã ám vàng → Tươi sáng; còn lại → Gốc.
+- Nhạc lót thật nhỏ dưới lời đọc (lấy từ thư viện 🎵 Nhạc nền), tự hạ khi đang đọc; video gốc đã có nhạc rõ thì không lót.
+- Đánh số phiên bản kiểu 1.0.0; mỗi lần lên phiên bản bot tự báo qua Telegram và Zoom.
+
+Từ bản này đánh số MAJOR.MINOR.PATCH (`rmvideo/version.py`): sửa lỗi tăng số cuối (1.0.1), thêm tính năng tăng
+số giữa (1.1.0), đổi lớn phải cài lại tăng số đầu. Mỗi phiên bản mở đầu bằng mục `## <phiên bản> — <tóm tắt> (<ngày>)`
+và các dòng gạch đầu dòng tóm tắt: đó chính là tin bot gửi khi lên phiên bản.
+
+### Thông báo Telegram: vì sao trước đây không nhận được
+- Chỉ job gửi từ Telegram mới được báo, và báo vào đúng chat đó. Job tạo trên web hay tự đăng thì xong, lỗi hay chờ
+  duyệt đều im lặng.
+- Giờ mọi đường báo đi qua `rmvideo/app/notifier.py`:
+  - job Telegram báo vào chat đó như cũ;
+  - job Zoom báo vào đúng cuộc trò chuyện Zoom;
+  - job web / tự đăng báo về chat quản trị (`ADMIN_CHAT_ID`, trống thì người đầu tiên trong `ALLOWED_USERS`) và
+    người nhận trên Zoom. Tắt bằng `NOTIFY_JOBS=0`.
+- Tin «xong» có link tải từng file (cần `PUBLIC_URL`) và ảnh bìa.
+- Nút **🔔 Gửi thử thông báo** (Cài đặt) gửi thật một tin và trả lý do cụ thể cho từng kênh, vd:
+  - chưa đặt `BOT_TOKEN`;
+  - chưa đặt `ADMIN_CHAT_ID`;
+  - người nhận chưa bấm /start với bot;
+  - bot bị chặn;
+  - token sai.
+
+### Kênh Zoom
+- Đường nhận tin `POST /zoom/events`:
+  - kiểm chữ ký HMAC bằng Secret Token, bỏ tin cũ hơn 5 phút;
+  - trả lời xác minh địa chỉ `endpoint.url_validation`;
+  - bỏ sự kiện Zoom gửi lặp;
+  - trả lời trong 3 giây (việc nặng chạy nền);
+  - chỉ người trong `ZOOM_ALLOWED_USERS` được dùng, người lạ được báo JID để chủ bot thêm vào.
+- Lệnh:
+  - gửi link (tối đa 5): làm lại (nấu ăn, giữ nguyên thời lượng);
+  - thêm `review`, `30` / `60` / `90`, `full` / `split60` / `split90` / `highlight`, `tải`, `duyệt` để đổi;
+  - `trạng thái`, `huỷ`, `id`, `help`.
+- Bot trả lời bằng tin chữ: đã nhận, đang xử lý, xong + link tải + nội dung đăng, lỗi, chờ duyệt kịch bản trên web.
+- Nơi trả lời đi theo job qua bước duyệt kịch bản và qua các phần của video dài.
+- Cài một lần (Zoom App Marketplace → Develop → Build App → General App):
+  1. App Credentials: Client ID, Client Secret.
+  2. Features → Access: Secret Token.
+  3. Features → Surface → Team Chat → Chatbot: Bot endpoint URL = `<PUBLIC_URL>/zoom/events`; ghi lại Bot JID.
+  4. Điền 4 khoá ở Cài đặt → 🔑 Tài khoản & API.
+  5. Cài app vào tài khoản (Local Test → Add App), nhắn bot `id` để lấy JID.
+  6. Điền JID vào Cài đặt → 🎥 Zoom → «Người được dùng bot Zoom».
+- Khoá Zoom là bí mật / tài khoản: phải nhập lại mật khẩu web khi đổi, không bao giờ gửi sang Kaggle.
+
+### Phiên bản và báo lên phiên bản
+- Lần khởi động đầu của phiên bản mới: gửi các dòng tóm tắt về Telegram và Zoom.
+- Nhớ riêng từng kênh đã nhận (`.version_announced.json`): kênh chưa gửi được (chưa đặt chat id, chưa nhắn bot Zoom
+  lần nào) thì lần khởi động sau gửi lại, kênh đã nhận không bị báo lặp.
+- Phiên bản hiện cạnh tiêu đề trang web (chỉ khi đã đăng nhập) và trong log khởi động.
+
+### Tông màu tự động (`BRAND_LOOK=auto`, mặc định mới)
+- Đo 8 khung rải đều video gốc (chỉ giải mã khung khoá, ~1,4 giây cho nguồn 1080p dài 3 phút): độ sáng, độ tươi,
+  độ ấm (đỏ trừ xanh lam). Dải đen viền trên / dưới không tính.
+- Luật:
+  - ám xanh / lạnh → Ấm mộc;
+  - tối, màu nhạt hoặc đã ám vàng → Tươi sáng;
+  - còn lại → Gốc.
+- Đo trên video thật:
+  - video mực (nồi inox, tường xám, rất nhạt) → Tươi sáng;
+  - video gà → Gốc;
+  - bản tạo lạnh 9000K / đèn huỳnh quang → Ấm mộc.
+- Chọn một lần mỗi job, dùng chung cho video, đoạn mở đầu, đoạn chen và ảnh bìa; các phần của video dài cùng một tông.
+- Kaggle dựng đúng tông Botkeep đã chọn.
+- Máy đang lưu «Tươi sáng» (mặc định cũ) tự chuyển sang Tự động một lần; đã chọn tông khác thì giữ.
+
+### Nhạc lót dưới lời đọc (`VOICE_BED=on`)
+- Video có lời đọc lấy một bài trong thư viện 🎵 Nhạc nền (tránh 3 bài vừa dùng, lấy đoạn hay nhất của bài).
+- Cách trộn:
+  - bỏ bass dưới 150 Hz và phần trên 9 kHz;
+  - mức trung bình thấp hơn giọng 18 dB;
+  - tự hạ thêm khi giọng đang đọc;
+  - vào 1 giây, ra 2 giây, tắt trong quãng giữ tiếng gốc.
+- Đo trên video gà 20 giây:
+  - âm lượng tổng vẫn -14 LUFS;
+  - giọng giữ nguyên mức;
+  - ở quãng lặng nhạc thấp hơn lời ~13 dB.
+- Bản thử đầu tiên chưa bỏ bass: bass đẩy đỉnh tiếng vào bộ giới hạn, cả video nhỏ đi 2 dB. Đã sửa.
+- Video gốc có nhạc rõ (nốt ngân trong tiếng nền / ngoài quãng có người nói) thì không lót thêm.
+  - Nhạc gốc rất nhỏ dưới tiếng xèo thì bộ dò có thể không thấy. Nghe hai bài chồng nhau thì tắt ở Cài đặt → 🎬 Video & lời.
+- Thư viện trống thì ghi chú và làm như cũ.
+- Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
+
+### Kiểm tra
+- `tests/test_v100.py`: chữ ký Zoom, luồng nhận tin + lệnh + người lạ, định tuyến thông báo, lý do Telegram, phiên
+  bản + báo một lần mỗi kênh, luật tông màu + đo khung thật, chuyển mặc định tông màu, bộ dò nhạc, đồ thị trộn nhạc
+  lót, việc Kaggle mang nhạc lót + tông màu.
+- Đã dựng thật trên video gà 60 giây (có / không nhạc lót) để đo các con số trên.
+
 ## Bản 50 — số đọc bằng chữ + soát video job 7 dưới góc nhìn đạo diễn TikTok (17/11/2026)
 
 **Số đọc bằng chữ.** Gốc «dầu nóng khoảng một trăm bảy mươi độ»: bộ kiểm số trước đây chỉ hiểu MỘT chữ số đứng ngay

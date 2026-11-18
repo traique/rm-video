@@ -90,6 +90,7 @@
       "TTS_RATE",
       "VIENEU_VOICE_FEMALE",
       "VIENEU_VOICE_MALE",
+      "VOICE_BED",
       "VOICE_HUMANIZE",
       "VOICE_SEPARATION"
      ],
@@ -204,6 +205,7 @@
       "TTS_RATE",
       "VIENEU_VOICE_FEMALE",
       "VIENEU_VOICE_MALE",
+      "VOICE_BED",
       "VOICE_HUMANIZE",
       "VOICE_SEPARATION"
      ],

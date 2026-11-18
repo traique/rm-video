@@ -194,7 +194,8 @@ def env(monkeypatch, tmp_path):
         monkeypatch.setattr(config, k, d)
     for k, v in (("QUALITY", "fast"), ("BRAND_INTRO", "0"), ("CUT_PROMO", "1"), ("COVER", "0"), ("TEASER", "0"),
                  ("TTS_PROVIDER", "edge"), ("KAGGLE_ANALYZE", "0"), ("BRAND_LOGO", "0"), ("PUBLIC_URL", ""),
-                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0")):
+                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0"),
+                 ("VOICE_BED", "off")):                  # nhạc lót dưới lời (1.0.0): test riêng ở test_v100.py
         monkeypatch.setattr(config, k, v)
     for k, v in brand.OLD_DEFAULTS.items():      # kịch bản cũ: chưa đặt nhận diện kênh (bộ mặc định bản 43: test riêng)
         monkeypatch.setattr(config, k, v)

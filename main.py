@@ -11,7 +11,9 @@ import state
 from admin import CONSOLE_HELP, console, maintenance
 from jobs import cancel_job, speed_ratio, worker
 from review import approve_job
-from state import notify, queue, spawn
+from rmvideo.app import notifier, release
+from rmvideo.version import VERSION
+from state import queue, spawn
 from storage import disk_report, sweep_tmp, warn_low_disk
 from web_panel import build_app
 
@@ -29,9 +31,9 @@ async def main():
         dp = tg_bot.setup(state.bot)
     bot = state.bot
     from rmvideo.app import brand
-    kit = brand.apply_default_kit()               # bản 43: bộ nhận diện «Bếp Đong Đủ» làm mặc định (một lần)
+    kit = brand.apply_default_kit()               # bản 43: bộ «Bếp Đong Đủ»; 1.0.0: tông màu tự động (mỗi lần một lần)
     if kit:
-        logging.info("Đã chuyển %d cài đặt sang bộ nhận diện mặc định «Bếp Đong Đủ»: %s", len(kit), ", ".join(kit))
+        logging.info("Đã chuyển %d cài đặt sang mặc định mới: %s", len(kit), ", ".join(kit))
     shutil.rmtree(state.WORK_DIR, ignore_errors=True)        # file tạm sót lại từ lần chạy bị ngắt (TRƯỚC khi worker chạy)
     if sweep_tmp():
         logging.info("Đã dọn thư mục tạm còn sót từ lần chạy bị giết")
@@ -40,14 +42,13 @@ async def main():
     spawn(maintenance())
     for job in queue.restored:
         logging.info("Chạy lại job #%s sau khi khởi động lại", job.id)
-        if job.source == "tg":
-            spawn(notify(job.chat_id, f"🔄 Bot vừa khởi động lại, job #{job.id} được chạy tiếp."))
+        spawn(notifier.job_event(job, f"🔄 Bot vừa khởi động lại, job #{job.id} được chạy tiếp.", admin=False))
 
     app = build_app(queue, {"cancel": cancel_job, "approve": approve_job, "speed": speed_ratio})
     runner = web.AppRunner(app, access_log=None)      # không ghi log mỗi lần web polling (giảm 95% log)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", config.PORT).start()
-    logging.info("Web panel chạy tại cổng %s", config.PORT)
+    logging.info("Web panel chạy tại cổng %s · phiên bản %s", config.PORT, VERSION)
     logging.info("BOT_TOKEN: %s | WEB_PASSWORD: %s",
                  "OK" if config.BOT_TOKEN else "THIẾU", "OK" if config.WEB_PASSWORD else "THIẾU")
     if not config.WEB_PASSWORD:
@@ -59,6 +60,7 @@ async def main():
     logging.info("Dung lượng: %s", disk_report())
     warn_low_disk()
     spawn(_ffmpeg_selftest())
+    spawn(release.announce())                      # bản 1.0.0: lên phiên bản -> báo Telegram + Zoom (một lần / phiên bản)
     import autopost
     spawn(autopost.run_forever())                  # 🤖 tự động đăng Facebook (AUTO_POST=1 mới chạy)
     import potoken_setup

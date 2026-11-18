@@ -41,8 +41,9 @@ class Job:
     music_local: str = ""     # chế độ music: file nhạc upload qua web
     music_tg_file_id: str = ""  # chế độ music: file nhạc gửi qua Telegram
     title_hint: str = ""      # tên file/caption gốc làm ngữ cảnh cho AI
-    source: str = "tg"        # rmvideo.domain.job.Source: tg | web | auto
+    source: str = "tg"        # rmvideo.domain.job.Source: tg | web | auto | zoom
     chat_id: int = 0
+    zoom: dict = field(default_factory=dict)   # job từ Zoom: nơi trả lời {to, account, user} (bản 1.0.0)
     id: int = field(default_factory=lambda: next(_ids))
     status: str = "queued"    # rmvideo.domain.job.Status
     step: str = ""
