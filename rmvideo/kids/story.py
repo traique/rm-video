@@ -99,8 +99,9 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     bank = [w["en"] for w in data["words"]]
     rnd.shuffle(bank)
     bank.sort(key=lambda w: last_use.get(w, -1))
-    cutoff = len(ordered) - 6
-    linked = [w for w in bank if w in by_id(data["lessons"], lesson_id).get("words", []) and last_use.get(w, -1) < cutoff]
+    cutoff = len(ordered) - 6                                  # không nằm trong 6 truyện vừa rồi (chưa dùng = luôn được)
+    lesson_words = by_id(data["lessons"], lesson_id).get("words", [])
+    linked = [w for w in bank if w in lesson_words and (w not in last_use or last_use[w] < cutoff)]
     words = linked[:min(3, n)]
     words += [w for w in bank if w not in words][:n - len(words)]
     mains = list(data["characters"])

@@ -54,6 +54,9 @@ def test_pick_avoids_recent_and_rotates_main():
         assert 3 <= len(b["words"]) <= 5 and b["seed"] > 0
         stories.append({"created_at": now - (40 - k) * 3600, "lesson": b["lesson"], "setting": b["setting"],
                         "conflict": b["conflict"], "words": [w["en"] for w in b["words"]], "main": b["main"]})
+    first = stories[0]
+    linked = set(story.by_id(DATA["lessons"], first["lesson"])["words"])
+    assert len(linked & set(first["words"])) >= 2                           # từ gắn với bài học đi trước (lỗi thật 18/11)
     triples = [(s["lesson"], s["setting"], s["conflict"]) for s in stories]
     assert len(set(triples)) == len(triples)                              # 40 truyện không trùng bộ ba
     assert set(s["main"] for s in stories[:4]) == set(DATA["characters"])   # 4 truyện đầu: 4 nhân vật chính khác nhau
