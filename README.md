@@ -217,8 +217,8 @@ truyện theo đề, FLUX.1-schnell 4-bit vẽ 8 cảnh, VieNeu đọc, FFmpeg d
 từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
 
 Cài một lần:
-1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`), Fanpage riêng `KIDS_FB_PAGE_ID` +
-   `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`) và nên có
+1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`); Cài đặt → 🔑 Tài khoản & API: Fanpage
+   riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`) và nên có
    `PUBLIC_URL` (nhạc nền chép vào `assets/kids_bgm/` đi qua link tạm; không có thì dùng `KIDS_BGM_LINKS`).
 2. Gõ `kids_setup` (console hoặc nút trên web): notebook `rmvideo-kids-models` biên dịch llama.cpp cho T4 và lượng tử FLUX.1-schnell
    4-bit, lưu làm đầu vào cho mọi phiên sau (~45–60 phút GPU, một lần). Đã có sẵn bản llama-server biên dịch (vd dataset của bài đo

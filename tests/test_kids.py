@@ -395,7 +395,7 @@ def test_settings_and_snapshot(monkeypatch, tmp_path):
     assert "KIDS_FB_PAGE_TOKEN" in config.SECRET_KEYS
     assert config.reauth_keys({"KIDS_FB_PAGE_ID": "1"}) == ["KIDS_FB_PAGE_ID"]
     snap = kaggle_worker.settings_snapshot()
-    assert "KIDS_VOICE" in snap and not any(k.startswith("KIDS_FB_") for k in snap)
+    assert not any(k.startswith("KIDS_") for k in snap)       # kids_spec mang giọng/model tường minh, token không bao giờ đi
 
 
 def test_kids_spec_and_kernel_without_secrets(monkeypatch):

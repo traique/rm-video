@@ -103,6 +103,7 @@ def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str,
     words = "\n".join(f"🔤 {w['en']} = {w['vi']}" for w in brief["words"])
     desc = (f"{story.get('description', '').strip()}\n\n{words}\n\n📖 Bài học: {lesson.get('vi', '')}."
             + (f"\n{channel['tagline']}" if channel.get("tagline") else ""))
-    fixed = [t for t in str(channel.get("hashtags") or "").split() if t.startswith("#")]
+    import re
+    fixed = [t for t in re.split(r"[,\s]+", str(channel.get("hashtags") or "")) if t.startswith("#")]
     tags = fixed + [t for t in story.get("hashtags", []) if t not in fixed]
     return story.get("title", ""), desc.strip(), " ".join(tags)

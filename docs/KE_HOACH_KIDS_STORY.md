@@ -274,7 +274,7 @@ Page hãy gõ thử tên vào ô tìm kiếm Facebook trước).
 **Đề xuất chốt:** tên kênh **Kể Bé Nghe**, thế giới truyện **Đồi Cỏ Non** (nơi Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ sống).
 - Tên Page: «Kể Bé Nghe – Truyện & tiếng Anh cho bé»; username `@kebenghe`.
 - Tagline (mô tả Page + màn kết): «Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh».
-- Hashtag cố định: `#kebenghe #doiconon #truyenchobe #hoctienganhchobe #kidsstory` (+2 theo bài học).
+- Hashtag cố định: `#kebenghe,#doiconon,#truyenchobe,#hoctienganhchobe,#kidsstory` (+2 theo bài học).
 - Tên thế giới đi vào mã: lời nhắc («mọi chuyện xảy ra ở Đồi Cỏ Non»), khối phong cách prompt ảnh («green grassy hill
   village»), màn mở đầu 1,5 giây («Đồi Cỏ Non · Kể Bé Nghe»), màn kết (3 từ hôm nay + tagline). Thế giới có tên làm
   mọi truyện cùng một bối cảnh → thương hiệu nhất quán, và ảnh các cảnh cùng «chất» hơn.
