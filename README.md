@@ -6,6 +6,11 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
 
 1. Upload toàn bộ thư mục này (Python Runtime **3.13**, bản CI kiểm; 3.11–3.12 vẫn chạy được nhưng không còn được
    kiểm mỗi lần sửa), lệnh chạy: `python main.py`.
+   **Giải nén trên Botkeep:** trình «Extract archive» chỉ nhận zip ≤ 250 mục / 20 MB / 4 MB mỗi file; zip «Download
+   ZIP» của GitHub có cả test và tài liệu (~270 mục) nên bị từ chối. Dùng zip gọn chỉ có mã chạy bot:
+   `python scripts/botkeep_zip.py` → `rm-video-<phiên bản>-botkeep.zip` (~165 mục, ~1,2 MB; cùng thư mục gốc
+   `rm-video-ccr-0f4ff082-rshcy5/` như zip GitHub). Giải nén đè lên bản cũ không mất dữ liệu (settings.json, jobs.db,
+   outputs/... không nằm trong zip).
    `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (~350MB). **YouTube** cần thêm bộ giải JavaScript:
    gõ `setup_youtube` vào console (cài deno ~100MB vào `tools/`, gỡ bằng `remove_youtube`); TikTok/Facebook không cần.
    File `.config/pip/pip.conf` tắt bộ nhớ đệm của pip (Botkeep chạy với HOME = thư mục bot, nên bộ nhớ đệm ~150–250MB
