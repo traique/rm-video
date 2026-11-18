@@ -64,8 +64,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"TIẾNG ANH (English only, không một chữ tiếng Việt), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), "
             "tả hành động + cảm xúc + đồ vật trong hình, thì hiện tại; ví dụ: «White Rabbit crying and holding a red ball, "
             "Orange Cat looking sorry». Không tả ngoại hình hay quần áo (đã có sẵn), không chữ, không bảng hiệu.\n"
-            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, gợi tò mò, có tên {main['name_vi']}; chỉ kèm một từ "
-            "tiếng Anh hôm nay nếu đọc lên tự nhiên (ví dụ: «Thỏ Trắng và lời promise bị quên»).\n"
+            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, gợi tò mò, có tên {main['name_vi']} và nói về chuyện "
+            "xảy ra trong truyện này; chỉ được kèm một từ tiếng Anh TRONG DANH SÁCH HÔM NAY nếu đọc lên tự nhiên.\n"
             "- `description`: 2-3 câu cho ba mẹ: truyện dạy bé điều gì, kể các từ tiếng Anh kèm nghĩa.\n"
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n")
     if feedback:

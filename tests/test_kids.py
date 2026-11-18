@@ -171,6 +171,9 @@ def test_prompts_and_schema():
     spam["scenes"][4]["text"] += " ".join(f"«{w['en']}» nghĩa là {w['vi']}." for w in brief["words"]) + " a nghĩa là b."
     probs = story.validate(spam, brief, DATA)
     assert any("hỏi dồn dập" in q for q in probs) and any("giải nghĩa từ" in q for q in probs)
+    other = next(w["en"] for w in DATA["words"] if w["en"] not in {x["en"] for x in brief["words"]})
+    bad_title = dict(st, title=f"Thỏ Trắng và lời {other} bị quên")
+    assert any("không phải của hôm nay" in q for q in story.validate(bad_title, brief, DATA))
     ws = [w["en"] for w in brief["words"]]
     assert story.listed_words("Thỏ Trắng kể: «" + ", ".join(ws) + ", nha!»", ws) == len(ws)
     assert story.listed_words("Thank you, cảm ơn bạn nha!", ["thank you", "sorry"]) == 1

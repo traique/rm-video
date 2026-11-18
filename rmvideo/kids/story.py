@@ -239,6 +239,10 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
     title = story.get("title", "")
     if not 6 <= len(title) <= TITLE_MAX:
         problems.append(f"tiêu đề {len(title)} ký tự, cần 6-{TITLE_MAX} ký tự")
+    today = {w["en"] for w in brief.get("words", [])}
+    stray = [w["en"] for w in data.get("words", []) if w["en"] not in today and count_word(title, w["en"])]
+    if stray:                            # đo thật 18/11: model chép y ví dụ tiêu đề trong lời nhắc («lời promise bị quên»)
+        problems.append(f"tiêu đề có từ tiếng Anh không phải của hôm nay ({', '.join(stray)}): chỉ dùng từ trong danh sách")
     for i, s in enumerate(scenes, 1):
         act = s.get("action_en") or ""
         if len(act.split()) < 3:
