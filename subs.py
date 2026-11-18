@@ -1,5 +1,6 @@
 """Sinh file phụ đề .ass từ mốc thời gian từng từ mà edge-tts trả về.
 Phụ đề khớp chính xác giọng đọc AI, style chữ to đậm viền đen kiểu video ngắn."""
+import re
 
 _STYLES = {
     # karaoke: chữ sáng dần vàng theo giọng (CapCut)
@@ -34,6 +35,33 @@ def _ts(sec: float) -> str:
     return f"{int(h)}:{int(m):02d}:{s:05.2f}"
 
 
+def _tok(w: str) -> str:
+    return re.sub(r"\W+", "", (w or "").lower())
+
+
+def _brand_pairs() -> set:
+    """Cặp chữ liền nhau của tên kênh («bếp đong», «đong đủ»): phụ đề không được ngắt dòng giữa chúng."""
+    try:
+        import config
+        name = config.brand_text("BRAND_NAME")
+    except Exception:
+        return set()
+    toks = [_tok(w) for w in (name or "").split() if _tok(w)]
+    return set(zip(toks, toks[1:]))
+
+
+def _keep_pairs(chunk: list, pairs: set) -> list:
+    """Dời ranh giới dòng ra khỏi giữa tên kênh (bản 1.0.1: «cả nhà Đong | đủ là ngon» đọc thành «cả nhà đông»)."""
+    for j in range(len(chunk) - 1):
+        a, b = chunk[j], chunk[j + 1]
+        if a and b and (_tok(a[-1][2]), _tok(b[0][2])) in pairs:
+            if len(a) > 1:
+                chunk[j], chunk[j + 1] = a[:-1], [a[-1]] + b
+            elif len(b) > 1:
+                chunk[j], chunk[j + 1] = a + [b[0]], b[1:]
+    return chunk
+
+
 def group_words(words, max_words=4, max_chars=22, until: float | None = None):
     """Chia dòng phụ đề CÂN ĐỐI: tách cụm theo câu/dấu phẩy/ngắt hơi/đoạn giọng, rồi chia mỗi cụm
     thành các dòng đều nhau (tránh dòng chỉ còn 1 chữ). words: [(start, end, text[, clip])]."""
@@ -49,6 +77,7 @@ def group_words(words, max_words=4, max_chars=22, until: float | None = None):
     if cur:
         phrases.append(cur)
     lines = []
+    pairs = _brand_pairs()
     for ph in phrases:
         n = len(ph)
         chars = len(" ".join(x[2] for x in ph))
@@ -56,10 +85,12 @@ def group_words(words, max_words=4, max_chars=22, until: float | None = None):
         k = min(k, n)
         base, extra = divmod(n, k)
         i = 0
+        chunk = []
         for j in range(k):                                     # chia đều: 5 từ -> 3+2, không 4+1
             size = base + (1 if j < extra else 0)
-            lines.append(ph[i:i + size])
+            chunk.append(ph[i:i + size])
             i += size
+        lines.extend(_keep_pairs(chunk, pairs) if pairs else chunk)
     out = []
     for i, ln in enumerate(lines):
         start = ln[0][0]

@@ -17,7 +17,7 @@
     [
      [
       3,
-      "Lời mới3 mới3 mới3",
+      "Lời mới3 mới3 mới3.",
       3
      ]
     ]
@@ -103,13 +103,23 @@
       "pieces": [
        {
         "a": 0.0,
-        "b": 5.0,
+        "b": 2.5,
         "fx": "",
         "push": 0.0,
         "role": "main",
         "speed": 1.0,
         "tag": "",
         "zoom": 1.0
+       },
+       {
+        "a": 2.5,
+        "b": 5.0,
+        "fx": "",
+        "push": 0.0,
+        "role": "main",
+        "speed": 1.0,
+        "tag": "",
+        "zoom": 1.25
        },
        {
         "a": 5.0,
@@ -119,11 +129,11 @@
         "role": "main",
         "speed": 1.0,
         "tag": "",
-        "zoom": 1.12
+        "zoom": 1.1
        }
       ],
       "stretch": 1.0,
-      "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+      "summary": "Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s.",
       "texts": [],
       "v": 1
      },
@@ -138,8 +148,8 @@
       "Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới0 {\\kf30}mới0 {\\kf25}mới0",
       "Dialogue: 0,0:00:02.10,0:00:03.60,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới1 {\\kf30}mới1 {\\kf25}mới1",
       "Dialogue: 0,0:00:03.60,0:00:05.02,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf30}Lời {\\kf30}mới2 {\\kf30}mới2 {\\kf25}mới2",
-      "Dialogue: 0,0:00:05.02,0:00:05.74,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}Lời {\\kf24}mới3 {\\kf20}Đong",
-      "Dialogue: 0,0:00:05.74,0:00:06.46,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}đủ {\\kf24}là {\\kf20}ngon,",
+      "Dialogue: 0,0:00:05.02,0:00:05.50,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}Lời {\\kf20}mới3",
+      "Dialogue: 0,0:00:05.50,0:00:06.46,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}Đong {\\kf24}đủ {\\kf24}là {\\kf20}ngon,",
       "Dialogue: 0,0:00:06.46,0:00:07.18,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}cả {\\kf24}nhà {\\kf20}nấu",
       "Dialogue: 0,0:00:07.18,0:00:07.70,Default,,0,0,0,,{\\an5\\pos(360,973)\\fad(60,40)}{\\kf24}thử {\\kf20}nha."
      ],
@@ -229,13 +239,23 @@
      "pieces": [
       {
        "a": 0.0,
-       "b": 5.0,
+       "b": 2.5,
        "fx": "",
        "push": 0.0,
        "role": "main",
        "speed": 1.0,
        "tag": "",
        "zoom": 1.0
+      },
+      {
+       "a": 2.5,
+       "b": 5.0,
+       "fx": "",
+       "push": 0.0,
+       "role": "main",
+       "speed": 1.0,
+       "tag": "",
+       "zoom": 1.25
       },
       {
        "a": 5.0,
@@ -245,15 +265,15 @@
        "role": "main",
        "speed": 1.0,
        "tag": "",
-       "zoom": 1.12
+       "zoom": 1.1
       }
      ],
      "stretch": 1.0,
-     "summary": "Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s.",
+     "summary": "Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s.",
      "texts": [],
      "v": 1
     },
-    "error": "🎨 Tông màu tự chọn: Ấm mộc (ánh sáng gốc ám xanh / lạnh). ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 2 khúc, đổi cỡ khung 1 lần; video 8s -> 8s. ℹ️ Lời đọc: 23 chữ, giọng phủ 85% video, 1/4 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 2 điểm chuyển cảnh; lệch tối đa 0.1s; 1 đoạn nói nhanh; 1 đoạn vẫn hơi dài; đã che 1 dải chữ gốc.",
+    "error": "🎨 Tông màu tự chọn: Ấm mộc (ánh sáng gốc ám xanh / lạnh). ℹ️ AI đọc công thức lỗi: bài đăng không kèm công thức. ℹ️ Dựng mạnh: không có nhãn bước của AI: chỉ áp lớp A. ℹ️ Nhịp dựng nhẹ: 3 khúc, đổi cỡ khung 2 lần; video 8s -> 8s. ℹ️ Lời đọc: 23 chữ, giọng phủ 85% video, 1/4 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 4 đoạn giọng, 3 điểm chuyển cảnh; lệch tối đa 0.1s; 1 đoạn nói nhanh; 1 đoạn vẫn hơi dài; đã che 1 dải chữ gốc.",
     "final_segments": [
      {
       "end": 2.1,
@@ -321,7 +341,7 @@
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"
     },
-    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,020\nLời mới2 mới2 mới2\n\n4\n00:00:05,020 --> 00:00:05,740\nLời mới3 Đong\n\n5\n00:00:05,740 --> 00:00:06,460\nđủ là ngon,\n\n6\n00:00:06,460 --> 00:00:07,180\ncả nhà nấu\n\n7\n00:00:07,180 --> 00:00:07,700\nthử nha.\n",
+    "srt": "1\n00:00:00,500 --> 00:00:02,000\nLời mới0 mới0 mới0\n\n2\n00:00:02,100 --> 00:00:03,600\nLời mới1 mới1 mới1\n\n3\n00:00:03,600 --> 00:00:05,020\nLời mới2 mới2 mới2\n\n4\n00:00:05,020 --> 00:00:05,500\nLời mới3\n\n5\n00:00:05,500 --> 00:00:06,460\nĐong đủ là ngon,\n\n6\n00:00:06,460 --> 00:00:07,180\ncả nhà nấu\n\n7\n00:00:07,180 --> 00:00:07,700\nthử nha.\n",
     "status": "queued",
     "step": "Render (FFmpeg)",
     "teaser": {}

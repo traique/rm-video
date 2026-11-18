@@ -31,6 +31,10 @@ SHOT_MAX = 6.0        # ... và nhiều nhất: quãng dài hơn thì đổi c�
                       # job 7 có quãng 13 giây không đổi khung vì người gốc nói một mạch, không ngắt câu)
 SENT_GAP = 0.35       # ngắt câu: khoảng lặng giữa hai câu từ chừng này
 ZOOMS = (1.0, 1.12, 1.0, 1.18)
+# Cảnh tĩnh (chuyển động thuộc 35% thấp nhất của video): đổi cỡ khung RÕ hơn và DÀY hơn. Bản 1.0.1, job 1 video mực:
+# gần 80 giây nồi nước sôi quay từ trên xuống, đổi giữa 1.0 và 1.12 mỗi 6 giây gần như không thấy khác -> người xem lướt.
+ZOOMS_STATIC = (1.0, 1.25, 1.1, 1.3)
+SHOT_MAX_STATIC = 4.0
 PUSH = 0.06
 FPS = 2.0
 ACT_HOLD = 4.0        # sau câu có nguyên liệu / định lượng: giữ tốc độ thường chừng này giây rồi mới được tua / bỏ —
@@ -173,13 +177,14 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
                 pts.append(x)
         pts.append(b)
         if len(pieces) + len(pts) < edl.MAX_PIECES - 25:     # chừa chỗ cho khúc tua / khúc phụ của lớp B
-            pts = _split_long(pts, sents)
+            pts = _split_long(pts, sents, finer=lambda x, y: SHOT_MAX_STATIC if _static(mot, lo, x, y) else None)
         for x, y in zip(pts, pts[1:]):
             if y - x < edl.MIN_PIECE and pieces and pieces[-1].tag != "skip":
                 p = pieces[-1]
                 pieces[-1] = edl.Piece(p.a, y, p.speed, p.zoom, p.push, p.fx, p.role, p.tag)
                 continue
-            pieces.append(edl.Piece(round(x, 3), round(y, 3), zoom=ZOOMS[k_zoom % len(ZOOMS)],
+            zooms = ZOOMS_STATIC if _static(mot, lo, x, y) else ZOOMS
+            pieces.append(edl.Piece(round(x, 3), round(y, 3), zoom=zooms[k_zoom % len(zooms)],
                                     fx="flash" if after_skip else ""))
             k_zoom += 1
             after_skip = False
@@ -194,18 +199,31 @@ def plan_light(end: float, segs: list, cuts: list, mot: list[float], stretch: fl
     return plan
 
 
-def _split_long(pts: list, sents: list | None = None) -> list:
+def _static(mot: list[float], lo: float | None, a: float, b: float) -> bool:
+    """Quãng [a, b] ít chuyển động (thuộc 35% thấp nhất của video). Không đo được: không coi là tĩnh."""
+    m = _mean(mot, a, b) if mot else None
+    return m is not None and lo is not None and m <= lo * 1.02 + 1e-9      # dung sai làm tròn số thực
+
+
+def _split_long(pts: list, sents: list | None = None, finer: Callable[[float, float], float | None] | None = None
+                ) -> list:
     """Chèn chỗ đổi cỡ khung vào quãng dài hơn SHOT_MAX: chia đều, mỗi chỗ dời về khoảng lặng giữa hai câu gần nhất
-    (±1,5 giây). sents: [(a, b)] các câu lời gốc, theo thứ tự."""
-    out = [pts[0]]
-    for x, y in zip(pts, pts[1:]):
-        n = math.ceil((y - x) / SHOT_MAX) if y - x > SHOT_MAX else 1
-        for i in range(1, n):
-            t = _calm_point(x + (y - x) * i / n, out[-1], y, sents or [])
-            if t is not None:
-                out.append(t)
-        out.append(y)
-    return out
+    (±1,5 giây). sents: [(a, b)] các câu lời gốc, theo thứ tự. finer(x, y): độ dài tối đa riêng của khúc [x, y] sau
+    lượt chia đầu (cảnh tĩnh: SHOT_MAX_STATIC) hoặc None — xét từng khúc, không xét cả quãng nói liền (một quãng 60
+    giây nói liền vừa có cảnh động vừa có cảnh tĩnh thì cả quãng không «tĩnh»)."""
+    def cut(points: list, size: Callable[[float, float], float | None]) -> list:
+        out = [points[0]]
+        for x, y in zip(points, points[1:]):
+            m = size(x, y)
+            n = math.ceil((y - x) / m) if m and y - x > m else 1
+            for i in range(1, n):
+                t = _calm_point(x + (y - x) * i / n, out[-1], y, sents or [])
+                if t is not None:
+                    out.append(t)
+            out.append(y)
+        return out
+    out = cut(pts, lambda x, y: SHOT_MAX)
+    return cut(out, finer) if finer else out
 
 
 def _calm_point(t: float, lo: float, hi: float, sents: list) -> float | None:

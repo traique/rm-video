@@ -886,6 +886,51 @@ def unplate(text: str) -> str:
                               count=1)
 
 
+# ---------- lời lặp ý (bản 1.0.1, job 1 video mực) ----------
+# Quãng luộc dài không có việc mới, AI độn lời: «luộc chừng 4 phút» 3 lần, «không rách da» 3 lần, «ngon ghê chưa» 2
+# lần. Người xem TikTok nghe lặp là lướt. Bắt: một thời lượng (4 phút, ba phút) hay một cụm ≥ 3 chữ có nghĩa đã nói
+# ở đoạn trước. Tên món / nguyên liệu / cách nấu («mực hấp gừng», «nồi nước sôi») nhắc lại là chuyện thường: không bắt.
+_TIME_Q_RE = re.compile(r"(?<![\w])(\d+(?:[,.]\d+)?(?:\s*[-–]\s*\d+)?|nửa|một|hai|ba|bốn|tư|năm|sáu|bảy|tám|chín|mười"
+                        r"|mươi)\s+(phút|giây|tiếng)(?![\w])", re.IGNORECASE)
+_REPEAT_STOP = set("mình là thì này nha nè cho vô vào rồi cái con mấy cả nhà đó á luôn cũng vậy nữa đã đang sẽ có được "
+                   "với và hay mà ra lên xuống đi các những kia đây ơi nhé nhá hen nghen giờ lúc khi để một hai ba "
+                   "chừng khoảng tầm cứ chỉ thêm như là coi xem nhìn thấy".split())
+_COOK_WORDS = set("hấp luộc chiên xào nấu kho nướng rang trụng chần ướp nêm phi rim om hầm nồi chảo vợt dĩa đĩa tô chén "
+                  "nước sôi lửa món mẻ con".split())
+
+
+def _idea_grams(text: str) -> set:
+    toks = re.findall(r"\w+", (text or "").lower())
+    out = set()
+    for i in range(len(toks) - 2):
+        g = toks[i:i + 3]
+        content = [t for t in g if t not in _REPEAT_STOP]
+        if len(content) < 2:
+            continue
+        # cụm chỉ gồm tên món / nguyên liệu / cách nấu (mực hấp gừng, nồi nước sôi): nhắc lại là thường
+        if all(t in _COOK_WORDS or ingredients.find(t) for t in content):
+            continue
+        out.add(" ".join(g))
+    return out
+
+
+def repeated_ideas(items: list) -> dict:
+    """items: [(k, lời mới)] theo thứ tự (đã bỏ khúc điểm danh / tóm tắt — đọc lại là việc của chúng). Trả {k: cụm lặp}
+    cho đoạn nhắc lại một thời lượng hay một cụm có nghĩa đã nói ở đoạn trước."""
+    seen_q: set = set()
+    seen_g: set = set()
+    out: dict = {}
+    for k, text in items:
+        qs = {re.sub(r"\s+", " ", m.group(0).lower()) for m in _TIME_Q_RE.finditer(text or "")}
+        grams = _idea_grams(text)
+        hit = sorted(qs & seen_q) or sorted(grams & seen_g)
+        if hit:
+            out[k] = hit[0]
+        seen_q |= qs
+        seen_g |= grams
+    return out
+
+
 _DUP_ITEM_RE = re.compile(r"(?<![\w])([^,.;!?]*?\w\s+\w[^,.;!?]*?)(?:,\s*\1)+(?=[,.;!?]|$)", re.IGNORECASE)
 
 
@@ -1078,6 +1123,11 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
         return replayed_steps([(k, tx, "" if osts.get(k) == "orig" else got.get(k, ""))
                                for k, st, slot, mx, tx, span in slots if tx and not _side(tx)])
 
+    def _repeats(got, osts):
+        """Đoạn nhắc lại ý / thời lượng đã nói ở đoạn trước (repeated_ideas). Đoạn 0 (câu hook) được nhắc lại về sau."""
+        return repeated_ideas([(k, got.get(k, "")) for k, st, slot, mx, tx, span in slots
+                               if k and osts.get(k) != "orig" and k in got and not _side(tx)])
+
     def _plates(got, osts):
         """Đoạn nói «dĩa + món» khi món chưa được bày ra dĩa (early_plate). Đoạn 0 (câu hook, hay chiếu món xong) không
         tính."""
@@ -1164,7 +1214,9 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             # hoặc ≥25% số đoạn chép nhẹ. Mỗi lượt AI giờ chỉ vài giây nên siết chặt được.
             too_copy = bool(severe) or (bad and len(bad) >= max(1, len(slots) // 4))
             too_thin = len(thin) >= max(2, len(slots) // 4) or _sparse(got, d["_ost"]) or len(_dead(got, d["_ost"])) >= 2
-            if not (too_copy or miss or added or too_thin):
+            reps = _repeats(got, d["_ost"])
+            too_rep = len(reps) >= 2                  # một lần nhắc lại thì cho qua; từ hai lần là độn lời
+            if not (too_copy or miss or added or too_thin or too_rep):
                 break
             logging.warning("AI %s lần %d: %d đoạn chép/thiếu; %d đoạn quá ngắn; nguyên liệu thiếu %s; bịa/đổi %s -> "
                             "viết lại", name, attempt + 1, len(bad), len(thin), miss, added)
@@ -1208,6 +1260,11 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                            " (gốc là trứng gà thì KHÔNG được viết trứng vịt; gốc 2 muỗng thì KHÔNG được viết 3 muỗng; gốc"
                            " 3-4 giọt thì KHÔNG được viết 3-4 muỗng;"
                            " gốc nghe không rõ số thì bỏ số, KHÔNG tự điền)")
+            if too_rep:
+                why.append("các đoạn sau NHẮC LẠI ý / thời lượng đã nói ở đoạn trước (người xem nghe lặp là lướt đi): "
+                           "viết điều MỚI đang thấy trên hình của chính đoạn đó (màu, tiếng, độ chín, thao tác tay), "
+                           "không lặp lại cụm hay thời lượng đã nói: " +
+                           ", ".join(f"{k} («{got.get(k, '')}», lặp «{reps[k]}»)" for k in sorted(reps)[:6]))
             if too_thin:
                 need = {k: (max(2, round(mx * 0.8)), mx) for k, st, slot, mx, tx, span in slots}
                 why.append("các đoạn sau QUÁ NGẮN, giọng hết sớm làm video lặng dài; viết lại thành câu nói chuyện đủ "
@@ -1220,8 +1277,10 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 d2, got2 = _parse(await call(fix))
                 b2, m2, a2 = _score(got2, d2["_ost"])
                 t2 = _thin(got2, d2["_ost"])
-                old_err = len(bad) + 3 * (len(miss) + len(added)) + 0.5 * len(thin) + 3 * _sparse(got, d["_ost"])
-                new_err = len(b2) + 3 * (len(m2) + len(a2)) + 0.5 * len(t2) + 3 * _sparse(got2, d2["_ost"])
+                old_err = len(bad) + 3 * (len(miss) + len(added)) + 0.5 * len(thin) + 3 * _sparse(got, d["_ost"]) \
+                    + 0.5 * len(reps)
+                new_err = len(b2) + 3 * (len(m2) + len(a2)) + 0.5 * len(t2) + 3 * _sparse(got2, d2["_ost"]) \
+                    + 0.5 * len(_repeats(got2, d2["_ost"]))
                 if new_err < old_err:
                     d, got, bad, miss, added, thin = d2, got2, b2, m2, a2, t2
             except Exception as e:       # 503/quá giờ của Gemini: chuyện thường, không in cả traceback

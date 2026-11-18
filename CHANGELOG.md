@@ -13,6 +13,40 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)
+
+- Thẻ MẸO không còn bị logo che chữ: thẻ phía trên (mẹo, tua nhanh) đặt xuống dưới logo.
+- Bản ngắn mở bằng câu hook + cảnh món của video gốc rồi mới điểm danh nguyên liệu (trước đây mở bằng mực sống trong nồi, chữ hook chồng lên thẻ nguyên liệu).
+- AI không được lặp ý: nhắc lại thời lượng hay cụm đã nói (vd «luộc 4 phút» 3 lần, «không rách da» 3 lần) từ 2 đoạn trở lên là phải viết lại bằng điều mới đang thấy.
+- Cảnh tĩnh (nồi nước sôi quay từ trên xuống) đổi cỡ khung rõ và dày hơn: tối đa 4 giây một lần, cận tới 1,3 lần.
+- Câu chốt kênh luôn là câu riêng, không lặp «cả nhà»; phụ đề không cắt đôi tên kênh; câu hook không hiện phụ đề khi chữ hook to đang hiện.
+
+### Chi tiết
+- **Thẻ đè logo**:
+  - bản 50 hạ logo xuống 9–18% chiều cao, thẻ MẸO vẫn đặt ở 12% và rộng gần hết khung;
+  - logo vẽ sau nên che chữ: «Không cần rã đông mự[c]» ở 0:18–0:22.
+  - Giờ `renderer.logo_bottom` tính đáy logo theo đúng tỉ lệ ảnh (logo tải lên có thể không vuông).
+  - Thẻ ở nửa trên khung đặt dưới mức đó 1%; thẻ nguyên liệu / giá ở dưới giữ nguyên.
+- **Hook bản ngắn**:
+  - `short.plan_short(hook=…)`: khi không có đoạn mở đầu, giữ câu đầu của nguồn (`style_b._hook_end`, cùng luật bản đầy đủ có từ bản 43) làm khúc đầu;
+  - khúc điểm danh, chữ «Nguyên liệu gồm» và thẻ số dời ra sau câu đó.
+  - Kéo theo sửa một lỗi phụ: thẻ điểm danh trước đây bắt đầu ở giây 0, `hook_title_end` trả 0 và bị hiểu là «mặc định 3,3 giây», nên chữ hook đè lên thẻ.
+  - Có đoạn mở đầu (cảnh món xong chiếu trước) thì đoạn đó đã là hook, bản ngắn giữ cách cũ.
+- **Lời lặp ý**:
+  - `prompt_engine.repeated_ideas` bắt một thời lượng (4 phút, bốn phút) hay một cụm 3 chữ có ≥ 2 chữ có nghĩa đã nói ở đoạn trước.
+  - Bỏ qua tên món / nguyên liệu / cách nấu («mực hấp gừng», «nồi nước sôi»), khúc điểm danh / tóm tắt và câu hook.
+  - Từ 2 đoạn lặp thì bắt AI viết lại «điều MỚI đang thấy trên hình»; bản viết lại ít lặp hơn được ưu tiên.
+  - Trên lời thật của job 1, bộ dò bắt đúng 4 chỗ lặp: «lửa riu riu», «không rách da», «4 phút», «mực tươi ngon».
+- **Cảnh tĩnh**:
+  - khúc thuộc 35% ít chuyển động nhất của video dùng cỡ khung (1.0, 1.25, 1.1, 1.3) thay cho (1.0, 1.12, 1.0, 1.18);
+  - chia tối đa 4 giây một khúc thay vì 6;
+  - xét từng khúc, nên một quãng nói liền vừa có cảnh động vừa có cảnh tĩnh vẫn được chia đúng chỗ tĩnh.
+- **Câu chốt**:
+  - `brand._join_close`: lời đoạn cuối chưa chấm câu thì chấm; lời gọi «cả nhà / mọi người / bà con» ở cuối câu bỏ đi khi câu chốt đã gọi «cả nhà»;
+  - `subs.group_words` không ngắt dòng giữa hai chữ liền nhau của tên kênh (`BRAND_NAME`);
+  - `filtergraph.subtitle_texts(title_shown=True)` ẩn phụ đề câu hook khi câu đó dứt trong lúc chữ hook to còn hiện, kể cả khi không có đoạn mở đầu.
+- Test: `tests/test_v101.py`.
+
 ## 1.0.0 — phiên bản mới: Zoom, thông báo, tông màu tự động, nhạc lót (18/11/2026)
 
 - Telegram báo cả job làm trên web / tự đăng (xong kèm link tải, lỗi, chờ duyệt); nút «🔔 Gửi thử thông báo» trong Cài đặt nói rõ vì sao chưa nhận được.
