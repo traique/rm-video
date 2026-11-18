@@ -264,6 +264,11 @@ SCHEMA: tuple[Setting, ...] = (
                ("narrate", "AI xem hình rồi viết lời đọc (cách cũ)")), choices=("music", "narrate")),
     S("BGM_LINKS", "", "video", "Thư viện nhạc nền (link)", help="Quản lý dễ hơn ở mục 🎵 Nhạc nền.",
       validate=_bgm_links, live=True),
+    S("VOICE_BED", "on", "video", "Nhạc lót dưới lời đọc",
+      help="Video có lời đọc: lót một bài trong thư viện 🎵 Nhạc nền thật nhỏ dưới giọng, tự hạ khi đang đọc hoặc khi "
+           "tiếng gốc to; video gốc đã có nhạc thì không lót thêm. CHỈ dùng nhạc miễn phí bản quyền (vd YouTube Audio "
+           "Library): nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.",
+      options=(("on", "Bật (bản 1.0.0)"), ("off", "Tắt")), choices=("on", "off")),
     S("BGM_ORIG", "off", "video", "Tiếng gốc khi chèn nhạc",
       options=(("off", "Chỉ nhạc mới (mặc định): bỏ tiếng gốc, tránh hai bản nhạc chồng nhau"),
                ("low", "Giữ tiếng gốc nhỏ dưới nhạc (video ASMR: tiếng xèo, tiếng dao)"),
@@ -306,9 +311,12 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("off", "Tắt"), ("on", "Bật: ra thêm «Bản ngắn» sau bản đầy đủ")), choices=("off", "on")),
     S("BRAND_COLOR", "#F28C28", "brand", "Màu kênh", help="Mã màu #RRGGBB: chữ đang đọc của phụ đề, khung chữ, thẻ, ảnh bìa. "
       "Nhập 0 = vàng như cũ.", validate=_brand_color),
-    S("BRAND_LOOK", "tuoi_sang", "brand", "Tông màu video",
-      options=(("goc", "Gốc (công thức màu hiện tại)"), ("am_moc", "Ấm mộc"), ("tuoi_sang", "Tươi sáng"),
-               ("dien_anh", "Điện ảnh")), choices=("goc", "am_moc", "tuoi_sang", "dien_anh")),
+    S("BRAND_LOOK", "auto", "brand", "Tông màu video",
+      help="Tự động (bản 1.0.0): đo màu video gốc rồi chọn — ánh sáng lạnh / ám xanh → Ấm mộc; tối, màu nhạt hoặc đã "
+           "ám vàng → Tươi sáng; còn lại → Gốc. Ảnh bìa cùng tông với video.",
+      options=(("auto", "Tự động theo từng video"), ("goc", "Gốc (công thức màu hiện tại)"), ("am_moc", "Ấm mộc"),
+               ("tuoi_sang", "Tươi sáng"), ("dien_anh", "Điện ảnh")),
+      choices=("auto", "goc", "am_moc", "tuoi_sang", "dien_anh")),
     S("BRAND_GRAIN", "0", "brand", "Hạt phim nhẹ", help="Chỉ ở bản 1080p (720p hạt bị nén thành khối).",
       options=_ONOFF_OPTS, choices=ON_OFF),
     S("BRAND_TAGLINE", "Đong đủ, nấu là ngon", "brand", "Câu dưới tên kênh (màn kết)", help="Nhập 0 = không có.", validate=_max_len("BRAND_TAGLINE", 60)),
@@ -330,6 +338,29 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_id_list("ALLOWED_USERS"), reauth=True, live=True),
     S("ADMIN_CHAT_ID", "", "telegram", "Chat nhận cảnh báo", help="Trống = người đầu tiên trong danh sách trên.",
       validate=_id_list("ADMIN_CHAT_ID"), reauth=True, live=True),
+    # ---- bản 1.0.0: thông báo cho job làm trên web / tự đăng; kênh Zoom ----
+    S("NOTIFY_JOBS", "1", "telegram", "Báo job làm trên web / tự đăng",
+      help="Video xong (kèm link tải), lỗi, chờ duyệt kịch bản: gửi về Telegram (chat nhận cảnh báo) và Zoom (người "
+           "nhận thông báo). Trước đây chỉ job gửi từ Telegram mới được báo.",
+      options=(("1", "Bật"), ("0", "Tắt")), choices=ON_OFF, live=True),
+    S("ZOOM_CLIENT_ID", "", "api", "Zoom · Client ID", help="Zoom Marketplace → app General → App Credentials.",
+      link="https://marketplace.zoom.us/develop/create", need="optional", validate=_max_len("ZOOM_CLIENT_ID", 200),
+      live=True),
+    S("ZOOM_CLIENT_SECRET", "", "api", "Zoom · Client Secret", need="optional", secret=True, reauth=True, live=True),
+    S("ZOOM_BOT_JID", "", "api", "Zoom · Bot JID", help="Features → Surface → Team Chat → Chatbot (dạng …@xmpp.zoom.us). "
+      "Bot endpoint URL đặt là <Link web của bot>/zoom/events.", need="optional",
+      validate=_max_len("ZOOM_BOT_JID", 200), live=True),
+    S("ZOOM_SECRET_TOKEN", "", "api", "Zoom · Secret Token", help="Features → Access → Secret Token (kiểm chữ ký tin Zoom gửi về).",
+      need="optional", secret=True, reauth=True, live=True),
+    S("ZOOM_APP_TYPE", "user", "zoom", "Kiểu app Zoom",
+      options=(("user", "User-managed (mặc định: app cá nhân)"), ("admin", "Admin-managed (app cả tài khoản)")),
+      choices=("user", "admin"), live=True),
+    S("ZOOM_ALLOWED_USERS", "", "zoom", "Người được dùng bot Zoom",
+      help="JID (…@xmpp.zoom.us) cách nhau dấu phẩy; nhắn bot «id» để biết JID. Trống = bot từ chối tất cả.",
+      validate=_max_len("ZOOM_ALLOWED_USERS", 2000), reauth=True, live=True),
+    S("ZOOM_ADMIN", "", "zoom", "Người nhận thông báo trên Zoom",
+      help="JID nhận thông báo job web / tự đăng và phiên bản mới. Trống = người đầu tiên ở ô trên (phải nhắn bot một "
+           "lần để bot biết nơi gửi).", validate=_max_len("ZOOM_ADMIN", 200), reauth=True, live=True),
     S("AUTO_POST", "0", "auto", "Tự động đăng",
       options=(("0", "Tắt"), ("1", "Bật: tự lấy video từ kênh nguồn, làm lại, đăng Fanpage")), choices=ON_OFF, live=True),
     S("AUTO_SOURCES", "", "auto", "Kênh Facebook nguồn", help="Thêm/bỏ ở mục Tự động đăng.",
@@ -369,7 +400,7 @@ BY_KEY: dict[str, Setting] = {s.key: s for s in SCHEMA}
 # Nhóm hiển thị trên web (thứ tự này): mã nhóm -> tiêu đề. Nhóm "api" mở sẵn, các nhóm khác thu gọn.
 GROUPS: list[tuple[str, str, str]] = [
     ("api", "🔑 Tài khoản & API", "Điền key một lần. Bắt buộc: Gemini. Nên có: Kaggle (GPU miễn phí). Chỉ khi cần: Groq, "
-            "OpenRouter, Fanpage, cookies."),
+            "OpenRouter, Fanpage, cookies, Zoom."),
     ("voice", "🗣️ Giọng đọc", "Giọng, tốc độ, cách nói."),
     ("video", "🎬 Video & lời", "Chất lượng, đoạn mở đầu, phụ đề, tiếng gốc."),
     ("style", "✨ Phong cách remake & bài đăng", "Nhịp dựng khác bản gốc, công thức và mẹo trong bài đăng, đối chiếu "
@@ -377,23 +408,27 @@ GROUPS: list[tuple[str, str, str]] = [
     ("brand", "🎨 Nhận diện kênh", "Màu, tông, màn kết, âm hiệu, ảnh bìa: cố định để người xem nhận ra kênh."),
     ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
     ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
-    ("telegram", "💬 Telegram", "Ai được dùng bot qua Telegram."),
+    ("telegram", "💬 Telegram & thông báo", "Ai được dùng bot qua Telegram, báo job làm trên web / tự đăng."),
+    ("zoom", "🎥 Zoom", "Gửi link cho bot và nhận thông báo qua Zoom Team Chat (chỉ chữ + link tải, không gửi file "
+             "video). Khoá Zoom (Client ID / Secret, Bot JID, Secret Token) điền ở nhóm 🔑 Tài khoản & API."),
     ("advanced", "🔧 Nâng cao", "Tên model, thứ tự bóc lời, từ điển… thường không cần đổi."),
 ]
 
 # Thứ tự hiện trên web (trong mỗi nhóm theo thứ tự này).
 DISPLAY_ORDER: tuple[str, ...] = (
     "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "GROQ_API_KEY",
-    "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE",
+    "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_BOT_JID",
+    "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
     "QUALITY", "TEASER", "COVER", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "SHORT_VERSION", "POST_RECIPE", "TIPS",
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "SCENE_ANALYSIS", "TEXT_DETECT",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
-    "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "ALLOWED_SOURCES",
+    "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
+    "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )
@@ -402,7 +437,7 @@ assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê
 SECRET_KEYS = frozenset(s.key for s in SCHEMA if s.secret)
 REAUTH_KEYS = frozenset(s.key for s in SCHEMA if s.reauth)
 # khoá KHÔNG gửi sang notebook Kaggle: bí mật + tài khoản/quyền/tự đăng (Kaggle không cần, lộ ra là thiệt)
-SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_")
+SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_")
 
 
 # ---------------- lưu trữ ----------------

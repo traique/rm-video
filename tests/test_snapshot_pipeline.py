@@ -194,7 +194,8 @@ def env(monkeypatch, tmp_path):
         monkeypatch.setattr(config, k, d)
     for k, v in (("QUALITY", "fast"), ("BRAND_INTRO", "0"), ("CUT_PROMO", "1"), ("COVER", "0"), ("TEASER", "0"),
                  ("TTS_PROVIDER", "edge"), ("KAGGLE_ANALYZE", "0"), ("BRAND_LOGO", "0"), ("PUBLIC_URL", ""),
-                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0")):
+                 ("NO_SPEECH", "music"), ("BGM_LINKS", ""), ("REVIEW_SCRIPT", "0"), ("BRAND_STING", "0"),
+                 ("VOICE_BED", "off")):                  # nhạc lót dưới lời (1.0.0): test riêng ở test_v100.py
         monkeypatch.setattr(config, k, v)
     for k, v in brand.OLD_DEFAULTS.items():      # kịch bản cũ: chưa đặt nhận diện kênh (bộ mặc định bản 43: test riêng)
         monkeypatch.setattr(config, k, v)
@@ -668,6 +669,26 @@ def test_legacy_oneshot_ai_fallback(env, monkeypatch):
     env.cuts = []
     env.legacy_fallback = True
     snap("legacy_oneshot_ai_fallback", env, run(env, _job(env, 117)))
+
+
+def test_oneshot_gets_voice_bed(env, monkeypatch):
+    """1.0.0 (Codex trên PR #10): đường đọc một mạch trước đây không có nhạc lót dưới lời."""
+    monkeypatch.setattr(config, "NO_SPEECH", "narrate")
+    monkeypatch.setattr(config, "VOICE_BED", "on")
+    os.makedirs(bgm.DIR, exist_ok=True)
+    _wav(os.path.join(bgm.DIR, "nhac.mp3"), 30.0)
+    env.segs = [(0.5, 3.0, "thịt kho tộ ngon lắm luôn đó cả nhà ơi")]
+    env.cuts = []
+    got = []
+    rec_render = core_video.render
+
+    async def render(*a, **kw):
+        got.append(kw.get("voice_bed"))
+        return await rec_render(*a, **kw)
+    monkeypatch.setattr(core_video, "render", render)
+    run(env, _job(env, 118))
+    assert got and got[0] and got[0]["name"] == "nhac.mp3" and os.path.exists(got[0]["path"])
+    assert json.load(open(bgm.RECENT_FILE, encoding="utf-8")) == ["file:nhac.mp3"]      # bài vừa dùng: lần sau tránh
 
 
 def test_teaser(env, monkeypatch):

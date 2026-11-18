@@ -8,11 +8,18 @@ from __future__ import annotations
 from aiohttp import web
 
 from queue_manager import JobQueue
-from rmvideo.interfaces.web import routes_auth, routes_autopost, routes_jobs, routes_media, routes_settings
+from rmvideo.interfaces.web import (
+    routes_auth,
+    routes_autopost,
+    routes_jobs,
+    routes_media,
+    routes_settings,
+    routes_zoom,
+)
 from rmvideo.interfaces.web.auth import _secure_headers
 from rmvideo.interfaces.web.http import JSON_MAX
 
-GROUPS = (routes_auth, routes_jobs, routes_settings, routes_autopost, routes_media)
+GROUPS = (routes_auth, routes_jobs, routes_settings, routes_autopost, routes_media, routes_zoom)
 
 
 def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:

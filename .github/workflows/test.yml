@@ -1,20 +1,28 @@
 name: test
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [ccr-0f4ff082-rshcy5]      # nhánh chính; nhánh làm việc chạy qua PR (trước đây mỗi lần đẩy chạy 2 lượt)
+concurrency:                             # đẩy commit mới thì huỷ lượt đang chạy của cùng PR / nhánh
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          # Botkeep (log: .local/lib/python3.13) và Kaggle (đo: Python 3.13) đều chạy 3.13. Mã gửi Kaggle vẫn được kiểm
+          # cú pháp 3.10 trong tests/test_kaggle_bundle.py nên Kaggle có đổi bản Python cũ hơn cũng báo ngay.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: ffmpeg (bản của hệ thống, không tải static-ffmpeg mỗi lần chạy)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pip install -r requirements.txt pytest ruff mypy
+      - run: pip install -r requirements.txt pytest pytest-xdist ruff mypy
       - run: ruff check .
       - name: kiểm kiểu gói rmvideo
         run: if [ -d rmvideo ]; then mypy; fi
-      - run: pytest -q
+      - name: pytest song song (máy GitHub 4 lõi)
+        run: pytest -q -n auto

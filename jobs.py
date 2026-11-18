@@ -9,7 +9,7 @@ import cache
 import config
 import kaggle_worker
 from queue_manager import Job, phase_times
-from rmvideo.app import context, events
+from rmvideo.app import context, events, notifier
 from rmvideo.media import proc
 from pipeline import run_job
 from review import OST_TAG, REVIEW_HELP
@@ -73,6 +73,8 @@ async def _run_one_held(job: Job):
         _drop_inputs(job)
         queue.save(job)
         queue.done()
+        # bản 1.0.0: trước đây job bị từ chối vì thiếu đĩa kết thúc im lặng (kể cả job Telegram)
+        await notifier.job_event(job, f"❌ Job #{job.id} lỗi: {job.error[:600]}")
         return
     job.status, job.started_at, job.timeline, job.error = "processing", time.time(), [], ""
     queue.save(job)                                # trạng thái processing vào DB: chết giữa chừng thì chạy lại
@@ -84,6 +86,8 @@ async def _run_one_held(job: Job):
     try:
         if tg:
             await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
+        elif job.source == "zoom":
+            await notifier.job_event(job, f"⏳ Đang xử lý video #{job.id}...", admin=False)
         logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
         # mọi tiến trình con của job (kể cả trong luồng phụ) mang mã job: huỷ chỉ giết đúng chúng (proc.kill_owner)
         # dữ liệu tạm theo job (ảnh thu nhỏ đã trích...) sống trong job_scope, bỏ khi job xong
@@ -121,6 +125,9 @@ async def _run_one_held(job: Job):
                                                     f"🎬 {(job.edit or {}).get('summary', '')}") if len(x) > 3)
                 await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3300]}\n{extra[:600]}\n\n"
                                            + REVIEW_HELP))
+            elif job.status == "review":       # job web / Zoom / tự đăng: báo có kịch bản chờ duyệt trên web
+                where = notifier.web_link("/") or "web panel"
+                await notifier.job_event(job, f"📝 Kịch bản job #{job.id} đang chờ duyệt: mở {where} để sửa / duyệt.")
         else:
             job.status, job.step = "done", ""
     except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
@@ -129,8 +136,7 @@ async def _run_one_held(job: Job):
                                           f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
         logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
                       " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
-        if tg:
-            await notify(job.chat_id, f"❌ Job #{job.id} quá thời gian, đã hủy.")
+        await notifier.job_event(job, f"❌ Job #{job.id} quá thời gian ở bước «{job.step}», đã hủy.")
     except asyncio.CancelledError:
         proc.kill_owner(job.id)
         me = asyncio.current_task()
@@ -144,14 +150,12 @@ async def _run_one_held(job: Job):
             logging.warning("Job %s dừng vì bot tắt, sẽ chạy lại khi khởi động", job.id)
             raise
         job.status, job.error = "cancelled", "Đã hủy theo yêu cầu."
-        if tg:
-            await notify(job.chat_id, f"🛑 Đã hủy job #{job.id}.")
+        await notifier.job_event(job, f"🛑 Đã hủy job #{job.id}.", admin=False)   # huỷ trên web: người huỷ đã biết
     except Exception as e:
         proc.kill_owner(job.id)
         logging.exception("Job %s thất bại", job.id)
         job.status, job.error, job.step = "error", str(e), ""
-        if tg:
-            await notify(job.chat_id, f"❌ Lỗi: {e}")
+        await notifier.job_event(job, f"❌ Job #{job.id} lỗi: {str(e)[:600]}")
     finally:
         job.finished_at = time.time()
         current["job"], current["task"] = None, None

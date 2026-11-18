@@ -20,6 +20,7 @@ from rmvideo.interfaces.web.auth import (
     revoke_sessions,
 )
 from rmvideo.interfaces.web.http import LOGIN_BODY_MAX
+from rmvideo.version import VERSION
 
 _DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # gốc bot
 INDEX_HTML = os.path.join(_DIR, "static", "index.html")
@@ -43,7 +44,10 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         return web.json_response({"ok": True, "pending": queue.pending})
 
     async def me(request):
-        return web.json_response({"password_set": bool(config.WEB_PASSWORD), "authed": _authed(request)})
+        authed = _authed(request)
+        # phiên bản chỉ cho người đã đăng nhập (trang công khai không nói bot đang chạy bản nào)
+        return web.json_response({"password_set": bool(config.WEB_PASSWORD), "authed": authed,
+                                  **({"version": VERSION} if authed else {})})
 
     async def login(request):
         if not config.WEB_PASSWORD:

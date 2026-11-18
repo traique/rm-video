@@ -40,8 +40,10 @@ def spawn(coro):
 
 
 async def notify_admin(text: str):
-    cid = config.admin_chat_id()
-    if cid:
-        await notify(cid, text)
-    else:
-        logging.warning("(chưa đặt ADMIN_CHAT_ID/ALLOWED_USERS nên không gửi cảnh báo) %s", text[:200])
+    """Cảnh báo quản trị (tự đăng dừng, Kaggle lỗi...): Telegram và, từ bản 1.0.0, cả Zoom (ngang hàng Telegram).
+    Không bao giờ ném lỗi; kênh nào chưa gửi được thì notifier ghi lý do vào log."""
+    from rmvideo.app import notifier
+    try:
+        await notifier.admins(text)
+    except Exception as e:                                  # cảnh báo hỏng không được làm hỏng việc đang chạy
+        logging.warning("Không gửi được cảnh báo: %s | %s", str(e)[:120], text[:200])

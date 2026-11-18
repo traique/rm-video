@@ -84,7 +84,7 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
                    title: str, stretch: float, teaser: dict | None, shorten: Shorten | None = None,
                    on_step: Callable[[str], None] = lambda s: None, tts_step: str = "", wait_step: str = "",
                    before_render: Callable[[], Any] | None = None, edit: dict | None = None,
-                   overlays: list | None = None, tail: float = 0.0) -> Assembled:
+                   overlays: list | None = None, tail: float = 0.0, voice_bed: dict | None = None) -> Assembled:
     """Đọc giọng + xếp + phụ đề + tiếng nền + render. segs: [{i, start, slot, span, text, ost, ...}] trên trục thời
     gian video ra (đã cộng đoạn mở đầu, đã kéo chậm). Ném lỗi của synth / ffmpeg cho caller."""
     t: dict = {}
@@ -129,6 +129,6 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
     voice_end = max((p["end"] for p in plan), default=0.0)
     await renderer.render(inp, voice_track, out, mode, render_dur, ass, bands, amb, gate, allow_hd=allow_hd,
                             title=title, tmp=tmp, stretch=stretch, ost=filtergraph.ost_windows(segs, out_dur),
-                            notes=notes, teaser=teaser, **_edit_kw(edit, overlays, tail, voice_end))
+                            notes=notes, teaser=teaser, voice_bed=voice_bed, **_edit_kw(edit, overlays, tail, voice_end))
     t["render"] = round(time.time() - t0, 1)
     return Assembled(out, plan, too_long, srt, amb, clips, notes, t)

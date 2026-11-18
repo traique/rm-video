@@ -10,6 +10,7 @@ import config
 import cover as cover_mod
 import state
 from queue_manager import Job
+from rmvideo.app import notifier
 from state import OUT_DIR, notify, queue
 from storage import _cleanup_outputs
 
@@ -29,20 +30,27 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     part = {"label": label, "path": keep, "token": _secrets.token_urlsafe(16)}
     job.parts.append(part)
     job.output = keep                       # tương thích: nút tải chính = file mới nhất
-    cover_keep = ""
+    cover_part: dict = {}
     if cover_src and os.path.exists(cover_src):
         cover_keep = os.path.join(OUT_DIR, f"out_{job.id}_{len(job.parts)}.jpg")
         await asyncio.to_thread(shutil.move, cover_src, cover_keep)
-        job.parts.append({"label": "Ảnh bìa" if label == "Video" else f"Ảnh bìa {label}", "path": cover_keep,
-                          "token": _secrets.token_urlsafe(16)})
+        cover_part = {"label": "Ảnh bìa" if label == "Video" else f"Ảnh bìa {label}", "path": cover_keep,
+                      "token": _secrets.token_urlsafe(16)}
+        job.parts.append(cover_part)
     _cleanup_outputs({p["path"] for p in job.parts})
-    if job.source != "tg" or not state.bot:
+    size = os.path.getsize(keep)
+    link = notifier.part_link(job, part)
+    where = f"Tải tại: {link}" if link else "Mở web panel để tải (đặt PUBLIC_URL trong Cài đặt để nhận link ở đây)."
+    if job.source != "tg":
+        # job Zoom / web / tự đăng (bản 1.0.0): báo xong + link tải (không gửi file). Trước đây im lặng hoàn toàn.
+        cover_link = notifier.part_link(job, cover_part) if cover_part else ""
+        await notifier.job_event(job, f"✅ {label} job #{job.id} xong ({size / 1048576:.0f}MB).\n{where}"
+                                      + (f"\nẢnh bìa: {cover_link}" if cover_link else "")
+                                      + (f"\n\n{caption[:1500]}" if job.source == "zoom" else ""))
+        return
+    if not state.bot:
         return
     job.step = f"Gửi {label} qua Telegram"
-    size = os.path.getsize(keep)
-    link = (f"{config.PUBLIC_URL.rstrip('/')}/download/{job.id}/{job.parts.index(part)}?t={part['token']}"
-            if config.PUBLIC_URL else "")
-    where = f"Tải tại: {link}" if link else "Mở web panel để tải (đặt PUBLIC_URL trong Cài đặt để nhận link ở đây)."
     from aiogram.types import FSInputFile
     if size <= config.TG_LIMIT:
         try:
@@ -59,9 +67,9 @@ async def deliver(job: Job, path: str, label: str, caption: str):
     else:
         await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}"
                                   f"\n\n{caption[:800]}")
-    if cover_keep:
+    if cover_part:
         try:
-            await state.bot.send_photo(job.chat_id, FSInputFile(cover_keep),
+            await state.bot.send_photo(job.chat_id, FSInputFile(cover_part["path"]),
                                        caption=f"🖼 Ảnh bìa {'' if label == 'Video' else label} — chọn làm ảnh bìa khi đăng")
         except Exception as e:
             logging.warning("Gửi ảnh bìa qua Telegram lỗi: %s", e)

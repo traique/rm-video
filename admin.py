@@ -15,7 +15,8 @@ import metrics
 import offline
 import ytdlp_update
 from jobs import cancel_job
-from state import current, notify, notify_admin, queue, spawn
+from rmvideo.app import notifier
+from state import current, notify_admin, queue, spawn
 import storage
 from storage import disk_report
 
@@ -176,8 +177,7 @@ async def maintenance():
     while True:
         try:
             for job in queue.expire_reviews():
-                if job.source == "tg":
-                    await notify(job.chat_id, f"⌛ Kịch bản job #{job.id} đã quá 24 giờ chưa duyệt nên hết hạn.")
+                await notifier.job_event(job, f"⌛ Kịch bản job #{job.id} đã quá 24 giờ chưa duyệt nên hết hạn.")
             metrics.prune()
             await asyncio.to_thread(cache.prune)
             await monitor.tick()

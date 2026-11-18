@@ -62,22 +62,24 @@ def approved_segments(segs: list) -> list:
 def remake(*, mode: str, voice: str, source: str, url: str = "", local: str = "", duration: int = 0,
            long_mode: str = "", subs: bool = True, cover: bool = True, review: bool = False, quality: str = "",
            music_url: str = "", music_local: str = "", music_tg_file_id: str = "", music_mix: str = "",
-           tg_file_id: str = "", title_hint: str = "", chat_id: int = 0) -> Job:
-    """Job làm lại video (nấu ăn / review / 🎵 / tải về) từ link, file tải lên hoặc file Telegram."""
+           tg_file_id: str = "", title_hint: str = "", chat_id: int = 0, zoom: dict | None = None) -> Job:
+    """Job làm lại video (nấu ăn / review / 🎵 / tải về) từ link, file tải lên hoặc file Telegram.
+    zoom: nơi trả lời {to, account, user} khi job gửi từ Zoom (báo xong / lỗi vào đúng cuộc trò chuyện đó)."""
     mode = video_mode(mode)
     # file nhạc tải lên đi kèm job (kể cả khi không dùng) để worker xoá cùng đầu vào khi job xong
     return Job(url=url, mode=mode, duration=0 if long_mode else duration, voice=voice, subs=subs, cover=cover,
                long_mode=long_mode, local=local, tg_file_id=tg_file_id, review=review, quality=str(quality or "")[:8],
                music_url=music_url, music_local=music_local, music_tg_file_id=music_tg_file_id,
                music_mix="bg" if mode == Mode.MUSIC and music_mix == "bg" else "",
-               title_hint=title_hint, source=source, chat_id=chat_id)
+               title_hint=title_hint, source=source, chat_id=chat_id, zoom=dict(zoom or {}))
 
 
 def download(*, source: str, url: str = "", quality: str = "", tg_file_id: str = "", title_hint: str = "",
-             chat_id: int = 0) -> Job:
+             chat_id: int = 0, zoom: dict | None = None) -> Job:
     """Chỉ tải về (không làm lại). quality: mp3 | 2160..360 | '' (tốt nhất)."""
     return Job(url=url, mode=Mode.DOWNLOAD.value, duration=0, voice="", source=source, chat_id=chat_id,
-               quality="" if quality in ("", "best") else str(quality)[:8], tg_file_id=tg_file_id, title_hint=title_hint)
+               quality="" if quality in ("", "best") else str(quality)[:8], tg_file_id=tg_file_id, title_hint=title_hint,
+               zoom=dict(zoom or {}))
 
 
 def photo(*, source: str, duration: int, images: list | None = None, tg_images: list | None = None,
@@ -100,7 +102,7 @@ def piece(parent: Job, piece_path: str, title: str, remote_src: dict) -> Job:
     """Một phần cắt từ video dài: làm TRỌN phần đã cắt (long_mode=full), mang mã job cha (link tải, nhật ký)."""
     sub = Job(url="", mode=parent.mode, duration=0, voice=parent.voice, subs=parent.subs, cover=parent.cover,
               long_mode=LongMode.FULL.value, local=piece_path, title_hint=title, source=parent.source,
-              chat_id=parent.chat_id, source_meta=parent.source_meta, remote_src=remote_src)
+              chat_id=parent.chat_id, source_meta=parent.source_meta, remote_src=remote_src, zoom=dict(parent.zoom or {}))
     sub.id = parent.id
     return sub
 
@@ -112,7 +114,7 @@ def approved(src: Job, segs: list) -> Job:
               tg_file_id=src.tg_file_id, title_hint=src.title_hint, music_url=src.music_url,
               music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
               approved=segs, cut_at=src.cut_at, source_meta=src.source_meta, teaser=dict(src.teaser or {}),
-              edit=dict(src.edit or {}), recipe=dict(src.recipe or {}))
+              edit=dict(src.edit or {}), recipe=dict(src.recipe or {}), zoom=dict(src.zoom or {}))
     job.post = src.post
     job.hook = src.hook          # chữ hook in màn hình + ảnh bìa (trước đây bản duyệt mất chữ hook, lấy tiêu đề bài)
     return job

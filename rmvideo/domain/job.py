@@ -52,6 +52,7 @@ class Source(StrEnum):
     TELEGRAM = "tg"
     WEB = "web"
     AUTO = "auto"              # 🤖 tự động đăng
+    ZOOM = "zoom"              # bản 1.0.0: link gửi qua Zoom Team Chat
 
 
 ACTIVE = (Status.QUEUED, Status.PROCESSING, Status.REVIEW)   # job còn dở: luôn giữ trong bộ nhớ, chạy tiếp sau restart

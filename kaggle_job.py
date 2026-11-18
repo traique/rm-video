@@ -187,6 +187,15 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
             return p if ok else None
         sep_task = asyncio.create_task(_sep())
 
+    voice_bed = None
+    if spec.get("voice_bed"):                         # nhạc lót dưới lời (VOICE_BED): tải lỗi thì dựng không nhạc lót
+        try:
+            vb = spec["voice_bed"]
+            voice_bed = {"path": await fetch(vb["music"], tmp, "bed"), "trim": float(vb.get("trim") or 0.0),
+                         "name": vb.get("name") or ""}
+        except Exception as e:
+            logging.warning("Không tải được nhạc lót: %s", str(e)[:200])
+
     async def _ambient():
         amb = await sep_task if sep_task else None
         gate = None
@@ -200,7 +209,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
                              bands=spec.get("bands") or None, allow_hd=bool(spec.get("allow_hd", True)),
                              title=spec.get("title") or "", stretch=float(spec.get("stretch") or 1.0),
                              teaser=spec.get("teaser"), edit=spec.get("edit"), overlays=spec.get("overlays"),
-                             tail=float(spec.get("tail") or 0.0))
+                             tail=float(spec.get("tail") or 0.0), voice_bed=voice_bed)
     finally:
         if sep_task and not sep_task.done():          # lỗi giữa chừng: không để tiến trình tách giọng chạy mồ côi
             sep_task.cancel()
@@ -326,7 +335,12 @@ def mounted_ambient(token: str, root: str = "/kaggle/input") -> str | None:
 
 async def run_one(spec: dict, tmp: str) -> dict:
     import core_video
+    from rmvideo.media import filtergraph
     os.makedirs(tmp, exist_ok=True)
+    # tông màu Botkeep đã tự chọn cho job này (BRAND_LOOK=auto): video Kaggle dựng cùng tông với ảnh bìa Botkeep làm.
+    # Mỗi việc chạy trong asyncio.run riêng (ngữ cảnh riêng): việc không mang sẵn thì renderer tự đo trên nguồn.
+    if spec.get("look") in filtergraph.LOOKS or spec.get("look") == "goc":
+        filtergraph.AUTO_LOOK.set(spec["look"])
     t0 = time.time()
     kind = spec.get("kind") or "remake"
     if kind == "analyze":
