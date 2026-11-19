@@ -140,6 +140,29 @@ def end_card(words: Sequence[dict], channel: dict, W: int, H: int, path: str) ->
     return path
 
 
+def gloss_pill(en: str, vi: str, W: int, H: int, path: str) -> str:
+    """Thẻ nghĩa lúc từ được đọc: viên vàng chữ Anh + bảng trắng «= nghĩa», cùng kiểu với bảng kết (thay hộp xanh drawtext)."""
+    from PIL import Image, ImageDraw
+    k = W / 1080
+    wf, vf = _font(int(60 * k)), _font(int(52 * k))
+    tmp = Image.new("RGBA", (10, 10))
+    d0 = ImageDraw.Draw(tmp)
+    en_w, vi_w = d0.textlength(en, font=wf), d0.textlength(f"=  {vi}", font=vf)
+    pad_x, gap = int(30 * k), int(20 * k)
+    ph = int(96 * k)
+    pw = int(en_w + 2 * pad_x + gap + vi_w + pad_x)
+    im, pad = _panel((pw, ph), int(ph / 2), WHITE, int(8 * k))
+    d = ImageDraw.Draw(im)
+    pill_w = en_w + 2 * pad_x - int(6 * k)
+    d.rounded_rectangle((pad + int(6 * k), pad + int(8 * k), pad + int(6 * k) + pill_w, pad + ph - int(8 * k)),
+                        radius=int(ph / 2), fill=YELLOW)
+    d.text((pad + pad_x, pad + (ph - wf.size) / 2 - int(4 * k)), en, font=wf, fill=INK)
+    d.text((pad + pad_x + en_w + pad_x + gap - int(6 * k), pad + (ph - vf.size) / 2 - int(2 * k)), f"=  {vi}", font=vf,
+           fill=INK)
+    im.save(path)
+    return path
+
+
 def make_cards(title: str, words: Sequence[dict], channel: dict, W: int, H: int, work: str) -> dict[str, str]:
     os.makedirs(work, exist_ok=True)
     return {"title": title_card(title, channel, W, H, os.path.join(work, "card_title.png")),

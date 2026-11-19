@@ -145,7 +145,6 @@ def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tupl
     bảng «Hôm nay bé học» là ảnh PNG (cards.py) overlay trong render(). glosses: [(giây, en, vi)]."""
     k = H / 1280
     out = ""
-    T = pl["length"]
     hook = pl.get("hook")
     if hook and hook_text:
         hl, hfs = renderer.title_layout(hook_text, W, H)
@@ -156,12 +155,7 @@ def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tupl
         y0 = int(H * 0.17)
         for i, p in enumerate(hfiles):
             out += _dt(p, hfs, str(y0 + i * int(hfs * 1.2)), f"between(t,{a},{b})", "0xFFE082", "", al)
-    # thẻ nghĩa: «sorry = xin lỗi» ở 11% chiều cao, hộp xanh, khi từ được đọc lần đầu
-    for j, (at, en, vi) in enumerate(glosses):
-        gf = renderer.write_lines(f"{en}  =  {vi}", work, f"kg{j}")
-        a, b = round(at, 2), round(min(T, at + GLOSS), 2)
-        out += _dt(gf[0], int(44 * k), f"{int(H * 0.11)}", f"between(t,{a},{b})", "white",
-                   f":box=1:boxcolor=0x1B7F3B@0.88:boxborderw={int(18 * k)}", _fade_alpha(a, b, 0.25))
+    # thẻ nghĩa «sorry = xin lỗi» là ảnh PNG (cards.gloss_pill) overlay trong render()
     # màn kết: KHÔNG phủ tối (19/11: nhìn như màn hình đen) — chỉ sáng nhẹ nền, bảng «Hôm nay bé học» là ảnh PNG overlay
     o = pl["outro_at"]
     out += f",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.14:t=fill:enable='gte(t,{o:.2f})'"
@@ -205,16 +199,24 @@ def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps:
     return ";".join(parts) + f";{cur}null{tail}[vx]"
 
 
-def card_graph(src: str, dst: str, title_idx: int, end_idx: int, pl: dict, W: int, H: int) -> str:
-    """[src] + thẻ tiêu đề (hiện t0..t1, mờ vào/ra) + bảng kết (từ outro_at, mờ vào) -> [dst]. Ảnh thẻ là input loop."""
+def card_graph(src: str, dst: str, title_idx: int, end_idx: int, pl: dict, W: int, H: int,
+               pills: Sequence[tuple[int, float]] = ()) -> str:
+    """[src] + thẻ tiêu đề (hiện t0..t1, mờ vào/ra) + thẻ nghĩa từng từ (input, mốc giây; hiện GLOSS giây ở 11% chiều cao)
+    + bảng kết (từ outro_at, mờ vào) -> [dst]. Ảnh thẻ là input loop."""
     hook = pl.get("hook")
     t0 = float(pl.get("title_at") or 0.0)
     t1 = round(t0 + (TITLE_LEN if hook else TITLE_UNTIL), 2)
     o = float(pl["outro_at"])
     parts = [f"[{title_idx}:v]format=rgba,fade=t=in:st={t0:.2f}:d=0.3:alpha=1,fade=t=out:st={t1 - 0.3:.2f}:d=0.3:alpha=1[ct]",
-             f"{src}[ct]overlay=x=(W-w)/2:y={int(H * 0.27)}-h/2:enable='between(t,{t0:.2f},{t1:.2f})':format=auto[cv1]",
-             f"[{end_idx}:v]format=rgba,fade=t=in:st={o:.2f}:d=0.45:alpha=1[ce]",
-             f"[cv1][ce]overlay=x=(W-w)/2:y=(H-h)/2-{int(H * 0.04)}:enable='gte(t,{o:.2f})':format=auto{dst}"]
+             f"{src}[ct]overlay=x=(W-w)/2:y={int(H * 0.27)}-h/2:enable='between(t,{t0:.2f},{t1:.2f})':format=auto[cv1]"]
+    cur = "[cv1]"
+    for j, (idx, at) in enumerate(pills):
+        a, b = round(at, 2), round(at + GLOSS, 2)
+        parts.append(f"[{idx}:v]format=rgba,fade=t=in:st={a}:d=0.25:alpha=1,fade=t=out:st={b - 0.25:.2f}:d=0.25:alpha=1[cg{j}]")
+        parts.append(f"{cur}[cg{j}]overlay=x=(W-w)/2:y={int(H * 0.11)}-h/2:enable='between(t,{a},{b})':format=auto[cgv{j}]")
+        cur = f"[cgv{j}]"
+    parts.append(f"[{end_idx}:v]format=rgba,fade=t=in:st={o:.2f}:d=0.45:alpha=1[ce]")
+    parts.append(f"{cur}[ce]overlay=x=(W-w)/2:y=(H-h)/2-{int(H * 0.04)}:enable='gte(t,{o:.2f})':format=auto{dst}")
     return ";".join(parts)
 
 
@@ -434,8 +436,15 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     from rmvideo.kids import cards
     cd = await asyncio.to_thread(cards.make_cards, title or "", brief.get("words", []), channel, W, H, work)
     inputs += ["-loop", "1", "-framerate", str(fps), "-i", cd["title"], "-loop", "1", "-framerate", str(fps), "-i", cd["end"]]
-    fc += ";" + card_graph(top, "[vc]", next_idx, next_idx + 1, pl, W, H)
+    title_idx, end_idx = next_idx, next_idx + 1
     next_idx += 2
+    pills: list[tuple[int, float]] = []
+    for j, (at, en, vi) in enumerate(glosses):
+        pp = await asyncio.to_thread(cards.gloss_pill, en, vi, W, H, os.path.join(work, f"pill_{j}.png"))
+        inputs += ["-loop", "1", "-framerate", str(fps), "-i", pp]
+        pills.append((next_idx, at))
+        next_idx += 1
+    fc += ";" + card_graph(top, "[vc]", title_idx, end_idx, pl, W, H, pills)
     fc += ";[vc]" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work,
                              hook[2] if hook else "").lstrip(",")
     # không mờ từ đen / về đen: khung đầu là cảnh móc, khung cuối là bảng kết sáng (Reels lặp lại không lộ màn đen)

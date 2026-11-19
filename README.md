@@ -263,8 +263,9 @@ tiếng động (Bịch! Rầm! Ối!), hạt bokeh bay nhẹ, vignette, phụ �
 Cách kể (19/11, học theo truyện kể cho bé 3–5 tuổi và kênh dạy tiếng Anh cho bé): model viết truyện **thuần tiếng Việt** theo 8 nhịp
 (chào các bé → chuyện nhỏ → có tiếng động, có vấn đề → thử lần 1, 2 với một câu điệp khúc → bạn giúp, lần 3 được → bài học nói
 nhẹ qua lời nhân vật → kết vui, nhắn nhủ các bé), câu ngắn, có truyện mẫu trong lời nhắc để học giọng kể (chép lại ≥ 2 câu là
-lỗi). Từ tiếng Anh là **đồ vật / màu / con vật / lời chào** có mặt trong truyện (chọn theo bối cảnh + 1 từ theo bài học, 3 từ/truyện);
-model chỉ cần nhắc tới tiếng Việt của chúng, mã chèn câu dạy từ ngay cảnh đó («Trái banh, tiếng Anh là ball. Bé nói theo nha:
+lỗi). Từ tiếng Anh là **đồ vật / màu / con vật / lời chào** có mặt trong truyện: model nhận kho gợi ý (đồ vật của bối cảnh + từ theo bài
+học), lồng ít nhất 3 thứ tự nhiên; truyện viết xong, mã chọn 3 từ hôm nay từ chính những thứ đã xuất hiện (`story.choose_words`,
+phản hồi 19/11: từ chọn trước bị ép vào như «xe hơi bóp còi»), rồi chèn câu dạy từ ngay cảnh đó (tránh cảnh biến cố và cao trào) («Trái banh, tiếng Anh là ball. Bé nói theo nha:
 ball!»), thẻ nghĩa hiện lúc đó, cuối truyện ôn lại. Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học
 chia đều, nhân vật chính luân phiên, từ lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (130–200 chữ, 8 cảnh 10–36 chữ, nhắc
 đủ đồ vật của hôm nay, không chen tiếng Anh, có nhân vật chính + bạn, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh,
