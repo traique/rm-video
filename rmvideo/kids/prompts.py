@@ -225,6 +225,13 @@ def schema(data: dict) -> dict:
             "required": ["title", "hook", "hook_text", "scenes", "description", "hashtags"], "additionalProperties": False}
 
 
+def shirt_color(char: dict) -> str:
+    """Màu áo trong prompt_en của nhân vật («plain red t-shirt» -> «red»); không có thì rỗng."""
+    import re
+    m = re.search(r"\b(red|green|blue|yellow)\b[^.,]*t-shirt", char.get("prompt_en") or "")
+    return m.group(1) if m else ""
+
+
 def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
     """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx)] + [mô tả nhân
     vật nguyên văn, áo màu gì nói trước] + [bối cảnh + thế giới] + [phong cách cố định]. Giữ ngắn cho vừa 256 token T5."""

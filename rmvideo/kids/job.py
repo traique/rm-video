@@ -60,9 +60,11 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     check = (spec.get("image") or {}).get("check", True)
     expected = [len(sc.get("characters") or []) for sc in st["scenes"]] if check else None
+    colors = [[prompts.shirt_color(data["characters"].get(k, {})) for k in sc.get("characters") or []]
+              for sc in st["scenes"]] if check else None
     istats: dict = {}
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
-                                   expected=expected, stats=istats)
+                                   expected=expected, stats=istats, colors=colors)
     t["image_checked"], t["image_redo"] = istats.get("checked", 0), istats.get("redo", 0)
     t["images"] = round(time.time() - t0, 1)
     import kaggle_job

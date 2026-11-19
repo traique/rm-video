@@ -21,7 +21,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
 - Truyện bé: kiểm ảnh hai đầu / nhân vật nhân đôi (`rmvideo/kids/imgcheck.py`, `KIDS_IMAGE_CHECK`): OWLv2 đếm đầu nhân vật
   sau khi FLUX vẽ (gộp khung lồng nhau, bỏ khung thân áo dưới đầu, ngưỡng 0,3; đo thật 16 ảnh: 0 báo nhầm), thừa đầu so với
-  số bạn trong cảnh thì vẽ lại với seed khác (tối đa 2 lần), timings ghi `image_checked` / `image_redo`.
+  số bạn trong cảnh thì vẽ lại với seed khác (tối đa 2 lần), timings ghi `image_checked` / `image_redo`. Soát cả màu áo:
+  khung «a t-shirt» -> sắc độ vùng giữa (đỏ / xanh lá / xanh dương / vàng; cam = lông mèo không tính); áo màu ngoài bộ màu
+  của các bạn trong cảnh, hay hai áo cùng màu khi hai bạn khác màu (đo thật mẫu 29: Mèo Cam mặc áo đỏ của Thỏ) -> vẽ lại.
 - Truyện bé: câu dạy từ — dạng đố hỏi rồi mới đáp («Đố bé biết trái banh đó tiếng Anh là gì? Là ball!»), vật trong cảnh gọi
   «đó», không chèn sau câu hỏi cho bé (câu hỏi vẫn là câu cuối cảnh); cân âm lượng từng đoạn giọng trước khi nối
   (`dialogue.rms_db`, RMS −20 dBFS ±12 dB).

@@ -328,6 +328,23 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     two = [("a rabbit head", 0.5, [300, 200, 600, 500]), ("a rabbit head", 0.4, [40, 700, 250, 900]), ("a rabbit", 0.9, [0, 0, 700, 1300])]
     assert len(imgcheck.merge_heads(two)) == 2                                   # hai đầu xa nhau, khung «a rabbit» không tính
     assert imgcheck.merge_heads([("a cat head", 0.2, [0, 0, 10, 10])]) == []     # dưới ngưỡng
+    # màu áo: ảnh giả có hai áo (đỏ + xanh lá), khung «a t-shirt» -> màu; cam (lông mèo) không tính
+    im = Image.new("RGB", (200, 300), (120, 200, 90))
+    for box, col in (([20, 120, 80, 200], (220, 30, 30)), ([120, 120, 180, 200], (40, 160, 60)), ([20, 220, 80, 290], (240, 140, 30))):
+        for x in range(box[0], box[2]):
+            for y in range(box[1], box[3]):
+                im.putpixel((x, y), col)
+    boxes = [("a t-shirt", 0.6, [20, 120, 80, 200]), ("a t-shirt", 0.5, [120, 120, 180, 200]), ("a t-shirt", 0.4, [20, 220, 80, 290]),
+             ("a t-shirt", 0.3, [22, 122, 78, 198])]                                            # khung cuối chồng khung đầu
+    found = imgcheck.shirt_colors(im, boxes)
+    assert [c for c, _s, _b in found] == ["red", "green"] and imgcheck.box_color(im, [20, 220, 80, 290]) is None
+    assert imgcheck.shirts_ok(found, ["red", "green"]) and imgcheck.shirts_ok(found, ["green", "red"])
+    assert not imgcheck.shirts_ok(found, ["red", "blue"])                       # áo xanh lá không thuộc bộ màu
+    assert not imgcheck.shirts_ok([("red", 0.5, [0, 0, 1, 1]), ("red", 0.4, [50, 0, 51, 1])], ["red", "green"])   # hai áo đỏ
+    assert imgcheck.shirts_ok([("red", 0.5, [0, 0, 1, 1])], ["red", "green"])    # thiếu áo: không tính lỗi
+    assert imgcheck.shirts_ok([], ["red"]) and imgcheck.shirts_ok(found, [])
+    assert imgcheck.hue_name(5) == "red" and imgcheck.hue_name(350) == "red" and imgcheck.hue_name(30) is None
+    assert prompts.shirt_color(DATA["characters"]["orange_cat"]) == "green" and prompts.shirt_color({}) == ""
     # generate: ảnh 1 bị báo thừa đầu -> vẽ lại seed khác (tối đa RETRIES), giữ ảnh ít đầu thừa nhất; ảnh 2 đạt ngay
     seeds_used = []
 
@@ -341,13 +358,14 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     monkeypatch.setattr(images_mod, "is_blank", lambda img, band=0.05: False)
     checked = []
 
-    def checker(img, n):
+    def checker(img, n, c=None):
         seed = seeds_used[-1]
         checked.append((seed, n))
+        assert c == (["red"] if n == 1 else ["red", "green"])
         return heads[seed] <= n, heads[seed], []
     st = {}
     out = images_mod.generate(["p1", "p2"], [11, 22], str(tmp_path / "img"), "schnell", lambda s: None, pipe=object(),
-                              expected=[1, 2], checker=checker, stats=st)
+                              expected=[1, 2], checker=checker, stats=st, colors=[["red"], ["red", "green"]])
     assert len(out) == 2 and all(os.path.exists(p) for p in out)
     assert seeds_used == [11, 11 + 7919 * 2, 11 + 7919 * 3, 22] and st == {"checked": 4, "redo": 2}
     assert checked == [(11, 1), (11 + 7919 * 2, 1), (11 + 7919 * 3, 1), (22, 2)]

@@ -226,7 +226,7 @@ def upscale(src: str, dst: str, w: int = OUT_W, h: int = OUT_H) -> str:
 
 def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, model: str = "schnell",
              log: Log = logging.info, pipe: Any = None, expected: Sequence[int] | None = None,
-             checker: Any = None, stats: dict | None = None) -> list[str]:
+             checker: Any = None, stats: dict | None = None, colors: Sequence[Sequence[str]] | None = None) -> list[str]:
     """Sinh từng prompt -> scene_01.png ... (1080x1920). pipe: pipeline đã nạp (test); None thì tự nạp và giải phóng.
     expected: số bạn có mặt mỗi cảnh -> kiểm đầu nhân vật bằng OWLv2 (rmvideo.kids.imgcheck), thừa đầu thì vẽ lại với seed
     khác (tối đa imgcheck.RETRIES lần, giữ ảnh ít đầu thừa nhất). checker(img, n) -> (ok, số đầu, khung) để test.
@@ -240,7 +240,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
             from rmvideo.kids import imgcheck
             t0 = time.time()
             loaded = imgcheck.load()
-            checker = lambda img, n, _l=loaded: imgcheck.check(img, n, _l)      # noqa: E731
+            checker = lambda img, n, c=None, _l=loaded: imgcheck.check(img, n, _l, colors=c)      # noqa: E731
             log(f"Kiểm ảnh: OWLv2 sẵn sàng sau {time.time() - t0:.0f}s")
         except Exception as e:
             log(f"Kiểm ảnh: không nạp được OWLv2 ({str(e)[:100]}), bỏ qua bước kiểm")
@@ -268,15 +268,19 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
             if checker is not None and expected is not None:
                 from rmvideo.kids import imgcheck
                 want = int(expected[i - 1]) if i - 1 < len(expected) else 1
+                want_c = list(colors[i - 1]) if colors is not None and i - 1 < len(colors) else None
                 best, best_n = img, None
                 for r in range(imgcheck.RETRIES + 1):
-                    ok, n, _heads = checker(img, want)
+                    ok, n, heads = checker(img, want, want_c) if want_c is not None else checker(img, want)
                     st["checked"] += 1
                     if ok:
                         best = img
                         break
-                    log(f"Ảnh cảnh {i}: thấy {n} đầu nhân vật, cảnh chỉ có {want} bạn (ảnh hai đầu / nhân vật nhân đôi)"
-                        + (", vẽ lại với seed khác" if r < imgcheck.RETRIES else ", hết lượt: giữ ảnh ít đầu thừa nhất"))
+                    shirts = [h[0].split(":")[1] for h in heads if h[0].startswith("shirt:")]
+                    why = (f"thấy {n} đầu nhân vật, cảnh chỉ có {want} bạn (ảnh hai đầu / nhân vật nhân đôi)" if n > max(1, want)
+                           else f"áo thấy {shirts}, các bạn mặc {want_c} (áo đổi màu)")
+                    log(f"Ảnh cảnh {i}: {why}" + (", vẽ lại với seed khác" if r < imgcheck.RETRIES
+                                                else ", hết lượt: giữ ảnh ít lỗi nhất"))
                     if best_n is None or n < best_n:
                         best, best_n = img, n
                     if r == imgcheck.RETRIES:
