@@ -67,7 +67,8 @@ def box_color(img: Any, box: list[int]) -> str | None:
         return None
     crop = crop.resize((24, 24))
     votes: dict[str, int] = {}
-    for r, g, b in crop.getdata():
+    raw = crop.tobytes()
+    for r, g, b in (raw[i:i + 3] for i in range(0, len(raw), 3)):
         hh, ll, ss = colorsys.rgb_to_hls(r / 255, g / 255, b / 255)
         if ss < 0.35 or ll < 0.15 or ll > 0.9:
             continue
