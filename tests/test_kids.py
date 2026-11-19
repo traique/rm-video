@@ -218,14 +218,30 @@ def test_blocking_beats_and_recap():
     assert [i for _, i in story.add_beats(st4, two, DATA)] == [0, 1]
     txt = story.script_text(st)
     for k, w in enumerate(brief["words"]):
-        assert story.beat_text(w, k) in txt and "nha" not in story.beat_text(w, k)
+        assert story.beat_text(w, k, DATA) in txt and "nha" not in story.beat_text(w, k, DATA)
     assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "À, trái banh tiếng Anh là ball. Bé nói theo nè: ball!"
+    assert story.beat_text({"en": "ball", "vi": "trái banh"}, 0, DATA) == "À, trái banh đó tiếng Anh là ball. Bé nói theo nè: ball!"
+    assert story.beat_text({"en": "hug", "vi": "ôm"}, 2, DATA) == "Đố bé biết ôm tiếng Anh là gì? Là hug! Bé đọc theo mình: hug!"
     assert story.beat_text({"en": "ball", "vi": "trái banh"}, 1) != story.beat_text({"en": "ball", "vi": "trái banh"}, 0)
+    # cảnh kết bằng câu hỏi cho bé: câu dạy chèn TRƯỚC câu hỏi, và cảnh đó xếp sau các cảnh êm khác
+    q = "Thỏ Trắng sà vào đá banh. Bé đoán xem Thỏ Trắng có nhớ giờ hẹn không?"
+    assert story.ends_with_child_question(q) and not story.ends_with_child_question("Thỏ chạy đi. Bé ơi vui quá!")
+    assert story.insert_beat(q, "À, X.") == "Thỏ Trắng sà vào đá banh. À, X. Bé đoán xem Thỏ Trắng có nhớ giờ hẹn không?"
+    assert story.insert_beat("Thỏ chạy đi.", "À, X.") == "Thỏ chạy đi. À, X."
+    stq = story.normalize(_good_story(brief), DATA)
+    stq["scenes"][1]["text"] += " Có trái banh. Bé đoán xem banh lăn đi đâu?"
+    stq["scenes"][3]["text"] += " Có trái banh."
+    bq = story.add_beats(stq, {**brief, "words": [{"en": "ball", "vi": "trái banh"}]}, DATA)
+    assert bq == [("ball", 3)]                                                       # cảnh 2 hỏi bé -> ưu tiên cảnh 4
+    stq2 = story.normalize(_good_story(brief), DATA)
+    stq2["scenes"][1]["text"] += " Có trái banh. Bé đoán xem banh lăn đi đâu?"
+    story.add_beats(stq2, {**brief, "words": [{"en": "ball", "vi": "trái banh"}]}, DATA)
+    assert stq2["scenes"][1]["text"].endswith("Bé đoán xem banh lăn đi đâu?") and "ball!" in stq2["scenes"][1]["text"]
     # không cảnh nào nhắc tới -> chèn kèm câu dẫn «Ở đây có ... nè»
     st2 = story.normalize(_good_story(brief), DATA)
     extra = {"en": "rainbow", "vi": "cầu vồng"}
     beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
-    assert beats == [("rainbow", 1)] and ("Ở đây có cầu vồng nè. " + story.beat_text(extra, 0)) in st2["scenes"][1]["text"]
+    assert beats == [("rainbow", 1)] and ("Ở đây có cầu vồng nè. " + story.beat_text(extra, 0, DATA)) in st2["scenes"][1]["text"]
     assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Giỏi lắm, bé nhớ hết rồi!")
     # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
     st5 = story.normalize(_good_story(brief), DATA)                       # ba từ cùng ở cảnh 2 (và cảnh 8): không dồn cả ba vào 2
@@ -943,7 +959,8 @@ def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
     assert "`hook`" in prompt and "minLength" not in json.dumps(schema) and schema["propertyOrdering"][0] == "title"
     spec = calls[0]
     assert spec["story"]["title"] and spec["attempts"][-1]["beats"] and "story" in spec
-    assert all(f"tiếng Anh là {w['en']}" in story.script_text(spec["story"]) for w in job.brief["words"])
+    assert all(f"tiếng Anh là {w['en']}" in story.script_text(spec["story"]) or f"Là {w['en']}!" in story.script_text(spec["story"])
+               for w in job.brief["words"])
     assert "Gemini" in job.error and "2 lượt gọi" in job.error and "viết" not in job.error.split("Kaggle (GPU):")[1][:8]
     assert spec["attempts"][-1]["attempt"] == "revise" and spec["attempts"][-1]["used"] is True
     # Gemini lỗi -> auto: Kaggle viết (không có story trong spec)

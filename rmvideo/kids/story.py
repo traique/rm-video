@@ -24,7 +24,7 @@ DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"
 N_SCENES = 8
 # Đo thật 18-19/11/2026 (Qwen3.6-35B-A3B): ép từ tiếng Anh vào lời thoại thì truyện rời rạc, từ bị hô trống không; giờ
 # model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
-# màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
+# màu / con vật của hôm nay; mã chèn «À, trái banh đó tiếng Anh là ball. Bé nói theo nè: ball!» ngay cảnh đồ vật đó xuất hiện
 # (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
 WORDS_MIN, WORDS_MAX = 130, 200       # đo thật 19/11: 221 chữ + 3 câu dạy -> 91,6 s dù đã đọc nhanh 1,15x (QA 88 s)        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
 WORDS_HARD = 95
@@ -517,14 +517,36 @@ def blocking(story: dict, brief: dict, data: dict) -> list[str]:
     return out
 
 
-BEAT_CALLS = ("Bé nói theo nè", "Cùng đọc to nào", "Bé đọc theo mình", "Nói thật to nào")   # xoay vòng, không «nha»
-BEAT_LEADS = ("À, ", "Mà nè, ", "Đố bé biết, ", "À này, ")                                   # từ dẫn cho câu dạy từ đỡ cụt
+# Câu dạy từ xoay vòng, không «nha». Phản hồi 19/11 (mẫu 28): «Đố bé biết, trái banh tiếng Anh là ball» nghe sai vì «đố» mà
+# nói luôn đáp án -> dạng đố phải hỏi rồi mới trả lời; đồ vật vừa xuất hiện thì gọi «trái banh đó» cho đúng chuyện đang kể.
+BEAT_TEMPLATES = ("À, {vi} tiếng Anh là {en}. Bé nói theo nè: {en}!",
+                  "Mà nè, {vi} tiếng Anh là {en}. Cùng đọc to nào: {en}!",
+                  "Đố bé biết {vi} tiếng Anh là gì? Là {en}! Bé đọc theo mình: {en}!",
+                  "À này, {vi} tiếng Anh là {en}. Nói thật to nào: {en}!")
+POINT_GROUPS = {"thing", "animal", "nature", "color"}        # nhóm từ chỉ vật đang có trong cảnh -> «trái banh đó»
+CHILD_Q_RE = re.compile(r"(\s*)([^.!?…]*(?<![\wÀ-ỹ])bé(?![\wÀ-ỹ])[^.!?…]*\?)\s*$", re.I)   # câu cuối cảnh hỏi bé
 
 
-def beat_text(w: dict, k: int = 0) -> str:
-    """Câu dạy từ (mã viết, người kể đọc): «Trái banh, tiếng Anh là ball. Bé nói theo nè: ball!» (lời gọi xoay vòng)."""
+def beat_text(w: dict, k: int = 0, data: dict | None = None) -> str:
+    """Câu dạy từ (mã viết, người kể đọc): «À, trái banh đó tiếng Anh là ball. Bé nói theo nè: ball!»; mẫu xoay vòng theo k,
+    mẫu 2 là câu đố (hỏi rồi mới đáp). data: để biết nhóm từ (vật trong cảnh thì thêm «đó»)."""
     vi = (w.get("vi") or "").strip()
-    return f"{BEAT_LEADS[k % len(BEAT_LEADS)]}{vi} tiếng Anh là {w['en']}. {BEAT_CALLS[k % len(BEAT_CALLS)]}: {w['en']}!"
+    if data is not None and word_info(data, w["en"]).get("group") in POINT_GROUPS:
+        vi += " đó"
+    return BEAT_TEMPLATES[k % len(BEAT_TEMPLATES)].format(vi=vi, en=w["en"])
+
+
+def ends_with_child_question(text: str) -> bool:
+    return bool(CHILD_Q_RE.search(text or ""))
+
+
+def insert_beat(text: str, beat: str) -> str:
+    """Chèn câu dạy từ vào cuối cảnh; cảnh kết bằng câu hỏi cho bé («Bé đoán xem…?») thì chèn TRƯỚC câu hỏi để câu hỏi vẫn
+    là câu cuối (lật trang sách), không dồn hai lời gọi bé sát nhau (phản hồi 19/11)."""
+    m = CHILD_Q_RE.search(text or "")
+    if m:
+        return (text[:m.start()].rstrip() + " " + beat + " " + m.group(2).strip()).strip()
+    return (text.rstrip() + " " + beat).strip()
 
 
 def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
@@ -536,11 +558,14 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     load_count = [0] * len(scenes)
 
+    asking = {i for i, sc in enumerate(scenes) if ends_with_child_question(sc.get("text", ""))}
+
     def spread(cands: list[int], strict: bool = True) -> int:
-        """Cảnh êm (không biến cố / cao trào / kết) chưa có câu dạy -> cảnh êm có 1 câu -> cảnh khác có nhắc tới (đo thật 19/11:
-        ba từ cùng xuất hiện ở cảnh 2 thì dồn cả ba câu dạy vào đó) -> đành cảnh êm đầu."""
+        """Cảnh êm (không biến cố / cao trào / kết, không kết bằng câu hỏi bé) chưa có câu dạy -> cảnh êm có 1 câu -> cảnh khác
+        có nhắc tới (đo thật 19/11: ba từ cùng xuất hiện ở cảnh 2 thì dồn cả ba câu dạy vào đó) -> đành cảnh êm đầu."""
         calm = [j for j in cands if j not in AVOID_BEAT_SCENES] if strict else list(cands)
-        for pool in (calm, cands):
+        quiet = [j for j in calm if j not in asking]
+        for pool in (quiet, calm, cands):
             for lim in (0, 1):
                 for j in pool:
                     if load_count[j] <= lim and not (j == 0 and lim):      # cảnh mở đầu chỉ chứa 1 câu dạy (giữ 3 giây đầu)
@@ -557,7 +582,7 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
         else:
             i = spread([1 + k % 3, 2, 3, 4, 5, 1])
             lead = f"Ở đây có {w['vi']} nè. "
-        scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w, k)).strip()
+        scenes[i]["text"] = insert_beat(scenes[i]["text"], lead + beat_text(w, k, data))
         load_count[i] += 1
         out.append((w["en"], i))
     return out

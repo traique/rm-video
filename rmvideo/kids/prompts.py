@@ -179,7 +179,8 @@ REVISE_CHECK = (
     "10. Đọc to lên có trôi chảy không? Câu cụt lủn thì nối lại bằng từ nối; lời thoại đã trong «…» và có tên người nói ngay "
     "trước ngoặc chưa?\n"
     "11. CUỐN chưa? Có câu hỏi cho bé giữa truyện (cảnh 2-6)? Thất bại có chi tiết hài + tiếng động? Cảm xúc tả qua hành động "
-    "(tai cụp, đuôi rũ) thay vì gọi tên? Bạn chính có dùng nét riêng / câu cửa miệng? Kết có vòng lại hình ảnh cảnh 1?\n"
+    "(tai cụp, đuôi rũ) thay vì gọi tên — một cảnh không gọi tên cảm xúc hai lần («buồn thiu… buồn rầu»)? Bạn chính có dùng nét "
+    "riêng / câu cửa miệng? Kết có vòng lại hình ảnh cảnh 1?\n"
     "Không chỉ sửa lỗi: hãy NÂNG bản nháp lên mức một cuốn sách tranh hay — thêm chi tiết ngộ nghĩnh, bớt câu nhạt, giữ cốt truyện.")
 
 
