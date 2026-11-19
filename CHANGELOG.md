@@ -19,7 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
-- Truyện bé: Gemini viết trên Botkeep (xem 1.1.0, mục Gemini).
+- Truyện bé: Gemini viết trên Botkeep (xem 1.1.0, mục Gemini). Hiệu ứng động `KIDS_FX` (render.py): Ken Burns mạnh + nhịp thở,
+  nảy zoom + rung máy khi lời có tiếng động (`hits_from_words`), hạt bokeh (PIL, overlay theo sin), vignette, phụ đề bật lên
+  (`subs.write_ass(pop=True)`), whoosh khi chuyển cảnh + ting khi dạy từ (lavfi, trộn trước loudnorm).
 
 ## 1.1.0 — kênh truyện bé «Kể Bé Nghe» (18/11/2026)
 
