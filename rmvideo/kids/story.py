@@ -26,8 +26,9 @@ N_SCENES = 8
 # model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
 # màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
 # (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
-WORDS_MIN, WORDS_MAX = 130, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): video ≈ 60-80 giây
-WORDS_HARD = 100                       # dưới mức này thì không chấp nhận dù đã hết lượt
+WORDS_MIN, WORDS_MAX = 120, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): video ≈ 60-80 giây
+WORDS_HARD = 95                        # dưới mức này thì không chấp nhận dù đã hết lượt
+EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng chữ tiếng Việt («run rẩy»): không coi là chen tiếng Anh
 SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
@@ -200,10 +201,22 @@ def normalize(story: dict, data: dict) -> dict:
         t = "#" + re.sub(r"[^0-9a-z]", "", _ascii(str(t)).lower().lstrip("#"))
         if len(t) > 2 and t not in tags:
             tags.append(t)
-    return {"title": south_kids(re.sub(r"\s+", " ", str(story.get("title") or "")).strip().strip('"«»')[:TITLE_MAX]),
+    return {"title": sentence_case(south_kids(re.sub(r"\s+", " ", str(story.get("title") or "")).strip().strip('"«»')[:TITLE_MAX]),
+                                   chars),
             "scenes": scenes,
             "description": south_kids(re.sub(r"[ \t]+", " ", str(story.get("description") or "")).strip()[:1500]),
             "hashtags": tags[:4]}
+
+
+def sentence_case(title: str, chars: dict) -> str:
+    """Tiêu đề model hay Viết Hoa Mỗi Chữ (đo thật 19/11) -> chỉ hoa chữ đầu và tên nhân vật."""
+    words = title.split()
+    if len(words) < 4 or sum(1 for w in words if w[:1].isupper()) < 0.7 * len(words):
+        return title
+    keep = {p.lower() for c in chars.values() for p in c["name_vi"].split()}
+    out = [w if w.lower() in keep else w.lower() for w in words]
+    out[0] = out[0][:1].upper() + out[0][1:]
+    return " ".join(out)
 
 
 def _ascii(s: str) -> str:
@@ -234,7 +247,8 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     for w in brief.get("words", []):
         if not vi_mentioned(full, w, data):
             problems.append(f"truyện phải nhắc tới «{w['vi']}» (đồ vật / màu / con vật / việc bé học hôm nay), kể tự nhiên")
-    foreign = [w["en"] for w in data["words"] if count_word(full + " " + story.get("title", ""), w["en"])]
+    foreign = [w["en"] for w in data["words"] if w["en"] not in EN_ALSO_VI
+               and count_word(full + " " + story.get("title", ""), w["en"])]
     if foreign:
         problems.append("truyện và tiêu đề viết THUẦN tiếng Việt, không chen tiếng Anh (" + ", ".join(foreign[:5])
                         + "): phần tiếng Anh mã sẽ tự thêm")

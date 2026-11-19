@@ -139,6 +139,12 @@ def test_validate_good_and_bad():
         for f in story.vi_forms(w0, DATA):
             sc["text"] = re.sub(r"(?i)" + re.escape(f), "xx", sc["text"])
     assert any(w0["vi"] in p and "nhắc tới" in p for p in story.validate(miss, brief, DATA))
+    assert story.sentence_case("Thỏ Trắng Lỡ Làm Hỏng Đồ Chơi Của Bạn", DATA["characters"]) == \
+           "Thỏ Trắng lỡ làm hỏng đồ chơi của bạn"
+    assert story.sentence_case("Thỏ Trắng và cái giỏ táo", DATA["characters"]) == "Thỏ Trắng và cái giỏ táo"
+    vi_run = json.loads(json.dumps(st))
+    vi_run["scenes"][1]["text"] += " Thỏ Trắng run rẩy."                     # «run» tiếng Việt không phải tiếng Anh
+    assert not any("THUẦN" in p for p in story.validate(vi_run, brief, DATA))
     assert story.vi_mentioned("Thỏ Trắng cầm trái banh đỏ", {"en": "ball", "vi": "trái banh"}, DATA)
     assert story.vi_mentioned("banh lăn kìa", {"en": "ball", "vi": "trái banh"}, DATA)
     assert not story.vi_mentioned("bánh kem ngon", {"en": "ball", "vi": "trái banh"}, DATA)
