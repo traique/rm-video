@@ -19,6 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: viết lại theo lỗi thì SỬA bản nháp trước (`prompts.messages(previous=)`) thay vì viết truyện khác; truyện tối đa
+  200 chữ, trên 215 là lỗi chặn (đo thật mẫu 27: 221 chữ -> 91,6 s, QA loại); thông báo dài kèm cảnh dài nhất; dựng có mức đọc
+  nhanh đường cùng `TEMPO_HARD` 1,22.
 - Truyện bé: Gemini hai model theo vai — `KIDS_GEMINI_MODEL` (mặc định gemini-4-hydrogen, `KIDS_GEMINI_THINKING` low) viết nháp,
   `KIDS_GEMINI_REVISE_MODEL` (gemini-3.5-flash-lite) viết lại theo lỗi và tự soát; `prompt_engine._call_gemini(thinking=)` đặt mức
   suy nghĩ cho Gemini 4; model của vai quá tải / hết lượt thì model kia làm thay (`writer.GeminiBackend`, `llm.Backend.chat(role=)`).

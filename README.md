@@ -241,7 +241,8 @@ bản nháp = `KIDS_GEMINI_MODEL` (mặc định **gemini-4-hydrogen**, free tie
 bộ kiểm ngay lượt đầu, 10–20 giây, truyện có hài, có hỏi bé, điệp khúc đảo đúng chỗ — hơn hẳn flash-lite), viết lại theo lỗi và
 lượt tự soát = `KIDS_GEMINI_REVISE_MODEL` (mặc định gemini-3.5-flash-lite, hạn mức free rộng). Hạn mức free mỗi ngày của model lớn
 nhỏ (Google không công bố) nên Hydrogen chỉ dùng 1 lượt/truyện; model của vai quá tải / hết lượt thì model kia làm thay, cả hai
-lỗi thì Qwen trên Kaggle viết. Truyện đi theo việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút).
+lỗi thì Qwen trên Kaggle viết. Viết lại theo lỗi là **sửa bản nháp trước** (lời nhắc kèm bản nháp + lỗi), nên cái hay của
+Hydrogen giữ nguyên; truyện tối đa 200 chữ (trên 215 là lỗi chặn vì video không vừa 88 giây). Truyện đi theo việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút).
 `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle. Gemma 4 trên Gemini API đã thử (19/11): 31B báo quá tải liên tục, không
 dùng.
 

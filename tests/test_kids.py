@@ -276,6 +276,26 @@ def test_word_matching_false_positives():
     assert story.pick(DATA, hist, random.Random(2)).get("recent_en") == ["apple", "hug"]
 
 
+def test_rewrite_keeps_previous_draft():
+    """Viết lại theo lỗi: lời nhắc kèm bản nháp trước và yêu cầu SỬA (không viết truyện khác); dài quá mức chặn thì không nhận."""
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(_good_story(brief), DATA)
+    msgs = prompts.messages(brief, DATA, {"name": "K"}, ["cả truyện 230 chữ, tối đa 200 chữ"], previous=st)
+    u = msgs[1]["content"]
+    assert "BẢN NHÁP TRƯỚC" in u and st["scenes"][2]["text"] in u and st["title"] in u and "SỬA đúng các lỗi" in u
+    assert "Bản nháp chưa đạt vì:\n- cả truyện 230 chữ" in u
+    u0 = prompts.messages(brief, DATA, {"name": "K"}, ["lỗi x"])[1]["content"]            # chưa có bản nháp: như cũ
+    assert "BẢN NHÁP TRƯỚC" not in u0 and "Bản trước chưa đạt vì" in u0
+    assert f"{story.WORDS_MIN + 10}-{story.WORDS_MAX - 15} chữ" in u0
+    long = json.loads(json.dumps(st))
+    while sum(story.word_count(sc["text"]) for sc in long["scenes"]) <= story.WORDS_BLOCK:
+        for sc in long["scenes"]:
+            sc["text"] += " Gió thổi qua đồi cỏ xanh mát rượi."
+    assert any("quá dài" in q for q in story.blocking(long, brief, DATA))
+    assert any("cảnh dài nhất" in q for q in story.validate(long, brief, DATA))
+    assert not any("quá dài" in q for q in story.blocking(st, brief, DATA))
+
+
 def test_gemini_backend_routing(monkeypatch):
     """Gemini theo vai: nháp = model viết (Hydrogen, mức suy nghĩ), viết lại / soát = model sửa; quá tải thì đổi vai."""
     import prompt_engine
@@ -519,7 +539,7 @@ def test_prompts_and_schema():
     assert all("các bạn" not in b and "cả nhóm" not in b for pl in DATA["plots"] for b in pl["beats"])
     assert all(pl.get("twist") for pl in DATA["plots"]) and "đảo thành «" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
-    assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
+    assert "chưa đạt vì" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "hook", "hook_text", "scenes",
                                                                                        "description", "hashtags"}
@@ -661,8 +681,10 @@ def test_plan_fits_max_len():
     assert pl2["length"] <= render.MAX_LEN + 0.05 and 1.0 < pl2["factor"] <= render.TEMPO_MAX
     assert pl2["scenes"][1]["end"] - pl2["scenes"][1]["start"] == pytest.approx(render.GAP_MIN + 10.5 / pl2["factor"]
                                                                                + render.PAD_MIN, abs=0.01)
-    pl3 = render.plan([20.0] * 8, random.Random(3))                           # quá sức co: dừng ở TEMPO_MAX, QA sẽ chặn
-    assert pl3["factor"] == render.TEMPO_MAX and pl3["length"] > render.MAX_LEN
+    pl3 = render.plan([20.0] * 8, random.Random(3))                           # quá sức co: dừng ở TEMPO_HARD, QA sẽ chặn
+    assert pl3["factor"] == render.TEMPO_HARD and pl3["length"] > render.MAX_LEN
+    pl4 = render.plan([11.3] * 8, random.Random(3), recap_dur=6.5)           # 1,15 chưa đủ, 1,22 vừa (đo thật mẫu 27)
+    assert render.TEMPO_MAX < pl4["factor"] <= render.TEMPO_HARD and pl4["length"] <= render.MAX_LEN + 0.05
     short = render.plan([2.0] * 8, random.Random(3))
     assert short["factor"] == 1.0 and short["pad"] == render.PAD
     assert [s["motion"] for s in render.plan([9.0] * 8, random.Random(3))["scenes"]] == \
@@ -757,7 +779,7 @@ def test_llm_retries_with_feedback():
     srv = _FakeSrv(brief, fail_first=True)
     st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
     assert len(attempts) == 2 and attempts[0]["problems"] and not attempts[1]["problems"]
-    assert "Bản trước chưa đạt" in srv.calls[1] and st["title"]
+    assert "chưa đạt vì" in srv.calls[1] and st["title"]
     assert attempts[-1]["beats"] and story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1
     # truyện không nhắc tới một đồ vật gợi ý: vẫn đạt (đủ 3 thứ khác), từ hôm nay chọn từ chính truyện, không ép từ đó
     brief2 = story.pick(DATA, [], random.Random(2))

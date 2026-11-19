@@ -79,7 +79,7 @@ def system_prompt(channel: dict) -> str:
             "Viết THUẦN tiếng Việt, không một chữ tiếng Anh. Chỉ trả lời bằng JSON đúng schema, không giải thích thêm.")
 
 
-def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> str:
+def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, previous: dict | None = None) -> str:
     chars = data["characters"]
     main = chars[brief["main"]]
     lesson = story_mod.by_id(data["lessons"], brief["lesson"])
@@ -110,7 +110,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
-            f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối; câu đầu mỗi "
+            f"{story_mod.WORDS_MIN + 10}-{story_mod.WORDS_MAX - 15} chữ (video chỉ 60-88 giây, dài hơn là bị cắt). Một chuyện nhỏ kể "
+            "liền mạch từ đầu tới cuối; câu đầu mỗi "
             "cảnh nối với cảnh trước (thế là / lúc đó / nhưng rồi).\n"
             "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp 2-3 lần ở cảnh 4, 5 (và 6) "
             "— chỉ đặt vào chỗ ĐÚNG NGHĨA với tình huống; ở cảnh 6 khi chuyện xoay chiều, có thể ĐẢO điệp khúc cho vui (theo gợi ý "
@@ -149,7 +150,14 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n\n"
             "Truyện MẪU để học cách kể (chỉ học giọng kể và nhịp; KHÔNG chép lại câu nào, truyện hôm nay khác nhân vật, bối "
             "cảnh, chuyện xảy ra):\n" + _example_block() + "\n")
-    if feedback:
+    if feedback and previous:
+        draft = (f"Tiêu đề: {previous.get('title', '')}\nCâu móc: {previous.get('hook', '')} | Chữ to: {previous.get('hook_text', '')}\n"
+                 + "\n".join(f"Cảnh {i}: {sc.get('text', '')}" for i, sc in enumerate(previous.get("scenes") or [], 1)))
+        text += ("\nBẢN NHÁP TRƯỚC (giữ cốt truyện, lời thoại hay, điệp khúc, câu hỏi bé, nét riêng của bản này):\n" + draft
+                 + "\nBản nháp chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
+                 + "\nSỬA đúng các lỗi trên, đổi càng ít càng tốt (dài quá thì cắt câu tả cảnh / câu đệm, không cắt lời thoại hay "
+                 "điệp khúc), rồi trả lại TOÀN BỘ JSON đủ 8 cảnh với characters và action_en của từng cảnh.")
+    elif feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
                  + (", có ít nhất 3 thứ trong: " + must if must else "")
@@ -187,9 +195,12 @@ def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list
     return [{"role": "system", "content": system_prompt(channel)}, {"role": "user", "content": text}]
 
 
-def messages(brief: dict, data: dict, channel: dict, feedback: list[str] | None = None) -> list[dict[str, str]]:
+def messages(brief: dict, data: dict, channel: dict, feedback: list[str] | None = None,
+             previous: dict | None = None) -> list[dict[str, str]]:
+    """previous: bản nháp trước (đã chuẩn hoá) khi viết lại theo lỗi -> model SỬA bản đó thay vì viết truyện khác (19/11:
+    Hydrogen nháp hay nhưng dài, flash-lite viết lại từ đầu thì mất cái hay và vẫn dài)."""
     return [{"role": "system", "content": system_prompt(channel)},
-            {"role": "user", "content": user_prompt(brief, data, feedback)}]
+            {"role": "user", "content": user_prompt(brief, data, feedback, previous)}]
 
 
 def schema(data: dict) -> dict:

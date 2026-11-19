@@ -26,8 +26,9 @@ N_SCENES = 8
 # model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
 # màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
 # (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
-WORDS_MIN, WORDS_MAX = 130, 210        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
-WORDS_HARD = 95                        # dưới mức này thì không chấp nhận dù đã hết lượt
+WORDS_MIN, WORDS_MAX = 130, 200       # đo thật 19/11: 221 chữ + 3 câu dạy -> 91,6 s dù đã đọc nhanh 1,15x (QA 88 s)        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
+WORDS_HARD = 95
+WORDS_BLOCK = WORDS_MAX + 15           # dài hơn mức này thì CHẶN (video không vừa 88 giây dù đọc nhanh)                        # dưới mức này thì không chấp nhận dù đã hết lượt
 EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng chữ tiếng Việt («run rẩy»): không coi là chen tiếng Anh
 SCENE_MIN, SCENE_MAX = 10, 38          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
@@ -327,7 +328,10 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     if total < WORDS_MIN:
         problems.append(f"cả truyện {total} chữ, cần từ {WORDS_MIN} chữ (viết mỗi cảnh dài hơn)")
     elif total > WORDS_MAX:
-        problems.append(f"cả truyện {total} chữ, tối đa {WORDS_MAX} chữ (viết mỗi cảnh ngắn lại)")
+        longest = sorted(((word_count(t), i + 1) for i, t in enumerate(texts)), reverse=True)[:3]
+        problems.append(f"cả truyện {total} chữ, tối đa {WORDS_MAX} chữ: cắt câu tả cảnh / câu đệm, giữ lời thoại, điệp khúc, câu "
+                        f"hỏi bé; cảnh dài nhất: {', '.join(f'cảnh {i} ({n} chữ)' for n, i in longest)} -> mỗi cảnh "
+                        f"{SCENE_MIN + 6}-{SCENE_MAX - 10} chữ")
     for i, t in enumerate(texts, 1):
         n = word_count(t)
         if n < SCENE_MIN or n > SCENE_MAX:
@@ -500,6 +504,8 @@ def blocking(story: dict, brief: dict, data: dict) -> list[str]:
     total = sum(word_count(t) for t in texts)
     if total < WORDS_HARD:
         out.append(f"cả truyện {total} chữ, quá ngắn (dưới {WORDS_HARD})")
+    elif total > WORDS_BLOCK:
+        out.append(f"cả truyện {total} chữ, quá dài (trên {WORDS_BLOCK}: video không vừa 88 giây)")
     low = " ".join(texts).lower()
     bad = [b for b in BANNED if b in low]
     if bad:

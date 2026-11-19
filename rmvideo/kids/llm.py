@@ -293,10 +293,11 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
     attempts: list[dict] = []
     best: tuple[tuple[int, int], dict] | None = None
     feedback: list[str] | None = None
+    previous: dict | None = None
     try:
         for k in range(1 + RETRIES):
             t0 = time.time()
-            raw = run.chat(prompts.messages(brief, data, channel, feedback), prompts.schema(data),
+            raw = run.chat(prompts.messages(brief, data, channel, feedback, previous), prompts.schema(data),
                            seed=int(brief.get("seed") or 0) + k, role="draft" if k == 0 else "rewrite")
             try:
                 parsed = parse_json(raw)
@@ -321,6 +322,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
             if best is None or score < best[0]:
                 best = (score, st)
             feedback = problems
+            previous = st
     finally:
         if own:
             run.stop()

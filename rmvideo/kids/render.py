@@ -55,6 +55,7 @@ TITLE_LEN = 2.2        # thẻ tiêu đề hiện chừng này giây (từ lúc 
 MAX_LEN = 87.0         # Reels nhận tới 90s, QA (job.DUR_MAX) 88s: kế hoạch tự co vào mức này (đo thật: 236 chữ -> 88,9s)
 PAD_MIN, GAP_MIN = 0.4, 0.15   # đệm tối thiểu khi phải co
 TEMPO_MAX = 1.15       # co đệm chưa đủ thì giọng đọc nhanh hơn, tối đa chừng này (atempo, nghe vẫn tự nhiên)
+TEMPO_HARD = 1.22      # đường cùng (đo thật 19/11: 1,15 vẫn 91,6 s -> QA loại cả job 13 phút GPU): nhanh thêm chút còn hơn hỏng
 
 
 def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: float = 0.0,
@@ -77,6 +78,11 @@ def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: flo
         spoken = (sum(voice) + float(recap_dur) + hd) / f
         fixed = pl["length"] - spoken
         f = min(TEMPO_MAX, f * spoken / max(1.0, max_len - fixed) + 0.002)
+        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, f, hd)
+    if pl["length"] > max_len:              # vẫn dài: nhanh tới TEMPO_HARD (một lần, đủ thì thôi)
+        spoken = (sum(voice) + float(recap_dur) + hd) / f
+        fixed = pl["length"] - spoken
+        f = min(TEMPO_HARD, f * spoken / max(1.0, max_len - fixed) + 0.002)
         pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, f, hd)
     return pl
 
