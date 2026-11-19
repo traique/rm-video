@@ -69,6 +69,7 @@
       "SUB_TIMING",
       "TEASER",
       "TEXT_DETECT",
+      "TEXT_INPAINT",
       "TIME_SKIP_LABEL",
       "TIPS",
       "TTS_OFFLINE",

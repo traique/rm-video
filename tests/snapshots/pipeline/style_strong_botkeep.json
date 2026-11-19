@@ -405,7 +405,7 @@
      ],
      "v": 1
     },
-    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 5 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s. ℹ️ Lời đọc: 20 chữ, giọng phủ 36% video, 0/5 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 5 đoạn giọng, 9 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Nhịp dựng mạnh: 8 khúc, đổi cỡ khung 5 lần, tua nhanh 1 đoạn chờ (6s còn 2s); tóm tắt 3 bước trước khi kết; video 20s -> 18s. ℹ️ Lời đọc: 20 chữ, giọng phủ 36% video, 0/5 câu kết «nha». ℹ️ Đã tách bỏ giọng gốc bằng AI. ℹ️ Lời mới 100% khác lời gốc; 5 đoạn giọng, 9 điểm chuyển cảnh; lệch tối đa 0.0s. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
     "final_segments": [
      {
       "end": 3.3,
