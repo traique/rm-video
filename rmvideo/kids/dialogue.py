@@ -75,17 +75,40 @@ def voice_for(speaker: str, chars: dict, narrator: str) -> str:
     return str(v) if v and v != narrator else narrator
 
 
-async def merge(paths: Sequence[str], out: str, gap: float = GAP) -> str:
-    """Nối các đoạn giọng của một cảnh thành một wav (chèn `gap` giây lặng sau mỗi đoạn)."""
+RMS_TARGET = -20.0     # dBFS: mỗi đoạn giọng kéo về mức này trước khi nối (giọng VieNeu to nhỏ khác nhau, phản hồi 19/11)
+GAIN_MAX = 12.0
+
+
+async def rms_db(path: str) -> float | None:
+    """Mức RMS (dBFS) của một file tiếng (ffmpeg astats); không đo được thì None."""
+    import re
+    from rmvideo.media import ff
+    try:
+        _code, err = await ff._run_ffmpeg_full("-i", path, "-af", "astats=measure_perchannel=none:measure_overall=RMS_level",
+                                                "-f", "null", "-", stderr_keep=20000)
+    except Exception:
+        return None
+    m = re.findall(r"RMS level dB:\s*(-?[\d.]+|-inf)", str(err))
+    if not m or m[-1] == "-inf":
+        return None
+    return float(m[-1])
+
+
+async def merge(paths: Sequence[str], out: str, gap: float = GAP, target_db: float = RMS_TARGET) -> str:
+    """Nối các đoạn giọng của một cảnh thành một wav (chèn `gap` giây lặng sau mỗi đoạn); mỗi đoạn được kéo về cùng mức
+    RMS `target_db` (±GAIN_MAX dB) để người kể và các bạn nghe đều nhau."""
     from rmvideo.media import ff
     paths = [p for p in paths if p]
-    if len(paths) == 1 and gap <= 0:
+    if len(paths) == 1 and gap <= 0 and target_db is None:
         return paths[0]
     args: list[str] = ["-y"]
+    gains: list[float] = []
     for p in paths:
         args += ["-i", p]
-    chain = ";".join(f"[{i}:a]aformat=sample_rates=24000:channel_layouts=mono,apad=pad_dur={gap:.3f}[s{i}]"
-                     for i in range(len(paths)))
+        lvl = await rms_db(p) if target_db is not None else None
+        gains.append(max(-GAIN_MAX, min(GAIN_MAX, target_db - lvl)) if lvl is not None else 0.0)
+    chain = ";".join(f"[{i}:a]aformat=sample_rates=24000:channel_layouts=mono,volume={gains[i]:+.2f}dB,"
+                     f"apad=pad_dur={gap:.3f}[s{i}]" for i in range(len(paths)))
     fc = chain + ";" + "".join(f"[s{i}]" for i in range(len(paths))) + f"concat=n={len(paths)}:v=0:a=1[a]"
     await ff._run_ffmpeg(*args, "-filter_complex", fc, "-map", "[a]", "-ar", "24000", "-ac", "1", out)
     return out

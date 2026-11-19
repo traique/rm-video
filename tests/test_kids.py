@@ -21,6 +21,7 @@ import kids_auto
 from rmvideo.app import job_factory
 from rmvideo.kids import job as kids_job, llm, prompts, render, story, writer
 from rmvideo.kids import images as images_mod
+from rmvideo.kids import dialogue
 
 DATA = story.load()
 
@@ -274,6 +275,27 @@ def test_word_matching_false_positives():
     assert story.choose_words(st, two, DATA)[0]["en"] != "apple"
     hist = [{"words": ["apple", "hug"], "lesson": "", "setting": "", "conflict": "", "created": "2026-11-18T08:00:00"}]
     assert story.pick(DATA, hist, random.Random(2)).get("recent_en") == ["apple", "hug"]
+
+
+def test_merge_evens_voice_levels(tmp_path):
+    """Nối giọng: đoạn to (~-15 dBFS) và đoạn nhỏ (~-29 dBFS) về cùng mức RMS_TARGET; đo lại từng nửa của file nối.
+    (sine của lavfi chỉ 1/8 biên độ: volume=2 -> RMS -15 dBFS, 0.4 -> -29.)"""
+    loud, soft = str(tmp_path / "loud.wav"), str(tmp_path / "soft.wav")
+    for p, vol in ((loud, 2.0), (soft, 0.4)):
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1.5", "-af",
+                        f"volume={vol}", "-ar", "24000", "-ac", "1", p], check=True)
+    a, b = asyncio.run(dialogue.rms_db(loud)), asyncio.run(dialogue.rms_db(soft))
+    assert a is not None and b is not None and 10 < a - b < 16
+    out = asyncio.run(dialogue.merge([loud, soft], str(tmp_path / "m.wav"), gap=0.0))
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                               capture_output=True, text=True).stdout)
+    assert 2.9 <= dur <= 3.1
+    for ss in (0.1, 1.6):
+        part = str(tmp_path / f"p{ss}.wav")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(ss), "-t", "1.3", "-i", out, part], check=True)
+        lvl = asyncio.run(dialogue.rms_db(part))
+        assert lvl is not None and abs(lvl - dialogue.RMS_TARGET) < 1.5, (ss, lvl)
+    assert asyncio.run(dialogue.rms_db(str(tmp_path / "nope.wav"))) is None
 
 
 def test_rewrite_keeps_previous_draft():
