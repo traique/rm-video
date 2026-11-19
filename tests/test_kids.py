@@ -891,7 +891,7 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     brief = story.pick(DATA, [], random.Random(2))
     monkeypatch.setattr(llm, "backend", lambda spec_llm, tmp, log=None: _FakeSrv(brief))
 
-    def fake_images(plist, seeds, out_dir, model="schnell", log=None, pipe=None):
+    def fake_images(plist, seeds, out_dir, model="schnell", log=None, pipe=None, **kw):
         assert len(plist) == 8 and len(seeds) == 8 and model == "schnell"
         os.makedirs(out_dir, exist_ok=True)
         return [_png(os.path.join(out_dir, f"scene_{k + 1:02d}.png"), k * 30) for k in range(8)]
@@ -1059,7 +1059,7 @@ def test_kaggle_job_skips_llm_when_story_given(tmp_path, monkeypatch):
     story.add_beats(st, brief, DATA)
     monkeypatch.setattr(llm, "backend", lambda *a, **k: (_ for _ in ()).throw(AssertionError("không được gọi model chữ")))
 
-    def fake_images(plist, seeds, out_dir, model="schnell", log=None, pipe=None):
+    def fake_images(plist, seeds, out_dir, model="schnell", log=None, pipe=None, **kw):
         os.makedirs(out_dir, exist_ok=True)
         return [_png(os.path.join(out_dir, f"scene_{k + 1:02d}.png"), k * 30) for k in range(8)]
     monkeypatch.setattr(images_mod, "generate", fake_images)
