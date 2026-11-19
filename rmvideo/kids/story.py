@@ -26,7 +26,7 @@ N_SCENES = 8
 # model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
 # màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
 # (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
-WORDS_MIN, WORDS_MAX = 120, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): video ≈ 60-80 giây
+WORDS_MIN, WORDS_MAX = 130, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
 WORDS_HARD = 95                        # dưới mức này thì không chấp nhận dù đã hết lượt
 EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng chữ tiếng Việt («run rẩy»): không coi là chen tiếng Anh
 SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
@@ -34,7 +34,8 @@ QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo 
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
-HAPPY = ("vui", "cười", "hạnh phúc", "cùng nhau", "ôm", "mừng", "thích", "chơi", "reo", "nhảy")
+SAD = ("buồn", "khóc", "giận", "sợ", "một mình", "bỏ đi")   # cảnh kết KHÔNG được còn những chữ này (đo thật 19/11: đòi phải có
+                                                               # «vui/cười» thì «tặng hoa cho Mèo Cam», «cùng ăn trái cây» bị trượt)
 # lời chào không bắt truyện phải nhắc tới (ép thì ra «Chào buổi sáng ngon ghê», đo thật 19/11): câu dạy từ đặt ở cảnh hợp
 GREETING_SCENE = {"hello": 0, "good morning": 0, "bye bye": 7, "good night": 7}
 BANNED = ("chết", "máu", "giết", "đánh nhau", "ma quỷ", "con ma", "súng", "con dao", "đâm", "ngu ngốc", "đồ ngốc",
@@ -264,8 +265,8 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     lesson = by_id(data["lessons"], brief.get("lesson", ""))
     if lesson and not any(k in low for k in lesson.get("keywords", [])):
         problems.append(f"cảnh 7 phải nói rõ bài học «{lesson['vi']}» (dùng chữ: {', '.join(lesson['keywords'])})")
-    if len(texts) == N_SCENES and not any(h in texts[-1].lower() for h in HAPPY):
-        problems.append("cảnh 8 phải kết thúc vui (các bạn vui, cười, ôm nhau, chơi cùng nhau)")
+    if len(texts) == N_SCENES and any(h in texts[-1].lower() for h in SAD):
+        problems.append("cảnh 8 phải kết thúc vui, không còn buồn / khóc / giận / sợ")
     bad = [b for b in BANNED if b in low]
     if bad:
         problems.append("không dùng từ: " + ", ".join(bad))

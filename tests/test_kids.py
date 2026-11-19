@@ -123,6 +123,12 @@ def test_validate_good_and_bad():
     probs = story.validate(bad, brief, DATA)
     assert any("8 cảnh" in p for p in probs) and any("câu hỏi" in p for p in probs) and any("chết" in p for p in probs)
     assert any("chữ" in p for p in probs)
+    sad = json.loads(json.dumps(st))
+    sad["scenes"][7]["text"] = "Thỏ Trắng ngồi khóc một mình. Các bé ơi, nhớ xin lỗi nha."
+    assert any("kết thúc vui" in p for p in story.validate(sad, brief, DATA))
+    calm = json.loads(json.dumps(st))
+    calm["scenes"][7]["text"] = "Hai bạn tặng hoa cho Mèo Cam rồi cùng ăn trái cây. Các bé ơi, nhớ chờ tới lượt nha!"
+    assert not any("kết thúc vui" in p for p in story.validate(calm, brief, DATA))
     # chen tiếng Anh vào lời / tiêu đề -> lỗi (mã mới là nơi thêm tiếng Anh)
     en = json.loads(json.dumps(st))
     en["scenes"][1]["text"] += f" Thỏ Trắng nói: {brief['words'][0]['en']}!"
