@@ -21,10 +21,11 @@ SOUTH_VI = ("ba, má, trái banh, cái nón, cây dù, đôi vớ, chén, muỗn
 NORTH_VI = "bố, quả bóng, cái mũ, cái ô, bít tất, bát, thìa, ngã, xem, xấu hổ, ạ, nhé, các cậu, tớ"
 
 
+EXAMPLE_HOOK = ("Ôi, con diều cứ rớt hoài, Sóc Nhỏ phải làm sao đây?", "DIỀU RỚT HOÀI!")
 EXAMPLE = [
-    # truyện mẫu (viết tay theo cách kể của truyện mầm non: chào bé, câu ngắn, tiếng động, điệp khúc 3 lần, kết nhắn bé);
+    # truyện mẫu (viết tay theo cách kể của truyện mầm non: câu ngắn, tiếng động, điệp khúc 3 lần, kết nhắn bé);
     # CHỈ để model học giọng kể — bộ kiểm chặn khi chép lại ≥ 2 câu
-    ("Chào các bé! Hôm nay trời nắng đẹp ghê. Sóc Nhỏ cầm con diều màu đỏ chạy ra công viên. Đuôi diều phất phơ, phất phơ.",
+    ("Hôm nay trời nắng đẹp ghê. Sóc Nhỏ cầm con diều màu đỏ chạy ra công viên. Đuôi diều phất phơ, phất phơ.",
      ["little_squirrel"], "Little Squirrel running on green grass holding a red kite, happy"),
     ("Sóc Nhỏ muốn thả diều bay thật cao. «Diều ơi, bay lên nha!» Sóc Nhỏ reo to.",
      ["little_squirrel"], "Little Squirrel holding a red kite up high, looking at the sky"),
@@ -57,7 +58,8 @@ def example_sentences() -> list[str]:
 
 
 def _example_block() -> str:
-    return "\n".join(f"  Cảnh {i}: {t}\n    characters: {c} · action_en: {a}" for i, (t, c, a) in enumerate(EXAMPLE, 1))
+    return (f"  hook: {EXAMPLE_HOOK[0]} · hook_text: {EXAMPLE_HOOK[1]}\n"
+            + "\n".join(f"  Cảnh {i}: {t}\n    characters: {c} · action_en: {a}" for i, (t, c, a) in enumerate(EXAMPLE, 1)))
 
 
 def system_prompt(channel: dict) -> str:
@@ -90,8 +92,13 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
             f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối.\n"
             "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp đúng 3 lần ở cảnh 4, 5, 6.\n"
-            "- Cảnh 1 bắt đầu bằng «Chào các bé!». Cảnh 7 nói bài học bằng đúng chữ: "
-            + ", ".join(lesson.get("keywords", [])) + ". Cảnh 8 kết vui và câu cuối nói với «các bé».\n"
+            "- LIỀN MẠCH: cảnh sau xảy ra VÌ cảnh trước (nhân quả), ba lần thử khác nhau và leo thang, lần ba thành công nhờ "
+            "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
+            "- Cảnh 7 nói bài học bằng đúng chữ: " + ", ".join(lesson.get("keywords", []))
+            + ". Cảnh 8 kết vui và câu cuối nói với «các bé».\n"
+            f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
+            f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
+            "kể trước cách giải quyết. `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, hiện to trên màn hình.\n"
             "- Viết THUẦN tiếng Việt, không chữ tiếng Anh, không giải nghĩa từ (phần dạy tiếng Anh mã sẽ tự thêm).\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
@@ -106,8 +113,29 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
                  + (", có nhắc tới " + must if must else "")
-                 + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, cảnh 1 «Chào các bé!».")
+                 + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, có hook và hook_text.")
     return text
+
+
+REVISE_CHECK = (
+    "1. Câu `hook` có khiến bé tò mò ngay giây đầu không (hỏi/cảm, nhắc nhân vật chính và chuyện sắp xảy ra, KHÔNG lộ cách giải quyết)?\n"
+    "2. Mỗi cảnh có xảy ra VÌ cảnh trước không (nhân quả rõ, không nhảy cóc, không lặp ý)?\n"
+    "3. Ba lần thử (cảnh 4, 5, 6) có KHÁC nhau, leo thang và lần ba thành công nhờ bạn giúp / cách khác không?\n"
+    "4. Bài học (cảnh 7) có rút ra từ chính chuyện vừa xảy ra không (không giảng chung chung)?\n"
+    "5. Câu ngắn (dưới 10 chữ), có tiếng động, có điệp khúc lặp 3 lần, lời thoại tự nhiên như trẻ con, giọng miền Nam?\n"
+    "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?")
+
+
+def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list[dict[str, str]]:
+    """Lượt tự soát: bản nháp + checklist -> bản sửa cùng schema (giữ đề, giữ các đồ vật phải nhắc tới)."""
+    import json
+    must = ", ".join(f"«{w['vi']}»" for w in story_mod.must_mention(brief, data))
+    draft = {k: story.get(k) for k in ("title", "hook", "hook_text", "scenes", "description", "hashtags")}
+    text = ("Đây là bản nháp truyện (JSON):\n" + json.dumps(draft, ensure_ascii=False, indent=1)
+            + "\n\nSoát theo checklist, chỗ nào chưa đạt thì SỬA, chỗ đã tốt thì giữ nguyên:\n" + REVISE_CHECK
+            + "\n\nGiữ đúng: 8 cảnh, mỗi cảnh 2-4 câu ngắn, thuần tiếng Việt (không chữ tiếng Anh), vẫn nhắc tới "
+            + (must + ", " if must else "") + "action_en bằng tiếng Anh, cùng nhân vật chính. Trả JSON đầy đủ cùng schema.")
+    return [{"role": "system", "content": system_prompt(channel)}, {"role": "user", "content": text}]
 
 
 def messages(brief: dict, data: dict, channel: dict, feedback: list[str] | None = None) -> list[dict[str, str]]:
@@ -127,11 +155,13 @@ def schema(data: dict) -> dict:
              "required": ["text", "characters", "action_en"], "additionalProperties": False}
     return {"type": "object",
             "properties": {"title": {"type": "string", "minLength": 6, "maxLength": story_mod.TITLE_MAX + 10},
+                           "hook": {"type": "string", "minLength": 10, "maxLength": 110},
+                           "hook_text": {"type": "string", "minLength": 4, "maxLength": 32},
                            "scenes": {"type": "array", "items": scene, "minItems": story_mod.N_SCENES,
                                       "maxItems": story_mod.N_SCENES},
                            "description": {"type": "string", "maxLength": 1200},
                            "hashtags": {"type": "array", "items": {"type": "string", "maxLength": 40}, "maxItems": 4}},
-            "required": ["title", "scenes", "description", "hashtags"], "additionalProperties": False}
+            "required": ["title", "hook", "hook_text", "scenes", "description", "hashtags"], "additionalProperties": False}
 
 
 def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:

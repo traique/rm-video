@@ -108,7 +108,8 @@ def _good_story(brief):
         base[k] += " Nắng vàng nhẹ nhàng."
     scenes = [{"text": t, "characters": ["white_rabbit", "brown_bear"], "action_en": "White Rabbit talks to Brown Bear"}
               for t in base]
-    return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "scenes": scenes, "description": "Truyện dạy bé xin lỗi.",
+    return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "hook": f"Ôi, {vis[0]} của Thỏ Trắng rớt mất rồi, làm sao đây?",
+            "hook_text": "rớt mất rồi", "scenes": scenes, "description": "Truyện dạy bé xin lỗi.",
             "hashtags": ["#BeXinLoi", "bai hoc"]}
 
 
@@ -121,7 +122,7 @@ def test_validate_good_and_bad():
     bad["scenes"] = bad["scenes"][:7]
     bad["scenes"][0]["text"] = "Hai bạn chơi với nhau chết."
     probs = story.validate(bad, brief, DATA)
-    assert any("8 cảnh" in p for p in probs) and any("câu hỏi" in p for p in probs) and any("chết" in p for p in probs)
+    assert any("8 cảnh" in p for p in probs) and any("chết" in p for p in probs)
     assert any("chữ" in p for p in probs)
     sad = json.loads(json.dumps(st))
     sad["scenes"][7]["text"] = "Thỏ Trắng ngồi khóc một mình. Các bé ơi, nhớ xin lỗi nha."
@@ -203,12 +204,19 @@ def test_prompts_and_schema():
     assert all(f"«{w['vi']}»" in u for w in story.must_mention(brief, DATA)) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
     assert story.must_mention(brief, DATA) and len(story.must_mention(brief, DATA)) <= len(brief["words"])
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
-    assert "Chào các bé" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "điệp khúc" in u
+    assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
-    assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "scenes", "description",
-                                                                                       "hashtags"}
+    assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "hook", "hook_text", "scenes",
+                                                                                       "description", "hashtags"}
+    st0 = story.normalize(_good_story(brief), DATA)
+    assert st0["hook_text"] == "RỚT MẤT RỒI!" and st0["hook"].endswith("?")
+    bad_hook = dict(st0, hook="Thỏ Trắng đi chơi", hook_text="a")
+    probs = story.validate(bad_hook, brief, DATA)
+    assert any("`hook`" in q for q in probs) and any("`hook_text`" in q for q in probs)
+    rv = prompts.revise_messages(st0, brief, DATA, {"name": "Kể Bé Nghe"})
+    assert "checklist" in rv[1]["content"] and "nhân quả" in rv[1]["content"] and st0["hook"] in rv[1]["content"]
     assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 60    # grammar ép độ dài cảnh
     assert len(prompts.example_sentences()) >= 10 and len(prompts.EXAMPLE) == 8
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
@@ -289,6 +297,18 @@ def test_sub_tokens_drop_quotes():
     assert render.sub_tokens('«Thank you, bạn thân! »') == ["Thank", "you,", "bạn", "thân!"]
 
 
+def test_plan_with_hook():
+    pl = render.plan([2.0] * 8, random.Random(3), recap_dur=2.0, hook_dur=1.6)
+    assert pl["hook"] and pl["hook"]["hook"] and len(pl["clips"]) == 9 and len(pl["scenes"]) == 8
+    assert pl["hook"]["end"] == pytest.approx(max(render.HOOK_MIN, render.HOOK_LEAD + 1.6 + render.HOOK_PAD))
+    assert pl["title_at"] == pl["hook"]["end"] and pl["scenes"][0]["start"] == pl["hook"]["end"]
+    assert pl["scenes"][0]["voice_at"] == pytest.approx(pl["hook"]["end"] + render.STORY_LEAD)
+    assert pl["transitions"][0]["type"] == "smoothup" and len(pl["transitions"]) == 8
+    assert len(render._clip_bounds(pl)) == 9
+    no = render.plan([2.0] * 8, random.Random(3))
+    assert no["hook"] is None and no["title_at"] == 0.0 and len(no["clips"]) == 8
+
+
 def test_plan_fits_max_len():
     """Lời dài (đo thật 236 chữ -> 88,9s): co đệm trước, vẫn quá thì đọc nhanh hơn; không bao giờ quá MAX_LEN khi còn co được."""
     pl = render.plan([9.0] * 8, random.Random(3), recap_dur=6.5)             # tự nhiên ≈ 90,6s
@@ -328,10 +348,14 @@ def test_render_small_video_with_music(tmp_path):
                     "libmp3lame", music], check=True)
     out = str(tmp_path / "out.mp4")
     recap = ({"path": _wav(str(tmp_path / "recap.wav"), 3.0)}, story.recap_text(brief))
+    hook = ({"path": _wav(str(tmp_path / "hook.wav"), 1.2)}, "Ôi, trái banh đâu rồi?", "BANH ĐÂU RỒI!")
     res = asyncio.run(render.render(imgs, clips, texts, brief, out, str(tmp_path), music=music, title="Thỏ Trắng học nói",
-                                    channel=kids_auto.channel(), W=180, H=320, fps=12, rnd=random.Random(1), recap=recap))
+                                    channel=kids_auto.channel(), W=180, H=320, fps=12, rnd=random.Random(1), recap=recap,
+                                    hook=hook))
     outro = max(render.OUTRO, render.RECAP_GAP + recap[0]["dur"] + 1.0)
-    assert res["length"] == pytest.approx(8 * render.SCENE_MIN + outro) and recap[0]["dur"] > 2.5
+    pl = res["plan"]
+    assert pl["hook"] and res["length"] == pytest.approx(pl["hook"]["end"] + 8 * render.SCENE_MIN + outro)
+    assert recap[0]["dur"] > 2.5 and "banh đâu" in res["srt"] and res["sfx"]["whoosh"] == 9 and 0.05 in res["hits"]
     assert "Hôm nay mình học" in res["srt"]
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0",
                             out], capture_output=True, text=True).stdout
@@ -340,7 +364,7 @@ def test_render_small_video_with_music(tmp_path):
     ass_text = open(res["ass"], encoding="utf-8").read()
     assert ass_text.count("\\c&H003BD4FF&") >= 8                                   # từ tiếng Anh tô màu mỗi cảnh
     assert "\\fscx86\\fscy86\\t(0,110,\\fscx100\\fscy100)" in ass_text         # phụ đề bật lên
-    assert res["fx"] == "full" and len(res["hits"]) >= 1 and res["sfx"]["whoosh"] == 7 and res["sfx"]["ding"] >= 1
+    assert res["fx"] == "full" and len(res["hits"]) >= 2 and res["sfx"]["whoosh"] == 9 and res["sfx"]["ding"] >= 1
     assert render.hits_from_words([(1.0, 1.2, "Bịch!"), (1.1, 1.3, "Rầm!"), (2.0, 2.2, "Ối!"), (3.0, 3.1, "nha")]) == [1.0, 2.0]
     # fx=off: như 1.1.0 — không nảy, không tiếng động, không bật chữ
     out2 = str(tmp_path / "out_off.mp4")
@@ -364,6 +388,8 @@ class _FakeSrv:
 
     def chat(self, messages, schema, max_tokens=0, temperature=0.0, seed=None):
         self.calls.append(messages[1]["content"])
+        if getattr(self, "broken_revise", False) and "checklist" in messages[1]["content"]:
+            return "không phải json"
         st = _good_story(self.brief)
         if self.fail_first and len(self.calls) == 1:
             st["scenes"][0]["text"] = "Quá ngắn."
@@ -393,6 +419,16 @@ def test_llm_retries_with_feedback():
     assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["beats"][0][0] == brief["words"][0]["en"]
     assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1 and "accepted_with" in attempts[-1]
     assert f"Ở đây có {brief['words'][0]['vi']} nè." in story.script_text(st)
+    # bộ viết có revise: thêm một lượt soát; bản sửa hỏng JSON thì giữ bản nháp
+    srv = _FakeSrv(brief)
+    srv.revise = True
+    st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
+    assert [a["attempt"] for a in attempts] == [1, "revise"] and attempts[-1]["used"] is True and len(srv.calls) == 2
+    srv = _FakeSrv(brief)
+    srv.revise = True
+    srv.broken_revise = True
+    st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
+    assert attempts[-1]["attempt"] == "revise" and "lỗi" in attempts[-1]["problems"][0] and st["title"]
     with pytest.raises(llm.StoryRejected) as e:                      # luôn quá ngắn: lỗi chặn -> từ chối, kèm các lượt
         llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=_FakeSrv(brief, always_short=True))
     assert len(e.value.attempts) == 1 + llm.RETRIES and e.value.attempts[0]["text"]
@@ -505,13 +541,15 @@ def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
     _LAST_BRIEF[:] = [job.brief]
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
-    assert os.path.exists(out) and len(gem) == 1
+    assert os.path.exists(out) and len(gem) == 2                                  # nháp + tự soát
     prompt, schema = gem[0]
-    assert "Chào các bé" in prompt and "minLength" not in json.dumps(schema) and schema["propertyOrdering"][0] == "title"
+    assert "checklist" in gem[1][0] and "Soát theo checklist" in gem[1][0]
+    assert "`hook`" in prompt and "minLength" not in json.dumps(schema) and schema["propertyOrdering"][0] == "title"
     spec = calls[0]
     assert spec["story"]["title"] and spec["attempts"][-1]["beats"] and "story" in spec
     assert all(f"tiếng Anh là {w['en']}" in story.script_text(spec["story"]) for w in job.brief["words"])
-    assert "Gemini" in job.error and "1 lượt gọi" in job.error and "viết" not in job.error.split("Kaggle (GPU):")[1][:8]
+    assert "Gemini" in job.error and "2 lượt gọi" in job.error and "viết" not in job.error.split("Kaggle (GPU):")[1][:8]
+    assert spec["attempts"][-1]["attempt"] == "revise" and spec["attempts"][-1]["used"] is True
     # Gemini lỗi -> auto: Kaggle viết (không có story trong spec)
     async def boom(*a, **k):
         raise RuntimeError("429 RESOURCE_EXHAUSTED")
@@ -540,7 +578,7 @@ def test_writer_schema_and_backend(monkeypatch):
     sch = writer.gemini_schema(prompts.schema(DATA))
     dumped = json.dumps(sch)
     assert "minLength" not in dumped and "additionalProperties" not in dumped and "enum" in dumped
-    assert sch["propertyOrdering"] == ["title", "scenes", "description", "hashtags"]
+    assert sch["propertyOrdering"] == ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
     seen = []
 
     async def fake(prompt, images=None, schema=None, label="", timeout=60):

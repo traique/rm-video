@@ -75,7 +75,8 @@ async def process_kids(job: Job, tmp: str) -> str:
     job.srt = res.get("srt") or ""
     job.out_dur = float(res.get("duration") or 0.0)
     attempts = res.get("attempts") or []
-    job.script = (f"🧸 {title}\n{story_mod.describe(brief, data)}\n\n" + story_mod.script_text(st)
+    job.script = (f"🧸 {title}\n{story_mod.describe(brief, data)}\n\n"
+                  + (f"🎣 {st.get('hook')} [{st.get('hook_text')}]\n\n" if st.get("hook") else "") + story_mod.script_text(st)
                   + (f"\n\n(model viết {len(attempts)} lượt)" if len(attempts) > 1 else ""))
     t = res.get("timings") or {}
     job.note("ℹ️ Kaggle (GPU): " + (f"viết {t.get('llm', 0):.0f}s, " if not st0 else "")

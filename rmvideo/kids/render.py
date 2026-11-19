@@ -45,13 +45,20 @@ SFX_WHOOSH_DB, SFX_DING_DB = -21.0, -17.0
 
 
 RECAP_GAP = 0.5        # câu ôn từ bắt đầu sau khi vào màn kết chừng này
+# Mở đầu «móc» (19/11): 3 giây đầu là ảnh cảnh biến cố + câu móc (câu hỏi/câu cảm) đọc ngay + chữ to, zoom nhanh + whoosh;
+# thẻ tiêu đề lùi ra sau, ngắn lại; lời kể bắt đầu sớm hơn.
+HOOK_LEAD, HOOK_PAD, HOOK_MIN = 0.25, 0.45, 2.6
+HOOK_IMAGE = 2         # ảnh cảnh 3 (chuyện xảy ra) dùng cho mở đầu
+HOOK_STRENGTH = 1.7    # zoom mạnh hơn cảnh thường
+STORY_LEAD = 0.9       # cảnh 1 (sau móc): lời bắt đầu sau chừng này
+TITLE_LEN = 2.2        # thẻ tiêu đề hiện chừng này giây (từ lúc hết móc)
 MAX_LEN = 87.0         # Reels nhận tới 90s, QA (job.DUR_MAX) 88s: kế hoạch tự co vào mức này (đo thật: 236 chữ -> 88,9s)
 PAD_MIN, GAP_MIN = 0.4, 0.15   # đệm tối thiểu khi phải co
 TEMPO_MAX = 1.15       # co đệm chưa đủ thì giọng đọc nhanh hơn, tối đa chừng này (atempo, nghe vẫn tự nhiên)
 
 
 def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: float = 0.0,
-         max_len: float = MAX_LEN) -> dict:
+         max_len: float = MAX_LEN, hook_dur: float = 0.0) -> dict:
     """durs: độ dài TIẾNG NÓI từng cảnh -> {"scenes": [{start, end, voice_at, motion}], "transitions": [{start, dur,
     type}], "length", "outro_at", "recap_at", "factor", "pad", "gap"}. Chuyển cảnh j nằm giữa ranh giới cảnh j và
     j+1 (lấn mỗi bên XFADE/2). recap_dur: câu ôn từ đọc trong màn kết -> màn kết dài ra cho vừa.
@@ -59,48 +66,64 @@ def plan(durs: Sequence[float], rnd: random.Random | None = None, recap_dur: flo
     compose_voice dùng atempo=factor, độ dài giọng trong kế hoạch là d/factor)."""
     seed = (rnd or random.Random(0)).random()   # cùng hạt -> cùng chuyển động dù xếp lại mấy lần
     voice = [float(d) for d in durs]
-    pl = _lay(voice, seed, float(recap_dur), PAD, GAP, 1.0)
+    hd = float(hook_dur or 0.0)
+    pl = _lay(voice, seed, float(recap_dur), PAD, GAP, 1.0, hd)
     if pl["length"] > max_len:
-        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, 1.0)
+        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, 1.0, hd)
     f = 1.0
     for _ in range(4):                      # cảnh ngắn bị chặn dưới SCENE_MIN nên tính lặp vài vòng cho đúng
         if pl["length"] <= max_len or f >= TEMPO_MAX:
             break
-        spoken = (sum(voice) + float(recap_dur)) / f
+        spoken = (sum(voice) + float(recap_dur) + hd) / f
         fixed = pl["length"] - spoken
         f = min(TEMPO_MAX, f * spoken / max(1.0, max_len - fixed) + 0.002)
-        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, f)
+        pl = _lay(voice, seed, float(recap_dur), PAD_MIN, GAP_MIN, f, hd)
     return pl
 
 
-def _lay(voice: list[float], seed: float, recap_dur: float, pad: float, gap: float, f: float) -> dict:
+def _lay(voice: list[float], seed: float, recap_dur: float, pad: float, gap: float, f: float,
+         hook_dur: float = 0.0) -> dict:
+    """clips = [móc?] + 8 cảnh; scenes = 8 cảnh truyện; hook = clip móc (ảnh cảnh 3, zoom nhanh) hoặc None."""
     rnd = random.Random(seed)
     outro = max(OUTRO, RECAP_GAP + recap_dur / f + 1.0) if recap_dur else OUTRO
-    scenes: list[dict] = []
+    clips: list[dict] = []
     t = 0.0
     prev = ""
+    hook: dict | None = None
+    hook_end = 0.0
+    if hook_dur > 0:
+        hook_end = round(max(HOOK_MIN, HOOK_LEAD + hook_dur / f + HOOK_PAD), 3)
+        hook = {"start": 0.0, "end": hook_end, "voice_at": HOOK_LEAD, "motion": "zoom_in", "hook": True}
+        clips.append(hook)
+        t = hook_end
+        prev = "zoom_in"
     for i, d in enumerate(voice):
-        lead = INTRO if i == 0 else gap
+        lead = (STORY_LEAD if hook else INTRO) if i == 0 else gap
         length = max(SCENE_MIN, lead + d / f + pad)
         motion = rnd.choice([m for m in MOTIONS if m != prev])
         prev = motion
-        scenes.append({"start": round(t, 3), "end": round(t + length, 3), "voice_at": round(t + lead, 3),
-                       "motion": motion})
+        clips.append({"start": round(t, 3), "end": round(t + length, 3), "voice_at": round(t + lead, 3),
+                      "motion": motion})
         t += length
-    scenes[-1]["end"] = round(t + outro, 3)                      # màn kết đè lên cảnh cuối (ảnh cảnh 8 giữ nguyên)
-    trans = [{"start": round(s["end"] - XFADE / 2, 3), "dur": XFADE, "type": rnd.choice(TRANSITIONS)}
-             for s in scenes[:-1]]
-    return {"scenes": scenes, "transitions": trans, "length": round(t + outro, 3), "outro_at": round(t, 3),
+    clips[-1]["end"] = round(t + outro, 3)                       # màn kết đè lên cảnh cuối (ảnh cảnh 8 giữ nguyên)
+    trans = [{"start": round(c["end"] - XFADE / 2, 3), "dur": XFADE, "type": rnd.choice(TRANSITIONS)}
+             for c in clips[:-1]]
+    if hook:
+        trans[0] = {"start": round(hook_end - 0.15, 3), "dur": 0.3, "type": "smoothup"}   # vào truyện dứt khoát
+    scenes = clips[1:] if hook else clips
+    return {"scenes": scenes, "clips": clips, "hook": hook, "title_at": hook_end,
+            "transitions": trans, "length": round(t + outro, 3), "outro_at": round(t, 3),
             "recap_at": round(t + RECAP_GAP, 3), "factor": round(f, 4), "pad": pad, "gap": gap}
 
 
 def _clip_bounds(pl: dict) -> list[tuple[float, float]]:
-    """[(đầu, cuối)] của từng clip trên trục video: lấn sang chuyển cảnh hai bên."""
+    """[(đầu, cuối)] của từng clip ([móc?] + 8 cảnh) trên trục video: lấn sang chuyển cảnh hai bên."""
     out = []
     tr = pl["transitions"]
-    for j, s in enumerate(pl["scenes"]):
+    clips = pl.get("clips") or pl["scenes"]
+    for j, s in enumerate(clips):
         a = 0.0 if j == 0 else tr[j - 1]["start"]
-        b = pl["length"] if j == len(pl["scenes"]) - 1 else tr[j]["start"] + tr[j]["dur"]
+        b = pl["length"] if j == len(clips) - 1 else tr[j]["start"] + tr[j]["dur"]
         out.append((a, b))
     return out
 
@@ -117,26 +140,39 @@ def _fade_alpha(t0: float, t1: float, d: float = 0.35) -> str:
 
 
 def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tuple[float, str, str]], channel: dict,
-             W: int, H: int, work: str) -> str:
-    """Chuỗi bộ lọc chữ: thẻ tiêu đề, thẻ nghĩa từ, màn kết. words: [{en, vi}] của đề; glosses: [(giây, en, vi)]."""
+             W: int, H: int, work: str, hook_text: str = "") -> str:
+    """Chuỗi bộ lọc chữ: chữ móc to (3 giây đầu), thẻ tiêu đề, thẻ nghĩa từ, màn kết. words: [{en, vi}] của đề;
+    glosses: [(giây, en, vi)]."""
     k = H / 1280
     out = ""
     T = pl["length"]
-    # thẻ tiêu đề 0..TITLE_UNTIL: dải tối mờ + tiêu đề (tối đa 3 dòng, cỡ theo font thật) + tên kênh nhỏ
+    hook = pl.get("hook")
+    if hook and hook_text:
+        hl, hfs = renderer.title_layout(hook_text, W, H)
+        hfs = int(min(hfs * 1.25, 92 * k))
+        hfiles = renderer.write_lines("\n".join(hl), work, "khk")
+        a, b = 0.15, round(hook["end"] - 0.1, 2)
+        al = _fade_alpha(a, b, 0.2)
+        y0 = int(H * 0.17)
+        for i, p in enumerate(hfiles):
+            out += _dt(p, hfs, str(y0 + i * int(hfs * 1.2)), f"between(t,{a},{b})", "0xFFE082", "", al)
+    # thẻ tiêu đề (sau móc, hoặc từ giây 0 khi không có móc): dải tối mờ + tiêu đề (tối đa 3 dòng) + tên kênh nhỏ
+    t0 = float(pl.get("title_at") or 0.0)
+    t1 = round(t0 + (TITLE_LEN if hook else TITLE_UNTIL), 2)
     lines, fs = renderer.title_layout(title or "", W, H)
     if lines:
         lh = int(fs * 1.25)
         files = renderer.write_lines("\n".join(lines), work, "kt")
         top = int(H * 0.30)
         out += (f",drawbox=x=0:y={top - int(28 * k)}:w=iw:h={lh * len(files) + int(56 * k)}:color=black@0.38:t=fill:"
-                f"enable='between(t,0,{TITLE_UNTIL})'")
-        al = _fade_alpha(0.0, TITLE_UNTIL)
+                f"enable='between(t,{t0:.2f},{t1})'")
+        al = _fade_alpha(t0, t1)
         for i, p in enumerate(files):
-            out += _dt(p, fs, str(top + i * lh), f"between(t,0,{TITLE_UNTIL})", "white", "", al)
+            out += _dt(p, fs, str(top + i * lh), f"between(t,{t0:.2f},{t1})", "white", "", al)
         name = channel.get("name") or ""
         if name:
             nf = renderer.write_lines(f"{name} · {channel.get('world', '')}".strip(" ·"), work, "kn")
-            out += _dt(nf[0], int(fs * 0.55), str(top + len(files) * lh + int(6 * k)), f"between(t,0,{TITLE_UNTIL})",
+            out += _dt(nf[0], int(fs * 0.55), str(top + len(files) * lh + int(6 * k)), f"between(t,{t0:.2f},{t1})",
                        "0xFFE082", "", al)
     # thẻ nghĩa: «sorry = xin lỗi» ở 11% chiều cao, hộp xanh, khi từ được đọc lần đầu
     for j, (at, en, vi) in enumerate(glosses):
@@ -182,12 +218,13 @@ def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps:
     parts = []
     bounds = _clip_bounds(pl)
     motion_on = fx != "off"
+    clips = pl.get("clips") or pl["scenes"]
     for j, (a, b) in enumerate(bounds):
         w, h = sizes[j]
         nf = max(2, int(round((b - a) * fps)) + 1)
         pulses = list(hits) if motion_on else []
-        z, x, y = slideshow.zoompan_expr(pl["scenes"][j]["motion"], "calm", nf, a, pulses, pulses, b,
-                                         1.25 if motion_on else 1.0)
+        strength = HOOK_STRENGTH if clips[j].get("hook") else (1.25 if motion_on else 1.0)
+        z, x, y = slideshow.zoompan_expr(clips[j]["motion"], "calm", nf, a, pulses, pulses, b, strength)
         if motion_on:
             z = f"({z})+{BREATH[0]}*sin(2*PI*({a:.4f}+on/{fps})/{BREATH[1]})"
         parts.append(f"{slideshow._prep(j, w, h, W, H)},zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={fps},"
@@ -293,12 +330,14 @@ def audio_graph(voice_idx: int, music_idx: int | None, gain_db: float, total: fl
 
 
 async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
-                         recap: tuple[dict, str] | None = None) -> list:
+                         recap: tuple[dict, str] | None = None, hook: tuple | None = None) -> list:
     """[(start, end, chữ, cảnh)] rải theo khoảng có tiếng của từng đoạn giọng (đo năng lượng, không cần mốc từ)."""
     out = []
     items = [(cl, sc["voice_at"], text) for cl, sc, text in zip(clips, pl["scenes"], texts)]
     if recap and recap[0].get("path"):
         items.append((recap[0], pl["recap_at"], recap[1]))
+    if hook and hook[0].get("path") and pl.get("hook"):
+        items.append((hook[0], pl["hook"]["voice_at"], hook[1]))
     f = float(pl.get("factor") or 1.0)        # giọng đọc nhanh hơn: mốc có tiếng cũng dồn lại theo
     for k, (cl, at, text) in enumerate(items):
         if not cl.get("path") or not text.strip():
@@ -341,9 +380,10 @@ def gloss_times(words_timed: Sequence[tuple], brief_words: Sequence[dict]) -> li
 async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[str], brief: dict, out: str, tmp: str,
                  music: str | None = None, title: str = "", channel: dict | None = None, W: int = 1080, H: int = 1920,
                  fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None,
-                 fx: str = "full") -> dict:
+                 fx: str = "full", hook: tuple[dict, str, str] | None = None) -> dict:
     """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). recap: (clip, lời) câu ôn từ đọc trong màn
     kết. fx: full (chuyển động + hạt + tiếng động) | motion (chỉ chuyển động, phụ đề bật) | off (như 1.1.0).
+    hook: (clip, câu móc đọc, chữ to) -> 3 giây đầu là ảnh cảnh 3 zoom nhanh + câu móc + chữ to, tiêu đề lùi ra sau.
     Trả {"length", "plan", "srt", "ass", "hits", "sfx"}."""
     channel = channel or {}
     rnd = rnd or random.Random(0)
@@ -354,12 +394,19 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     recap_dur = 0.0
     if recap and recap[0].get("path"):
         recap_dur = await voiceplan.speech_duration(recap[0]["path"])
-    pl = plan(durs, rnd, recap_dur)
+    hook_dur = 0.0
+    if hook and hook[0].get("path"):
+        hook_dur = await voiceplan.speech_duration(hook[0]["path"])
+    else:
+        hook = None
+    pl = plan(durs, rnd, recap_dur, hook_dur=hook_dur)
     f = pl["factor"]
     for c, d in zip(clips, durs):
         c["dur"] = d / f                     # độ dài sau khi đọc nhanh hơn (nếu phải co)
     if recap_dur:
         recap[0]["dur"] = recap_dur / f      # type: ignore[index]
+    if hook:
+        hook[0]["dur"] = hook_dur / f
     total = pl["length"]
     if f > 1.0 or pl["pad"] < PAD:
         logging.info("Truyện bé: lời dài, co đệm còn %.2fs và đọc nhanh hơn x%.3f để vừa %.0fs", pl["pad"], f, MAX_LEN)
@@ -368,9 +415,12 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     if recap_dur:
         all_clips.append(recap[0])  # type: ignore[index]
         vplan.append({"start": pl["recap_at"], "factor": f, "end": pl["recap_at"] + recap_dur / f})
+    if hook:
+        all_clips.append(hook[0])
+        vplan.append({"start": pl["hook"]["voice_at"], "factor": f, "end": pl["hook"]["voice_at"] + hook_dur / f})
     voice = os.path.join(work, "voice.wav")
     await voiceplan.compose_voice(all_clips, vplan, voice, total)
-    words = await subtitle_words(clips, pl, texts, recap)
+    words = await subtitle_words(clips, pl, texts, recap, hook)
     from rmvideo.kids import story as story_mod
     ass = os.path.join(work, "subs.ass")
     hi = story_mod.english_tokens(brief)
@@ -380,11 +430,17 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     sizes = [await asyncio.to_thread(slideshow.image_size, p) for p in images]
     avail = await asyncio.to_thread(slideshow.xfade_transitions)
     hits = hits_from_words(words) if fx != "off" else []
+    imgs_all = list(images)
+    if hook:                                            # clip móc dùng ảnh cảnh 3 (chuyện xảy ra)
+        imgs_all = [images[min(HOOK_IMAGE, len(images) - 1)]] + imgs_all
+        sizes = [sizes[min(HOOK_IMAGE, len(sizes) - 1)]] + list(sizes)
+        if fx != "off":
+            hits = sorted(set([0.05] + hits))           # nảy + whoosh ngay giây đầu
     fc = video_graph(pl, sizes, W, H, fps, avail, hits, fx)
     inputs: list[str] = []
-    for p in images:
+    for p in imgs_all:
         inputs += ["-i", p]
-    voice_idx = len(images)
+    voice_idx = len(imgs_all)
     inputs += ["-i", voice]
     next_idx = voice_idx + 1
     top = "[vx]"
@@ -395,7 +451,8 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
         fc += ";" + particle_graph(next_idx, len(sp), W, H, rnd)
         next_idx += len(sp)
         top = "[vp]"
-    fc += f";{top}" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work).lstrip(",")
+    fc += f";{top}" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work,
+                               hook[2] if hook else "").lstrip(",")
     fc += (f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},fade=t=in:st=0:d=0.3,"
            f"fade=t=out:st={max(0.0, total - 0.5):.2f}:d=0.5,format=yuv420p[v];")
     events: dict[str, list[float]] = {}
@@ -406,7 +463,8 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
             inputs += ["-i", p]
             sidx[name] = next_idx
             next_idx += 1
-        events = {"whoosh": [tr["start"] for tr in pl["transitions"]], "ding": [g[0] for g in glosses]}
+        events = {"whoosh": ([0.0] if hook else []) + [tr["start"] for tr in pl["transitions"]],
+                  "ding": [g[0] for g in glosses]}
         sg = sfx_graph(sidx, events)
         if sg:
             fc += sg + ";"
@@ -426,7 +484,7 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
             gain = max(-45.0, min(6.0, ((vo_db if vo_db is not None and vo_db > -70 else -20.0) - BGM_BELOW) - mu_db))
     fc += audio_graph(voice_idx, music_idx, gain, total, sfx=bool(events))
     fc = await renderer.two_pass_loudness(fc, inputs, total)
-    logging.info("Truyện bé: dựng %d cảnh, %.1fs, nhạc nền %s, hiệu ứng %s (%d cú nảy, %d tiếng động)", len(images),
+    logging.info("Truyện bé: dựng %d cảnh, %.1fs, nhạc nền %s, hiệu ứng %s (%d cú nảy, %d tiếng động)", len(imgs_all),
                  total, f"{gain:+.0f} dB" if music_idx is not None else "không", fx, len(hits),
                  sum(len(v) for v in events.values()))
     await ff._run_ffmpeg("-y", *ff.thread_args(), *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",

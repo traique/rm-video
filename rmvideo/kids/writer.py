@@ -29,7 +29,7 @@ def gemini_schema(schema: dict) -> dict:
             return [clean(x) for x in node]
         return node
     out = clean(copy.deepcopy(schema))
-    out["propertyOrdering"] = ["title", "scenes", "description", "hashtags"]
+    out["propertyOrdering"] = ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
     return out
 
 
@@ -40,6 +40,7 @@ class GeminiBackend:
         self.model = model or config.GEMINI_MODEL
         self.log = log
         self.calls = 0
+        self.revise = True          # thêm một lượt tự soát (liền mạch, hấp dẫn) — rẻ với Gemini, bỏ qua với Qwen
 
     def start(self) -> None:
         if not config.GEMINI_API_KEY:

@@ -240,6 +240,12 @@ gemini-3.5-flash-lite; 1 lượt gọi mỗi truyện, +1 mỗi lần viết l�
 việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút); Gemini lỗi / hết hạn mức thì Qwen trên Kaggle viết
 thay. `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle.
 
+3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–16 chữ về chuyện sắp xảy ra, đọc ngay
+giây 0,25) trên ảnh cảnh biến cố zoom nhanh, chữ to `hook_text` (2–5 chữ in hoa), whoosh + nảy; thẻ tiêu đề lùi ra sau và chỉ
+còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** bản nháp một lượt theo checklist (móc có gây tò mò, cảnh sau xảy ra
+vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được
+nhận khi qua bộ kiểm và không tệ hơn bản nháp (+1 lượt gọi, ~3 giây; Qwen trên Kaggle không soát).
+
 Hiệu ứng động (`KIDS_FX`, mặc định `full`, FFmpeg thuần): Ken Burns mạnh hơn có nhịp "thở", nảy zoom + rung máy đúng lúc lời có
 tiếng động (Bịch! Rầm! Ối!), hạt bokeh bay nhẹ, vignette, phụ đề bật lên, tiếng whoosh khi chuyển cảnh và "ting" khi dạy từ (tiếng
 động tự tạo, không cần file bản quyền). `motion` = chỉ chuyển động + chữ bật; `off` = Ken Burns nhẹ như 1.1.0.

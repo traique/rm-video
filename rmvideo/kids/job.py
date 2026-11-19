@@ -64,9 +64,11 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     synth = kaggle_job.make_synth(spec, None)
     recap = story_mod.recap_text(brief)             # câu ôn từ (mã viết) đọc trong màn kết: mỗi từ chắc chắn được nghe kèm nghĩa
-    voiced = await synth(list(enumerate(texts + [recap])), tmp)
+    hook = (st.get("hook") or "").strip()           # câu móc 3 giây đầu (đọc trước truyện)
+    voiced = await synth(list(enumerate(texts + [recap, hook])), tmp)
     clips = [voiced.get(k) or {"path": None} for k in range(len(texts))]
     recap_clip = voiced.get(len(texts)) or {"path": None}
+    hook_clip = (voiced.get(len(texts) + 1) or {"path": None}) if hook else {"path": None}
     t["tts"] = round(time.time() - t0, 1)
     notes: list[str] = []
     music = None
@@ -81,7 +83,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     res = await render.render(imgs, clips, texts, brief, out, tmp, music=music, title=st["title"],
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
                               recap=(recap_clip, recap) if recap_clip.get("path") else None,
-                              fx=str(spec.get("fx") or "full"))
+                              fx=str(spec.get("fx") or "full"),
+                              hook=(hook_clip, hook, st.get("hook_text") or "") if hook_clip.get("path") else None)
     t["render"] = round(time.time() - t0, 1)
     sj = os.path.join(tmp, "story.json")
     with open(sj, "w", encoding="utf-8") as f:

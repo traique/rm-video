@@ -31,6 +31,7 @@ WORDS_HARD = 95                        # dưới mức này thì không chấp n
 EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng chữ tiếng Việt («run rẩy»): không coi là chen tiếng Anh
 SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
+HOOK_WORDS = (4, 16)                   # câu móc 3 giây đầu: 4-16 chữ
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
@@ -43,13 +44,13 @@ BANNED = ("chết", "máu", "giết", "đánh nhau", "ma quỷ", "con ma", "sún
 # 8 nhịp của một truyện mầm non (học từ truyện kể cho bé 3-5 tuổi: mở bằng lời chào, một chuyện nhỏ, thử ba lần với một câu
 # điệp khúc, bạn giúp, bài học nói nhẹ qua lời nhân vật, kết nhắn nhủ các bé)
 SCENE_ROLES = (
-    "chào các bé, giới thiệu nhân vật chính đang ở đâu, làm gì (vui vẻ)",
+    "vào thẳng chuyện: nhân vật chính đang ở đâu, làm gì, đang vui (1-2 câu, KHÔNG chào hỏi dài; câu móc đã nói trước đó)",
     "bạn ấy muốn làm một việc nhỏ (chơi, giúp, làm quà...) và bắt đầu làm",
     "chuyện xảy ra: có tiếng động (Bịch! Ối! Rầm!), có vấn đề",
-    "thử cách thứ nhất — chưa được; nói câu điệp khúc lần 1",
-    "thử cách thứ hai — vẫn chưa được, hơi buồn; câu điệp khúc lần 2",
-    "một bạn tới giúp hoặc gợi ý, thử lần ba — được rồi! câu điệp khúc lần 3 (đổi kết vui)",
-    "bài học: một bạn nói nhẹ nhàng một câu, bạn chính gật đầu",
+    "VÌ chuyện đó, bạn ấy thử cách thứ nhất (cụ thể) — chưa được, có chút hài; câu điệp khúc lần 1",
+    "thử cách thứ hai KHÁC hẳn cách một, to tát hơn — vẫn chưa được, hơi buồn; câu điệp khúc lần 2",
+    "một bạn tới gợi ý cách thứ ba (nhờ bạn / nghĩ khác đi) — được rồi! câu điệp khúc lần 3 (đổi kết vui)",
+    "bài học rút ra từ chính chuyện vừa xảy ra: một bạn nói nhẹ nhàng một câu, bạn chính gật đầu",
     "kết vui: các bạn cùng chơi/cười; câu cuối nhắn nhủ «các bé» (hỏi bé hoặc dặn bé một câu)",
 )
 
@@ -204,8 +205,11 @@ def normalize(story: dict, data: dict) -> dict:
         t = "#" + re.sub(r"[^0-9a-z]", "", _ascii(str(t)).lower().lstrip("#"))
         if len(t) > 2 and t not in tags:
             tags.append(t)
+    hook = south_kids(re.sub(r"\s+", " ", str(story.get("hook") or "")).strip().strip('"«»'))[:120]
+    hook_text = re.sub(r"\s+", " ", str(story.get("hook_text") or "")).strip().strip('"«»!.').upper()[:36]
     return {"title": sentence_case(south_kids(re.sub(r"\s+", " ", str(story.get("title") or "")).strip().strip('"«»')[:TITLE_MAX]),
                                    chars),
+            "hook": hook, "hook_text": (hook_text + "!") if hook_text else "",
             "scenes": scenes,
             "description": south_kids(re.sub(r"[ \t]+", " ", str(story.get("description") or "")).strip()[:1500]),
             "hashtags": tags[:4]}
@@ -251,7 +255,8 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         if not is_greeting(w, data) and not vi_mentioned(full, w, data):
             problems.append(f"truyện phải nhắc tới «{w['vi']}» (đồ vật / màu / con vật / việc bé học hôm nay), kể tự nhiên")
     foreign = [w["en"] for w in data["words"] if w["en"] not in EN_ALSO_VI
-               and count_word(full + " " + story.get("title", ""), w["en"])]
+               and count_word(" ".join([full, story.get("title", ""), story.get("hook", ""), story.get("hook_text", "")]),
+                              w["en"])]
     if foreign:
         problems.append("truyện và tiêu đề viết THUẦN tiếng Việt, không chen tiếng Anh (" + ", ".join(foreign[:5])
                         + "): phần tiếng Anh mã sẽ tự thêm")
@@ -260,8 +265,14 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         problems.append(f"thiếu nhân vật chính {main['name_vi']}")
     if sum(1 for c in data["characters"].values() if c["name_vi"].lower() in low) < 2:
         problems.append("cần ít nhất một bạn nữa ngoài nhân vật chính (Gấu Nâu, Mèo Cam, Sóc Nhỏ...)")
-    if texts and not re.search(r"[?!]", texts[0]):
-        problems.append("cảnh 1 phải có một câu hỏi hoặc câu cảm để gây tò mò")
+    hook = story.get("hook") or ""
+    nh = word_count(hook)
+    if not (HOOK_WORDS[0] <= nh <= HOOK_WORDS[1]) or not re.search(r"[?!]", hook):
+        problems.append(f"`hook` phải là MỘT câu hỏi/câu cảm {HOOK_WORDS[0]}-{HOOK_WORDS[1]} chữ gây tò mò về chuyện sắp "
+                        f"xảy ra (đang {nh} chữ)")
+    nt = word_count((story.get("hook_text") or "").rstrip("!"))
+    if not (2 <= nt <= 5):
+        problems.append(f"`hook_text` phải 2-5 chữ in hoa hiện to trên màn hình (đang {nt} chữ)")
     lesson = by_id(data["lessons"], brief.get("lesson", ""))
     if lesson and not any(k in low for k in lesson.get("keywords", [])):
         problems.append(f"cảnh 7 phải nói rõ bài học «{lesson['vi']}» (dùng chữ: {', '.join(lesson['keywords'])})")

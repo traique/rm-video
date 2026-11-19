@@ -225,6 +225,30 @@ def backend(spec_llm: dict, tmp: str, log: Log = logging.info) -> Server | PyBac
     return PyBackend(model, int(spec_llm.get("n_ctx") or N_CTX), log)
 
 
+def _revise(run: Any, st: dict, attempts: list[dict], brief: dict, data: dict, channel: dict, log: Log) -> tuple[dict, list[dict]]:
+    """Bộ viết có revise=True (Gemini: thêm 1 lượt, ~3 giây): tự soát bản nháp theo checklist liền mạch / hấp dẫn và
+    sửa; bản sửa phải qua bộ kiểm, không thì giữ bản nháp. Bản sửa chỉ được nhận khi không tệ hơn (ít lỗi hơn hoặc bằng)."""
+    if not getattr(run, "revise", False):
+        return st, attempts
+    t0 = time.time()
+    try:
+        raw = run.chat(prompts.revise_messages(st, brief, data, channel), prompts.schema(data),
+                       seed=int(brief.get("seed") or 0) + 99)
+        st2 = story_mod.normalize(parse_json(raw), data)
+    except Exception as e:                           # lỗi mạng / JSON hỏng: giữ bản nháp
+        attempts.append({"attempt": "revise", "problems": [f"lỗi: {str(e)[:100]}"], "secs": round(time.time() - t0, 1)})
+        return st, attempts
+    problems = story_mod.validate(st2, brief, data, prompts.example_sentences())
+    base = story_mod.validate(st, brief, data, prompts.example_sentences())
+    ok = len(problems) <= len(base) and not story_mod.blocking(st2, brief, data)
+    attempts.append({"attempt": "revise", "problems": problems, "secs": round(time.time() - t0, 1), "used": ok,
+                     "words": sum(story_mod.word_count(x["text"]) for x in st2["scenes"]),
+                     "text": story_mod.script_text(st2)[:1500]})
+    log(f"Truyện bé: soát lại {attempts[-1]['secs']}s, {attempts[-1]['words']} chữ, "
+        + ("dùng bản sửa" if ok else f"giữ bản nháp ({'; '.join(problems)[:160]})"))
+    return (st2 if ok else st), attempts
+
+
 class Backend(Protocol):
     """Bộ viết: llama-server (Kaggle), llama_cpp (dự phòng) hay Gemini trên Botkeep (rmvideo.kids.writer)."""
 
@@ -281,6 +305,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
             log(f"Truyện bé: lượt {k + 1} {attempts[-1]['secs']}s, {attempts[-1]['words']} chữ"
                 + (f", lỗi: {'; '.join(problems)[:300]}" if problems else ", đạt"))
             if not problems:
+                st, attempts = _revise(run, st, attempts, brief, data, channel, log)
                 attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
                 return st, attempts
             score = (len(hard), len(problems))
@@ -292,6 +317,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
             run.stop()
     if best is not None and not story_mod.blocking(best[1], brief, data):
         st = best[1]
+        st, attempts = _revise(run, st, attempts, brief, data, channel, log)
         soft = story_mod.validate(st, brief, data, prompts.example_sentences())
         attempts[-1]["accepted_with"] = soft
         attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
