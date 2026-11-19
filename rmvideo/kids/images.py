@@ -35,6 +35,10 @@ MODELS: dict[str, dict[str, Any]] = {
                 "names": ("schnell", "flux"), "mirrors": ("Niansuh/FLUX.1-schnell", "cocktailpeanut/xulf-s")},
     "zimage": {"repo": "Tongyi-MAI/Z-Image-Turbo", "steps": 8, "guidance": 0.0, "kind": "zimage",
                "names": ("z-image", "zimage", "z_image")},
+    # FLUX.1-dev: giấy phép PHI THƯƠNG MẠI (kênh không bật kiếm tiền mới dùng); repo gốc gated -> bản sao công khai; 20 bước
+    # guidance 3,5, chậm ~6 lần schnell trên T4 (thử 19/11)
+    "dev": {"repo": "camenduru/FLUX.1-dev-diffusers", "steps": 20, "guidance": 3.5, "kind": "flux",
+            "names": ("flux-dev", "dev", "flux1-dev")},
 }
 Log = Callable[[str], None]
 
