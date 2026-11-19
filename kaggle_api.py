@@ -150,10 +150,16 @@ def dataset_push(slug: str, title: str, files: list, notes: str = "") -> dict:
 
 
 def dataset_wait(slug: str, timeout: float = 900, every: float = 15, sleep=time.sleep) -> str:
-    """Chờ phiên bản mới nhất của dataset xử lý xong (READY); FAILED / quá giờ thì KaggleError."""
+    """Chờ phiên bản mới nhất của dataset xử lý xong (READY); FAILED / quá giờ thì KaggleError. Đo thật 19/11/2026: ngay sau
+    CreateDataset, GetDatasetStatus trả 403 «datasets.get denied» chừng một phút rồi mới READY -> 403/404 coi là đang xử lý."""
     t0 = time.time()
     while True:
-        st = str(dataset_status(slug).get("status") or "")
+        try:
+            st = str(dataset_status(slug).get("status") or "")
+        except KaggleError as e:
+            if not any(k in str(e) for k in ("403", "404", "denied", "NOT_FOUND", "not found")):
+                raise
+            st = "đang xử lý"
         if st == "READY":
             return st
         if st in ("FAILED", "DELETED"):

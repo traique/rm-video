@@ -465,6 +465,18 @@ def test_kaggle_dataset_push(tmp_path, monkeypatch):
     seq = iter(["BLOBS_RECEIVED", "READY"])
     monkeypatch.setattr(kaggle_api, "dataset_status", lambda slug: {"status": next(seq)})
     assert kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None) == "READY"
+    seq2 = iter([None, None, "READY"])                       # 403 lúc đang xử lý ngay sau khi tạo (đo thật 19/11)
+
+    def st403(slug):
+        v = next(seq2)
+        if v is None:
+            raise kaggle_api.KaggleError("Token Kaggle sai hoặc hết hạn (403). Tạo token mới...")
+        return {"status": v}
+    monkeypatch.setattr(kaggle_api, "dataset_status", st403)
+    assert kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None) == "READY"
+    monkeypatch.setattr(kaggle_api, "dataset_status", lambda slug: (_ for _ in ()).throw(kaggle_api.KaggleError("Kaggle lỗi 500")))
+    with pytest.raises(kaggle_api.KaggleError):
+        kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None)
     monkeypatch.setattr(kaggle_api, "dataset_status", lambda slug: {"status": "FAILED"})
     with pytest.raises(kaggle_api.KaggleError):
         kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None)
