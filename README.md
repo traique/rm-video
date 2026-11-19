@@ -247,7 +247,16 @@ xảy ra, luân phiên; 8 nhịp của khung (đã điền tên nhân vật chí
 suốt»: vật hay việc ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6, 8. Lời thoại: «nha/hen» tối đa 3 lần, câu móc không kết bằng
 «nha», ngoài điệp khúc không câu nào lặp (bộ kiểm bắt, Gemini viết lại).
 
-3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–16 chữ về chuyện sắp xảy ra, đọc ngay
+Kể cho cuốn (19/11, học từ sách tranh — The Gruffalo, We're Going on a Bear Hunt, truyện mầm non): lời nhắc có khối «bí kíp»:
+**hỏi bé** 1–2 lần giữa truyện ở cuối cảnh rồi cảnh sau trả lời (lật trang sách), điệp khúc có **nhịp** hát theo được và ở cảnh 6
+**đảo** theo gợi ý riêng của khung (`plots[].twist`: «Chơi một mình chán ghê!» → «Chơi chung vui ghê!»), thất bại phải **hài** kèm
+tiếng động, cảm xúc tả qua **hành động** (tai cụp, đuôi rũ), mỗi bạn có **nét riêng** / câu cửa miệng (`characters[].quirk_vi`:
+Thỏ Trắng «Ôi chao!», Gấu Nâu «Ừm…», Mèo Cam «meo», Sóc Nhỏ «Hả? Sao vậy?»), cảnh 1 có chi tiết giác quan, câu cuối **vòng lại**
+hình ảnh mở đầu. Bộ kiểm thêm: thiếu câu hỏi cho bé (cảnh 2–6), lời kể gọi «các bạn / cả nhóm» khi hình chỉ có 2 bạn, tiêu đề
+nhắc thứ không có trong truyện; checklist soát của Gemini thêm mục «cuốn chưa?» và yêu cầu nâng bản nháp, không chỉ sửa lỗi.
+Mỗi truyện 3 từ tiếng Anh; câu dạy từ không chen vào cảnh kết, không dồn quá 2 câu một cảnh.
+
+3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–14 chữ về chuyện sắp xảy ra, đọc ngay
 giây 0,25) trên ảnh cảnh biến cố zoom nhanh, chữ to `hook_text` (2–5 chữ in hoa), whoosh + nảy; thẻ tiêu đề lùi ra sau và chỉ
 còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** bản nháp một lượt theo checklist (móc có gây tò mò, cảnh sau xảy ra
 vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được

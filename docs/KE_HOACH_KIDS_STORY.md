@@ -300,6 +300,13 @@ Page hãy gõ thử tên vào ô tìm kiếm Facebook trước).
 
 ## Nguồn đã kiểm (18/11/2026)
 
+Bổ sung 19/11 (kể cho cuốn, học từ sách tranh): Rachel Bachman, «What Children Actually Want From Picture Books»
+(bachmanrachel.substack.com) — trẻ muốn tham gia, lặp lại có nhịp, hài; Writer's Digest, bài về điệp khúc (refrain) trong sách
+tranh — điệp khúc lặp rồi đảo ở cuối; Annie Parsons, «5 ways to make a picture book interactive» (annieparsonsart.substack.com) —
+hỏi trẻ, cho trẻ đoán trước khi lật trang; neolemon.com, bài về «page turn» — treo câu hỏi ở cuối trang, trang sau trả lời.
+Mẫu đối chiếu: The Gruffalo (nhịp + lặp), We're Going on a Bear Hunt (điệp khúc hát theo, tiếng động), truyện mầm non Việt Nam
+(Chú Dê Đen, Ai đáng khen nhiều hơn).
+
 - Giấy phép FLUX.1 [dev] (điều khoản đầu ra và «hoạt động tạo doanh thu»): https://scancode-licensedb.aboutcode.org/flux-1-nc.html ;
   thảo luận trên Hugging Face: https://huggingface.co/black-forest-labs/FLUX.1-dev/discussions/7 ;
   giấy phép dev thương mại tự host của BFL: https://help.bfl.ai/articles/9272590838-self-serve-dev-license-overview-pricing

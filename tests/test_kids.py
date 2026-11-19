@@ -59,6 +59,7 @@ def test_data_is_complete():
         assert any("{main}" in b for b in pl["beats"]) and any("điệp khúc" in b for b in pl["beats"]), pl["id"]
         assert 3 <= len(pl["refrain"].split()) <= 7, pl["id"]
     assert all(any(ls in pl["lessons"] for pl in DATA["plots"]) for ls in lids)
+    assert all(c.get("quirk_vi") for c in DATA["characters"].values())
 
 
 def test_pick_avoids_recent_and_rotates_main():
@@ -109,11 +110,11 @@ def _good_story(brief):
     base = [
         "Hôm nay Thỏ Trắng ra đồi chơi. Nắng vàng trải khắp bãi cỏ. Thỏ Trắng gặp Gấu Nâu ở gốc cây to.",
         f"Thỏ Trắng thấy {vis[0]} đẹp ghê. Thỏ Trắng muốn mang về cho Mèo Cam. Hai bạn hớn hở đi về phía đồi.",
-        "Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. Gấu Nâu hơi buồn. Sóc Nhỏ chạy tới coi chuyện gì.",
+        "Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. Gấu Nâu hơi buồn. Bé đoán xem Sóc Nhỏ có chạy tới không?",
         "Thỏ Trắng nói: «Cố lên, thử lại nào.» Thỏ Trắng cúi xuống nhặt. Vẫn chưa được, hai bạn nhìn nhau.",
         "Thỏ Trắng nói: «Cố lên, thử lại nào.» Lần này Thỏ Trắng với tay thật xa. Gấu Nâu bảo nhỏ thôi, từ từ.",
         "Gấu Nâu giúp một tay. Cố lên, thử lại nào! Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười tít mắt.",
-        f"Gấu Nâu nói: «Tụi mình phải {lesson['keywords'][0]} nha.» Các bạn cùng gật đầu, ai cũng thấy nhẹ lòng.",
+        f"Gấu Nâu nói: «Tụi mình phải {lesson['keywords'][0]} nha.» Thỏ Trắng gật đầu, hai bạn thấy nhẹ lòng.",
         "Bốn bạn ôm nhau cười vui. Trời chiều mát rượi. Các bé ơi, mình cùng chơi vui với bạn nha!",
     ]
     for j, vi in enumerate(vis[1:]):                                        # các từ còn lại cũng được nhắc tới
@@ -224,6 +225,11 @@ def test_blocking_beats_and_recap():
     assert beats == [("rainbow", 1)] and ("Ở đây có cầu vồng nè. " + story.beat_text(extra, 0)) in st2["scenes"][1]["text"]
     assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Giỏi lắm, bé nhớ hết rồi!")
     # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
+    st5 = story.normalize(_good_story(brief), DATA)                       # ba từ cùng ở cảnh 2 (và cảnh 8): không dồn cả ba vào 2
+    st5["scenes"][1]["text"] += " Có trái táo, bánh mì và cái giỏ."
+    st5["scenes"][7]["text"] += " Có trái táo, bánh mì và cái giỏ."
+    three = {**brief, "words": [{"en": "apple", "vi": "trái táo"}, {"en": "bread", "vi": "bánh mì"}, {"en": "basket", "vi": "cái giỏ"}]}
+    assert [i for _, i in story.add_beats(st5, three, DATA)] == [1, 1, 7]
     st3 = story.normalize(_good_story(brief), DATA)
     greet = {**brief, "words": [{"en": "good morning", "vi": "chào buổi sáng"}, {"en": "bye bye", "vi": "tạm biệt"}]}
     assert not any("nhắc tới" in p for p in story.validate(st3, greet, DATA))
@@ -247,6 +253,9 @@ def test_prompts_and_schema():
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
     assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
     assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u and "Điệp khúc gợi ý" in u
+    assert "BÍ KÍP KỂ CHO CUỐN" in u and "HỎI BÉ" in u and "nét riêng" in u and "Ôi chao" in u and "ĐẢO điệp khúc" in u
+    assert all("các bạn" not in b and "cả nhóm" not in b for pl in DATA["plots"] for b in pl["beats"])
+    assert all(pl.get("twist") for pl in DATA["plots"]) and "đảo thành «" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
@@ -254,6 +263,18 @@ def test_prompts_and_schema():
                                                                                        "description", "hashtags"}
     st0 = story.normalize(_good_story(brief), DATA)
     assert st0["hook_text"] == "RỚT MẤT RỒI!" and st0["hook"].endswith("?")
+    grp = json.loads(json.dumps(st0))
+    grp["scenes"][2]["text"] += " Các bạn cười vang."
+    assert any("«các bạn»" in q and "cảnh 3" in q for q in story.validate(grp, brief, DATA))
+    off = dict(st0, title="Thỏ Trắng và chiếc bánh ngọt ngào trong khu vườn")
+    assert any("tiêu đề nhắc tới" in q for q in story.validate(off, brief, DATA))
+    assert story.validate(dict(st0, title="Thỏ Trắng gặp Gấu Nâu ở gốc cây to"), brief, DATA) == []
+    dash = story.normalize({**st0, "scenes": [dict(sc, text=sc["text"].replace(". ", " — ", 1)) for sc in st0["scenes"]]}, DATA)
+    assert "—" not in dash["scenes"][0]["text"] and ", " in dash["scenes"][0]["text"]
+    noq = json.loads(json.dumps(st0))
+    for sc in noq["scenes"]:
+        sc["text"] = sc["text"].replace("Bé đoán xem Sóc Nhỏ có chạy tới không?", "Sóc Nhỏ chạy tới coi chuyện gì.")
+    assert any("câu hỏi cho bé" in q for q in story.validate(noq, brief, DATA))
     bad_hook = dict(st0, hook="Thỏ Trắng đi chơi", hook_text="a")
     probs = story.validate(bad_hook, brief, DATA)
     assert any("`hook`" in q for q in probs) and any("`hook_text`" in q for q in probs)

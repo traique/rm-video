@@ -26,18 +26,23 @@ N_SCENES = 8
 # model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
 # màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
 # (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
-WORDS_MIN, WORDS_MAX = 130, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
+WORDS_MIN, WORDS_MAX = 130, 210        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): đo 129 chữ -> 62 giây
 WORDS_HARD = 95                        # dưới mức này thì không chấp nhận dù đã hết lượt
 EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng chữ tiếng Việt («run rẩy»): không coi là chen tiếng Anh
-SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
+SCENE_MIN, SCENE_MAX = 10, 38          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
-HOOK_WORDS = (4, 12)                   # câu móc 3 giây đầu: 4-12 chữ (đo thật: 15 chữ -> móc kéo dài 4,3 giây)
+HOOK_WORDS = (4, 14)                   # câu móc 3 giây đầu: 4-12 chữ (đo thật: 15 chữ -> móc kéo dài 4,3 giây)
 TAIL_WORDS = ("nha", "hen", "nhé", "nghen")   # tiểu từ cuối câu: dùng ít thôi (phản hồi 19/11: «quá nhiều nha ở cuối câu»)
 TAIL_MAX = 3                           # cả truyện + câu móc tối đa chừng này tiểu từ
 REFRAIN_MAX = 3                        # câu điệp khúc lặp đúng 3; câu khác không được lặp
-AVOID_BEAT_SCENES = {2, 5}             # cảnh 3 (biến cố) và 6 (cao trào) không chen câu dạy từ (đạo diễn: giữ nhịp kịch)
+GROUP_RE = re.compile(r"\b(các bạn|mấy bạn|cả nhóm|cả bọn|tụi bạn|bọn bạn|từng bạn|cả lớp)\b")   # nhóm đông mà hình chỉ 2 bạn
+TITLE_STOP = {"và", "với", "của", "cho", "ở", "trong", "trên", "dưới", "một", "cái", "chiếc", "con", "trái", "cục", "bị",
+              "lỡ", "làm", "rồi", "nào", "đây", "thế", "ơi", "à", "nha", "hen", "nhé", "chuyện", "câu", "bạn", "đi", "về",
+              "ra", "vào", "lên", "xuống", "ai", "gì", "sao", "mà", "thì", "là", "có", "không", "đã", "sẽ", "đang", "hôm",
+              "nay", "ngày", "lần", "đầu", "tiên", "nhỏ", "to", "bé", "mới", "cũ", "vui", "buồn", "ghê", "quá", "lắm"}
+AVOID_BEAT_SCENES = {2, 5, 7}          # cảnh 3 (biến cố), 6 (cao trào), 8 (kết) không chen câu dạy từ (trừ lời chào)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
-N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
+N_WORDS = (3,)                         # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa (4 làm truyện hết chỗ kể)
 TITLE_MAX = 70
 SAD = ("buồn", "khóc", "giận", "sợ", "một mình", "bỏ đi")   # cảnh kết KHÔNG được còn những chữ này (đo thật 19/11: đòi phải có
                                                                # «vui/cười» thì «tặng hoa cho Mèo Cam», «cùng ăn trái cây» bị trượt)
@@ -252,7 +257,7 @@ def normalize(story: dict, data: dict) -> dict:
     chars = data["characters"]
     scenes = []
     for sc in (story.get("scenes") or [])[:N_SCENES]:
-        text = south_kids(re.sub(r"\s+", " ", str(sc.get("text") or "")).strip())
+        text = south_kids(re.sub(r"\s+", " ", re.sub(r"\s*[—–]\s*", ", ", str(sc.get("text") or ""))).strip())
         keys = [k for k in (sc.get("characters") or []) if k in chars]
         if not keys:
             keys = [k for k, c in chars.items() if c["name_vi"].lower() in text.lower()]
@@ -349,6 +354,15 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     if spoil or re.search(r"\b(biết|học được|bài học)\b", title.lower()):
         problems.append(f"tiêu đề lộ bài học / kết truyện («{title}»): đặt tên theo chuyện xảy ra để gây tò mò, ví dụ «Thỏ Trắng "
                         "và chiếc bình hoa vỡ»")
+    missing = title_mismatch(title, full, data)
+    if missing:
+        problems.append(f"tiêu đề nhắc tới thứ không có trong truyện ({', '.join('«' + m + '»' for m in missing)}): đặt tên theo "
+                        "đồ vật / chuyện thật sự xảy ra trong truyện")
+    for i, (s, t) in enumerate(zip(scenes, texts), 1):
+        grp = GROUP_RE.search(t.lower())
+        if grp and len(s.get("characters") or []) <= 2:
+            problems.append(f"cảnh {i} nói «{grp.group(1)}» nhưng hình chỉ có {len(s.get('characters') or [])} bạn: gọi tên bạn "
+                            "có mặt trong cảnh (hình mỗi cảnh tối đa 2 bạn)")
     for i, s in enumerate(scenes, 1):
         act = s.get("action_en") or ""
         if len(act.split()) < 3:
@@ -365,6 +379,9 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
                         "chấm than bình thường")
     if re.search(r"\b(nha|hen|nhé)\s*[?!.]?$", hook.strip().lower()):
         problems.append("câu móc không kết bằng «nha/hen» (ví dụ: «phải làm sao đây?» là đủ)")
+    mid = " ".join(texts[1:6]).lower()                         # cảnh 2-6: có câu hỏi cho bé tham gia (sách tranh)
+    if len(texts) == N_SCENES and not re.search(r"\bbé\b[^.!?]*\?", mid):
+        problems.append("thiếu câu hỏi cho bé giữa truyện (cảnh 2-6, ví dụ «Bé đoán xem Thỏ Trắng giấu ở đâu?») để bé tham gia")
     rep = repeated_sentences(texts)
     if rep:
         problems.append("lặp câu/cụm: " + "; ".join(f"«{x}» ×{n}" for x, n in rep[:3])
@@ -374,6 +391,20 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         if len(copied) >= 2:
             problems.append("không chép truyện mẫu (trùng câu: " + "; ".join(copied[:2]) + "): viết truyện mới theo đề")
     return problems
+
+
+def title_mismatch(title: str, text: str, data: dict) -> list[str]:
+    """Chữ có nghĩa trong tiêu đề (bỏ tên nhân vật, từ nối) mà truyện không nhắc: quá nửa thiếu thì tiêu đề lạc đề
+    (đo thật 19/11: truyện về trái táo, tiêu đề «chiếc bánh ngọt ngào»)."""
+    low = title.lower()
+    for c in data["characters"].values():
+        low = low.replace(c["name_vi"].lower(), " ")
+    words = [w for w in re.findall(r"[\wÀ-ỹ]+", low) if len(w) >= 2 and w not in TITLE_STOP]
+    if not words:
+        return []
+    body = text.lower()
+    miss = [w for w in words if not re.search(r"(?<![\wÀ-ỹ])" + re.escape(w) + r"(?![\wÀ-ỹ])", body)]
+    return miss if len(miss) * 2 > len(words) else []
 
 
 def is_greeting(w: dict, data: dict) -> bool:
@@ -473,9 +504,16 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
     out: list[tuple[str, int]] = []
     load_count = [0] * len(scenes)
 
-    def spread(cands: list[int]) -> int:              # ưu tiên cảnh chưa có câu dạy nào (đo thật: 3 câu dồn vào cảnh 1)
-        calm = [j for j in cands if j not in AVOID_BEAT_SCENES] or cands   # không chen vào cảnh biến cố / cao trào
-        return next((j for j in calm if load_count[j] == 0), next((j for j in calm if load_count[j] < 2), calm[0]))
+    def spread(cands: list[int], strict: bool = True) -> int:
+        """Cảnh êm (không biến cố / cao trào / kết) chưa có câu dạy -> cảnh êm có 1 câu -> cảnh khác có nhắc tới (đo thật 19/11:
+        ba từ cùng xuất hiện ở cảnh 2 thì dồn cả ba câu dạy vào đó) -> đành cảnh êm đầu."""
+        calm = [j for j in cands if j not in AVOID_BEAT_SCENES] if strict else list(cands)
+        for pool in (calm, cands):
+            for lim in (0, 1):
+                for j in pool:
+                    if load_count[j] <= lim:
+                        return j
+        return (calm or cands)[0]
     for k, w in enumerate(brief.get("words", [])):
         mention = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
         lead = ""
@@ -483,7 +521,7 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
             i = spread(mention)
         elif is_greeting(w, data):                    # lời chào: cảnh mở đầu / cảnh kết, không cần câu dẫn
             g = GREETING_SCENE.get(w["en"], 6)
-            i = spread([g, g + 1 if g < 7 else g - 1])
+            i = spread([g, g + 1 if g < 7 else g - 1], strict=False)
         else:
             i = spread([1 + k % 3, 2, 3, 4, 5, 1])
             lead = f"Ở đây có {w['vi']} nè. "

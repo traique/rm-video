@@ -23,24 +23,30 @@ NORTH_VI = "bố, quả bóng, cái mũ, cái ô, bít tất, bát, thìa, ngã,
 
 EXAMPLE_HOOK = ("Ôi, con diều cứ rớt hoài, Sóc Nhỏ phải làm sao đây?", "DIỀU RỚT HOÀI!")
 EXAMPLE = [
-    # truyện mẫu (viết tay theo cách kể của truyện mầm non: câu ngắn, tiếng động, điệp khúc 3 lần, kết nhắn bé; «nha» chỉ
-    # 2 lần cả truyện); CHỈ để model học giọng kể — bộ kiểm chặn khi chép lại ≥ 2 câu
-    ("Hôm nay trời nắng đẹp ghê. Sóc Nhỏ cầm con diều màu đỏ chạy ra công viên. Đuôi diều phất phơ, phất phơ.",
+    # truyện mẫu (viết tay theo sách tranh hay: câu ngắn có từ nối, tiếng động, điệp khúc có nhịp, thất bại hài, hỏi bé giữa
+    # truyện, cảm xúc qua hành động, nét riêng nhân vật, kết vòng lại mở đầu; «nha» chỉ 2 lần); CHỈ để model học giọng kể
+    # — bộ kiểm chặn khi chép lại ≥ 2 câu
+    ("Hôm nay trời xanh ngắt, gió thổi mát rượi. Sóc Nhỏ ôm con diều màu đỏ chạy ra công viên, đuôi vẫy tít. «Hả? Gió to "
+     "thế này thì diều bay cao phải biết!»",
      ["little_squirrel"], "Little Squirrel running on green grass holding a red kite, happy"),
-    ("Sóc Nhỏ muốn thả diều bay thật cao. «Diều ơi, bay lên đi!» Sóc Nhỏ reo to.",
+    ("Thế là Sóc Nhỏ giơ diều lên thật cao. «Diều ơi, bay lên đi!» Sóc Nhỏ reo to rồi chạy một hơi.",
      ["little_squirrel"], "Little Squirrel holding a red kite up high, looking at the sky"),
-    ("Sóc Nhỏ chạy một hơi. Vù vù! Gió thổi mạnh. Bịch! Con diều rớt xuống bãi cỏ. Ôi, buồn ghê.",
-     ["little_squirrel"], "Little Squirrel surprised, a red kite lying on the grass"),
-    ("Sóc Nhỏ nhặt diều lên, chạy thật nhanh. «Cố lên, thử lại nào!» Chạy, chạy, chạy. Bịch! Diều lại rớt.",
-     ["little_squirrel"], "Little Squirrel running fast pulling a kite string"),
-    ("Sóc Nhỏ leo lên mô đất cao mà thả. «Cố lên, thử lại nào!» Diều bay lên một chút rồi lại rơi. Chân mỏi quá rồi.",
+    ("Vù vù! Con diều bay lên được một chút… rồi Bịch! Nó rớt ngay lên bụng Gấu Nâu đang ngủ trưa dưới gốc cây. Bé đoán xem "
+     "Gấu Nâu có giật mình không?",
+     ["little_squirrel", "brown_bear"], "A red kite landing on Brown Bear sleeping under a tree, Little Squirrel surprised"),
+    ("Sóc Nhỏ rón rén nhặt diều, chạy nhanh hơn nữa. «Chạy, chạy, chạy nào!» Bịch! Lần này diều rớt vào bụi hoa, dính đầy "
+     "cánh hoa vàng.",
+     ["little_squirrel"], "Little Squirrel running fast pulling a kite string, a kite stuck in yellow flowers"),
+    ("Sóc Nhỏ leo lên mô đất cao mà thả. «Chạy, chạy, chạy nào!» Diều lên, rồi lại xuống. Sóc Nhỏ ngồi bệt, đuôi rũ xuống đất.",
      ["little_squirrel"], "Little Squirrel sitting on the grass, sad, a red kite beside"),
-    ("Gấu Nâu đi tới: «Để mình cầm diều cho, bạn cứ chạy.» Sóc Nhỏ gật đầu: «Cố lên, thử lại nào!» Vù… Con diều bay lên "
-     "cao, cao thật là cao!",
+    ("Gấu Nâu dụi mắt đi tới: «Ừm… để mình cầm diều cho, bạn cứ chạy.» Sóc Nhỏ gật đầu: «Chạy, chạy, chạy nào!» Vù… Con "
+     "diều bay lên cao, cao thật là cao!",
      ["brown_bear", "little_squirrel"], "Brown Bear holding a red kite high, Little Squirrel running with the string"),
-    ("Gấu Nâu cười: «Thấy chưa, chưa được thì mình đổi cách rồi thử tiếp, đừng bỏ cuộc nha.» Sóc Nhỏ gật đầu lia lịa.",
+    ("Gấu Nâu cười hề hề: «Thấy chưa, chưa được thì mình đổi cách rồi thử tiếp, đừng bỏ cuộc nha.» Sóc Nhỏ gật đầu lia lịa, "
+     "đuôi lại vẫy tít.",
      ["brown_bear", "little_squirrel"], "Brown Bear smiling and talking to Little Squirrel"),
-    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh. Các bé ơi, khi làm chưa được, mình đổi cách rồi thử lại nha!",
+    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh ngắt, gió vẫn thổi mát rượi. Các bé ơi, khi làm chưa được, mình đổi "
+     "cách rồi thử lại nha!",
      ["little_squirrel", "brown_bear"], "Little Squirrel and Brown Bear looking up at a red kite flying in the blue sky"),
 ]
 
@@ -79,7 +85,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     lesson = story_mod.by_id(data["lessons"], brief["lesson"])
     setting = story_mod.by_id(data["settings"], brief["setting"])
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
-    cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
+    cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']}; nét riêng: {c.get('quirk_vi', '')})" for c in chars.values())
     must = ", ".join(f"«{w['vi']}»" for w in story_mod.must_mention(brief, data))   # KHÔNG đưa tiếng Anh cho model
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.plot_beats(brief, data), 1))
     plot = story_mod.by_id(data.get("plots") or [], brief.get("plot") or "")
@@ -93,28 +99,46 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
                  "nhiên (là đồ bạn ấy cầm, thấy, dùng trong chuyện), KHÔNG ép thêm câu chỉ để nhắc tới; thứ nào không hợp thì bỏ.\n")
     if plot:
         refrain = (plot.get("refrain") or "").replace("{main}", main["name_vi"])
+        twist = (plot.get("twist") or "").replace("{main}", main["name_vi"])
         text += (f"Khung truyện: {plot['vi']} (kiểu {plot.get('source', '')}). Các nhịp dưới đây là Ý, KHÔNG chép chữ của nhịp: "
                  "mỗi cảnh kể bằng chi tiết riêng của truyện hôm nay (đồ vật, màu sắc, tiếng động, lời thoại của từng bạn); vật / "
                  "việc nêu ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6 và 8 (sợi chỉ xuyên suốt).\n"
                  + (f"Điệp khúc gợi ý cho khung này: «{refrain}» (tiếng lòng / lời động viên hợp chuyện; có thể đổi chữ cho hợp, "
-                    "nhưng điệp khúc phải có nghĩa đúng với tình huống).\n" if refrain else ""))
+                    "nhưng điệp khúc phải có nghĩa đúng với tình huống)"
+                    + (f"; ở cảnh 6 khi chuyện xoay chiều, đảo thành «{twist}» (hay câu tương tự)" if twist else "") + ".\n"
+                    if refrain else ""))
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
             f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối; câu đầu mỗi "
             "cảnh nối với cảnh trước (thế là / lúc đó / nhưng rồi).\n"
-            "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp đúng 3 lần ở cảnh 4, 5, 6; "
-            "NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
+            "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp 2-3 lần ở cảnh 4, 5 (và 6) "
+            "— chỉ đặt vào chỗ ĐÚNG NGHĨA với tình huống; ở cảnh 6 khi chuyện xoay chiều, có thể ĐẢO điệp khúc cho vui (theo gợi ý "
+            "ở trên, đúng với chuyện hôm nay). NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
+            "- Mỗi cảnh chỉ có 1-2 bạn trong hình: lời kể gọi TÊN bạn có mặt, KHÔNG «các bạn / cả nhóm / mấy bạn» khi chỉ có "
+            "một bạn khác; mỗi bạn được nhắc trong lời phải có trong `characters` của cảnh.\n"
             f"- Tiểu từ «nha», «hen» ở cuối câu: cả truyện tối đa {story_mod.TAIL_MAX} lần (nhiều quá nghe ngang); câu móc "
             "không kết bằng «nha». Câu kết bình thường bằng dấu chấm / chấm than.\n"
             "- LIỀN MẠCH: cảnh sau xảy ra VÌ cảnh trước (nhân quả), ba lần thử khác nhau và leo thang, lần ba thành công nhờ "
             "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
-            "- Cảnh 7 nói bài học bằng đúng chữ: " + ", ".join(lesson.get("keywords", []))
+            "- Cảnh 7: bạn kia nói bài học bằng MỘT câu ngắn như bạn bè nói với nhau, có ít nhất một chữ trong: "
+            + ", ".join(lesson.get("keywords", [])) + " (đừng gom hết các chữ vào một câu, đừng giảng)"
             + ". Cảnh 8 kết vui và câu cuối nói với «các bé».\n"
             f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
             f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
             "kể trước cách giải quyết. `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, hiện to trên màn hình.\n"
             "- Viết THUẦN tiếng Việt, không chữ tiếng Anh, không giải nghĩa từ (phần dạy tiếng Anh mã sẽ tự thêm).\n"
+            "BÍ KÍP KỂ CHO CUỐN (học từ sách tranh hay như The Gruffalo, We're Going on a Bear Hunt, Chú Dê Đen):\n"
+            "- HỎI BÉ giữa truyện 1-2 lần (cảnh 2-6), ngắn, có chữ «bé», đặt ở CUỐI cảnh như lật trang sách: «Bé đoán xem Thỏ "
+            "Trắng giấu ở đâu?» — rồi cảnh sau mở đầu bằng câu trả lời («Hoá ra giấu sau gốc cây!»).\n"
+            "- Tiêu đề phải nói đúng đồ vật / chuyện CÓ trong truyện (truyện về trái táo thì không đặt «chiếc bánh»).\n"
+            "- Điệp khúc có NHỊP, hát theo được (3-6 chữ, lặp âm): «Chạy, chạy, chạy nào!», «Tìm nữa, tìm nữa nào!».\n"
+            "- Thất bại phải HÀI: chi tiết ngộ nghĩnh + tiếng động (diều rớt lên bụng Gấu Nâu đang ngủ, bánh dính lên mũi).\n"
+            "- Cảm xúc qua HÀNH ĐỘNG, không gọi tên: «tai thỏ cụp xuống», «đuôi rũ xuống đất» thay cho «Thỏ buồn».\n"
+            "- Cảnh 1 có chi tiết giác quan (màu, mùi, âm thanh). Dùng NÉT RIÊNG của bạn chính ít nhất 2 lần (câu cửa miệng, "
+            "cử chỉ quen).\n"
+            "- Lần thử thứ ba có chút BẤT NGỜ (cách giải quyết đến từ chỗ không ngờ, hay từ bạn nhỏ nhất).\n"
+            "- KẾT VÒNG LẠI: câu cuối gọi lại hình ảnh hay câu của cảnh 1, nghe ấm và trọn.\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
             "đồ vật trong hình, thì hiện tại; không tả ngoại hình hay quần áo (đã có sẵn), không chữ.\n"
@@ -138,13 +162,17 @@ REVISE_CHECK = (
     "2. Mỗi cảnh có xảy ra VÌ cảnh trước không (nhân quả rõ, không nhảy cóc, không lặp ý)?\n"
     "3. Ba lần thử (cảnh 4, 5, 6) có KHÁC nhau, leo thang và lần ba thành công nhờ bạn giúp / cách khác không?\n"
     "4. Bài học (cảnh 7) có rút ra từ chính chuyện vừa xảy ra không (không giảng chung chung)?\n"
-    "5. Câu ngắn (dưới 10 chữ), có tiếng động, có điệp khúc lặp 3 lần, lời thoại tự nhiên như trẻ con, giọng miền Nam?\n"
+    "5. Câu ngắn (dưới 10 chữ), có tiếng động, điệp khúc đặt đúng chỗ có nghĩa (không dán máy móc), lời thoại tự nhiên như trẻ "
+    "con, giọng miền Nam? Lời kể có gọi «các bạn / cả nhóm» khi cảnh chỉ có 2 bạn không?\n"
     "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?\n"
     "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?\n"
     "8. Có câu nào lạc đề, chỉ để nhắc tới một đồ vật cho có (như «ngoài đường xe hơi chạy ngang») không? Bỏ hẳn câu đó.\n"
     "9. Tiêu đề có lộ bài học / kết không? Phải gợi tò mò theo chuyện xảy ra.\n"
     "10. Đọc to lên có trôi chảy không? Câu cụt lủn thì nối lại bằng từ nối; lời thoại đã trong «…» và có tên người nói ngay "
-    "trước ngoặc chưa?")
+    "trước ngoặc chưa?\n"
+    "11. CUỐN chưa? Có câu hỏi cho bé giữa truyện (cảnh 2-6)? Thất bại có chi tiết hài + tiếng động? Cảm xúc tả qua hành động "
+    "(tai cụp, đuôi rũ) thay vì gọi tên? Bạn chính có dùng nét riêng / câu cửa miệng? Kết có vòng lại hình ảnh cảnh 1?\n"
+    "Không chỉ sửa lỗi: hãy NÂNG bản nháp lên mức một cuốn sách tranh hay — thêm chi tiết ngộ nghĩnh, bớt câu nhạt, giữ cốt truyện.")
 
 
 def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list[dict[str, str]]:
