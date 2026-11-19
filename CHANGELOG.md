@@ -36,6 +36,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   «sorry = xin lỗi» khi từ được đọc lần đầu, màn kết «Hôm nay bé học» + tagline, phụ đề rải theo khoảng có tiếng, từ tiếng Anh tô màu
   (`subs.write_ass(highlight=…)`, style `kids`), nhạc nền ~16 dB dưới giọng tự hạ khi đang đọc (`assets/kids_bgm/` hoặc `KIDS_BGM_LINKS`),
   loudness −14 LUFS, NVENC. Ảnh bìa = khung lúc thẻ tiêu đề đang hiện.
+- **Gemini viết truyện trên Botkeep (19/11)**: `KIDS_LLM_PROVIDER` auto/gemini/qwen, `KIDS_GEMINI_MODEL`; `rmvideo/kids/writer.py`
+  (GeminiBackend cùng giao diện llama-server, dùng chung vòng kiểm/viết lại của `llm.generate_story`, gọi qua
+  `prompt_engine._call_gemini` nên có thử lại / model dự phòng); truyện sẵn nằm trong `spec["story"]`, Kaggle bỏ bước model chữ.
+  Key Gemini không bao giờ sang Kaggle. Đo: gemini-3.5-flash-lite 1 lượt, 3 giây, mạch lạc hơn Qwen 35B 4-bit.
 - **Cách kể cho bé nhỏ (19/11)**: sau 6 video đo thật, lời còn rời rạc và từ tiếng Anh bị ép vào thoại; viết lại theo cách của
   truyện kể mầm non: truyện thuần tiếng Việt, 8 nhịp (chào bé, chuyện nhỏ, tiếng động, thử ba lần với điệp khúc, bạn giúp, bài học
   nói nhẹ, nhắn bé), truyện mẫu trong lời nhắc (chép ≥ 2 câu là lỗi). Kho từ đổi sang đồ vật / màu / con vật / lời chào / hành động
@@ -48,7 +52,7 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   `kernel_sources`/`dataset_sources` của việc, tải thêm `fetch_files` (ảnh bìa, story.json); việc kids không chạy CPU khi hết giờ GPU.
   `KIDS_KAGGLE_SOURCES` trỏ tới notebook/dataset có sẵn llama-server (vd bản bạn đã biên dịch khi đo Qwen).
 - **Cài đặt** nhóm 🧸 Truyện bé: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, `KIDS_VOICE`, `KIDS_IMAGE_MODEL`,
-  `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_LLM_THINK`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`,
+  `KIDS_LLM_PROVIDER`, `KIDS_GEMINI_MODEL`, `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_LLM_THINK`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`,
   `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`.
 - Web: mục 🧸 Truyện bé (trạng thái, làm ngay, thử token, chuẩn bị model, chạy lại); API `/api/kids`, `/api/kids/{now|test|setup|setup_status|resume|tick}`.
   Console: `kids`, `kids_now`, `kids_tick`, `kids_setup`, `kids_setup_status`, `kids_fb_test`, `kids_resume`.

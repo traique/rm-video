@@ -228,6 +228,11 @@ Cài một lần:
    bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
    (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
 
+Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep** (model `KIDS_GEMINI_MODEL`, trống = `GEMINI_MODEL`
+gemini-3.5-flash-lite; 1 lượt gọi mỗi truyện, +1 mỗi lần viết lại, tối đa 4; đo 19/11: đạt ngay lượt đầu, 3 giây), truyện đi theo
+việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút); Gemini lỗi / hết hạn mức thì Qwen trên Kaggle viết
+thay. `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle.
+
 Cách kể (19/11, học theo truyện kể cho bé 3–5 tuổi và kênh dạy tiếng Anh cho bé): model viết truyện **thuần tiếng Việt** theo 8 nhịp
 (chào các bé → chuyện nhỏ → có tiếng động, có vấn đề → thử lần 1, 2 với một câu điệp khúc → bạn giúp, lần 3 được → bài học nói
 nhẹ qua lời nhân vật → kết vui, nhắn nhủ các bé), câu ngắn, có truyện mẫu trong lời nhắc để học giọng kể (chép lại ≥ 2 câu là
