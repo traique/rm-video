@@ -147,7 +147,8 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     def last_main(m: str) -> int:                       # lần gần nhất làm nhân vật chính (-1 = chưa bao giờ)
         return (len(seen) - seen[::-1].index(m)) if m in seen else -1
     main = min(mains, key=last_main)
-    return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id,
+    recent_en = sorted(w for w, k in last_use.items() if k >= cutoff)          # choose_words xếp các từ này sau
+    return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id, "recent_en": recent_en,
             "words": [{"en": w, "vi": word_info(data, w)["vi"]} for w in words],
             "word_pool": [{"en": w, "vi": word_info(data, w)["vi"]} for w in pool],
             "main": main, "seed": rnd.randrange(1, 2 ** 31)}
@@ -159,13 +160,30 @@ def choose_words(story: dict, brief: dict, data: dict) -> list[dict]:
     scenes = story.get("scenes") or []
     n = max(1, len(brief.get("words") or []))
     pool = [w["en"] for w in brief.get("word_pool") or []]
+    recent = set(brief.get("recent_en") or [])           # từ đã dạy 30 ngày qua xếp sau (pick ghi vào đề)
     found = []
     for w in data["words"]:
         hits = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
         if hits:
-            found.append((0 if w["en"] in pool else 1, -len(hits), hits[0], w["en"]))
+            found.append((0 if w["en"] in pool else 1, 1 if w["en"] in recent else 0, -len(hits), hits[0], w["en"]))
     found.sort()
-    chosen = [en for *_, en in found][:n]
+    chosen: list[str] = []
+    taken: set[int] = set()        # câu dạy rải ra các cảnh êm khác nhau (đo thật 19/11: hai câu dồn cảnh 1 ngay sau câu móc)
+    for strict in (True, False):   # vòng 1: chỉ từ có cảnh êm còn trống; vòng 2: phần còn lại (vẫn ưu tiên kho gợi ý, nhiều cảnh)
+        for *_, en in found:
+            if en in chosen:
+                continue
+            hits = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), word_info(data, en), data)]
+            calm = [i for i in hits if i not in AVOID_BEAT_SCENES]
+            free = [i for i in calm if i not in taken]
+            if strict and not free:
+                continue
+            taken.add(free[0] if free else (calm or hits)[0])
+            chosen.append(en)
+            if len(chosen) >= n:
+                break
+        if len(chosen) >= n:
+            break
     for w in brief.get("words") or []:
         if len(chosen) >= n:
             break
@@ -443,14 +461,20 @@ def vi_forms(w: dict, data: dict) -> list[str]:
     «banh»)."""
     info = word_info(data, w["en"])
     forms = [w.get("vi") or info.get("vi") or ""] + list(info.get("match") or [])
-    vi = forms[0]
+    if info.get("only_match"):                    # «mới», «một»: chữ gốc quá đa nghĩa, chỉ tính các cụm trong «match»
+        forms = list(info.get("match") or [])
+    vi = forms[0] if forms else ""
     if " " in vi and not info.get("match"):
         forms.append(vi.split()[-1])
     return [f for f in dict.fromkeys(x.strip().lower() for x in forms) if f]
 
 
 def vi_mentioned(text: str, w: dict, data: dict) -> bool:
+    """Truyện có nhắc tới từ (tiếng Việt) không; các cụm trong «not» của kho bị xoá trước («nôn nóng» không phải hot,
+    «nói to» không phải big, «Sóc Nhỏ» không phải small)."""
     low = (text or "").lower()
+    for bad in word_info(data, w["en"]).get("not") or []:
+        low = re.sub(r"(?<![\wÀ-ỹ])" + re.escape(bad.lower()) + r"(?![\wÀ-ỹ])", " ", low)
     return any(re.search(r"(?<![\wÀ-ỹ])" + re.escape(f) + r"(?![\wÀ-ỹ])", low) for f in vi_forms(w, data))
 
 
@@ -511,7 +535,7 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
         for pool in (calm, cands):
             for lim in (0, 1):
                 for j in pool:
-                    if load_count[j] <= lim:
+                    if load_count[j] <= lim and not (j == 0 and lim):      # cảnh mở đầu chỉ chứa 1 câu dạy (giữ 3 giây đầu)
                         return j
         return (calm or cands)[0]
     for k, w in enumerate(brief.get("words", [])):

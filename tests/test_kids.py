@@ -243,6 +243,37 @@ def test_blocking_beats_and_recap():
     assert r.startswith("Hôm nay mình học:") and all(w["en"] in r and w["vi"] in r for w in brief["words"])
 
 
+def test_word_matching_false_positives():
+    """Kho từ: dạng rút gọn không được nhận nhầm (đo thật 19/11: «nôn nóng» -> hot, «rồi mới chơi» -> new, «chơi» -> toy)."""
+    def hit(en, text):
+        return story.vi_mentioned(text, story.word_info(DATA, en), DATA)
+    assert not hit("hot", "Thỏ Trắng nôn nóng chạy tới") and hit("hot", "cháo còn nóng hổi")
+    assert not hit("new", "Tới lượt rồi mới chơi!") and hit("new", "cái diều mới tinh")
+    assert not hit("toy", "hai bạn chơi vui") and hit("toy", "một món đồ chơi")
+    assert not hit("big", "Sóc Nhỏ đọc to nào") and hit("big", "cái cây to")
+    assert not hit("small", "Sóc Nhỏ nói nhỏ") and hit("small", "dòng suối nhỏ")
+    assert not hit("white", "Thỏ Trắng") and hit("white", "áo màu trắng")
+    assert not hit("clap", "lỡ tay làm rơi") and hit("clap", "Gấu Nâu vỗ tay")
+    assert not hit("sun", "trời sắp tối") and hit("sun", "ông mặt trời")
+    assert not hit("star", "thấy sao sao") and hit("star", "ngôi sao sáng")
+    assert not hit("umbrella", "dù mưa vẫn đi") and hit("umbrella", "cây dù đỏ")
+    assert not hit("tree", "cây dù đỏ") and hit("tree", "gốc cây to")
+    assert not hit("ball", "ngồi dưới bóng mát") and hit("ball", "trái banh lăn")
+    assert not hit("one", "ngồi một mình") and hit("one", "đếm một, hai, ba")
+    assert not hit("three", "ba mẹ gọi về") and hit("three", "đếm một, hai, ba")
+    assert not hit("sad", "Thỏ buồn ngủ") and hit("sad", "Thỏ buồn thiu")
+    assert not hit("cake", "ổ bánh mì") and hit("bread", "ổ bánh mì") and hit("cake", "bánh kem dâu")
+    # từ vừa dạy gần đây xếp sau khi chọn từ của truyện
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(_good_story(brief), DATA)
+    for sc in st["scenes"][:3]:
+        sc["text"] += " Có trái táo và bánh mì."
+    two = {**brief, "words": [{"en": "x", "vi": "x"}], "word_pool": [], "recent_en": ["apple"]}
+    assert story.choose_words(st, two, DATA)[0]["en"] != "apple"
+    hist = [{"words": ["apple", "hug"], "lesson": "", "setting": "", "conflict": "", "created": "2026-11-18T08:00:00"}]
+    assert story.pick(DATA, hist, random.Random(2)).get("recent_en") == ["apple", "hug"]
+
+
 def test_prompts_and_schema():
     brief = story.pick(DATA, [], random.Random(2))
     msgs = prompts.messages(brief, DATA, {"name": "Kể Bé Nghe"})
