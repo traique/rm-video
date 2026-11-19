@@ -76,15 +76,16 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     setting = story_mod.by_id(data["settings"], brief["setting"])
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
-    must = ", ".join(f"«{w['vi']}»" for w in brief["words"])         # KHÔNG đưa tiếng Anh cho model: mã chèn sau
+    must = ", ".join(f"«{w['vi']}»" for w in story_mod.must_mention(brief, data))   # KHÔNG đưa tiếng Anh cho model
     roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
     keys = ", ".join(chars)
     names_en = ", ".join(c["name_en"] for c in chars.values())
     text = (f"Viết một truyện kể cho bé 3-6 tuổi, xảy ra ở {data['world']['name']}, nơi bốn bạn nhỏ sống cùng nhau: {cast}.\n"
             f"Nhân vật chính hôm nay: {main['name_vi']}. Bối cảnh: {setting['vi']}. Chuyện xảy ra: {main['name_vi']} "
-            f"{conflict['vi']}. Bài học: {lesson['vi']}.\n"
-            f"Trong truyện PHẢI nhắc tới (kể tự nhiên, là một phần của chuyện): {must}.\n\n"
-            f"Đúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
+            f"{conflict['vi']}. Bài học: {lesson['vi']}.\n")
+    if must:
+        text += f"Trong truyện PHẢI nhắc tới (kể tự nhiên, là một phần của chuyện): {must}.\n"
+    text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 4}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
             f"{story_mod.WORDS_MIN + 10}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối.\n"
@@ -103,8 +104,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             "cảnh, chuyện xảy ra):\n" + _example_block() + "\n")
     if feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
-                 + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh, có "
-                 "nhắc tới " + must + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, cảnh 1 «Chào các bé!».")
+                 + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
+                 + (", có nhắc tới " + must if must else "")
+                 + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, cảnh 1 «Chào các bé!».")
     return text
 
 

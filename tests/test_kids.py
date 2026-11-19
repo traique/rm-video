@@ -168,6 +168,14 @@ def test_blocking_beats_and_recap():
     extra = {"en": "rainbow", "vi": "cầu vồng"}
     beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
     assert beats == [("rainbow", 1)] and "Ở đây có cầu vồng nè. Cầu vồng, tiếng Anh là rainbow." in st2["scenes"][1]["text"]
+    # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
+    st3 = story.normalize(_good_story(brief), DATA)
+    greet = {**brief, "words": [{"en": "good morning", "vi": "chào buổi sáng"}, {"en": "bye bye", "vi": "tạm biệt"}]}
+    assert not any("nhắc tới" in p for p in story.validate(st3, greet, DATA))
+    assert story.add_beats(st3, greet, DATA) == [("good morning", 0), ("bye bye", 7)]
+    assert "Ở đây có chào buổi sáng" not in story.script_text(st3) and "Ở đây có tạm biệt" not in story.script_text(st3)
+    assert st3["scenes"][7]["text"].endswith("Bé nói theo nha: bye bye!") and "good morning" in st3["scenes"][0]["text"]
+    assert "«chào buổi sáng»" not in prompts.user_prompt(greet, DATA) and "PHẢI nhắc tới" not in prompts.user_prompt(greet, DATA)
     short = {**st, "scenes": [{**s, "text": "Hai bạn chơi vui."} for s in st["scenes"]]}
     assert any("quá ngắn" in p for p in story.blocking(short, brief, DATA))
     r = story.recap_text(brief)
@@ -179,7 +187,8 @@ def test_prompts_and_schema():
     msgs = prompts.messages(brief, DATA, {"name": "Kể Bé Nghe"})
     assert msgs[0]["role"] == "system" and "miền Nam" in msgs[0]["content"] and "THUẦN tiếng Việt" in msgs[0]["content"]
     u = msgs[1]["content"]
-    assert all(f"«{w['vi']}»" in u for w in brief["words"]) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
+    assert all(f"«{w['vi']}»" in u for w in story.must_mention(brief, DATA)) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
+    assert story.must_mention(brief, DATA) and len(story.must_mention(brief, DATA)) <= len(brief["words"])
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
     assert "Chào các bé" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "điệp khúc" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])

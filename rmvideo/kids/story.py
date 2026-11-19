@@ -34,7 +34,9 @@ QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo 
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
-HAPPY = ("vui", "cười", "hạnh phúc", "cùng nhau", "ôm", "mừng", "thích")
+HAPPY = ("vui", "cười", "hạnh phúc", "cùng nhau", "ôm", "mừng", "thích", "chơi", "reo", "nhảy")
+# lời chào không bắt truyện phải nhắc tới (ép thì ra «Chào buổi sáng ngon ghê», đo thật 19/11): câu dạy từ đặt ở cảnh hợp
+GREETING_SCENE = {"hello": 0, "good morning": 0, "bye bye": 7, "good night": 7}
 BANNED = ("chết", "máu", "giết", "đánh nhau", "ma quỷ", "con ma", "súng", "con dao", "đâm", "ngu ngốc", "đồ ngốc",
           "ghét", "đồ ngu", "xấu xí")
 # 8 nhịp của một truyện mầm non (học từ truyện kể cho bé 3-5 tuổi: mở bằng lời chào, một chuyện nhỏ, thử ba lần với một câu
@@ -245,7 +247,7 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     full = " ".join(texts)
     low = full.lower()
     for w in brief.get("words", []):
-        if not vi_mentioned(full, w, data):
+        if not is_greeting(w, data) and not vi_mentioned(full, w, data):
             problems.append(f"truyện phải nhắc tới «{w['vi']}» (đồ vật / màu / con vật / việc bé học hôm nay), kể tự nhiên")
     foreign = [w["en"] for w in data["words"] if w["en"] not in EN_ALSO_VI
                and count_word(full + " " + story.get("title", ""), w["en"])]
@@ -285,6 +287,15 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         if len(copied) >= 2:
             problems.append("không chép truyện mẫu (trùng câu: " + "; ".join(copied[:2]) + "): viết truyện mới theo đề")
     return problems
+
+
+def is_greeting(w: dict, data: dict) -> bool:
+    return word_info(data, w["en"]).get("group") == "greeting"
+
+
+def must_mention(brief: dict, data: dict) -> list[dict]:
+    """Từ mà truyện phải nhắc tới tiếng Việt (đồ vật / màu / con vật / hành động); lời chào thì không."""
+    return [w for w in brief.get("words", []) if not is_greeting(w, data)]
 
 
 def vi_forms(w: dict, data: dict) -> list[str]:
@@ -351,7 +362,9 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
     for k, w in enumerate(brief.get("words", [])):
         i = first_scene_with(scenes, w, data)
         lead = ""
-        if i < 0 or load_count[i] >= 2:
+        if i < 0 and is_greeting(w, data):            # lời chào: cảnh mở đầu / cảnh kết / cảnh bài học, không cần câu dẫn
+            i = GREETING_SCENE.get(w["en"], 6)
+        elif i < 0 or load_count[i] >= 2:
             i = next((j for j in [1 + k % 3, 2, 3, 4, 5, 1] if load_count[j] < 2), 1 + k % 3)
             lead = f"Ở đây có {w['vi']} nè. " if first_scene_with(scenes, w, data) < 0 else ""
         scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w)).strip()
