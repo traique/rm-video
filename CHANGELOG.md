@@ -19,6 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: không còn màn hình đen — bỏ mờ từ đen / về đen, màn kết giữ nền sáng (phủ trắng 14%) với bảng «Hôm nay bé học»
+  bo góc vẽ bằng PIL (`rmvideo/kids/cards.py`: viên vàng chữ Anh, nghĩa tím than, tagline xanh), thẻ tiêu đề cùng kiểu;
+  thẻ nghĩa không hiện trong màn kết.
 - Truyện bé: mở đầu «móc» 3 giây (`hook`/`hook_text` trong schema, `render.plan(hook_dur)`: clip móc = ảnh cảnh 3 zoom mạnh +
   câu móc đọc ngay + chữ to, thẻ tiêu đề lùi sau 2,2 giây, lời vào sớm), vai cảnh nhấn nhân quả và ba lần thử leo thang,
   Gemini tự soát lại theo checklist (`llm._revise`, `prompts.revise_messages`, bản sửa phải qua bộ kiểm).

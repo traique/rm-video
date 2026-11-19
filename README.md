@@ -246,6 +246,9 @@ còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** b�
 vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được
 nhận khi qua bộ kiểm và không tệ hơn bản nháp (+1 lượt gọi, ~3 giây; Qwen trên Kaggle không soát).
 
+Khung hình (19/11): không mờ từ đen hay về đen; khung đầu là cảnh móc, khung cuối là bảng «Hôm nay bé học» trắng bo góc trên nền
+sáng (Reels lặp lại không lộ màn đen); thẻ tiêu đề cùng kiểu bảng trắng (`rmvideo/kids/cards.py`, PIL + font Be Vietnam Pro).
+
 Hiệu ứng động (`KIDS_FX`, mặc định `full`, FFmpeg thuần): Ken Burns mạnh hơn có nhịp "thở", nảy zoom + rung máy đúng lúc lời có
 tiếng động (Bịch! Rầm! Ối!), hạt bokeh bay nhẹ, vignette, phụ đề bật lên, tiếng whoosh khi chuyển cảnh và "ting" khi dạy từ (tiếng
 động tự tạo, không cần file bản quyền). `motion` = chỉ chuyển động + chữ bật; `off` = Ken Burns nhẹ như 1.1.0.

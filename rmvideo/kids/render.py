@@ -141,8 +141,8 @@ def _fade_alpha(t0: float, t1: float, d: float = 0.35) -> str:
 
 def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tuple[float, str, str]], channel: dict,
              W: int, H: int, work: str, hook_text: str = "") -> str:
-    """Chuỗi bộ lọc chữ: chữ móc to (3 giây đầu), thẻ tiêu đề, thẻ nghĩa từ, màn kết. words: [{en, vi}] của đề;
-    glosses: [(giây, en, vi)]."""
+    """Chuỗi bộ lọc chữ (drawtext): chữ móc to (3 giây đầu), thẻ nghĩa từ, sáng nhẹ nền lúc màn kết. Thẻ tiêu đề và
+    bảng «Hôm nay bé học» là ảnh PNG (cards.py) overlay trong render(). glosses: [(giây, en, vi)]."""
     k = H / 1280
     out = ""
     T = pl["length"]
@@ -156,48 +156,15 @@ def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tupl
         y0 = int(H * 0.17)
         for i, p in enumerate(hfiles):
             out += _dt(p, hfs, str(y0 + i * int(hfs * 1.2)), f"between(t,{a},{b})", "0xFFE082", "", al)
-    # thẻ tiêu đề (sau móc, hoặc từ giây 0 khi không có móc): dải tối mờ + tiêu đề (tối đa 3 dòng) + tên kênh nhỏ
-    t0 = float(pl.get("title_at") or 0.0)
-    t1 = round(t0 + (TITLE_LEN if hook else TITLE_UNTIL), 2)
-    lines, fs = renderer.title_layout(title or "", W, H)
-    if lines:
-        lh = int(fs * 1.25)
-        files = renderer.write_lines("\n".join(lines), work, "kt")
-        top = int(H * 0.30)
-        out += (f",drawbox=x=0:y={top - int(28 * k)}:w=iw:h={lh * len(files) + int(56 * k)}:color=black@0.38:t=fill:"
-                f"enable='between(t,{t0:.2f},{t1})'")
-        al = _fade_alpha(t0, t1)
-        for i, p in enumerate(files):
-            out += _dt(p, fs, str(top + i * lh), f"between(t,{t0:.2f},{t1})", "white", "", al)
-        name = channel.get("name") or ""
-        if name:
-            nf = renderer.write_lines(f"{name} · {channel.get('world', '')}".strip(" ·"), work, "kn")
-            out += _dt(nf[0], int(fs * 0.55), str(top + len(files) * lh + int(6 * k)), f"between(t,{t0:.2f},{t1})",
-                       "0xFFE082", "", al)
     # thẻ nghĩa: «sorry = xin lỗi» ở 11% chiều cao, hộp xanh, khi từ được đọc lần đầu
     for j, (at, en, vi) in enumerate(glosses):
         gf = renderer.write_lines(f"{en}  =  {vi}", work, f"kg{j}")
         a, b = round(at, 2), round(min(T, at + GLOSS), 2)
         out += _dt(gf[0], int(44 * k), f"{int(H * 0.11)}", f"between(t,{a},{b})", "white",
                    f":box=1:boxcolor=0x1B7F3B@0.88:boxborderw={int(18 * k)}", _fade_alpha(a, b, 0.25))
-    # màn kết: tối mờ + «Hôm nay bé học» + từng từ + tagline
+    # màn kết: KHÔNG phủ tối (19/11: nhìn như màn hình đen) — chỉ sáng nhẹ nền, bảng «Hôm nay bé học» là ảnh PNG overlay
     o = pl["outro_at"]
-    out += f",drawbox=x=0:y=0:w=iw:h=ih:color=black@0.55:t=fill:enable='gte(t,{o:.2f})'"
-    al = _fade_alpha(o, T, 0.4)
-    hf = renderer.write_lines("Hôm nay bé học", work, "kh")
-    y0 = int(H * 0.26)
-    out += _dt(hf[0], int(50 * k), str(y0), f"gte(t,{o:.2f})", "0xFFE082", "", al)
-    wl = int(78 * k)
-    for i, w in enumerate(words):
-        wf = renderer.write_lines(f"{w['en']}  =  {w['vi']}", work, f"kw{i}")
-        out += _dt(wf[0], int(60 * k), str(y0 + int(90 * k) + i * wl), f"gte(t,{o:.2f})", "white", "", al)
-    tag = channel.get("tagline") or ""
-    if tag:
-        tl, tfs = renderer.title_layout(tag, W, H)
-        tfiles = renderer.write_lines("\n".join(tl), work, "kz")
-        tfs = int(min(tfs, 36 * k))
-        for i, p in enumerate(tfiles):
-            out += _dt(p, tfs, str(int(H * 0.80) + i * int(tfs * 1.3)), f"gte(t,{o:.2f})", "0xB3E5FC", "", al)
+    out += f",drawbox=x=0:y=0:w=iw:h=ih:color=white@0.14:t=fill:enable='gte(t,{o:.2f})'"
     return out
 
 
@@ -236,6 +203,19 @@ def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps:
         cur = f"[x{j}]"
     tail = ",vignette=angle=PI/5.5" if motion_on else ""
     return ";".join(parts) + f";{cur}null{tail}[vx]"
+
+
+def card_graph(src: str, dst: str, title_idx: int, end_idx: int, pl: dict, W: int, H: int) -> str:
+    """[src] + thẻ tiêu đề (hiện t0..t1, mờ vào/ra) + bảng kết (từ outro_at, mờ vào) -> [dst]. Ảnh thẻ là input loop."""
+    hook = pl.get("hook")
+    t0 = float(pl.get("title_at") or 0.0)
+    t1 = round(t0 + (TITLE_LEN if hook else TITLE_UNTIL), 2)
+    o = float(pl["outro_at"])
+    parts = [f"[{title_idx}:v]format=rgba,fade=t=in:st={t0:.2f}:d=0.3:alpha=1,fade=t=out:st={t1 - 0.3:.2f}:d=0.3:alpha=1[ct]",
+             f"{src}[ct]overlay=x=(W-w)/2:y={int(H * 0.27)}-h/2:enable='between(t,{t0:.2f},{t1:.2f})':format=auto[cv1]",
+             f"[{end_idx}:v]format=rgba,fade=t=in:st={o:.2f}:d=0.45:alpha=1[ce]",
+             f"[cv1][ce]overlay=x=(W-w)/2:y=(H-h)/2-{int(H * 0.04)}:enable='gte(t,{o:.2f})':format=auto{dst}"]
+    return ";".join(parts)
 
 
 def sprites(work: str) -> list[str]:
@@ -426,7 +406,7 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     hi = story_mod.english_tokens(brief)
     subs_mod.write_ass(words, ass, None, STYLE, None, highlight=hi, pop=fx != "off")
     srt = subs_mod.to_srt(words)
-    glosses = gloss_times(words, brief.get("words", []))
+    glosses = [g for g in gloss_times(words, brief.get("words", [])) if g[0] < pl["outro_at"]]   # màn kết đã có bảng từ
     sizes = [await asyncio.to_thread(slideshow.image_size, p) for p in images]
     avail = await asyncio.to_thread(slideshow.xfade_transitions)
     hits = hits_from_words(words) if fx != "off" else []
@@ -451,10 +431,15 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
         fc += ";" + particle_graph(next_idx, len(sp), W, H, rnd)
         next_idx += len(sp)
         top = "[vp]"
-    fc += f";{top}" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work,
-                               hook[2] if hook else "").lstrip(",")
-    fc += (f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},fade=t=in:st=0:d=0.3,"
-           f"fade=t=out:st={max(0.0, total - 0.5):.2f}:d=0.5,format=yuv420p[v];")
+    from rmvideo.kids import cards
+    cd = await asyncio.to_thread(cards.make_cards, title or "", brief.get("words", []), channel, W, H, work)
+    inputs += ["-loop", "1", "-framerate", str(fps), "-i", cd["title"], "-loop", "1", "-framerate", str(fps), "-i", cd["end"]]
+    fc += ";" + card_graph(top, "[vc]", next_idx, next_idx + 1, pl, W, H)
+    next_idx += 2
+    fc += ";[vc]" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work,
+                             hook[2] if hook else "").lstrip(",")
+    # không mờ từ đen / về đen: khung đầu là cảnh móc, khung cuối là bảng kết sáng (Reels lặp lại không lộ màn đen)
+    fc += f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},format=yuv420p[v];"
     events: dict[str, list[float]] = {}
     if fx == "full":                                   # whoosh lúc chuyển cảnh, ting lúc dạy từ
         sf = await sfx_files(work)
