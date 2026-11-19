@@ -341,6 +341,10 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
              ("a t-shirt", 0.3, [22, 122, 78, 198])]                                            # khung cuối chồng khung đầu
     found = imgcheck.shirt_colors(im, boxes)
     assert [c for c, _s, _b in found] == ["red", "green"] and imgcheck.box_color(im, [20, 220, 80, 290]) is None
+    heads = [("a rabbit head", 0.5, [20, 40, 80, 110]), ("a cat head", 0.5, [120, 40, 180, 110])]
+    assert [c for c, _s, _b in imgcheck.shirt_colors(im, boxes, heads=heads)] == ["red", "green"]     # dưới đầu: giữ
+    assert imgcheck.shirt_colors(im, boxes, heads=[("a cat head", 0.5, [120, 260, 180, 299])]) == []  # không đầu nào ở trên: bỏ
+    assert imgcheck.hue_name(44) is None and imgcheck.hue_name(50) == "yellow"
     assert imgcheck.shirts_ok(found, ["red", "green"]) and imgcheck.shirts_ok(found, ["green", "red"])
     assert not imgcheck.shirts_ok(found, ["red", "blue"])                       # áo xanh lá không thuộc bộ màu
     assert not imgcheck.shirts_ok([("red", 0.5, [0, 0, 1, 1]), ("red", 0.4, [50, 0, 51, 1])], ["red", "green"])   # hai áo đỏ
@@ -371,6 +375,7 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
                               expected=[1, 2], checker=checker, stats=st, colors=[["red"], ["red", "green"]])
     assert len(out) == 2 and all(os.path.exists(p) for p in out)
     assert seeds_used == [11, 11 + 7919 * 2, 11 + 7919 * 3, 22] and st == {"checked": 4, "redo": 2}
+    assert os.path.exists(tmp_path / "img" / "raw_01_bad1.png") and os.path.exists(tmp_path / "img" / "raw_01_bad3.png")
     assert checked == [(11, 1), (11 + 7919 * 2, 1), (11 + 7919 * 3, 1), (22, 2)]
     seeds_used.clear()
     images_mod.generate(["p1"], [11], str(tmp_path / "img2"), "schnell", lambda s: None, pipe=object())      # không kiểm

@@ -14,7 +14,7 @@ MODEL_ID = "google/owlv2-base-patch16-ensemble"
 QUERIES = ("a rabbit head", "a cat head", "a bear head", "a squirrel head", "a cartoon animal face", "a t-shirt")
 SHIRT_THR = 0.25
 # màu áo theo sắc độ (độ, 0-360): đỏ / xanh lá / xanh dương / vàng; cam (lông mèo) và màu khác -> None, không tính
-HUES = {"red": ((345, 360), (0, 15)), "yellow": ((42, 70),), "green": ((75, 165),), "blue": ((195, 255),)}
+HUES = {"red": ((345, 360), (0, 15)), "yellow": ((46, 68),), "green": ((75, 165),), "blue": ((195, 255),)}
 THRESHOLD = 0.3
 RETRIES = 2                       # vẽ lại tối đa chừng này lần cho một cảnh (~35 giây / lần trên T4)
 Box = tuple[str, float, list[int]]
@@ -81,12 +81,24 @@ def box_color(img: Any, box: list[int]) -> str | None:
     return best if votes[best] >= 0.4 * (24 * 24) else None      # ít nhất 40% điểm ảnh vùng giữa cùng một màu
 
 
-def shirt_colors(img: Any, boxes: list[Box], thr: float = SHIRT_THR) -> list[tuple[str, float, list[int]]]:
-    """Áo thấy trong ảnh: (màu, điểm, khung) — khung «a t-shirt» ≥ thr, bỏ khung chồng nhau, màu xác định được."""
+def _under_head(box: list[int], heads: list[Box]) -> bool:
+    """Khung áo nằm dưới một đầu (đỉnh áo không cao hơn giữa đầu, chồng ngang ≥ 30%): bỏ khung bụi hoa / cỏ vàng."""
+    for _q, _s, h in heads:
+        x_over = max(0, min(box[2], h[2]) - max(box[0], h[0])) / max(1, box[2] - box[0])
+        if x_over >= 0.3 and box[1] >= (h[1] + h[3]) / 2 - 0.2 * (h[3] - h[1]):
+            return True
+    return False
+
+
+def shirt_colors(img: Any, boxes: list[Box], thr: float = SHIRT_THR, heads: list[Box] | None = None) -> list[tuple[str, float, list[int]]]:
+    """Áo thấy trong ảnh: (màu, điểm, khung) — khung «a t-shirt» ≥ thr, nằm dưới một đầu (nếu có danh sách đầu), bỏ khung
+    chồng nhau, màu xác định được."""
     out: list[tuple[str, float, list[int]]] = []
     kept: list[list[int]] = []
     for q, sc, box in sorted(boxes, key=lambda b: -b[1]):
         if q != "a t-shirt" or sc < thr:
+            continue
+        if heads and not _under_head(box, heads):
             continue
         if any(_inter(box, k) / min(_area(box), _area(k)) >= 0.6 for k in kept):
             continue
@@ -144,6 +156,6 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
     (colors: màu áo của các bạn trong cảnh, xem shirts_ok). Khung trả thêm các áo thấy dưới dạng ("shirt:red", điểm, khung)."""
     boxes = detect(img, loaded)
     heads = merge_heads(boxes, thr)
-    found = shirt_colors(img, boxes) if colors else []
+    found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if colors else []
     ok = len(heads) <= max(1, int(expected)) and shirts_ok(found, colors or [])
     return ok, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]

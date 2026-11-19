@@ -281,6 +281,10 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
                            else f"áo thấy {shirts}, các bạn mặc {want_c} (áo đổi màu)")
                     log(f"Ảnh cảnh {i}: {why}" + (", vẽ lại với seed khác" if r < imgcheck.RETRIES
                                                 else ", hết lượt: giữ ảnh ít lỗi nhất"))
+                    try:
+                        img.save(os.path.join(out_dir, f"raw_{i:02d}_bad{r + 1}.png"))     # giữ lại để soát bộ kiểm
+                    except Exception:
+                        pass
                     if best_n is None or n < best_n:
                         best, best_n = img, n
                     if r == imgcheck.RETRIES:

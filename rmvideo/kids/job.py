@@ -123,6 +123,9 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     files = {"story.json": sj}
     for i, p in enumerate(imgs, 1):
         files[f"scene_{i:02d}.png"] = p
+    import glob
+    for p in sorted(glob.glob(os.path.join(tmp, "img", "raw_*_bad*.png"))):     # ảnh bộ kiểm loại: giữ để soát bộ kiểm
+        files[os.path.basename(p).replace("raw_", "scene_")] = p
     bad = await qa_video(out)
     if bad:                     # vẫn trả video + ảnh + kịch bản về /kaggle/working để xem được vì sao hỏng (Botkeep coi là lỗi)
         return {"ok": False, "kind": "kids", "error": "Video dựng ra không đạt: " + "; ".join(bad), "video": out,
