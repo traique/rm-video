@@ -22,25 +22,32 @@ from rmvideo.domain import dialect
 
 DATA_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json")
 N_SCENES = 8
-# Đo thật 18/11/2026 (Qwen3.6-35B-A3B, grammar JSON): model viết NGẮN hơn yêu cầu (74 -> 146 -> 176 chữ qua 3 lượt) và hay bỏ
-# sót từ tiếng Anh -> ngưỡng cứng thấp hơn, schema ép độ dài từng cảnh, từ thiếu chèn bằng mã, câu ôn từ cuối truyện do mã viết.
-WORDS_MIN, WORDS_MAX = 160, 240        # chữ cả truyện: 160 chữ Thục Đoan ~47s + đệm + ôn từ + màn kết ≈ 65s; đo thật
-                                       # 18/11: 236 chữ -> 88,9s (render.plan tự co đệm/đọc nhanh để ≤ 87s)
-WORDS_HARD = 130                       # dưới mức này thì không chấp nhận dù đã hết lượt
-SCENE_MIN, SCENE_MAX = 12, 40          # chữ mỗi cảnh
-EN_REPEAT = 1                          # mỗi từ tiếng Anh phải có trong lời ít nhất chừng này lần (đo thật 18/11: đòi 2 lần thì
-                                       # 4 lượt đều trượt vì mỗi từ chỉ 1 lần; thẻ nghĩa + câu ôn từ + màn kết đã nhắc lại 3 lần nữa)
+# Đo thật 18-19/11/2026 (Qwen3.6-35B-A3B): ép từ tiếng Anh vào lời thoại thì truyện rời rạc, từ bị hô trống không; giờ
+# model viết truyện THUẦN TIẾNG VIỆT cho bé 3-6 tuổi (câu ngắn, tiếng động, điệp khúc ba lần) và chỉ cần nhắc tới đồ vật /
+# màu / con vật của hôm nay; mã chèn «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!» ngay cảnh đồ vật đó xuất hiện
+# (cách các kênh dạy tiếng Anh cho bé làm), thẻ nghĩa + câu ôn từ + màn kết nhắc lại.
+WORDS_MIN, WORDS_MAX = 130, 200        # chữ model viết (chưa kể ~12 chữ/từ mã chèn + câu ôn từ): video ≈ 60-80 giây
+WORDS_HARD = 100                       # dưới mức này thì không chấp nhận dù đã hết lượt
+SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
-N_WORDS = (3, 4, 4, 5)                 # số từ tiếng Anh mỗi truyện (hay gặp nhất: 4)
+N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
 HAPPY = ("vui", "cười", "hạnh phúc", "cùng nhau", "ôm", "mừng", "thích")
 BANNED = ("chết", "máu", "giết", "đánh nhau", "ma quỷ", "con ma", "súng", "con dao", "đâm", "ngu ngốc", "đồ ngốc",
           "ghét", "đồ ngu", "xấu xí")
-# ORDER: nội dung từng cảnh (số thứ tự cố định theo ý tưởng): hook -> vấn đề -> leo thang -> xung đột -> đỉnh -> giải
-# quyết -> bài học -> kết vui
-SCENE_ROLES = ("mở đầu gây tò mò", "giới thiệu vấn đề", "vấn đề lớn dần", "xung đột", "đỉnh điểm", "cách giải quyết",
-               "bài học", "kết vui")
+# 8 nhịp của một truyện mầm non (học từ truyện kể cho bé 3-5 tuổi: mở bằng lời chào, một chuyện nhỏ, thử ba lần với một câu
+# điệp khúc, bạn giúp, bài học nói nhẹ qua lời nhân vật, kết nhắn nhủ các bé)
+SCENE_ROLES = (
+    "chào các bé, giới thiệu nhân vật chính đang ở đâu, làm gì (vui vẻ)",
+    "bạn ấy muốn làm một việc nhỏ (chơi, giúp, làm quà...) và bắt đầu làm",
+    "chuyện xảy ra: có tiếng động (Bịch! Ối! Rầm!), có vấn đề",
+    "thử cách thứ nhất — chưa được; nói câu điệp khúc lần 1",
+    "thử cách thứ hai — vẫn chưa được, hơi buồn; câu điệp khúc lần 2",
+    "một bạn tới giúp hoặc gợi ý, thử lần ba — được rồi! câu điệp khúc lần 3 (đổi kết vui)",
+    "bài học: một bạn nói nhẹ nhàng một câu, bạn chính gật đầu",
+    "kết vui: các bạn cùng chơi/cười; câu cuối nhắn nhủ «các bé» (hỏi bé hoặc dặn bé một câu)",
+)
 
 
 @functools.lru_cache(maxsize=1)
@@ -106,9 +113,13 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     rnd.shuffle(bank)
     bank.sort(key=lambda w: last_use.get(w, -1))
     cutoff = len(ordered) - 6                                  # không nằm trong 6 truyện vừa rồi (chưa dùng = luôn được)
-    lesson_words = by_id(data["lessons"], lesson_id).get("words", [])
-    linked = [w for w in bank if w in lesson_words and (w not in last_use or last_use[w] < cutoff)]
-    words = linked[:min(3, n)]
+
+    def unused(cands: Sequence[str]) -> list[str]:
+        return [w for w in bank if w in cands and (w not in last_use or last_use[w] < cutoff)]
+    # 1-2 từ là đồ vật/con vật CÓ MẶT ở bối cảnh (truyện nhắc tới tự nhiên), 1 từ gắn với bài học (lời chào/cảm xúc/hành
+    # động), còn lại từ kho theo lần dùng gần nhất
+    words = unused(by_id(data["settings"], setting_id).get("words", []))[:2 if n >= 4 else 1]
+    words += [w for w in unused(by_id(data["lessons"], lesson_id).get("words", [])) if w not in words][:1]
     words += [w for w in bank if w not in words][:n - len(words)]
     mains = list(data["characters"])
     seen = [str(s.get("main") or "") for s in sorted(stories, key=_created)]
@@ -201,8 +212,9 @@ def _ascii(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 
-def validate(story: dict, brief: dict, data: dict) -> list[str]:
-    """Danh sách lỗi (rỗng = đạt) để model viết lại. story đã qua normalize()."""
+def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[str] = ()) -> list[str]:
+    """Danh sách lỗi (rỗng = đạt) để model viết lại. story đã qua normalize(). example_sentences: câu của truyện mẫu
+    trong lời nhắc, chép lại ≥ 2 câu là lỗi (model hay chép mẫu y nguyên)."""
     problems = []
     scenes = story.get("scenes") or []
     texts = [s.get("text", "") for s in scenes]
@@ -220,12 +232,17 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
     full = " ".join(texts)
     low = full.lower()
     for w in brief.get("words", []):
-        n = count_word(full, w["en"])
-        if n < EN_REPEAT:
-            problems.append(f"từ tiếng Anh «{w['en']}» chỉ xuất hiện {n} lần, cần ít nhất {EN_REPEAT} lần")
-    for c in data["characters"].values():
-        if c["name_vi"].lower() not in low:
-            problems.append(f"thiếu nhân vật {c['name_vi']} (cả bốn bạn đều phải được nhắc tên)")
+        if not vi_mentioned(full, w, data):
+            problems.append(f"truyện phải nhắc tới «{w['vi']}» (đồ vật / màu / con vật / việc bé học hôm nay), kể tự nhiên")
+    foreign = [w["en"] for w in data["words"] if count_word(full + " " + story.get("title", ""), w["en"])]
+    if foreign:
+        problems.append("truyện và tiêu đề viết THUẦN tiếng Việt, không chen tiếng Anh (" + ", ".join(foreign[:5])
+                        + "): phần tiếng Anh mã sẽ tự thêm")
+    main = data["characters"].get(brief.get("main", ""), {})
+    if main and main["name_vi"].lower() not in low:
+        problems.append(f"thiếu nhân vật chính {main['name_vi']}")
+    if sum(1 for c in data["characters"].values() if c["name_vi"].lower() in low) < 2:
+        problems.append("cần ít nhất một bạn nữa ngoài nhân vật chính (Gấu Nâu, Mèo Cam, Sóc Nhỏ...)")
     if texts and not re.search(r"[?!]", texts[0]):
         problems.append("cảnh 1 phải có một câu hỏi hoặc câu cảm để gây tò mò")
     lesson = by_id(data["lessons"], brief.get("lesson", ""))
@@ -239,10 +256,6 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
     title = story.get("title", "")
     if not 6 <= len(title) <= TITLE_MAX:
         problems.append(f"tiêu đề {len(title)} ký tự, cần 6-{TITLE_MAX} ký tự")
-    today = {w["en"] for w in brief.get("words", [])}
-    stray = [w["en"] for w in data.get("words", []) if w["en"] not in today and count_word(title, w["en"])]
-    if stray:                            # đo thật 18/11: model chép y ví dụ tiêu đề trong lời nhắc («lời promise bị quên»)
-        problems.append(f"tiêu đề có từ tiếng Anh không phải của hôm nay ({', '.join(stray)}): chỉ dùng từ trong danh sách")
     for i, s in enumerate(scenes, 1):
         act = s.get("action_en") or ""
         if len(act.split()) < 3:
@@ -253,39 +266,31 @@ def validate(story: dict, brief: dict, data: dict) -> list[str]:
         if t.count("?") > QUESTIONS_MAX:
             problems.append(f"cảnh {i} hỏi dồn dập ({t.count('?')} câu hỏi): kể bằng hành động và lời thoại, tối đa "
                             f"{QUESTIONS_MAX} câu hỏi một cảnh")
-    for i, t in enumerate(texts, 1):
-        run_len = listed_words(t, [w["en"] for w in brief.get("words", [])])
-        if run_len >= 3:
-            problems.append(f"cảnh {i} xếp {run_len} từ tiếng Anh liền nhau thành danh sách: mỗi từ phải nằm trong một câu "
-                            "có nghĩa riêng")
-    n_gloss = len(re.findall(r"nghĩa là", low))
-    if n_gloss > len(brief.get("words", [])):
-        problems.append(f"giải nghĩa từ {n_gloss} lần: mỗi từ tiếng Anh chỉ giải nghĩa («nghĩa là») tối đa MỘT lần, các "
-                        "lần khác dùng tự nhiên trong lời thoại, không liệt kê nghĩa các từ liền nhau")
+    if example_sentences:
+        copied = [x for x in example_sentences if x.lower() in low]
+        if len(copied) >= 2:
+            problems.append("không chép truyện mẫu (trùng câu: " + "; ".join(copied[:2]) + "): viết truyện mới theo đề")
     return problems
 
 
-def listed_words(text: str, words: Sequence[str]) -> int:
-    """Số từ tiếng Anh (của đề) nhiều nhất đứng liền nhau trong một đoạn ngắn (chỉ cách nhau dấu phẩy / «và»): đo thật
-    18/11, model viết «jump, scared, try, new, bird, nha!» cho đủ từ. Trả 0-n."""
-    low = text.lower()
-    for w in words:                     # cụm nhiều chữ («thank you») tính là MỘT từ
-        if " " in w:
-            low = re.sub(r"\b" + re.escape(w.lower()) + r"\b", w.lower().replace(" ", "_"), low)
-    toks = [align_norm(t) for t in re.split(r"[\s,]+", low) if t]
-    targets = {align_norm(w.lower().replace(" ", "_")) for w in words}
-    best = cur = 0
-    for t in toks:
-        if t in targets:
-            cur += 1
-            best = max(best, cur)
-        elif t not in ("và", "rồi", "nha", "nè"):
-            cur = 0
-    return best
+def vi_forms(w: dict, data: dict) -> list[str]:
+    """Các cách viết tiếng Việt tính là «có nhắc tới» từ đó: vi, các «match» trong kho, và chữ cuối của vi («trái banh» ->
+    «banh»)."""
+    info = word_info(data, w["en"])
+    forms = [w.get("vi") or info.get("vi") or ""] + list(info.get("match") or [])
+    vi = forms[0]
+    if " " in vi and not info.get("match"):
+        forms.append(vi.split()[-1])
+    return [f for f in dict.fromkeys(x.strip().lower() for x in forms) if f]
 
 
-def align_norm(tok: str) -> str:
-    return re.sub(r"[^\w]", "", tok.lower().strip("«»\"“”'"))
+def vi_mentioned(text: str, w: dict, data: dict) -> bool:
+    low = (text or "").lower()
+    return any(re.search(r"(?<![\wÀ-ỹ])" + re.escape(f) + r"(?![\wÀ-ỹ])", low) for f in vi_forms(w, data))
+
+
+def first_scene_with(scenes: Sequence[dict], w: dict, data: dict) -> int:
+    return next((i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)), -1)
 
 
 def is_english(text: str) -> bool:
@@ -315,28 +320,30 @@ def blocking(story: dict, brief: dict, data: dict) -> list[str]:
     return out
 
 
-def inject_words(story: dict, brief: dict, data: dict) -> list[str]:
-    """Từ tiếng Anh model bỏ sót hẳn (0 lần): chèn một câu thoại của nhân vật chính vào cảnh 6 (giải quyết) hoặc 7 (bài
-    học) để bé vẫn nghe từ đó trong truyện. Trả các từ đã chèn."""
+def beat_text(w: dict) -> str:
+    """Câu dạy từ (mã viết, người kể đọc): «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!»"""
+    vi = (w.get("vi") or "").strip()
+    return f"{vi[:1].upper()}{vi[1:]}, tiếng Anh là {w['en']}. Bé nói theo nha: {w['en']}!"
+
+
+def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
+    """Chèn câu dạy từ vào cuối cảnh ĐẦU TIÊN nhắc tới đồ vật đó (không cảnh nào nhắc thì cảnh 2/3/4 kèm câu dẫn). Mỗi cảnh
+    tối đa 2 câu dạy để không nặng. Trả [(en, chỉ số cảnh)]."""
     scenes = story.get("scenes") or []
     if len(scenes) < N_SCENES:
         return []
-    main = data["characters"].get(brief.get("main", ""), {}).get("name_vi", "Thỏ Trắng")
-    full = " ".join(s.get("text", "") for s in scenes)
-    added = []
+    out: list[tuple[str, int]] = []
+    load_count = [0] * len(scenes)
     for k, w in enumerate(brief.get("words", [])):
-        if count_word(full, w["en"]) == 0:
-            sc = scenes[5 if k % 2 == 0 else 6]
-            sc["text"] = (sc["text"].rstrip() + f" {main} nói: «{word_line(w, data)}»").strip()
-            added.append(w["en"])
-    return added
-
-
-def word_line(w: dict, data: dict) -> str:
-    """Câu mẫu tự nhiên có từ tiếng Anh (kho từ data.json, viết tay): đưa vào lời nhắc làm mẫu và chèn khi model bỏ sót.
-    Đo thật 18/11: model hay hô từ trống không («Mèo Cam nói: jump!») hoặc dịch sang tiếng Việt rồi bỏ từ tiếng Anh."""
-    line = (word_info(data, w["en"]) or {}).get("line") or w.get("line")
-    return str(line) if line else f"{w['en']} nghĩa là {w['vi']} đó nha."
+        i = first_scene_with(scenes, w, data)
+        lead = ""
+        if i < 0 or load_count[i] >= 2:
+            i = next((j for j in [1 + k % 3, 2, 3, 4, 5, 1] if load_count[j] < 2), 1 + k % 3)
+            lead = f"Ở đây có {w['vi']} nè. " if first_scene_with(scenes, w, data) < 0 else ""
+        scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w)).strip()
+        load_count[i] += 1
+        out.append((w["en"], i))
+    return out
 
 
 def recap_text(brief: dict) -> str:

@@ -237,7 +237,8 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                    srv: Server | PyBackend | None = None) -> tuple[dict, list[dict]]:
     """Truyện đã chuẩn hoá, cùng nhật ký các lượt [{attempt, problems, secs, words, text}]. Đạt bộ kiểm thì trả ngay;
     hết lượt thì chấp nhận bản ít lỗi nhất nếu không còn lỗi CHẶN (story.blocking), từ tiếng Anh bỏ sót chèn bằng mã
-    (story.inject_words), ghi «accepted_with» vào lượt cuối; còn lỗi chặn thì ném StoryRejected.
+    ghi «accepted_with» vào lượt cuối; còn lỗi chặn thì ném StoryRejected. Bản nhận được chèn câu dạy từ tiếng Anh
+    (story.add_beats) vào cảnh đồ vật đó xuất hiện; lượt cuối ghi «beats».
     srv: bộ chạy đã khởi động (test); None thì tự chọn, chạy, rồi tắt."""
     brief, channel = spec["brief"], spec.get("channel") or {}
     own = srv is None
@@ -261,7 +262,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                 feedback = ["trả về đúng JSON theo schema"]
                 continue
             st = story_mod.normalize(parsed, data)
-            problems = story_mod.validate(st, brief, data)
+            problems = story_mod.validate(st, brief, data, prompts.example_sentences())
             hard = story_mod.blocking(st, brief, data)
             attempts.append({"attempt": k + 1, "problems": problems, "blocking": hard, "secs": round(time.time() - t0, 1),
                              "words": sum(story_mod.word_count(s["text"]) for s in st["scenes"]),
@@ -269,6 +270,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
             log(f"Truyện bé: lượt {k + 1} {attempts[-1]['secs']}s, {attempts[-1]['words']} chữ"
                 + (f", lỗi: {'; '.join(problems)[:300]}" if problems else ", đạt"))
             if not problems:
+                attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
                 return st, attempts
             score = (len(hard), len(problems))
             if best is None or score < best[0]:
@@ -279,12 +281,10 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
             run.stop()
     if best is not None and not story_mod.blocking(best[1], brief, data):
         st = best[1]
-        added = story_mod.inject_words(st, brief, data)
-        soft = story_mod.validate(st, brief, data)
+        soft = story_mod.validate(st, brief, data, prompts.example_sentences())
         attempts[-1]["accepted_with"] = soft
-        attempts[-1]["injected"] = added
-        log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f", chèn từ thiếu: {', '.join(added)}" if added else "")
-            + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
+        attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
+        log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
         return st, attempts
     raise StoryRejected("Kịch bản chưa đạt sau %d lượt: %s" % (1 + RETRIES, "; ".join(attempts[-1]["problems"])[:400]),
                         attempts)

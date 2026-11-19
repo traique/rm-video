@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import subprocess
 import time
 from datetime import datetime
@@ -58,12 +59,13 @@ def test_pick_avoids_recent_and_rotates_main():
     now = time.time()
     for k in range(40):
         b = story.pick(DATA, stories, rnd, now)
-        assert 3 <= len(b["words"]) <= 5 and b["seed"] > 0
+        assert 3 <= len(b["words"]) <= 4 and b["seed"] > 0
         stories.append({"created_at": now - (40 - k) * 3600, "lesson": b["lesson"], "setting": b["setting"],
                         "conflict": b["conflict"], "words": [w["en"] for w in b["words"]], "main": b["main"]})
     first = stories[0]
     linked = set(story.by_id(DATA["lessons"], first["lesson"])["words"])
-    assert len(linked & set(first["words"])) >= 2                           # từ gắn với bài học đi trước (lỗi thật 18/11)
+    at_place = set(story.by_id(DATA["settings"], first["setting"])["words"])
+    assert linked & set(first["words"]) and at_place & set(first["words"])  # 1 từ theo bài học + từ có mặt ở bối cảnh
     triples = [(s["lesson"], s["setting"], s["conflict"]) for s in stories]
     assert len(set(triples)) == len(triples)                              # 40 truyện không trùng bộ ba
     assert set(s["main"] for s in stories[:4]) == set(DATA["characters"])   # 4 truyện đầu: 4 nhân vật chính khác nhau
@@ -85,35 +87,35 @@ def test_south_kids_words():
 
 
 def _good_story(brief):
-    """Kịch bản đạt mọi điều kiện (8 cảnh, mỗi từ ≥ 2 lần, đủ 4 bạn, hook, bài học, kết vui)."""
-    ws = [w["en"] for w in brief["words"]]
+    """Kịch bản đạt mọi điều kiện: 8 cảnh thuần tiếng Việt, nhắc tới tiếng Việt của mỗi từ, chào bé, bài học, kết vui."""
+    vis = [w["vi"] for w in brief["words"]]
     lesson = story.by_id(DATA["lessons"], brief["lesson"])
-    filler = "Hai bạn đi dạo trên đồi cỏ xanh."
+    filler = "Hai bạn đi dạo."
     base = [
-        f"Ôi không, chuyện gì vậy ta? {filler} Thỏ Trắng chạy tới hỏi Gấu Nâu nè.",
-        f"Mèo Cam và Sóc Nhỏ đang chơi. {filler} «{ws[0]}» nghĩa là {brief['words'][0]['vi']} đó nha.",
-        f"Thỏ Trắng lỡ tay làm rơi bình hoa. {filler} Gấu Nâu hơi buồn, Sóc Nhỏ nói {ws[0]}.",
-        f"Mèo Cam nói: {ws[0]} bạn ơi. {filler} Hai bạn cùng nhìn nhau một lúc lâu.",
-        f"Sóc Nhỏ sợ quá, Thỏ Trắng cũng lo. {filler} Gấu Nâu nói nhỏ thôi nha mấy bạn.",
-        f"Thỏ Trắng hít một hơi rồi nói to. {filler} Mèo Cam gật đầu, Sóc Nhỏ cười.",
+        f"Chào các bé! Hôm nay Thỏ Trắng ra đồi chơi. {filler} Thỏ Trắng gặp Gấu Nâu nè.",
+        f"Thỏ Trắng thấy {vis[0]} đẹp ghê. {filler} Thỏ Trắng muốn mang về cho Mèo Cam.",
+        f"Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. {filler} Gấu Nâu hơi buồn, Sóc Nhỏ chạy tới coi.",
+        f"Thỏ Trắng nói: cố lên, cố lên nha. {filler} Vẫn chưa được, hai bạn nhìn nhau.",
+        f"Thỏ Trắng nói: cố lên, cố lên nha. {filler} Gấu Nâu nói nhỏ thôi nha mấy bạn.",
+        f"Gấu Nâu giúp một tay. Cố lên, cố lên nha! {filler} Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười.",
         f"Gấu Nâu nói: tụi mình phải {lesson['keywords'][0]} nha. {filler} Các bạn cùng gật đầu.",
-        f"Bốn bạn ôm nhau cười vui. {filler} Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ chơi cùng nhau.",
+        f"Bốn bạn ôm nhau cười vui. {filler} Các bé ơi, mình cùng chơi vui nha!",
     ]
-    for j, w in enumerate(ws[1:]):                                          # các từ còn lại cũng ≥ 2 lần, mỗi từ trong một câu
-        base[3 + j % 3] += f" Mình {w} nè. Bạn {w} đi."
+    for j, vi in enumerate(vis[1:]):                                        # các từ còn lại cũng được nhắc tới
+        base[3 + j % 3] += f" Ở đây có {vi} nè."
     while sum(story.word_count(t) for t in base) < story.WORDS_MIN + 5:       # đủ số chữ tối thiểu
         k = min(range(8), key=lambda i: story.word_count(base[i]))
         base[k] += " Nắng vàng nhẹ nhàng."
     scenes = [{"text": t, "characters": ["white_rabbit", "brown_bear"], "action_en": "White Rabbit talks to Brown Bear"}
               for t in base]
-    return {"title": f"Thỏ Trắng và bài học {ws[0]}", "scenes": scenes, "description": "Truyện dạy bé xin lỗi.",
+    return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "scenes": scenes, "description": "Truyện dạy bé xin lỗi.",
             "hashtags": ["#BeXinLoi", "bai hoc"]}
 
 
 def test_validate_good_and_bad():
     brief = story.pick(DATA, [], random.Random(2))
     st = story.normalize(_good_story(brief), DATA)
-    assert story.validate(st, brief, DATA) == []
+    assert story.validate(st, brief, DATA, prompts.example_sentences()) == []
     assert st["hashtags"] == ["#bexinloi", "#baihoc"]
     bad = json.loads(json.dumps(st))
     bad["scenes"] = bad["scenes"][:7]
@@ -121,18 +123,45 @@ def test_validate_good_and_bad():
     probs = story.validate(bad, brief, DATA)
     assert any("8 cảnh" in p for p in probs) and any("câu hỏi" in p for p in probs) and any("chết" in p for p in probs)
     assert any("chữ" in p for p in probs)
+    # chen tiếng Anh vào lời / tiêu đề -> lỗi (mã mới là nơi thêm tiếng Anh)
+    en = json.loads(json.dumps(st))
+    en["scenes"][1]["text"] += f" Thỏ Trắng nói: {brief['words'][0]['en']}!"
+    assert any("THUẦN tiếng Việt" in p for p in story.validate(en, brief, DATA))
+    # chép ≥ 2 câu truyện mẫu -> lỗi
+    cp = json.loads(json.dumps(st))
+    ex = prompts.example_sentences()
+    cp["scenes"][2]["text"] += " " + ex[0] + ". " + ex[1] + "."
+    assert any("chép truyện mẫu" in p for p in story.validate(cp, brief, DATA, ex))
+    # thiếu đồ vật của hôm nay -> lỗi nêu đúng tiếng Việt của từ
+    w0 = brief["words"][0]
+    miss = json.loads(json.dumps(st))
+    for sc in miss["scenes"]:
+        for f in story.vi_forms(w0, DATA):
+            sc["text"] = re.sub(r"(?i)" + re.escape(f), "xx", sc["text"])
+    assert any(w0["vi"] in p and "nhắc tới" in p for p in story.validate(miss, brief, DATA))
+    assert story.vi_mentioned("Thỏ Trắng cầm trái banh đỏ", {"en": "ball", "vi": "trái banh"}, DATA)
+    assert story.vi_mentioned("banh lăn kìa", {"en": "ball", "vi": "trái banh"}, DATA)
+    assert not story.vi_mentioned("bánh kem ngon", {"en": "ball", "vi": "trái banh"}, DATA)
+    assert story.vi_mentioned("áo màu đỏ", {"en": "red", "vi": "màu đỏ"}, DATA)
+    assert not story.vi_mentioned("đỏng đảnh", {"en": "red", "vi": "màu đỏ"}, DATA)
 
 
-def test_blocking_inject_and_recap():
+def test_blocking_beats_and_recap():
     brief = story.pick(DATA, [], random.Random(2))
     st = story.normalize(_good_story(brief), DATA)
     assert story.blocking(st, brief, DATA) == []
-    missing = {"en": "rainbow", "vi": "cầu vồng"}
-    brief2 = {**brief, "words": brief["words"] + [missing]}
-    assert any("rainbow" in p for p in story.validate(st, brief2, DATA))
-    assert story.inject_words(st, brief2, DATA) == ["rainbow"]
-    assert story.count_word(story.script_text(st), "rainbow") >= 1 and "cầu vồng" in story.script_text(st)
-    assert story.inject_words(st, brief2, DATA) == []                        # đã có thì không chèn nữa
+    beats = story.add_beats(st, brief, DATA)
+    assert [en for en, _ in beats] == [w["en"] for w in brief["words"]]
+    assert beats[0][1] == 1                                                  # từ đầu tiên xuất hiện ở cảnh 2 -> chèn ở đó
+    txt = story.script_text(st)
+    for w in brief["words"]:
+        assert f"tiếng Anh là {w['en']}. Bé nói theo nha: {w['en']}!" in txt
+    assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!"
+    # không cảnh nào nhắc tới -> chèn kèm câu dẫn «Ở đây có ... nè»
+    st2 = story.normalize(_good_story(brief), DATA)
+    extra = {"en": "rainbow", "vi": "cầu vồng"}
+    beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
+    assert beats == [("rainbow", 1)] and "Ở đây có cầu vồng nè. Cầu vồng, tiếng Anh là rainbow." in st2["scenes"][1]["text"]
     short = {**st, "scenes": [{**s, "text": "Hai bạn chơi vui."} for s in st["scenes"]]}
     assert any("quá ngắn" in p for p in story.blocking(short, brief, DATA))
     r = story.recap_text(brief)
@@ -142,16 +171,18 @@ def test_blocking_inject_and_recap():
 def test_prompts_and_schema():
     brief = story.pick(DATA, [], random.Random(2))
     msgs = prompts.messages(brief, DATA, {"name": "Kể Bé Nghe"})
-    assert msgs[0]["role"] == "system" and "miền Nam" in msgs[0]["content"]
+    assert msgs[0]["role"] == "system" and "miền Nam" in msgs[0]["content"] and "THUẦN tiếng Việt" in msgs[0]["content"]
     u = msgs[1]["content"]
-    assert all(w["en"] in u for w in brief["words"]) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
+    assert all(f"«{w['vi']}»" in u for w in brief["words"]) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
+    assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
+    assert "Chào các bé" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "điệp khúc" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "scenes", "description",
                                                                                        "hashtags"}
-    assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 80    # grammar ép độ dài cảnh
-    assert all(w["en"] in u for w in brief["words"]) and "không được bỏ sót" in u
+    assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 60    # grammar ép độ dài cảnh
+    assert len(prompts.example_sentences()) >= 10 and len(prompts.EXAMPLE) == 8
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
     assert p.startswith("Exactly one character in the picture: Orange Cat jumps over a puddle. Orange Cat,")
     assert "green t-shirt" in p and p.endswith("no other animals")
@@ -168,20 +199,7 @@ def test_prompts_and_schema():
     assert "nhìn" not in p2
     spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
-    spam["scenes"][4]["text"] += " ".join(f"«{w['en']}» nghĩa là {w['vi']}." for w in brief["words"]) + " a nghĩa là b."
-    probs = story.validate(spam, brief, DATA)
-    assert any("hỏi dồn dập" in q for q in probs) and any("giải nghĩa từ" in q for q in probs)
-    other = next(w["en"] for w in DATA["words"] if w["en"] not in {x["en"] for x in brief["words"]})
-    bad_title = dict(st, title=f"Thỏ Trắng và lời {other} bị quên")
-    assert any("không phải của hôm nay" in q for q in story.validate(bad_title, brief, DATA))
-    ws = [w["en"] for w in brief["words"]]
-    assert story.listed_words("Thỏ Trắng kể: «" + ", ".join(ws) + ", nha!»", ws) == len(ws)
-    assert story.listed_words("Thank you, cảm ơn bạn nha!", ["thank you", "sorry"]) == 1
-    assert story.listed_words("Thank you, sorry, please!", ["thank you", "sorry", "please"]) == 3
-    assert story.listed_words(f"Mình {ws[0]} quá đi! Thử {ws[-1]} một lần thôi.", ws) == 1
-    lst = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
-    lst["scenes"][7]["text"] += " Thỏ Trắng kể: «" + ", ".join(ws[:3]) + " nha!»"
-    assert any("liền nhau thành danh sách" in q for q in story.validate(lst, brief, DATA))
+    assert any("hỏi dồn dập" in q for q in story.validate(spam, brief, DATA))
     title, desc, tags = prompts.post_pack(story.normalize(_good_story(brief), DATA), brief, kids_auto.channel(), DATA)
     assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#kebenghe") and "#bexinloi" in tags
 
@@ -217,18 +235,6 @@ def test_prefetch_copies_saved_model(tmp_path):
     assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "input"), str(dest)) is None   # đã có: không chép lại
     assert images_mod.prefetch("schnell", msgs.append, str(tmp_path / "nope"), str(dest)) is None    # không có bản lưu
     assert images_mod.local_dir("zimage", str(tmp_path / "input"), str(dest)) is None
-
-
-def test_word_lines_natural():
-    """Mỗi từ trong kho có câu mẫu ngắn, chứa đúng từ tiếng Anh (ranh giới từ), miền Nam, không liệt kê từ khác."""
-    ens = [w["en"] for w in DATA["words"]]
-    for w in DATA["words"]:
-        line = story.word_line(w, DATA)
-        assert story.count_word(line, w["en"]) >= 1 and len(line.split()) <= 12, (w["en"], line)
-        assert story.south_kids(line) == line, line
-        assert story.listed_words(line, ens) <= 1, line
-    assert "remember" in story.word_line({"en": "remember", "vi": "nhớ"}, DATA)
-    assert story.word_line({"en": "zzz", "vi": "x"}, DATA) == "zzz nghĩa là x đó nha."
 
 
 def test_is_blank_catches_black_band():
@@ -322,9 +328,10 @@ class _FakeSrv:
         st = _good_story(self.brief)
         if self.fail_first and len(self.calls) == 1:
             st["scenes"][0]["text"] = "Quá ngắn."
-        if self.drop_word:                               # model luôn bỏ sót một từ (đo thật 18/11)
+        if self.drop_word:                               # model luôn quên nhắc tới đồ vật của hôm nay (đo thật 18/11)
             for s in st["scenes"]:
-                s["text"] = s["text"].replace(self.drop_word, "bạn")
+                for f in story.vi_forms(self.drop_word, DATA):
+                    s["text"] = re.sub(r"(?i)" + re.escape(f), "xx", s["text"])
         if self.always_short:
             for s in st["scenes"]:
                 s["text"] = "Hai bạn chơi vui."
@@ -340,11 +347,13 @@ def test_llm_retries_with_feedback():
     st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
     assert len(attempts) == 2 and attempts[0]["problems"] and not attempts[1]["problems"]
     assert "Bản trước chưa đạt" in srv.calls[1] and st["title"]
-    # luôn thiếu một từ: hết lượt -> nhận bản ít lỗi nhất, chèn từ thiếu bằng mã
-    srv = _FakeSrv(brief, drop_word=brief["words"][0]["en"])
+    assert attempts[-1]["beats"] and story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1
+    # luôn quên một đồ vật: hết lượt -> nhận bản ít lỗi nhất, câu dạy từ vẫn chèn (kèm câu dẫn)
+    srv = _FakeSrv(brief, drop_word=brief["words"][0])
     st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
-    assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["injected"] == [brief["words"][0]["en"]]
+    assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["beats"][0][0] == brief["words"][0]["en"]
     assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1 and "accepted_with" in attempts[-1]
+    assert f"Ở đây có {brief['words'][0]['vi']} nè." in story.script_text(st)
     with pytest.raises(llm.StoryRejected) as e:                      # luôn quá ngắn: lỗi chặn -> từ chối, kèm các lượt
         llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=_FakeSrv(brief, always_short=True))
     assert len(e.value.attempts) == 1 + llm.RETRIES and e.value.attempts[0]["text"]
