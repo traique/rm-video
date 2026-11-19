@@ -87,7 +87,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"Nhân vật chính hôm nay: {main['name_vi']}. Bối cảnh: {setting['vi']}. Chuyện xảy ra: {main['name_vi']} "
             f"{conflict['vi']}. Bài học: {lesson['vi']}.\n")
     if must:
-        text += f"Trong truyện PHẢI nhắc tới (kể tự nhiên, là một phần của chuyện): {must}.\n"
+        text += (f"Đồ vật / con vật / việc có thể xuất hiện ở đây: {must}. Lồng ÍT NHẤT 3 thứ trong số đó vào truyện một cách tự "
+                 "nhiên (là đồ bạn ấy cầm, thấy, dùng trong chuyện), KHÔNG ép thêm câu chỉ để nhắc tới; thứ nào không hợp thì bỏ.\n")
     if plot:
         text += (f"Khung truyện: {plot['vi']} (kiểu {plot.get('source', '')}). Các nhịp dưới đây là Ý, KHÔNG chép chữ của nhịp: "
                  "mỗi cảnh kể bằng chi tiết riêng của truyện hôm nay (đồ vật, màu sắc, tiếng động, lời thoại của từng bạn); vật / "
@@ -111,8 +112,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
             "đồ vật trong hình, thì hiện tại; không tả ngoại hình hay quần áo (đã có sẵn), không chữ.\n"
-            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, nói về chuyện xảy ra, "
-            "không chữ tiếng Anh.\n"
+            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, đặt theo CHUYỆN XẢY RA để "
+            "gây tò mò (ví dụ «Thỏ Trắng và chiếc bình hoa vỡ»), KHÔNG lộ bài học hay kết («biết nhận lỗi», «học được…»), không "
+            "chữ tiếng Anh.\n"
             "- `description`: 2-3 câu tiếng Việt cho ba mẹ: truyện dạy bé điều gì.\n"
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n\n"
             "Truyện MẪU để học cách kể (chỉ học giọng kể và nhịp; KHÔNG chép lại câu nào, truyện hôm nay khác nhân vật, bối "
@@ -120,7 +122,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     if feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
-                 + (", có nhắc tới " + must if must else "")
+                 + (", có ít nhất 3 thứ trong: " + must if must else "")
                  + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, có hook và hook_text.")
     return text
 
@@ -132,7 +134,9 @@ REVISE_CHECK = (
     "4. Bài học (cảnh 7) có rút ra từ chính chuyện vừa xảy ra không (không giảng chung chung)?\n"
     "5. Câu ngắn (dưới 10 chữ), có tiếng động, có điệp khúc lặp 3 lần, lời thoại tự nhiên như trẻ con, giọng miền Nam?\n"
     "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?\n"
-    "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?")
+    "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?\n"
+    "8. Có câu nào lạc đề, chỉ để nhắc tới một đồ vật cho có (như «ngoài đường xe hơi chạy ngang») không? Bỏ hẳn câu đó.\n"
+    "9. Tiêu đề có lộ bài học / kết không? Phải gợi tò mò theo chuyện xảy ra.")
 
 
 def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list[dict[str, str]]:
@@ -142,7 +146,7 @@ def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list
     draft = {k: story.get(k) for k in ("title", "hook", "hook_text", "scenes", "description", "hashtags")}
     text = ("Đây là bản nháp truyện (JSON):\n" + json.dumps(draft, ensure_ascii=False, indent=1)
             + "\n\nSoát theo checklist, chỗ nào chưa đạt thì SỬA, chỗ đã tốt thì giữ nguyên:\n" + REVISE_CHECK
-            + "\n\nGiữ đúng: 8 cảnh, mỗi cảnh 2-4 câu ngắn, thuần tiếng Việt (không chữ tiếng Anh), vẫn nhắc tới "
+            + "\n\nGiữ đúng: 8 cảnh, mỗi cảnh 2-4 câu ngắn, thuần tiếng Việt (không chữ tiếng Anh), vẫn có ít nhất 3 thứ trong: "
             + (must + ", " if must else "") + "action_en bằng tiếng Anh, cùng nhân vật chính. Trả JSON đầy đủ cùng schema.")
     return [{"role": "system", "content": system_prompt(channel)}, {"role": "user", "content": text}]
 

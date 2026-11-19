@@ -35,6 +35,7 @@ HOOK_WORDS = (4, 12)                   # câu móc 3 giây đầu: 4-12 chữ (�
 TAIL_WORDS = ("nha", "hen", "nhé", "nghen")   # tiểu từ cuối câu: dùng ít thôi (phản hồi 19/11: «quá nhiều nha ở cuối câu»)
 TAIL_MAX = 3                           # cả truyện + câu móc tối đa chừng này tiểu từ
 REFRAIN_MAX = 3                        # câu điệp khúc lặp đúng 3; câu khác không được lặp
+AVOID_BEAT_SCENES = {2, 5}             # cảnh 3 (biến cố) và 6 (cao trào) không chen câu dạy từ (đạo diễn: giữ nhịp kịch)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
@@ -132,6 +133,9 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     words += [w for w in unused(by_id(data["lessons"], lesson_id).get("words", [])) if w not in words][:1]
     words += [w for w in at_place if w not in words][:n - len(words)]
     words += [w for w in bank if w not in words][:n - len(words)]
+    # kho gợi ý cho model (phản hồi 19/11: «xe hơi bóp còi» bị ép vào cuối truyện): đồ vật/con vật của bối cảnh + từ theo
+    # bài học; truyện viết xong, choose_words() lấy đúng những thứ đã xuất hiện trong truyện làm từ hôm nay
+    pool = list(dict.fromkeys(at_place + by_id(data["lessons"], lesson_id).get("words", []) + words))
     mains = list(data["characters"])
     seen = [str(s.get("main") or "") for s in sorted(stories, key=_created)]
 
@@ -140,7 +144,29 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     main = min(mains, key=last_main)
     return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id,
             "words": [{"en": w, "vi": word_info(data, w)["vi"]} for w in words],
+            "word_pool": [{"en": w, "vi": word_info(data, w)["vi"]} for w in pool],
             "main": main, "seed": rnd.randrange(1, 2 ** 31)}
+
+
+def choose_words(story: dict, brief: dict, data: dict) -> list[dict]:
+    """Từ tiếng Anh của hôm nay = những từ trong kho mà TRUYỆN ĐÃ NHẮC TỚI (tiếng Việt), ưu tiên từ trong kho gợi ý của đề,
+    rồi từ được nhắc ở nhiều cảnh, rồi xuất hiện sớm. Thiếu thì bù bằng từ đề đã chọn (sẽ chèn kèm câu dẫn)."""
+    scenes = story.get("scenes") or []
+    n = max(1, len(brief.get("words") or []))
+    pool = [w["en"] for w in brief.get("word_pool") or []]
+    found = []
+    for w in data["words"]:
+        hits = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
+        if hits:
+            found.append((0 if w["en"] in pool else 1, -len(hits), hits[0], w["en"]))
+    found.sort()
+    chosen = [en for *_, en in found][:n]
+    for w in brief.get("words") or []:
+        if len(chosen) >= n:
+            break
+        if w["en"] not in chosen:
+            chosen.append(w["en"])
+    return [{"en": en, "vi": word_info(data, en)["vi"]} for en in chosen]
 
 
 def pick_plot(data: dict, lesson_id: str, conflict_id: str, used: Sequence[str], rnd: random.Random) -> str:
@@ -283,9 +309,12 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
             problems.append(f"cảnh {i} có {n} chữ, cần {SCENE_MIN}-{SCENE_MAX} chữ")
     full = " ".join(texts)
     low = full.lower()
-    for w in brief.get("words", []):
-        if not is_greeting(w, data) and not vi_mentioned(full, w, data):
-            problems.append(f"truyện phải nhắc tới «{w['vi']}» (đồ vật / màu / con vật / việc bé học hôm nay), kể tự nhiên")
+    pool = must_mention(brief, data)
+    need = min(len(brief.get("words") or []) or 3, len(pool)) if pool else 0
+    have = [w for w in pool if vi_mentioned(full, w, data)]
+    if need and len(have) < need:
+        problems.append(f"truyện mới nhắc tới {len(have)} trong các thứ gợi ý ({', '.join('«' + w['vi'] + '»' for w in pool)}); "
+                        f"cần ít nhất {need} thứ xuất hiện TỰ NHIÊN như một phần của chuyện (không ép vào cho có)")
     foreign = [w["en"] for w in data["words"] if w["en"] not in EN_ALSO_VI
                and count_word(" ".join([full, story.get("title", ""), story.get("hook", ""), story.get("hook_text", "")]),
                               w["en"])]
@@ -316,6 +345,10 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     title = story.get("title", "")
     if not 6 <= len(title) <= TITLE_MAX:
         problems.append(f"tiêu đề {len(title)} ký tự, cần 6-{TITLE_MAX} ký tự")
+    spoil = [k for k in (lesson.get("keywords", []) if lesson else []) if k in title.lower()]
+    if spoil or re.search(r"\b(biết|học được|bài học)\b", title.lower()):
+        problems.append(f"tiêu đề lộ bài học / kết truyện («{title}»): đặt tên theo chuyện xảy ra để gây tò mò, ví dụ «Thỏ Trắng "
+                        "và chiếc bình hoa vỡ»")
     for i, s in enumerate(scenes, 1):
         act = s.get("action_en") or ""
         if len(act.split()) < 3:
@@ -348,8 +381,10 @@ def is_greeting(w: dict, data: dict) -> bool:
 
 
 def must_mention(brief: dict, data: dict) -> list[dict]:
-    """Từ mà truyện phải nhắc tới tiếng Việt (đồ vật / màu / con vật / hành động); lời chào thì không."""
-    return [w for w in brief.get("words", []) if not is_greeting(w, data)]
+    """Kho gợi ý cho model: đồ vật / màu / con vật / hành động (không lời chào) — truyện cần lồng ít nhất 3 thứ trong đó một
+    cách tự nhiên; mã sẽ chọn từ tiếng Anh từ những thứ đã xuất hiện (choose_words)."""
+    pool = brief.get("word_pool") or brief.get("words", [])
+    return [w for w in pool if not is_greeting(w, data)]
 
 
 def repeated_sentences(texts: Sequence[str]) -> list[tuple[str, int]]:
@@ -438,7 +473,8 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
     load_count = [0] * len(scenes)
 
     def spread(cands: list[int]) -> int:              # ưu tiên cảnh chưa có câu dạy nào (đo thật: 3 câu dồn vào cảnh 1)
-        return next((j for j in cands if load_count[j] == 0), next((j for j in cands if load_count[j] < 2), cands[0]))
+        calm = [j for j in cands if j not in AVOID_BEAT_SCENES] or cands   # không chen vào cảnh biến cố / cao trào
+        return next((j for j in calm if load_count[j] == 0), next((j for j in calm if load_count[j] < 2), calm[0]))
     for k, w in enumerate(brief.get("words", [])):
         mention = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
         lead = ""

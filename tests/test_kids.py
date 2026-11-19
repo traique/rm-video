@@ -156,13 +156,19 @@ def test_validate_good_and_bad():
     ex = prompts.example_sentences()
     cp["scenes"][2]["text"] += " " + ex[0] + ". " + ex[1] + "."
     assert any("chép truyện mẫu" in p for p in story.validate(cp, brief, DATA, ex))
-    # thiếu đồ vật của hôm nay -> lỗi nêu đúng tiếng Việt của từ
-    w0 = brief["words"][0]
+    # truyện không lồng đủ 3 thứ trong kho gợi ý -> lỗi; từ hôm nay chọn từ chính truyện (choose_words)
     miss = json.loads(json.dumps(st))
     for sc in miss["scenes"]:
-        for f in story.vi_forms(w0, DATA):
-            sc["text"] = re.sub(r"(?i)" + re.escape(f), "xx", sc["text"])
-    assert any(w0["vi"] in p and "nhắc tới" in p for p in story.validate(miss, brief, DATA))
+        for w in story.must_mention(brief, DATA):
+            for f in story.vi_forms(w, DATA):
+                sc["text"] = re.sub(r"(?i)(?<![\wÀ-ỹ])" + re.escape(f) + r"(?![\wÀ-ỹ])", "xx", sc["text"])
+    assert any("nhắc tới 0" in p and "cần ít nhất" in p for p in story.validate(miss, brief, DATA))
+    chosen = story.choose_words(st, brief, DATA)
+    assert len(chosen) == len(brief["words"]) and all(story.vi_mentioned(story.script_text(st), w, DATA) for w in chosen)
+    assert brief["words"][0]["en"] in [w["en"] for w in chosen]            # từ gợi ý có trong truyện được ưu tiên
+    spoil = dict(st, title="Thỏ Trắng biết nhận lỗi")
+    assert any("lộ bài học" in p for p in story.validate(spoil, brief, DATA))
+    assert not any("lộ bài học" in p for p in story.validate(dict(st, title="Thỏ Trắng và chiếc bình hoa vỡ"), brief, DATA))
     assert story.sentence_case("Thỏ Trắng Lỡ Làm Hỏng Đồ Chơi Của Bạn", DATA["characters"]) == \
            "Thỏ Trắng lỡ làm hỏng đồ chơi của bạn"
     assert story.sentence_case("Thỏ Trắng và cái giỏ táo", DATA["characters"]) == "Thỏ Trắng và cái giỏ táo"
@@ -195,7 +201,10 @@ def test_blocking_beats_and_recap():
     beats = story.add_beats(st, brief, DATA)
     assert [en for en, _ in beats] == [w["en"] for w in brief["words"]]
     assert beats[0][1] == 1                                                  # từ đầu tiên xuất hiện ở cảnh 2 -> chèn ở đó
-    assert len({i for _, i in beats}) == len(beats)                          # mỗi cảnh một câu dạy khi còn chỗ
+    for en, i in beats:                                                      # không chen vào cảnh biến cố / cao trào khi tránh được
+        w = {"en": en, "vi": story.word_info(DATA, en)["vi"]}
+        mention = [j for j, sc in enumerate(st["scenes"]) if story.vi_mentioned(sc["text"], w, DATA)]
+        assert i not in story.AVOID_BEAT_SCENES or set(mention) <= story.AVOID_BEAT_SCENES
     # hai từ cùng xuất hiện lần đầu ở một cảnh: từ sau sang cảnh kế có nhắc tới, không dồn
     st4 = story.normalize(_good_story(brief), DATA)
     for sc in st4["scenes"][:3]:
@@ -233,7 +242,7 @@ def test_prompts_and_schema():
     assert msgs[0]["role"] == "system" and "miền Nam" in msgs[0]["content"] and "THUẦN tiếng Việt" in msgs[0]["content"]
     u = msgs[1]["content"]
     assert all(f"«{w['vi']}»" in u for w in story.must_mention(brief, DATA)) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
-    assert story.must_mention(brief, DATA) and len(story.must_mention(brief, DATA)) <= len(brief["words"])
+    assert 3 <= len(story.must_mention(brief, DATA)) <= 14 and "ÍT NHẤT 3" in u and brief["word_pool"]
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
     assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
     assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u
@@ -445,12 +454,14 @@ def test_llm_retries_with_feedback():
     assert len(attempts) == 2 and attempts[0]["problems"] and not attempts[1]["problems"]
     assert "Bản trước chưa đạt" in srv.calls[1] and st["title"]
     assert attempts[-1]["beats"] and story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1
-    # luôn quên một đồ vật: hết lượt -> nhận bản ít lỗi nhất, câu dạy từ vẫn chèn (kèm câu dẫn)
-    srv = _FakeSrv(brief, drop_word=brief["words"][0])
-    st, attempts = llm.generate_story({"brief": brief, "channel": {}}, DATA, "/tmp", srv=srv)
-    assert len(attempts) == 1 + llm.RETRIES and attempts[-1]["beats"][0][0] == brief["words"][0]["en"]
-    assert story.count_word(story.script_text(st), brief["words"][0]["en"]) >= 1 and "accepted_with" in attempts[-1]
-    assert f"Ở đây có {brief['words'][0]['vi']} nè." in story.script_text(st)
+    # truyện không nhắc tới một đồ vật gợi ý: vẫn đạt (đủ 3 thứ khác), từ hôm nay chọn từ chính truyện, không ép từ đó
+    brief2 = story.pick(DATA, [], random.Random(2))
+    dropped = brief2["words"][0]
+    srv = _FakeSrv(brief2, drop_word=dropped)
+    st, attempts = llm.generate_story({"brief": brief2, "channel": {}}, DATA, "/tmp", srv=srv)
+    assert len(attempts) == 1 and attempts[-1]["words_en"] == [w["en"] for w in brief2["words"]]
+    assert len(brief2["words"]) >= 3 and all(story.vi_mentioned(story.script_text(st), w, DATA) for w in brief2["words"])
+    assert dropped["en"] not in attempts[-1]["words_en"] and f"Ở đây có {dropped['vi']} nè." not in story.script_text(st)
     # bộ viết có revise: thêm một lượt soát; bản sửa hỏng JSON thì giữ bản nháp
     srv = _FakeSrv(brief)
     srv.revise = True

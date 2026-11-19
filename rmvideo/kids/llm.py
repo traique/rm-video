@@ -225,6 +225,15 @@ def backend(spec_llm: dict, tmp: str, log: Log = logging.info) -> Server | PyBac
     return PyBackend(model, int(spec_llm.get("n_ctx") or N_CTX), log)
 
 
+def _finish_words(st: dict, brief: dict, data: dict, attempts: list[dict], log: Log) -> None:
+    """Từ hôm nay = từ trong kho đã xuất hiện trong truyện (ghi đè brief["words"] để Kaggle / bài đăng / ôn từ dùng), rồi
+    chèn câu dạy từ."""
+    brief["words"] = story_mod.choose_words(st, brief, data)
+    attempts[-1]["words_en"] = [w["en"] for w in brief["words"]]
+    attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
+    log("Truyện bé: từ hôm nay (từ chính truyện): " + ", ".join(w["en"] for w in brief["words"]))
+
+
 def _revise(run: Any, st: dict, attempts: list[dict], brief: dict, data: dict, channel: dict, log: Log) -> tuple[dict, list[dict]]:
     """Bộ viết có revise=True (Gemini: thêm 1 lượt, ~3 giây): tự soát bản nháp theo checklist liền mạch / hấp dẫn và
     sửa; bản sửa phải qua bộ kiểm, không thì giữ bản nháp. Bản sửa chỉ được nhận khi không tệ hơn (ít lỗi hơn hoặc bằng)."""
@@ -306,7 +315,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                 + (f", lỗi: {'; '.join(problems)[:300]}" if problems else ", đạt"))
             if not problems:
                 st, attempts = _revise(run, st, attempts, brief, data, channel, log)
-                attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
+                _finish_words(st, brief, data, attempts, log)
                 return st, attempts
             score = (len(hard), len(problems))
             if best is None or score < best[0]:
@@ -320,7 +329,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
         st, attempts = _revise(run, st, attempts, brief, data, channel, log)
         soft = story_mod.validate(st, brief, data, prompts.example_sentences())
         attempts[-1]["accepted_with"] = soft
-        attempts[-1]["beats"] = story_mod.add_beats(st, brief, data)
+        _finish_words(st, brief, data, attempts, log)
         log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
         return st, attempts
     raise StoryRejected("Kịch bản chưa đạt sau %d lượt: %s" % (1 + RETRIES, "; ".join(attempts[-1]["problems"])[:400]),
