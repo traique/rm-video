@@ -272,15 +272,27 @@ def _schema_rejected(err: str) -> bool:
     return "400" in err or "INVALID_ARGUMENT" in err or "schema" in err.lower()
 
 
-async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ảnh đoạn", timeout: float = 60) -> str:
+def _with_thinking(cfg, model: str, level: str):
+    """Mức suy nghĩ low/medium/high/xhigh cho Gemini 4 (mặc định của Google là high: chậm, tốn token); model khác giữ nguyên."""
+    if not level or not model.startswith("gemini-4"):
+        return cfg
+    c = dict(cfg or {})
+    c["thinking_config"] = {"thinking_level": level}
+    return c
+
+
+async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ảnh đoạn", timeout: float = 60,
+                       thinking: str = "") -> str:
     """Gọi Gemini: thử lại khi quá tải/hết hạn mức, tự đổi model khi model cũ bị ngừng (404).
-    schema (lớp pydantic): bật structured output; model không nhận schema thì lùi về JSON mode thường."""
+    schema (lớp pydantic): bật structured output; model không nhận schema thì lùi về JSON mode thường.
+    thinking: mức suy nghĩ cho Gemini 4 (truyện bé), xem _with_thinking."""
     client = genai.Client(api_key=config.GEMINI_API_KEY)  # key đọc lúc gọi: đổi từ web là ăn ngay
     contents = _contents(prompt, images, label)
     json_only = {"response_mime_type": "application/json"} if "JSON" in prompt else None
     cfg = {"response_mime_type": "application/json", "response_schema": schema} if schema else json_only
 
     async def _gen(model: str, cfg):
+        cfg = _with_thinking(cfg, model, thinking)
         for attempt in range(GEMINI_TRIES):
             try:
                 return await asyncio.wait_for(

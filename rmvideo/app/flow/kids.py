@@ -28,7 +28,8 @@ async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | No
         job.note("ℹ️ Chưa có GEMINI_API_KEY: Qwen trên Kaggle viết truyện. ")
         return None, []
     job.step = "Truyện bé: Gemini viết truyện — " + story_mod.describe(brief, data)
-    be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=lambda s: logging.info("Truyện bé: %s", s))
+    be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=lambda s: logging.info("Truyện bé: %s", s),
+                              revise_model=config.KIDS_GEMINI_REVISE_MODEL, thinking=config.KIDS_GEMINI_THINKING)
     spec = {"brief": brief, "channel": __import__("kids_auto").channel()}
     try:
         st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, "", lambda s: logging.info("Truyện bé: %s", s),
@@ -39,7 +40,7 @@ async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | No
         job.note(f"⚠️ Gemini không viết được ({str(e)[:120]}): Qwen trên Kaggle viết thay. ")
         logging.warning("Truyện bé job %s: Gemini lỗi (%s), để Kaggle viết", job.id, str(e)[:200])
         return None, []
-    job.note(f"ℹ️ Gemini {be.model} viết truyện: {be.calls} lượt gọi. ")
+    job.note(f"ℹ️ Gemini viết truyện: {be.summary()} ({be.calls} lượt gọi). ")
     return st, attempts
 
 
@@ -54,7 +55,11 @@ async def process_kids(job: Job, tmp: str) -> str:
         raise RuntimeError(f"Truyện bé cần Kaggle (GPU): {why}")
     st0, attempts0 = await write_on_botkeep(job, brief, data)
     job.step = "Truyện bé: chọn nhạc nền"
-    music = await kids_auto.pick_music()
+
+    def bgm_step(msg: str) -> None:
+        job.step = msg
+        logging.info("Truyện bé job %s: %s", job.id, msg)
+    music = await kids_auto.pick_music(brief=brief, story_data=data, log=bgm_step)
     spec = kaggle_worker.kids_spec(job, brief, music, story=st0, attempts=attempts0)
     job.step = ("Truyện bé: gửi Kaggle (" + ("vẽ 8 cảnh" if st0 else "viết truyện, vẽ 8 cảnh") + ", đọc giọng, dựng) — "
                 + story_mod.describe(brief, data))

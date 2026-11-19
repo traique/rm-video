@@ -7,6 +7,7 @@ import os
 import random
 import re
 import subprocess
+from types import SimpleNamespace
 import time
 from datetime import datetime
 
@@ -14,10 +15,11 @@ import pytest
 
 import autopost
 import config
+import kaggle_job
 import kaggle_worker
 import kids_auto
 from rmvideo.app import job_factory
-from rmvideo.kids import job as kids_job, llm, prompts, render, story
+from rmvideo.kids import job as kids_job, llm, prompts, render, story, writer
 from rmvideo.kids import images as images_mod
 
 DATA = story.load()
@@ -274,6 +276,223 @@ def test_word_matching_false_positives():
     assert story.pick(DATA, hist, random.Random(2)).get("recent_en") == ["apple", "hug"]
 
 
+def test_gemini_backend_routing(monkeypatch):
+    """Gemini theo vai: nháp = model viết (Hydrogen, mức suy nghĩ), viết lại / soát = model sửa; quá tải thì đổi vai."""
+    import prompt_engine
+    seen = []
+
+    async def fake(prompt, images=None, schema=None, label="", timeout=0, thinking=""):
+        seen.append((config.GEMINI_MODEL, thinking))
+        if config.GEMINI_MODEL == "boom":
+            raise RuntimeError("503 UNAVAILABLE: This model is currently experiencing high demand")
+        return '{"ok": 1}'
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "x")
+    be = writer.GeminiBackend("gemini-4-hydrogen", revise_model="gemini-3.5-flash-lite", thinking="low")
+    be.start()
+    before = config.GEMINI_MODEL
+    msgs = [{"role": "user", "content": "a"}]
+    assert be.chat(msgs, {"type": "object"}) == '{"ok": 1}'
+    assert be.chat(msgs, {"type": "object"}, role="rewrite") == '{"ok": 1}'
+    assert be.chat(msgs, {"type": "object"}, role="revise") == '{"ok": 1}'
+    assert [m for m, _ in seen] == ["gemini-4-hydrogen", "gemini-3.5-flash-lite", "gemini-3.5-flash-lite"]
+    assert seen[0][1] == "low" and config.GEMINI_MODEL == before                   # trả lại model chung sau mỗi lượt
+    assert be.used == [("draft", "gemini-4-hydrogen"), ("rewrite", "gemini-3.5-flash-lite"), ("revise", "gemini-3.5-flash-lite")]
+    assert "gemini-4-hydrogen ×1" in be.summary() and "gemini-3.5-flash-lite ×2" in be.summary() and be.calls == 3
+    be2 = writer.GeminiBackend("boom", revise_model="gemini-3.5-flash-lite")           # model viết quá tải -> model sửa viết thay
+    assert be2.chat(msgs, {"type": "object"}) == '{"ok": 1}' and be2.used == [("draft", "boom"), ("draft", "gemini-3.5-flash-lite")]
+    assert writer.GeminiBackend("solo").model_for("revise") == "solo"
+
+    async def bad(prompt, **kw):
+        raise RuntimeError("400 INVALID_ARGUMENT")
+    monkeypatch.setattr(prompt_engine, "_call_gemini", bad)
+    with pytest.raises(RuntimeError):                                                   # lỗi khác quá tải: ném ra
+        be2.chat(msgs, {"type": "object"})
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-4-hydrogen", "low") == {"a": 1, "thinking_config": {"thinking_level": "low"}}
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-3.5-flash-lite", "low") == {"a": 1}
+    assert prompt_engine._with_thinking(None, "gemini-4-hydrogen", "") is None
+
+
+class _FakeLyria:
+    """Giả Lyria RealTime: client.aio.live.music.connect(...) -> phiên trả các gói PCM sin 48 kHz stereo."""
+
+    def __init__(self, secs_per_chunk=0.5, fail=False):
+        self.secs, self.fail = secs_per_chunk, fail
+        self.prompts, self.configs, self.stopped = [], [], 0
+        outer = self
+
+        class _Session:
+            async def set_weighted_prompts(self, prompts):
+                outer.prompts.append([(p.text, p.weight) for p in prompts])
+
+            async def set_music_generation_config(self, config):
+                outer.configs.append(config)
+
+            async def play(self):
+                pass
+
+            async def stop(self):
+                outer.stopped += 1
+
+            async def receive(self):
+                import math
+                import struct
+                n = int(48000 * outer.secs)
+                k = 0
+                while True:
+                    if outer.fail and k >= 2:
+                        return
+                    frames = [int(8000 * math.sin(2 * math.pi * 440 * (k * n + i) / 48000)) for i in range(n)]
+                    data = b"".join(struct.pack("<hh", v, v) for v in frames)
+                    yield SimpleNamespace(server_content=SimpleNamespace(audio_chunks=[SimpleNamespace(data=data)]),
+                                          filtered_prompt=None)
+                    k += 1
+
+        class _Connect:
+            def __init__(self, model):
+                outer.model = model
+
+            async def __aenter__(self):
+                return _Session()
+
+            async def __aexit__(self, *a):
+                return False
+        self.aio = SimpleNamespace(live=SimpleNamespace(music=SimpleNamespace(connect=lambda model: _Connect(model))))
+
+
+def test_bgm_library(tmp_path, monkeypatch):
+    """Kho nhạc Lyria: màu theo khung, tạo bài (m4a 44,1 kHz, đúng dài), library.json, chọn bài + đẩy dataset khi đổi."""
+    import kaggle_worker
+    from rmvideo.kids import bgm
+    lib = str(tmp_path / "lib")
+    brief = story.pick(DATA, [], random.Random(2))
+    assert bgm.mood_for(brief, DATA) in bgm.MOODS and bgm.mood_for({"plot": ""}, DATA) == "playful"
+    assert bgm.mood_for({"plot": "fear_new"}, DATA) == "tender" and bgm.mood_for({"plot": "truth_vs_lie"}, DATA) == "curious"
+    fake = _FakeLyria()
+    item = asyncio.run(bgm.generate("tender", lib, secs=3, client=fake, log=lambda s: None))
+    assert item["file"] == "tender_1.m4a" and fake.model == bgm.MODEL and fake.stopped == 1
+    assert fake.prompts == [[(bgm.MOODS["tender"]["prompt"], 1.0)]] and fake.configs[0].bpm == 72
+    out = os.path.join(lib, "tender_1.m4a")
+    assert os.path.exists(out) and not os.path.exists(out + ".wav")
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                               capture_output=True, text=True).stdout)
+    assert 2.8 <= dur <= 3.4
+    assert bgm.tracks(bgm.load_library(lib), "tender") == [item] and bgm.changed_since_push(bgm.load_library(lib))
+    # tạo lỗi (Lyria trả quá ít) -> RuntimeError, không thêm bài
+    with pytest.raises(RuntimeError):
+        asyncio.run(bgm.generate("tender", lib, secs=3, client=_FakeLyria(fail=True), log=lambda s: None))
+    assert len(bgm.load_library(lib)["tracks"]) == 1
+    # pick: thiếu bài thì tạo thêm MỘT bài rồi đẩy dataset (giả), trả đầu vào Kaggle có dataset + mounted + name
+    pushes = []
+
+    def fake_push(lib_dir=None, log=None):
+        pushes.append(lib_dir)
+        lb = bgm.load_library(lib_dir)
+        lb["pushed"] = sorted(t["file"] for t in lb["tracks"])
+        lb["dataset"] = bgm.DATASET
+        bgm.save_library(lb, lib_dir)
+        return lb
+    monkeypatch.setattr(bgm, "push_dataset_sync", fake_push)
+    monkeypatch.setattr(bgm, "TRACK_SECS", 2)
+    monkeypatch.setattr(kaggle_worker, "serve", lambda p: None)
+    r = asyncio.run(bgm.pick({"plot": "fear_new"}, DATA, rnd=random.Random(1), lib_dir=lib, client=fake, log=lambda s: None))
+    assert r == {"mounted": bgm.DATASET, "name": r["name"], "kind": "audio", "dataset": bgm.DATASET}
+    assert len(bgm.tracks(bgm.load_library(lib), "tender")) == 2 and pushes == [lib]
+    assert bgm.load_library(lib)["recent"] == [r["name"]]
+    r2 = asyncio.run(bgm.pick({"plot": "fear_new"}, DATA, rnd=random.Random(1), lib_dir=lib, client=fake, log=lambda s: None))
+    assert len(bgm.tracks(bgm.load_library(lib), "tender")) == 3 and len(pushes) == 2 and r2["name"] != r["name"]
+    # đủ bài: không tạo, không đẩy
+    r3 = asyncio.run(bgm.pick({"plot": "fear_new"}, DATA, rnd=random.Random(1), lib_dir=lib, client=_FakeLyria(fail=True),
+                              log=lambda s: None))
+    assert r3 and len(pushes) == 2
+    # Lyria lỗi mà kho rỗng -> None; kho có bài -> vẫn chọn
+    assert asyncio.run(bgm.pick({"plot": "lost_quest"}, DATA, lib_dir=lib, client=_FakeLyria(fail=True), log=lambda s: None)) is None
+    # đẩy dataset lỗi: chỉ dùng bài Kaggle đã có
+    monkeypatch.setattr(bgm, "push_dataset_sync", lambda lib_dir=None, log=None: (_ for _ in ()).throw(RuntimeError("kaggle")))
+    asyncio.run(bgm.generate("playful", lib, secs=2, client=fake, log=lambda s: None))
+    assert asyncio.run(bgm.pick({"plot": "lost_quest"}, DATA, lib_dir=lib, client=fake, log=lambda s: None)) is None
+    assert asyncio.run(bgm.pick({"plot": "fear_new"}, DATA, lib_dir=lib, client=fake, log=lambda s: None))["mounted"] == bgm.DATASET
+    # spec: dataset nhạc gắn vào phiên; Kaggle lấy file từ dataset đã gắn
+    job = job_factory.kids(brief=brief, source="web")
+    sp = kaggle_worker.kids_spec(job, brief, {"mounted": bgm.DATASET, "name": "tender_1.m4a", "kind": "audio", "dataset": bgm.DATASET})
+    assert bgm.DATASET in sp["dataset_sources"] and sp["music"]["name"] == "tender_1.m4a"
+    root = tmp_path / "input" / "datasets" / "u" / bgm.DATASET
+    root.mkdir(parents=True)
+    (root / "tender_1.m4a").write_bytes(b"x")
+    assert kaggle_job.mounted_file(bgm.DATASET, "tender_1.m4a", str(tmp_path / "input")) == str(root / "tender_1.m4a")
+    assert kaggle_job.mounted_file("other", "tender_1.m4a", str(tmp_path / "input")) == str(root / "tender_1.m4a")
+    assert kaggle_job.mounted_file(bgm.DATASET, "nope.m4a", str(tmp_path / "input")) is None
+    monkeypatch.setattr(kaggle_job, "INPUT_ROOT", str(tmp_path / "input"))
+    assert asyncio.run(kaggle_job.fetch({"mounted": bgm.DATASET, "name": "tender_1.m4a"}, str(tmp_path), "music")) == str(root / "tender_1.m4a")
+
+
+def test_kaggle_dataset_push(tmp_path, monkeypatch):
+    """kaggle_api.dataset_push: tải blob (StartBlobUpload + PUT), tạo dataset lần đầu, thêm phiên bản lần sau; chờ READY."""
+    import kaggle_api
+    calls, puts = [], []
+    exists = {"v": False}
+
+    def fake_call(method, body, service=kaggle_api.KERNELS, timeout=120):
+        calls.append((service, method, body))
+        if method == "StartBlobUpload":
+            return {"token": "tok-" + body["name"], "createUrl": "https://gcs/" + body["name"]}
+        if method == "GetDatasetStatus":
+            if not exists["v"]:                          # đo thật: slug chưa có -> 403 (call() đổi thành lỗi token)
+                raise kaggle_api.KaggleError("Token Kaggle sai hoặc hết hạn (403). Tạo token mới...")
+            return {"status": "READY"}
+        return {"ref": "u/" + body.get("slug", body.get("datasetSlug", "")), "status": "ok"}
+
+    class _Resp:
+        status_code = 200
+        text = ""
+    monkeypatch.setattr(kaggle_api, "call", fake_call)
+    monkeypatch.setattr(kaggle_api, "user", lambda: "u")
+    monkeypatch.setattr(kaggle_api.requests, "put", lambda url, data=None, timeout=0, headers=None: puts.append((url, data.read(), headers)) or _Resp())
+    f = tmp_path / "playful_1.m4a"
+    f.write_bytes(b"abc")
+    kaggle_api.dataset_push("rmvideo-kids-bgm", "t", [str(f)])
+    assert puts == [("https://gcs/playful_1.m4a", b"abc", {"Content-Length": "3"})]
+    blob = [b for s, m, b in calls if m == "StartBlobUpload"][0]
+    assert blob["type"] == "DATASET" and blob["contentType"] == "audio/mp4" and blob["contentLength"] == 3
+    assert [m for _, m, _ in calls] == ["StartBlobUpload", "GetDatasetStatus", "CreateDataset"]
+    cd = calls[-1][2]
+    assert cd == {"ownerSlug": "u", "slug": "rmvideo-kids-bgm", "title": "t", "licenseName": "other", "isPrivate": True,
+                  "files": [{"token": "tok-playful_1.m4a"}]} and calls[-1][0] == kaggle_api.DATASETS
+    exists["v"] = True
+    kaggle_api.dataset_push("rmvideo-kids-bgm", "t", [str(f)], notes="n")
+    assert calls[-1][1] == "CreateDatasetVersion" and calls[-1][2]["body"] == {"versionNotes": "n", "files": [{"token": "tok-playful_1.m4a"}], "deleteOldVersions": True}
+    assert kaggle_api.dataset_wait("rmvideo-kids-bgm", timeout=1, every=0, sleep=lambda s: None) == "READY"
+    seq = iter(["BLOBS_RECEIVED", "READY"])
+    monkeypatch.setattr(kaggle_api, "dataset_status", lambda slug: {"status": next(seq)})
+    assert kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None) == "READY"
+    monkeypatch.setattr(kaggle_api, "dataset_status", lambda slug: {"status": "FAILED"})
+    with pytest.raises(kaggle_api.KaggleError):
+        kaggle_api.dataset_wait("x", timeout=5, every=0, sleep=lambda s: None)
+
+
+def test_pick_music_policy(monkeypatch):
+    """KIDS_BGM: off -> None; files -> chỉ file / link; auto -> file của mình trước, không có thì kho Lyria; lyria -> chỉ kho."""
+    import kids_auto
+    from rmvideo.kids import bgm
+    monkeypatch.setattr(kids_auto, "_pick_file_music", lambda rnd=None: _async_value({"url": "f"}))
+    lyria = {"mounted": "ds", "name": "a.m4a", "kind": "audio", "dataset": "ds"}
+    monkeypatch.setattr(bgm, "pick", lambda brief, data, rnd=None, log=None: _async_value(lyria))
+    brief = {"plot": "lost_quest"}
+    for mode, want in (("off", None), ("files", {"url": "f"}), ("auto", {"url": "f"}), ("lyria", lyria)):
+        monkeypatch.setattr(config, "KIDS_BGM", mode, raising=False)
+        assert asyncio.run(kids_auto.pick_music(brief=brief, story_data=DATA)) == want, mode
+    monkeypatch.setattr(kids_auto, "_pick_file_music", lambda rnd=None: _async_value(None))
+    monkeypatch.setattr(config, "KIDS_BGM", "auto", raising=False)
+    assert asyncio.run(kids_auto.pick_music(brief=brief, story_data=DATA)) == lyria
+    assert asyncio.run(kids_auto.pick_music()) is None                                  # không có đề: không gọi Lyria
+    monkeypatch.setattr(bgm, "pick", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("lyria")))
+    assert asyncio.run(kids_auto.pick_music(brief=brief, story_data=DATA)) is None
+
+
+async def _async_value(v):
+    return v
+
+
 def test_prompts_and_schema():
     brief = story.pick(DATA, [], random.Random(2))
     msgs = prompts.messages(brief, DATA, {"name": "Kể Bé Nghe"})
@@ -495,11 +714,13 @@ class _FakeSrv:
     def __init__(self, brief, fail_first=False, drop_word=None, always_short=False):
         self.brief, self.fail_first, self.drop_word, self.always_short = brief, fail_first, drop_word, always_short
         self.calls = []
+        self.roles = []
 
     def start(self):
         pass
 
-    def chat(self, messages, schema, max_tokens=0, temperature=0.0, seed=None):
+    def chat(self, messages, schema, max_tokens=0, temperature=0.0, seed=None, role="draft"):
+        self.roles.append(role)
         self.calls.append(messages[1]["content"])
         if getattr(self, "broken_revise", False) and "checklist" in messages[1]["content"]:
             return "không phải json"
@@ -652,7 +873,7 @@ def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
     monkeypatch.setattr(kaggle_worker, "produce", _fake_produce(tmp_path, calls))
     monkeypatch.setattr(kids_job, "qa_video", _qa_small)
 
-    async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60):
+    async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60, thinking=""):
         gem.append((prompt, schema))
         return json.dumps(_good_story(_LAST_BRIEF[0]), ensure_ascii=False)
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake_gemini)
@@ -700,7 +921,7 @@ def test_writer_schema_and_backend(monkeypatch):
     assert sch["propertyOrdering"] == ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
     seen = []
 
-    async def fake(prompt, images=None, schema=None, label="", timeout=60):
+    async def fake(prompt, images=None, schema=None, label="", timeout=60, thinking=""):
         seen.append((config.GEMINI_MODEL, label))
         return '{"title": "x"}'
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)

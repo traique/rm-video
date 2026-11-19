@@ -144,8 +144,29 @@ def music_items() -> list:
     return items
 
 
-async def pick_music(rnd: random.Random | None = None) -> dict | None:
-    """Một bài (tránh 3 bài vừa dùng) dưới dạng đầu vào Kaggle (kaggle_worker.ref); không có / không gửi được: None."""
+async def pick_music(rnd: random.Random | None = None, brief: dict | None = None, story_data: dict | None = None,
+                     log=None) -> dict | None:
+    """Nhạc nền theo KIDS_BGM: auto = file / link của mình nếu có, không thì kho Lyria theo khung truyện (rmvideo/kids/bgm);
+    lyria = chỉ kho Lyria; files = chỉ file / link; off = không nhạc. Trả đầu vào Kaggle hoặc None."""
+    mode = (getattr(config, "KIDS_BGM", "") or "auto").strip().lower()
+    if mode == "off":
+        return None
+    if mode in ("auto", "files"):
+        r = await _pick_file_music(rnd)
+        if r or mode == "files":
+            return r
+    if brief is None:
+        return None
+    from rmvideo.kids import bgm
+    try:
+        return await bgm.pick(brief, story_data or data(), rnd=rnd, log=log or (lambda s: logging.info("%s", s)))
+    except Exception as e:
+        logging.warning("Truyện bé: không có nhạc Lyria (%s)", str(e)[:200])
+        return None
+
+
+async def _pick_file_music(rnd: random.Random | None = None) -> dict | None:
+    """Một bài của mình (tránh 3 bài vừa dùng) dưới dạng đầu vào Kaggle (kaggle_worker.ref); không có / không gửi được: None."""
     import kaggle_worker
     rnd = rnd or random.Random()
     items = music_items()

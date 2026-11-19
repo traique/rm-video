@@ -19,6 +19,12 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: Gemini hai model theo vai — `KIDS_GEMINI_MODEL` (mặc định gemini-4-hydrogen, `KIDS_GEMINI_THINKING` low) viết nháp,
+  `KIDS_GEMINI_REVISE_MODEL` (gemini-3.5-flash-lite) viết lại theo lỗi và tự soát; `prompt_engine._call_gemini(thinking=)` đặt mức
+  suy nghĩ cho Gemini 4; model của vai quá tải / hết lượt thì model kia làm thay (`writer.GeminiBackend`, `llm.Backend.chat(role=)`).
+- Truyện bé: nhạc nền Lyria RealTime thành kho theo màu khung truyện (`rmvideo/kids/bgm.py`, `plots[].mood`, `KIDS_BGM`, lệnh
+  `kids_bgm`), đẩy lên Kaggle dạng dataset riêng tư (`kaggle_api.upload_blob / dataset_push / dataset_wait`), Kaggle lấy file từ
+  dataset đã gắn (`kaggle_job.fetch` «mounted»); `kids_auto.pick_music` theo chính sách KIDS_BGM.
 - Truyện bé: kể cho cuốn theo sách tranh — lời nhắc có «bí kíp» (hỏi bé cuối cảnh rồi cảnh sau trả lời, điệp khúc có nhịp và
   đảo ở cảnh 6 theo `plots[].twist`, thất bại hài + tiếng động, cảm xúc qua hành động, nét riêng / câu cửa miệng từng bạn
   `characters[].quirk_vi`, kết vòng lại mở đầu), truyện mẫu viết lại theo đó; bộ kiểm thêm: thiếu câu hỏi cho bé, «các bạn / cả

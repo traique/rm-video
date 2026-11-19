@@ -389,6 +389,8 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
     if (config.KIDS_WORLD_NAME or "").strip():
         data["world"]["name"] = config.KIDS_WORLD_NAME.strip()
     nbs, dss = kids_sources()
+    if music and music.get("dataset") and music["dataset"] not in dss:    # kho nhạc Lyria (rmvideo/kids/bgm.py)
+        dss = dss + [music["dataset"]]
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
                       "multi": config.KIDS_MULTI_VOICE != "0"},

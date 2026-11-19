@@ -225,8 +225,9 @@ từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
 
 Cài một lần:
 1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`); Cài đặt → 🔑 Tài khoản & API: Fanpage
-   riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`) và nên có
-   `PUBLIC_URL` (nhạc nền chép vào `assets/kids_bgm/` đi qua link tạm; không có thì dùng `KIDS_BGM_LINKS`).
+   riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`)
+   và `GEMINI_API_KEY`. Nhạc nền: mặc định (`KIDS_BGM=auto`) bot tự tạo kho bằng **Lyria RealTime** (xem dưới); muốn dùng nhạc của
+   mình thì chép vào `assets/kids_bgm/` (cần `PUBLIC_URL` để Kaggle tải) hoặc dán link `KIDS_BGM_LINKS`.
 2. Gõ `kids_setup` (console hoặc nút trên web): notebook `rmvideo-kids-models` biên dịch llama.cpp cho T4 và lượng tử FLUX.1-schnell
    4-bit, lưu làm đầu vào cho mọi phiên sau (~45–60 phút GPU, một lần). Đã có sẵn bản llama-server biên dịch (vd dataset của bài đo
    Qwen) thì điền `KIDS_KAGGLE_SOURCES=dataset:user/slug` thay vì chạy `kids_setup`. Model chữ GGUF (~21GB) tải từ Hugging Face mỗi
@@ -235,10 +236,23 @@ Cài một lần:
    bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
    (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
 
-Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep** (model `KIDS_GEMINI_MODEL`, trống = `GEMINI_MODEL`
-gemini-3.5-flash-lite; 1 lượt gọi mỗi truyện, +1 mỗi lần viết lại, tối đa 4; đo 19/11: đạt ngay lượt đầu, 3 giây), truyện đi theo
-việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút); Gemini lỗi / hết hạn mức thì Qwen trên Kaggle viết
-thay. `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle.
+Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep**, hai model theo vai (`rmvideo/kids/writer.py`):
+bản nháp = `KIDS_GEMINI_MODEL` (mặc định **gemini-4-hydrogen**, free tier, mức suy nghĩ `KIDS_GEMINI_THINKING=low`; đo 19/11: đạt
+bộ kiểm ngay lượt đầu, 10–20 giây, truyện có hài, có hỏi bé, điệp khúc đảo đúng chỗ — hơn hẳn flash-lite), viết lại theo lỗi và
+lượt tự soát = `KIDS_GEMINI_REVISE_MODEL` (mặc định gemini-3.5-flash-lite, hạn mức free rộng). Hạn mức free mỗi ngày của model lớn
+nhỏ (Google không công bố) nên Hydrogen chỉ dùng 1 lượt/truyện; model của vai quá tải / hết lượt thì model kia làm thay, cả hai
+lỗi thì Qwen trên Kaggle viết. Truyện đi theo việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút).
+`gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle. Gemma 4 trên Gemini API đã thử (19/11): 31B báo quá tải liên tục, không
+dùng.
+
+Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
+lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
+tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100
+giây tạo theo thời gian thật), kho lưu `assets/kids_bgm/lyria/` + `library.json`, rồi đẩy lên Kaggle thành dataset riêng tư
+`rmvideo-kids-bgm` (`kaggle_api.dataset_push`: tải blob + tạo dataset / phiên bản mới, chờ READY); phiên Kaggle gắn dataset vào
+`/kaggle/input` nên không cần `PUBLIC_URL`, key Gemini không rời Botkeep. Lệnh console `kids_bgm` làm đủ kho một lần (9 bài,
+~15 phút). `KIDS_BGM`: auto (nhạc của mình nếu có, không thì Lyria) / lyria / files / off. Lyria hay Kaggle lỗi thì video không nhạc
+như trước. Giọng Google TTS (`gemini-3.8-flash-tts`, free, 30 giọng, đa người nói) đã thử tiếng Việt, chờ nghe mẫu rồi mới quyết.
 
 Khung cốt truyện (19/11): `rmvideo/kids/data.json` có 10 **khung** rút từ truyện mầm non, sách tranh và podcast kể chuyện cho bé
 (tìm đồ bị mất, làm hỏng rồi nhận lỗi, sợ rồi dám thử, giữ riêng rồi chia sẻ, chờ tới lượt, quên lời hứa rồi sửa, giúp người thì

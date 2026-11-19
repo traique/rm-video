@@ -35,6 +35,7 @@ HOOK_WORDS = (4, 14)                   # câu móc 3 giây đầu: 4-12 chữ (�
 TAIL_WORDS = ("nha", "hen", "nhé", "nghen")   # tiểu từ cuối câu: dùng ít thôi (phản hồi 19/11: «quá nhiều nha ở cuối câu»)
 TAIL_MAX = 3                           # cả truyện + câu móc tối đa chừng này tiểu từ
 REFRAIN_MAX = 3                        # câu điệp khúc lặp đúng 3; câu khác không được lặp
+SPECIES = {"rabbit", "bear", "cat", "squirrel"}       # tên loài của 4 bạn: truyện nào cũng nhắc, chỉ dạy khi thiếu từ khác
 GROUP_RE = re.compile(r"\b(các bạn|mấy bạn|cả nhóm|cả bọn|tụi bạn|bọn bạn|từng bạn|cả lớp)\b")   # nhóm đông mà hình chỉ 2 bạn
 TITLE_STOP = {"và", "với", "của", "cho", "ở", "trong", "trên", "dưới", "một", "cái", "chiếc", "con", "trái", "cục", "bị",
               "lỡ", "làm", "rồi", "nào", "đây", "thế", "ơi", "à", "nha", "hen", "nhé", "chuyện", "câu", "bạn", "đi", "về",
@@ -165,7 +166,8 @@ def choose_words(story: dict, brief: dict, data: dict) -> list[dict]:
     for w in data["words"]:
         hits = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
         if hits:
-            found.append((0 if w["en"] in pool else 1, 1 if w["en"] in recent else 0, -len(hits), hits[0], w["en"]))
+            rank = 0 if w["en"] in pool else (2 if w["en"] in SPECIES else 1)      # loài của nhân vật: luôn có mặt, để sau cùng
+            found.append((rank, 1 if w["en"] in recent else 0, -len(hits), hits[0], w["en"]))
     found.sort()
     chosen: list[str] = []
     taken: set[int] = set()        # câu dạy rải ra các cảnh êm khác nhau (đo thật 19/11: hai câu dồn cảnh 1 ngay sau câu móc)

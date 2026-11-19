@@ -154,7 +154,7 @@ class Server:
             return ""
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = MAX_TOKENS,
-             temperature: float = TEMPERATURE, seed: int | None = None) -> str:
+             temperature: float = TEMPERATURE, seed: int | None = None, role: str = "draft") -> str:
         body = {"messages": messages, "max_tokens": max_tokens + self.think, "temperature": temperature, "top_p": 0.9,
                 "response_format": {"type": "json_schema", "json_schema": {"name": "story", "schema": schema}},
                 "chat_template_kwargs": {"enable_thinking": self.think > 0}, "cache_prompt": True}
@@ -196,7 +196,7 @@ class PyBackend:
         self.llm = Llama(model_path=self.model, n_gpu_layers=-1, n_ctx=self.n_ctx, verbose=False)
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = MAX_TOKENS,
-             temperature: float = TEMPERATURE, seed: int | None = None) -> str:
+             temperature: float = TEMPERATURE, seed: int | None = None, role: str = "draft") -> str:
         assert self.llm is not None
         d: dict[str, Any]
         d = self.llm.create_chat_completion(messages=messages, max_tokens=max_tokens, temperature=temperature,
@@ -242,7 +242,7 @@ def _revise(run: Any, st: dict, attempts: list[dict], brief: dict, data: dict, c
     t0 = time.time()
     try:
         raw = run.chat(prompts.revise_messages(st, brief, data, channel), prompts.schema(data),
-                       seed=int(brief.get("seed") or 0) + 99)
+                       seed=int(brief.get("seed") or 0) + 99, role="revise")
         st2 = story_mod.normalize(parse_json(raw), data)
     except Exception as e:                           # lỗi mạng / JSON hỏng: giữ bản nháp
         attempts.append({"attempt": "revise", "problems": [f"lỗi: {str(e)[:100]}"], "secs": round(time.time() - t0, 1)})
@@ -264,7 +264,7 @@ class Backend(Protocol):
     def start(self) -> None: ...
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = ..., temperature: float = ...,
-             seed: int | None = ...) -> str: ...
+             seed: int | None = ..., role: str = ...) -> str: ...     # role: draft | rewrite | revise (Gemini đổi model theo vai)
 
     def stop(self) -> None: ...
 
@@ -297,7 +297,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
         for k in range(1 + RETRIES):
             t0 = time.time()
             raw = run.chat(prompts.messages(brief, data, channel, feedback), prompts.schema(data),
-                           seed=int(brief.get("seed") or 0) + k)
+                           seed=int(brief.get("seed") or 0) + k, role="draft" if k == 0 else "rewrite")
             try:
                 parsed = parse_json(raw)
             except (ValueError, json.JSONDecodeError) as e:

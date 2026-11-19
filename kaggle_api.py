@@ -91,6 +91,78 @@ def call(method: str, body: dict, service: str = KERNELS, timeout: float = 120) 
     return d
 
 
+DATASETS = "datasets.DatasetApiService"
+BLOBS = "blobs.BlobApiService"
+
+
+def upload_blob(path: str, kind: str = "DATASET", timeout: float = 900) -> str:
+    """Tải một file lên kho blob của Kaggle (StartBlobUpload -> PUT lên link GCS đã ký, như gói kaggle); trả token để gắn
+    vào dataset."""
+    import mimetypes
+    st = os.stat(path)
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    d = call("StartBlobUpload", {"type": kind, "name": os.path.basename(path), "contentType": mime,
+                                 "contentLength": st.st_size, "lastModifiedEpochSeconds": int(st.st_mtime)}, service=BLOBS)
+    url, tok = d.get("createUrl"), d.get("token")
+    if not url or not tok:
+        raise KaggleError(f"Kaggle không cấp chỗ tải file {os.path.basename(path)}: {str(d)[:200]}")
+    try:
+        with open(path, "rb") as f:
+            r = requests.put(url, data=f, timeout=timeout, headers={"Content-Length": str(st.st_size)})
+    except requests.RequestException as e:
+        raise KaggleError(f"Không tải được {os.path.basename(path)} lên Kaggle: {str(e)[:150]}") from None
+    if r.status_code >= 300:
+        raise KaggleError(f"Kaggle từ chối file {os.path.basename(path)} ({r.status_code}): {r.text[:200]}")
+    return str(tok)
+
+
+def dataset_status(slug: str) -> dict:
+    return call("GetDatasetStatus", {"ownerSlug": user(), "datasetSlug": slug}, service=DATASETS, timeout=60)
+
+
+def dataset_exists(slug: str) -> bool:
+    """Dataset của tài khoản có chưa. Đo thật 19/11/2026: slug chưa có thì Kaggle trả 403 «Permission 'datasets.get' was
+    denied» (không phải 404) -> coi như chưa có; token hỏng thật thì CreateDataset ngay sau sẽ báo rõ."""
+    try:
+        dataset_status(slug)
+        return True
+    except KaggleError as e:
+        if any(k in str(e) for k in ("404", "403", "NOT_FOUND", "not found", "denied")):
+            return False
+        raise
+
+
+def dataset_push(slug: str, title: str, files: list, notes: str = "") -> dict:
+    """Dataset riêng tư của tài khoản: tạo mới (lần đầu) hoặc thêm phiên bản mới gồm ĐÚNG các file này (xoá bản cũ).
+    Dùng cho kho nhạc truyện bé (rmvideo/kids/bgm.py): Kaggle gắn vào /kaggle/input, không cần PUBLIC_URL."""
+    tokens = [{"token": upload_blob(p)} for p in files]
+    u = user()
+    if dataset_exists(slug):
+        d = call("CreateDatasetVersion", {"ownerSlug": u, "datasetSlug": slug,
+                                          "body": {"versionNotes": notes or "update", "files": tokens,
+                                                   "deleteOldVersions": True}}, service=DATASETS, timeout=300)
+    else:
+        d = call("CreateDataset", {"ownerSlug": u, "slug": slug, "title": title, "licenseName": "other", "isPrivate": True,
+                                   "files": tokens}, service=DATASETS, timeout=300)
+    if d.get("error"):
+        raise KaggleError(f"Kaggle không nhận dataset {slug}: {str(d['error'])[:200]}")
+    return d
+
+
+def dataset_wait(slug: str, timeout: float = 900, every: float = 15, sleep=time.sleep) -> str:
+    """Chờ phiên bản mới nhất của dataset xử lý xong (READY); FAILED / quá giờ thì KaggleError."""
+    t0 = time.time()
+    while True:
+        st = str(dataset_status(slug).get("status") or "")
+        if st == "READY":
+            return st
+        if st in ("FAILED", "DELETED"):
+            raise KaggleError(f"dataset {slug}: {st}")
+        if time.time() - t0 > timeout:
+            raise KaggleError(f"dataset {slug} chưa sẵn sàng sau {timeout:.0f} giây ({st or 'chưa rõ'})")
+        sleep(every)
+
+
 def quota() -> dict:
     """{'gpu_left': giây GPU còn trong tuần, 'refresh': thời điểm làm mới}"""
     d = call("GetAcceleratorQuotaStatistics", {})

@@ -434,9 +434,16 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("auto", "Gemini trên Botkeep (1 lượt gọi/truyện, +1 mỗi lần viết lại); lỗi thì Qwen trên Kaggle — mặc định"),
                ("gemini", "Chỉ Gemini (không có key / lỗi thì job lỗi)"),
                ("qwen", "Chỉ Qwen trên Kaggle (không dùng Gemini)")), choices=("auto", "gemini", "qwen")),
-    S("KIDS_GEMINI_MODEL", "", "kids", "Model Gemini viết truyện bé",
-      help="Trống = dùng GEMINI_MODEL (và các model dự phòng) như kênh bếp. Đo 19/11: gemini-3.5-flash-lite viết đạt ngay "
-           "lượt đầu, 3 giây, mạch lạc hơn Qwen 35B 4-bit.", validate=_max_len("KIDS_GEMINI_MODEL", 60)),
+    S("KIDS_GEMINI_MODEL", "gemini-4-hydrogen", "kids", "Model Gemini viết nháp truyện bé",
+      help="Gemini 4 Hydrogen (free tier, ra 12/11) viết hay hơn flash-lite rõ; hạn mức free mỗi ngày của model lớn nhỏ, chỉ "
+           "dùng cho bản nháp (1 lượt/truyện). Trống = GEMINI_MODEL như kênh bếp. Quá tải / hết lượt thì model sửa viết thay.",
+      validate=_max_len("KIDS_GEMINI_MODEL", 60)),
+    S("KIDS_GEMINI_REVISE_MODEL", "gemini-3.5-flash-lite", "kids", "Model Gemini sửa / soát truyện bé",
+      help="Viết lại theo lỗi bộ kiểm và lượt tự soát (hạn mức free rộng, 2-3 giây). Trống = cùng model viết nháp.",
+      validate=_max_len("KIDS_GEMINI_REVISE_MODEL", 60)),
+    S("KIDS_GEMINI_THINKING", "low", "kids", "Mức suy nghĩ của Gemini 4 khi viết truyện",
+      options=(("low", "low — 3-10 giây, đủ cho truyện 8 cảnh (mặc định)"), ("medium", "medium — kỹ hơn, chậm hơn"),
+               ("high", "high — mặc định của Google, chậm và tốn hạn mức token")), choices=("low", "medium", "high")),
     S("KIDS_LLM_PATTERN", "*Qwen3.6-35B-A3B*Q4_K_M*.gguf", "kids", "File model chữ (.gguf)",
       help="Mẫu tên file tìm trong /kaggle/input; không thấy thì tải từ repo Hugging Face bên dưới.",
       validate=_max_len("KIDS_LLM_PATTERN", 200)),
@@ -462,6 +469,11 @@ SCHEMA: tuple[Setting, ...] = (
     S("KIDS_BGM_LINKS", "", "kids", "Link nhạc nền trẻ em",
       help="Link mp3 / YouTube / TikTok (Kaggle tự tải), cách nhau dấu phẩy; hoặc chép file nhạc vào assets/kids_bgm/ "
            "(cần PUBLIC_URL). Chỉ dùng nhạc được phép dùng thương mại.", validate=_bgm_links, live=True),
+    S("KIDS_BGM", "auto", "kids", "Nhạc nền truyện bé",
+      options=(("auto", "File trong assets/kids_bgm hay KIDS_BGM_LINKS nếu có, không thì Lyria RealTime tự tạo kho (mặc định)"),
+               ("lyria", "Chỉ kho Lyria RealTime (Gemini API, free; 3 màu theo khung truyện, 3 bài mỗi màu)"),
+               ("files", "Chỉ file / link của mình"), ("off", "Không nhạc nền")),
+      choices=("auto", "lyria", "files", "off")),
 )
 del S
 
@@ -503,10 +515,10 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
     "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL",
-    "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL",
+    "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
-    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_BGM_LINKS",
+    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_BGM_LINKS", "KIDS_BGM",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )

@@ -61,6 +61,12 @@ async def fetch(ref: dict, tmp: str, name: str) -> str:
         _FETCHED[key] = out
         return out
     errs = []
+    if ref.get("mounted"):               # file trong dataset / notebook đã gắn vào phiên (kho nhạc bé): không cần tải
+        path = mounted_file(str(ref["mounted"]), str(ref.get("name") or ""), INPUT_ROOT)
+        if path:
+            _FETCHED[key] = path
+            return path
+        errs.append(f"dataset {ref['mounted']} không có {ref.get('name')}")
     if ref.get("http"):                  # bản Botkeep đã dùng để bóc lời / đo beat: đúng từng khung, ưu tiên
         ext = os.path.splitext(ref.get("name") or "")[1] or ".bin"
         try:
@@ -331,6 +337,24 @@ async def analyze(spec: dict, tmp: str) -> dict:
     return {"ok": True, "kind": "analyze", "token": spec.get("token", ""), "whisper": d, "cuts": cuts,
             "bands": [list(b) for b in bands], "inpainted": inpainted, "dur": dur, "sep": sep_ok,
             "thumb_fps": scenes.THUMB_FPS, "timings": t, "files": files}
+
+
+INPUT_ROOT = "/kaggle/input"
+
+
+def mounted_file(slug: str, name: str, root: str = INPUT_ROOT) -> str | None:
+    """Đường dẫn file `name` trong dataset / notebook `slug` đã gắn vào phiên (/kaggle/input/datasets/<user>/<slug>/...);
+    không có thư mục đúng slug thì lấy file cùng tên ở bất kỳ đâu trong root."""
+    if not name or not os.path.isdir(root):
+        return None
+    loose = None
+    for r, _dirs, files in os.walk(root):
+        if name in files:
+            p = os.path.join(r, name)
+            if slug and slug in r.split(os.sep):
+                return p
+            loose = loose or p
+    return loose
 
 
 def mounted_dir(name: str, root: str = "/kaggle/input") -> str | None:

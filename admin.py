@@ -27,7 +27,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py) | "
                 "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
                 "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
-                "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_fb_test | kids_resume")
+                "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_bgm (làm đủ kho nhạc Lyria) | "
+                "kids_fb_test | kids_resume")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -162,6 +163,12 @@ async def console():
                     logging.info("🧸 %s", await asyncio.to_thread(kaggle_worker.kids_setup))
                 except Exception as e:
                     logging.info("❌ kids_setup lỗi: %s", e)
+            elif low == "kids_bgm":
+                from rmvideo.kids import bgm
+                try:
+                    logging.info("🎵 %s", await bgm.build(log=lambda m: logging.info("🎵 %s", m)))
+                except Exception as e:
+                    logging.info("❌ kids_bgm lỗi: %s", e)
             elif low == "kids_setup_status":
                 import kaggle_worker
                 try:
