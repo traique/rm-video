@@ -159,6 +159,13 @@ def test_blocking_beats_and_recap():
     beats = story.add_beats(st, brief, DATA)
     assert [en for en, _ in beats] == [w["en"] for w in brief["words"]]
     assert beats[0][1] == 1                                                  # từ đầu tiên xuất hiện ở cảnh 2 -> chèn ở đó
+    assert len({i for _, i in beats}) == len(beats)                          # mỗi cảnh một câu dạy khi còn chỗ
+    # hai từ cùng xuất hiện lần đầu ở một cảnh: từ sau sang cảnh kế có nhắc tới, không dồn
+    st4 = story.normalize(_good_story(brief), DATA)
+    for sc in st4["scenes"][:3]:
+        sc["text"] += " Có trái banh và cái nón."
+    two = {**brief, "words": [{"en": "ball", "vi": "trái banh"}, {"en": "hat", "vi": "cái nón"}]}
+    assert [i for _, i in story.add_beats(st4, two, DATA)] == [0, 1]
     txt = story.script_text(st)
     for w in brief["words"]:
         assert f"tiếng Anh là {w['en']}. Bé nói theo nha: {w['en']}!" in txt
@@ -459,6 +466,110 @@ def test_flow_kids_on_botkeep(tmp_path, monkeypatch):
     assert "Kaggle (GPU)" in job.error
 
 
+def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
+    """KIDS_LLM_PROVIDER=auto + có key: Gemini viết trên Botkeep, truyện (đã chèn câu dạy từ) đi theo spec, Kaggle bỏ bước
+    model chữ; Gemini lỗi thì vẫn gửi Kaggle để Qwen viết; provider=gemini thì lỗi luôn."""
+    import pipeline
+    import prompt_engine
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "AIza-test")
+    monkeypatch.setattr(config, "KIDS_LLM_PROVIDER", "auto")
+    calls, gem = [], []
+    monkeypatch.setattr(kaggle_worker, "produce", _fake_produce(tmp_path, calls))
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+
+    async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60):
+        gem.append((prompt, schema))
+        return json.dumps(_good_story(_LAST_BRIEF[0]), ensure_ascii=False)
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake_gemini)
+    job = kids_auto.make_now("web")
+    _LAST_BRIEF[:] = [job.brief]
+    (tmp_path / "w").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert os.path.exists(out) and len(gem) == 1
+    prompt, schema = gem[0]
+    assert "Chào các bé" in prompt and "minLength" not in json.dumps(schema) and schema["propertyOrdering"][0] == "title"
+    spec = calls[0]
+    assert spec["story"]["title"] and spec["attempts"][-1]["beats"] and "story" in spec
+    assert all(f"tiếng Anh là {w['en']}" in story.script_text(spec["story"]) for w in job.brief["words"])
+    assert "Gemini" in job.error and "1 lượt gọi" in job.error and "viết" not in job.error.split("Kaggle (GPU):")[1][:8]
+    # Gemini lỗi -> auto: Kaggle viết (không có story trong spec)
+    async def boom(*a, **k):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+    monkeypatch.setattr(prompt_engine, "_call_gemini", boom)
+    job2 = kids_auto.make_now("web")
+    out2 = asyncio.run(pipeline.process(job2, str(tmp_path / "w")))
+    assert os.path.exists(out2) and "story" not in calls[1] and "Qwen trên Kaggle viết thay" in job2.error
+    # provider=gemini bắt buộc -> job lỗi
+    monkeypatch.setattr(config, "KIDS_LLM_PROVIDER", "gemini")
+    job3 = kids_auto.make_now("web")
+    with pytest.raises(RuntimeError):
+        asyncio.run(pipeline.process(job3, str(tmp_path / "w")))
+    # provider=qwen -> không gọi Gemini
+    monkeypatch.setattr(config, "KIDS_LLM_PROVIDER", "qwen")
+    job4 = kids_auto.make_now("web")
+    asyncio.run(pipeline.process(job4, str(tmp_path / "w")))
+    assert "story" not in calls[-1] and "Gemini" not in (job4.error or "")
+
+
+_LAST_BRIEF: list = []
+
+
+def test_writer_schema_and_backend(monkeypatch):
+    import prompt_engine
+    from rmvideo.kids import writer
+    sch = writer.gemini_schema(prompts.schema(DATA))
+    dumped = json.dumps(sch)
+    assert "minLength" not in dumped and "additionalProperties" not in dumped and "enum" in dumped
+    assert sch["propertyOrdering"] == ["title", "scenes", "description", "hashtags"]
+    seen = []
+
+    async def fake(prompt, images=None, schema=None, label="", timeout=60):
+        seen.append((config.GEMINI_MODEL, label))
+        return '{"title": "x"}'
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "gemini-3.5-flash-lite")
+    be = writer.GeminiBackend("gemini-2.5-flash-lite")
+    be.start()
+    assert be.chat([{"role": "system", "content": "a"}, {"role": "user", "content": "b"}], {"type": "object"}) == '{"title": "x"}'
+    assert seen == [("gemini-2.5-flash-lite", "Truyện bé")] and config.GEMINI_MODEL == "gemini-3.5-flash-lite"
+    assert be.calls == 1
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    with pytest.raises(RuntimeError):
+        writer.GeminiBackend().start()
+
+
+def test_kaggle_job_skips_llm_when_story_given(tmp_path, monkeypatch):
+    import kaggle_job
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(_good_story(brief), DATA)
+    story.add_beats(st, brief, DATA)
+    monkeypatch.setattr(llm, "backend", lambda *a, **k: (_ for _ in ()).throw(AssertionError("không được gọi model chữ")))
+
+    def fake_images(plist, seeds, out_dir, model="schnell", log=None, pipe=None):
+        os.makedirs(out_dir, exist_ok=True)
+        return [_png(os.path.join(out_dir, f"scene_{k + 1:02d}.png"), k * 30) for k in range(8)]
+    monkeypatch.setattr(images_mod, "generate", fake_images)
+    monkeypatch.setattr(render, "render", _small_render)
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+
+    def make_synth(spec, ref):
+        async def synth(items, tmp):
+            return {k: {"path": _wav(os.path.join(tmp, f"v{k}.wav"), 0.8), "words": None} for k, _ in items}
+        return synth
+    monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
+    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan"},
+            "image": {"model": "schnell"}, "llm": {}, "channel": kids_auto.channel(), "music": None, "token": "t2",
+            "story": st, "attempts": [{"attempt": 1, "problems": [], "beats": [["ball", 1]]}]}
+    out_dir = tmp_path / "out2"
+    out_dir.mkdir()
+    res = kaggle_job.main(spec, str(out_dir))[0]
+    assert res["ok"] and res["story"]["title"] == st["title"] and res["timings"]["llm"] < 1 and res["attempts"][0]["beats"]
+
+
 def test_flow_kids_needs_kaggle(tmp_path, monkeypatch):
     import pipeline
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "")
@@ -566,6 +677,16 @@ def test_settings_and_snapshot(monkeypatch, tmp_path):
     assert config.reauth_keys({"KIDS_FB_PAGE_ID": "1"}) == ["KIDS_FB_PAGE_ID"]
     snap = kaggle_worker.settings_snapshot()
     assert not any(k.startswith("KIDS_") for k in snap)       # kids_spec mang giọng/model tường minh, token không bao giờ đi
+
+
+def test_kids_spec_carries_story(monkeypatch):
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    brief = story.pick(DATA, [], random.Random(3))
+    st = story.normalize(_good_story(brief), DATA)
+    job = job_factory.kids(brief=brief, source="web")
+    sp = kaggle_worker.kids_spec(job, brief, None, story=st, attempts=[{"attempt": 1, "problems": []}])
+    assert sp["story"]["title"] == st["title"] and sp["attempts"] == [{"attempt": 1, "problems": []}]
+    assert "story" not in kaggle_worker.kids_spec(job, brief, None)
 
 
 def test_kids_spec_and_kernel_without_secrets(monkeypatch):

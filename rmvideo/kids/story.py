@@ -359,14 +359,20 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
         return []
     out: list[tuple[str, int]] = []
     load_count = [0] * len(scenes)
+
+    def spread(cands: list[int]) -> int:              # ưu tiên cảnh chưa có câu dạy nào (đo thật: 3 câu dồn vào cảnh 1)
+        return next((j for j in cands if load_count[j] == 0), next((j for j in cands if load_count[j] < 2), cands[0]))
     for k, w in enumerate(brief.get("words", [])):
-        i = first_scene_with(scenes, w, data)
+        mention = [i for i, sc in enumerate(scenes) if vi_mentioned(sc.get("text", ""), w, data)]
         lead = ""
-        if i < 0 and is_greeting(w, data):            # lời chào: cảnh mở đầu / cảnh kết / cảnh bài học, không cần câu dẫn
-            i = GREETING_SCENE.get(w["en"], 6)
-        elif i < 0 or load_count[i] >= 2:
-            i = next((j for j in [1 + k % 3, 2, 3, 4, 5, 1] if load_count[j] < 2), 1 + k % 3)
-            lead = f"Ở đây có {w['vi']} nè. " if first_scene_with(scenes, w, data) < 0 else ""
+        if mention:
+            i = spread(mention)
+        elif is_greeting(w, data):                    # lời chào: cảnh mở đầu / cảnh kết, không cần câu dẫn
+            g = GREETING_SCENE.get(w["en"], 6)
+            i = spread([g, g + 1 if g < 7 else g - 1])
+        else:
+            i = spread([1 + k % 3, 2, 3, 4, 5, 1])
+            lead = f"Ở đây có {w['vi']} nè. "
         scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w)).strip()
         load_count[i] += 1
         out.append((w["en"], i))

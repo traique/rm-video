@@ -378,9 +378,11 @@ def kids_sources() -> tuple[list, list]:
     return (nbs or [SLUG_KIDS_MODELS]), dss
 
 
-def kids_spec(job, brief: dict, music: dict | None = None) -> dict:
+def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = None,
+              attempts: list | None = None) -> dict:
     """Việc truyện bé: đề đã chọn + dữ liệu (nhân vật, bài học, kho từ) + giọng + model + nhận diện kênh. Không gửi logo /
-    âm hiệu kênh bếp. Botkeep tải về thêm cover.jpg / thumb.jpg / story.json (fetch_files)."""
+    âm hiệu kênh bếp. Botkeep tải về thêm cover.jpg / thumb.jpg / story.json (fetch_files). story: truyện đã viết sẵn trên
+    Botkeep (Gemini) -> Kaggle bỏ hẳn bước model chữ (không tải GGUF 20GB)."""
     from rmvideo.kids import story as story_mod
     data = json.loads(json.dumps(story_mod.load()))
     if (config.KIDS_WORLD_NAME or "").strip():
@@ -395,6 +397,9 @@ def kids_spec(job, brief: dict, music: dict | None = None) -> dict:
                         "hashtags": config.KIDS_HASHTAGS},
             "music": music, "kernel_sources": nbs, "dataset_sources": dss,
             "fetch_files": ["cover.jpg", "thumb.jpg", "story.json"]}
+    if story:
+        spec["story"] = story
+        spec["attempts"] = list(attempts or [])
     spec = _common(spec)
     spec.pop("logo_b64", None)
     spec.pop("sting_b64", None)

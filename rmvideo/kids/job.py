@@ -44,10 +44,15 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     image_model = (spec.get("image") or {}).get("model") or "schnell"
     images_mod.prefetch(image_model, log)           # chép model ảnh (14GB) từ ổ gắn về đĩa cục bộ trong lúc viết truyện
-    try:
-        st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, tmp, log)
-    except llm.StoryRejected as e:                  # các lượt (kể cả chữ model viết) vào result.json để soát lời nhắc
-        return {"ok": False, "kind": "kids", "error": str(e), "attempts": e.attempts, "timings": {"llm": round(time.time() - t0, 1)}}
+    if spec.get("story"):                           # Botkeep đã viết sẵn (Gemini): bỏ bước model chữ
+        st, attempts = spec["story"], list(spec.get("attempts") or [])
+        log("Truyện đã viết sẵn trên Botkeep, bỏ bước model chữ")
+    else:
+        try:
+            st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, tmp, log)
+        except llm.StoryRejected as e:              # các lượt (kể cả chữ model viết) vào result.json để soát lời nhắc
+            return {"ok": False, "kind": "kids", "error": str(e), "attempts": e.attempts,
+                    "timings": {"llm": round(time.time() - t0, 1)}}
     t["llm"] = round(time.time() - t0, 1)
     texts = [s["text"] for s in st["scenes"]]
     plist = [prompts.image_prompt(s, brief, data, i) for i, s in enumerate(st["scenes"])]

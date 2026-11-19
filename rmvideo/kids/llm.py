@@ -21,7 +21,7 @@ import tempfile
 import time
 import urllib.request
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Protocol
 
 from rmvideo.kids import prompts, story as story_mod
 
@@ -225,6 +225,17 @@ def backend(spec_llm: dict, tmp: str, log: Log = logging.info) -> Server | PyBac
     return PyBackend(model, int(spec_llm.get("n_ctx") or N_CTX), log)
 
 
+class Backend(Protocol):
+    """Bộ viết: llama-server (Kaggle), llama_cpp (dự phòng) hay Gemini trên Botkeep (rmvideo.kids.writer)."""
+
+    def start(self) -> None: ...
+
+    def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = ..., temperature: float = ...,
+             seed: int | None = ...) -> str: ...
+
+    def stop(self) -> None: ...
+
+
 class StoryRejected(RuntimeError):
     """Hết lượt mà bản tốt nhất vẫn còn lỗi chặn; mang theo nhật ký các lượt (vào result.json để soát)."""
 
@@ -234,7 +245,7 @@ class StoryRejected(RuntimeError):
 
 
 def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
-                   srv: Server | PyBackend | None = None) -> tuple[dict, list[dict]]:
+                   srv: Backend | None = None) -> tuple[dict, list[dict]]:
     """Truyện đã chuẩn hoá, cùng nhật ký các lượt [{attempt, problems, secs, words, text}]. Đạt bộ kiểm thì trả ngay;
     hết lượt thì chấp nhận bản ít lỗi nhất nếu không còn lỗi CHẶN (story.blocking), từ tiếng Anh bỏ sót chèn bằng mã
     ghi «accepted_with» vào lượt cuối; còn lỗi chặn thì ném StoryRejected. Bản nhận được chèn câu dạy từ tiếng Anh
@@ -245,7 +256,7 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
     if srv is None:
         srv = backend(spec.get("llm") or {}, tmp, log)
         srv.start()
-    run: Server | PyBackend = srv
+    run: Backend = srv
     attempts: list[dict] = []
     best: tuple[tuple[int, int], dict] | None = None
     feedback: list[str] | None = None
