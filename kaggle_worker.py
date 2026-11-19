@@ -390,7 +390,8 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
         data["world"]["name"] = config.KIDS_WORLD_NAME.strip()
     nbs, dss = kids_sources()
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
-            "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE},
+            "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
+                      "multi": config.KIDS_MULTI_VOICE != "0"},
             "image": {"model": config.KIDS_IMAGE_MODEL},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
                     "think": int(config.KIDS_LLM_THINK or 0)},

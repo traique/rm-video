@@ -110,10 +110,10 @@ def _good_story(brief):
         "Hôm nay Thỏ Trắng ra đồi chơi. Nắng vàng trải khắp bãi cỏ. Thỏ Trắng gặp Gấu Nâu ở gốc cây to.",
         f"Thỏ Trắng thấy {vis[0]} đẹp ghê. Thỏ Trắng muốn mang về cho Mèo Cam. Hai bạn hớn hở đi về phía đồi.",
         "Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. Gấu Nâu hơi buồn. Sóc Nhỏ chạy tới coi chuyện gì.",
-        "Thỏ Trắng nói: cố lên, thử lại nào. Thỏ Trắng cúi xuống nhặt. Vẫn chưa được, hai bạn nhìn nhau.",
-        "Thỏ Trắng nói: cố lên, thử lại nào. Lần này Thỏ Trắng với tay thật xa. Gấu Nâu bảo nhỏ thôi, từ từ.",
+        "Thỏ Trắng nói: «Cố lên, thử lại nào.» Thỏ Trắng cúi xuống nhặt. Vẫn chưa được, hai bạn nhìn nhau.",
+        "Thỏ Trắng nói: «Cố lên, thử lại nào.» Lần này Thỏ Trắng với tay thật xa. Gấu Nâu bảo nhỏ thôi, từ từ.",
         "Gấu Nâu giúp một tay. Cố lên, thử lại nào! Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười tít mắt.",
-        f"Gấu Nâu nói: tụi mình phải {lesson['keywords'][0]} nha. Các bạn cùng gật đầu, ai cũng thấy nhẹ lòng.",
+        f"Gấu Nâu nói: «Tụi mình phải {lesson['keywords'][0]} nha.» Các bạn cùng gật đầu, ai cũng thấy nhẹ lòng.",
         "Bốn bạn ôm nhau cười vui. Trời chiều mát rượi. Các bé ơi, mình cùng chơi vui với bạn nha!",
     ]
     for j, vi in enumerate(vis[1:]):                                        # các từ còn lại cũng được nhắc tới
@@ -215,13 +215,13 @@ def test_blocking_beats_and_recap():
     txt = story.script_text(st)
     for k, w in enumerate(brief["words"]):
         assert story.beat_text(w, k) in txt and "nha" not in story.beat_text(w, k)
-    assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "Trái banh, tiếng Anh là ball. Bé nói theo nè: ball!"
+    assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "À, trái banh tiếng Anh là ball. Bé nói theo nè: ball!"
     assert story.beat_text({"en": "ball", "vi": "trái banh"}, 1) != story.beat_text({"en": "ball", "vi": "trái banh"}, 0)
     # không cảnh nào nhắc tới -> chèn kèm câu dẫn «Ở đây có ... nè»
     st2 = story.normalize(_good_story(brief), DATA)
     extra = {"en": "rainbow", "vi": "cầu vồng"}
     beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
-    assert beats == [("rainbow", 1)] and "Ở đây có cầu vồng nè. Cầu vồng, tiếng Anh là rainbow." in st2["scenes"][1]["text"]
+    assert beats == [("rainbow", 1)] and ("Ở đây có cầu vồng nè. " + story.beat_text(extra, 0)) in st2["scenes"][1]["text"]
     assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Giỏi lắm, bé nhớ hết rồi!")
     # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
     st3 = story.normalize(_good_story(brief), DATA)
@@ -331,6 +331,25 @@ def test_is_blank_catches_black_band():
     arr = np.asarray(good).copy()
     arr[:4] = 0                                                 # 2%: viền nhỏ thì bỏ qua
     assert not images_mod.is_blank(Image.fromarray(arr))
+
+
+def test_dialogue_split_and_voices():
+    from rmvideo.kids import dialogue
+    chars = DATA["characters"]
+    sp = dialogue.split
+    assert sp("Thỏ Trắng cầm ly hoa. Gấu Nâu nói: «Cẩn thận!» Thỏ Trắng cười: «Mình biết rồi.»", chars) == \
+        [("narrator", "Thỏ Trắng cầm ly hoa. Gấu Nâu nói:"), ("brown_bear", "Cẩn thận!"), ("narrator", "Thỏ Trắng cười:"),
+         ("white_rabbit", "Mình biết rồi.")]
+    assert sp("«Diều ơi, bay lên đi!» Sóc Nhỏ reo to. Rồi chạy một hơi.", chars)[0] == ("little_squirrel", "Diều ơi, bay lên đi!")
+    assert sp("Rầm! Thỏ Trắng hoảng hốt. «Chết rồi, làm sao đây?»", chars)[-1] == ("white_rabbit", "Chết rồi, làm sao đây?")
+    assert sp("Gấu Nâu đi tới. «Ối!» Sóc Nhỏ kêu lên.", chars)[1] == ("little_squirrel", "Ối!")    # tên + động từ sau ngoặc thắng
+    assert sp("Hôm nay trời đẹp. À, cái ly tiếng Anh là cup. Bé nói theo nè: cup!", chars) == \
+        [("narrator", "Hôm nay trời đẹp. À, cái ly tiếng Anh là cup. Bé nói theo nè: cup!")]
+    assert sp("«Không ai nói cả.»", chars) == [("narrator", "Không ai nói cả.")]
+    assert dialogue.voice_for("brown_bear", chars, "Thục Đoan") == "Thái Sơn"
+    assert dialogue.voice_for("narrator", chars, "Thục Đoan") == "Thục Đoan"
+    assert dialogue.voice_for("nobody", chars, "Thục Đoan") == "Thục Đoan"
+    assert all(c.get("voice") for c in chars.values()) and len({c["voice"] for c in chars.values()}) == 4
 
 
 def test_sub_tokens_drop_quotes():
@@ -493,17 +512,21 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr(render, "render", _small_render)
     monkeypatch.setattr(kids_job, "qa_video", _qa_small)
 
+    voices = []
+
     def make_synth(spec, ref):
         async def synth(items, tmp):
-            return {k: {"path": _wav(os.path.join(tmp, f"v{k}.wav"), 0.8), "words": None} for k, _ in items}
+            voices.extend(it[2] for it in items)
+            return {it[0]: {"path": _wav(os.path.join(tmp, f"v{it[0]}.wav"), 0.8), "words": None} for it in items}
         return synth
     monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
-    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan"},
+    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan", "multi": True},
             "image": {"model": "schnell"}, "llm": {}, "channel": kids_auto.channel(), "music": None, "token": "t1"}
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     res = kaggle_job.main(spec, str(out_dir))[0]
     assert res["ok"] and res["token"] == "t1" and res["story"]["title"] and res["srt"]
+    assert "Thục Đoan" in voices and len(set(voices)) >= 2 and res["timings"]["voices"]   # lời thoại đọc giọng nhân vật
     assert (out_dir / "output.mp4").exists() and (out_dir / "cover.jpg").exists() and (out_dir / "story.json").exists()
     assert (out_dir / "scene_08.png").exists() and (out_dir / "result.json").exists()
 
@@ -657,10 +680,10 @@ def test_kaggle_job_skips_llm_when_story_given(tmp_path, monkeypatch):
 
     def make_synth(spec, ref):
         async def synth(items, tmp):
-            return {k: {"path": _wav(os.path.join(tmp, f"v{k}.wav"), 0.8), "words": None} for k, _ in items}
+            return {it[0]: {"path": _wav(os.path.join(tmp, f"v{it[0]}.wav"), 0.8), "words": None} for it in items}
         return synth
     monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
-    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan"},
+    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan", "multi": False},
             "image": {"model": "schnell"}, "llm": {}, "channel": kids_auto.channel(), "music": None, "token": "t2",
             "story": st, "attempts": [{"attempt": 1, "problems": [], "beats": [["ball", 1]]}]}
     out_dir = tmp_path / "out2"

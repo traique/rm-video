@@ -455,12 +455,13 @@ def blocking(story: dict, brief: dict, data: dict) -> list[str]:
 
 
 BEAT_CALLS = ("Bé nói theo nè", "Cùng đọc to nào", "Bé đọc theo mình", "Nói thật to nào")   # xoay vòng, không «nha»
+BEAT_LEADS = ("À, ", "Mà nè, ", "Đố bé biết, ", "À này, ")                                   # từ dẫn cho câu dạy từ đỡ cụt
 
 
 def beat_text(w: dict, k: int = 0) -> str:
     """Câu dạy từ (mã viết, người kể đọc): «Trái banh, tiếng Anh là ball. Bé nói theo nè: ball!» (lời gọi xoay vòng)."""
     vi = (w.get("vi") or "").strip()
-    return f"{vi[:1].upper()}{vi[1:]}, tiếng Anh là {w['en']}. {BEAT_CALLS[k % len(BEAT_CALLS)]}: {w['en']}!"
+    return f"{BEAT_LEADS[k % len(BEAT_LEADS)]}{vi} tiếng Anh là {w['en']}. {BEAT_CALLS[k % len(BEAT_CALLS)]}: {w['en']}!"
 
 
 def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:

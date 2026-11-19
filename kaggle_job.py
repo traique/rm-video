@@ -99,7 +99,8 @@ def _vieneu():
 
 
 def make_synth(spec: dict, ref_path: str | None):
-    """async synth(items, tmp) -> {k: {"path", "words"}}. items: [(k, lời)]."""
+    """async synth(items, tmp) -> {k: {"path", "words"}}. items: [(k, lời)] hoặc [(k, lời, tên giọng VieNeu)] — truyện bé
+    đọc lời nhân vật bằng giọng riêng (rmvideo/kids/dialogue.py); giọng lạ / lỗi thì rơi về giọng chung."""
     import core_video
     import vi_text
     voice = spec.get("voice") or {}
@@ -109,19 +110,28 @@ def make_synth(spec: dict, ref_path: str | None):
         name = voice.get("name") or "Mỹ Duyên"
 
         def run(items, tmp):
-            texts = [vi_text.normalize(t) for _, t in items]       # VieNeu không tự đọc số/ký hiệu
-            if ref_path:
-                audios = [tts.infer(t, ref_audio=ref_path) for t in texts]
-            else:
-                try:
-                    audios = tts.infer_batch(texts, voice=name)
-                except Exception:
-                    audios = [tts.infer(t, voice=name) for t in texts]
+            items = [(it[0], it[1], (it[2] if len(it) > 2 and it[2] else name)) for it in items]
             out = {}
-            for (k, _), a in zip(items, audios):
-                p = os.path.join(tmp, f"v_{k:03d}.wav")
-                tts.save(a, p)
-                out[k] = {"path": p, "words": None}
+            groups: dict[str, list] = {}
+            for k, t, v in items:
+                groups.setdefault(v, []).append((k, vi_text.normalize(t)))    # VieNeu không tự đọc số/ký hiệu
+            for v, grp in groups.items():
+                texts = [t for _, t in grp]
+                if ref_path:
+                    audios = [tts.infer(t, ref_audio=ref_path) for t in texts]
+                else:
+                    try:
+                        audios = tts.infer_batch(texts, voice=v)
+                    except Exception:
+                        try:
+                            audios = [tts.infer(t, voice=v) for t in texts]
+                        except Exception:                                  # giọng không có trong bộ preset
+                            logging.warning("VieNeu: giọng «%s» không dùng được, đọc bằng «%s»", v, name)
+                            audios = tts.infer_batch(texts, voice=name)
+                for (k, _), a in zip(grp, audios):
+                    p = os.path.join(tmp, f"v_{k:03d}.wav")
+                    tts.save(a, p)
+                    out[k] = {"path": p, "words": None}
             return out
 
         async def synth(items, tmp):

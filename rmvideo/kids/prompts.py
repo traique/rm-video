@@ -64,9 +64,11 @@ def _example_block() -> str:
 
 def system_prompt(channel: dict) -> str:
     return (f"Bạn là người kể chuyện của kênh «{channel.get('name', 'Kể Bé Nghe')}» cho bé 3-6 tuổi, giọng miền Nam Việt "
-            "Nam: ấm, vui, chậm rãi, kể như cô giáo mầm non kể cho cả lớp nghe. Câu ngắn (dưới 10 chữ), từ quen thuộc với "
-            "bé, có tiếng động, có câu điệp khúc lặp lại, nhiều lời thoại ngắn. Nhân vật xưng «mình», gọi nhau «bạn» hoặc "
-            f"tên. Dùng từ miền Nam: {SOUTH_VI}. KHÔNG dùng từ miền Bắc: {NORTH_VI}. "
+            "Nam: ấm, vui, chậm rãi, kể như cô giáo mầm non kể cho cả lớp nghe. Lời kể TRÔI CHẢY như kể miệng: câu 5-14 chữ, "
+            "nối nhau bằng từ nối (thế là, rồi, nhưng mà, bỗng, lúc đó), không viết cụt lủn kiểu 2-3 chữ một câu; từ quen thuộc "
+            "với bé, có tiếng động, có câu điệp khúc lặp lại, nhiều lời thoại. Lời thoại LUÔN đặt trong «…» và có tên người nói "
+            "ngay trước ngoặc (Gấu Nâu nói: «…», Sóc Nhỏ reo: «…») — mỗi nhân vật được đọc bằng giọng riêng. Nhân vật xưng "
+            f"«mình», gọi nhau «bạn» hoặc tên. Dùng từ miền Nam: {SOUTH_VI}. KHÔNG dùng từ miền Bắc: {NORTH_VI}. "
             "Không bạo lực, không đáng sợ, không ai bị phạt; người lớn (nếu có) luôn dịu dàng. "
             "Viết THUẦN tiếng Việt, không một chữ tiếng Anh. Chỉ trả lời bằng JSON đúng schema, không giải thích thêm.")
 
@@ -98,8 +100,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
                     "nhưng điệp khúc phải có nghĩa đúng với tình huống).\n" if refrain else ""))
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
-            f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
-            f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối.\n"
+            f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
+            f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối; câu đầu mỗi "
+            "cảnh nối với cảnh trước (thế là / lúc đó / nhưng rồi).\n"
             "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp đúng 3 lần ở cảnh 4, 5, 6; "
             "NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
             f"- Tiểu từ «nha», «hen» ở cuối câu: cả truyện tối đa {story_mod.TAIL_MAX} lần (nhiều quá nghe ngang); câu móc "
@@ -139,7 +142,9 @@ REVISE_CHECK = (
     "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?\n"
     "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?\n"
     "8. Có câu nào lạc đề, chỉ để nhắc tới một đồ vật cho có (như «ngoài đường xe hơi chạy ngang») không? Bỏ hẳn câu đó.\n"
-    "9. Tiêu đề có lộ bài học / kết không? Phải gợi tò mò theo chuyện xảy ra.")
+    "9. Tiêu đề có lộ bài học / kết không? Phải gợi tò mò theo chuyện xảy ra.\n"
+    "10. Đọc to lên có trôi chảy không? Câu cụt lủn thì nối lại bằng từ nối; lời thoại đã trong «…» và có tên người nói ngay "
+    "trước ngoặc chưa?")
 
 
 def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list[dict[str, str]]:

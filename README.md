@@ -253,6 +253,12 @@ còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** b�
 vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được
 nhận khi qua bộ kiểm và không tệ hơn bản nháp (+1 lượt gọi, ~3 giây; Qwen trên Kaggle không soát).
 
+Giọng (19/11): lời kể là `KIDS_VOICE` (Thục Đoan); lời thoại trong «…» đọc bằng giọng VieNeu riêng của từng nhân vật
+(`KIDS_MULTI_VOICE=1`; `data.json` → Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam Thùy Dung, Sóc Nhỏ Mỹ Duyên). Người nói
+nhận theo tên ngay trước ngoặc («Gấu Nâu nói: «…»») hoặc tên + động từ nói ngay sau («…» Sóc Nhỏ reo); không rõ thì người kể
+đọc (`rmvideo/kids/dialogue.py`). Các đoạn của một cảnh nối lại thành một clip nên phần dựng không đổi. Lời kể được dặn trôi
+chảy: câu 5–14 chữ, có từ nối, câu đầu mỗi cảnh nối với cảnh trước; câu dạy từ có từ dẫn («À, cái ly tiếng Anh là cup…»).
+
 Khung hình (19/11): không mờ từ đen hay về đen; khung đầu là cảnh móc, khung cuối là bảng «Hôm nay bé học» trắng bo góc trên nền
 sáng (Reels lặp lại không lộ màn đen); thẻ tiêu đề cùng kiểu bảng trắng (`rmvideo/kids/cards.py`, PIL + font Be Vietnam Pro).
 

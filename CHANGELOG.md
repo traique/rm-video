@@ -19,6 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: giọng riêng từng nhân vật (`KIDS_MULTI_VOICE`, `rmvideo/kids/dialogue.py` tách lời thoại «…» theo tên người nói,
+  `kaggle_job.make_synth` nhận giọng theo từng đoạn, nối lại theo cảnh); lời nhắc đòi lời kể trôi chảy (câu 5–14 chữ, từ nối),
+  lời thoại luôn trong «…» có tên người nói; câu dạy từ có từ dẫn.
 - Truyện bé: từ tiếng Anh chọn từ chính truyện (kho gợi ý theo bối cảnh, `story.choose_words` sau khi viết), tiêu đề không lộ bài
   học, câu dạy từ tránh cảnh 3 và 6; thẻ nghĩa trong truyện đổi sang viên vàng + bảng trắng (PIL) cùng kiểu bảng kết.
 - Truyện bé: kho 10 khung cốt truyện (`data.json` «plots», `story.pick_plot` / `plot_beats`) rút từ truyện mầm non và podcast kể

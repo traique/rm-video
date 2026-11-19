@@ -12,7 +12,7 @@ import random
 import time
 from collections.abc import Callable
 
-from rmvideo.kids import images as images_mod, llm, prompts, render, story as story_mod
+from rmvideo.kids import dialogue, images as images_mod, llm, prompts, render, story as story_mod
 
 DUR_MIN, DUR_MAX = 60.0, 88.0          # Reels nhận 3-90 giây; chừa 2 giây (render.plan tự co vào MAX_LEN = 87s)
 Log = Callable[[str], None]
@@ -65,10 +65,33 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     synth = kaggle_job.make_synth(spec, None)
     recap = story_mod.recap_text(brief)             # câu ôn từ (mã viết) đọc trong màn kết: mỗi từ chắc chắn được nghe kèm nghĩa
     hook = (st.get("hook") or "").strip()           # câu móc 3 giây đầu (đọc trước truyện)
-    voiced = await synth(list(enumerate(texts + [recap, hook])), tmp)
-    clips = [voiced.get(k) or {"path": None} for k in range(len(texts))]
-    recap_clip = voiced.get(len(texts)) or {"path": None}
-    hook_clip = (voiced.get(len(texts) + 1) or {"path": None}) if hook else {"path": None}
+    narrator = (spec.get("voice") or {}).get("name") or ""
+    multi = bool((spec.get("voice") or {}).get("multi", True))
+    chars = data["characters"]
+    items: list = []                                # (khoá, lời, giọng); khoá = cảnh*100 + đoạn; 9000 = ôn từ, 9001 = móc
+    seg_keys: list[list[int]] = []
+    for i, text in enumerate(texts):
+        segs = dialogue.split(text, chars, brief.get("main", "")) if multi else [("narrator", text)]
+        keys = []
+        for j, (who, part) in enumerate(segs):
+            k = i * 100 + j
+            items.append((k, part, dialogue.voice_for(who, chars, narrator)))
+            keys.append(k)
+        seg_keys.append(keys)
+    items.append((9000, recap, narrator))
+    if hook:
+        items.append((9001, hook, narrator))
+    voiced = await synth(items, tmp)
+    clips: list[dict] = []
+    for i, keys in enumerate(seg_keys):             # nối các đoạn của một cảnh thành một clip (giữ nguyên phần dựng)
+        paths = [voiced[k]["path"] for k in keys if voiced.get(k, {}).get("path")]
+        if len(paths) > 1:
+            clips.append({"path": await dialogue.merge(paths, os.path.join(tmp, f"scene_{i:02d}.wav"))})
+        else:
+            clips.append({"path": paths[0] if paths else None})
+    recap_clip = voiced.get(9000) or {"path": None}
+    hook_clip = (voiced.get(9001) or {"path": None}) if hook else {"path": None}
+    t["voices"] = sorted({v for _, _, v in items})
     t["tts"] = round(time.time() - t0, 1)
     notes: list[str] = []
     music = None

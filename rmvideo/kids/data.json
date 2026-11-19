@@ -5,22 +5,22 @@
   },
   "characters": {
     "white_rabbit": {
-      "name_vi": "Thỏ Trắng", "name_en": "White Rabbit",
+      "name_vi": "Thỏ Trắng", "name_en": "White Rabbit", "voice": "Kim Thanh",
       "prompt_en": "White Rabbit, a small cute white bunny in a plain red t-shirt, big round brown eyes, long upright ears, pink nose",
       "personality_vi": "tốt bụng, hay lo cho bạn"
     },
     "brown_bear": {
-      "name_vi": "Gấu Nâu", "name_en": "Brown Bear",
+      "name_vi": "Gấu Nâu", "name_en": "Brown Bear", "voice": "Thái Sơn",
       "prompt_en": "Brown Bear, a chubby friendly brown bear cub in a plain blue t-shirt, small round ears, gentle dark eyes",
       "personality_vi": "điềm tĩnh, hiền lành"
     },
     "orange_cat": {
-      "name_vi": "Mèo Cam", "name_en": "Orange Cat",
+      "name_vi": "Mèo Cam", "name_en": "Orange Cat", "voice": "Thùy Dung",
       "prompt_en": "Orange Cat, a playful orange tabby kitten wearing a plain green t-shirt, big green eyes, long tail",
       "personality_vi": "tinh nghịch, hay cười"
     },
     "little_squirrel": {
-      "name_vi": "Sóc Nhỏ", "name_en": "Little Squirrel",
+      "name_vi": "Sóc Nhỏ", "name_en": "Little Squirrel", "voice": "Mỹ Duyên",
       "prompt_en": "Little Squirrel, a tiny light-brown squirrel in a plain yellow t-shirt, big fluffy tail, bright black eyes",
       "personality_vi": "tò mò, nhanh nhẹn"
     }
