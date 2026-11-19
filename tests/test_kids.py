@@ -51,6 +51,13 @@ def test_data_is_complete():
     for ls in DATA["lessons"]:
         assert ls["keywords"] and set(ls["words"]) <= bank, ls["id"]
     assert all(w["vi"] for w in DATA["words"])
+    # khung truyện: 8 nhịp, bài học / chuyện xảy ra trỏ đúng id, mỗi bài học có ít nhất một khung
+    lids, cids = {x["id"] for x in DATA["lessons"]}, {x["id"] for x in DATA["conflicts"]}
+    assert len(DATA["plots"]) >= 8
+    for pl in DATA["plots"]:
+        assert len(pl["beats"]) == 8 and pl["vi"] and set(pl["lessons"]) <= lids and set(pl["conflicts"]) <= cids, pl["id"]
+        assert any("{main}" in b for b in pl["beats"]) and any("điệp khúc" in b for b in pl["beats"]), pl["id"]
+    assert all(any(ls in pl["lessons"] for pl in DATA["plots"]) for ls in lids)
 
 
 def test_pick_avoids_recent_and_rotates_main():
@@ -61,8 +68,15 @@ def test_pick_avoids_recent_and_rotates_main():
         b = story.pick(DATA, stories, rnd, now)
         assert 3 <= len(b["words"]) <= 4 and b["seed"] > 0
         stories.append({"created_at": now - (40 - k) * 3600, "lesson": b["lesson"], "setting": b["setting"],
-                        "conflict": b["conflict"], "words": [w["en"] for w in b["words"]], "main": b["main"]})
+                        "conflict": b["conflict"], "plot": b["plot"], "words": [w["en"] for w in b["words"]],
+                        "main": b["main"]})
     first = stories[0]
+    for st in stories:                                                     # khung hợp bài học, luân phiên khi có nhiều khung
+        assert st["lesson"] in story.by_id(DATA["plots"], st["plot"])["lessons"]
+    assert len({st["plot"] for st in stories}) >= 6
+    beats = story.plot_beats(stories[0] | {"main": "white_rabbit", "seed": 1}, DATA)
+    assert len(beats) == 8 and "Thỏ Trắng" in " ".join(beats) and "{main}" not in " ".join(beats)
+    assert story.plot_beats({"plot": "", "main": "white_rabbit"}, DATA) == list(story.SCENE_ROLES)
     linked = set(story.by_id(DATA["lessons"], first["lesson"])["words"])
     at_place = set(story.by_id(DATA["settings"], first["setting"])["words"])
     assert linked & set(first["words"]) and at_place & set(first["words"])  # 1 từ theo bài học + từ có mặt ở bối cảnh
@@ -111,7 +125,7 @@ def _good_story(brief):
         k += 1
     scenes = [{"text": t, "characters": ["white_rabbit", "brown_bear"], "action_en": "White Rabbit talks to Brown Bear"}
               for t in base]
-    return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "hook": f"Ôi, {vis[0]} của Thỏ Trắng rớt mất rồi, làm sao đây?",
+    return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "hook": f"Ôi, {vis[0]} rớt mất rồi, làm sao đây?",
             "hook_text": "rớt mất rồi", "scenes": scenes, "description": "Truyện dạy bé xin lỗi.",
             "hashtags": ["#BeXinLoi", "bai hoc"]}
 
@@ -222,6 +236,7 @@ def test_prompts_and_schema():
     assert story.must_mention(brief, DATA) and len(story.must_mention(brief, DATA)) <= len(brief["words"])
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
     assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
+    assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)

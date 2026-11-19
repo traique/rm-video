@@ -111,8 +111,8 @@ def remember_done(job, brief: dict, story: dict):
     hit = next((s for s in reversed(st["stories"]) if s.get("job") == job.id), None)
     if hit is None:
         hit = {"job": job.id, "created_at": time.time(), "lesson": brief.get("lesson"), "setting": brief.get("setting"),
-               "conflict": brief.get("conflict"), "words": [w["en"] for w in brief.get("words", [])],
-               "main": brief.get("main")}
+               "conflict": brief.get("conflict"), "plot": brief.get("plot") or "",
+               "words": [w["en"] for w in brief.get("words", [])], "main": brief.get("main")}
         st["stories"].append(hit)
     hit["title"] = story.get("title", "")
     hit["done_at"] = time.time()

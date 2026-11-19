@@ -108,6 +108,7 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     if chosen is None:                                  # 800 bộ ba đều đã dùng trong 30 ngày (không thể với 2 video/ngày)
         chosen = (lessons[0]["id"], rnd.choice(settings), rnd.choice(conflicts))
     lesson_id, setting_id, conflict_id = chosen
+    plot_id = pick_plot(data, lesson_id, conflict_id, [str(s.get("plot") or "") for s in sorted(stories, key=_created)], rnd)
     # từ tiếng Anh: kho ~90 từ, 2 truyện/ngày x 4 từ nên không thể «chưa dùng 30 ngày» mãi -> xếp theo lần dùng gần nhất
     # (chưa dùng bao giờ đứng đầu, rồi lâu nhất), 2-3 từ gắn với bài học (không nằm trong 6 truyện vừa rồi) + phần còn lại
     # từ kho; cùng hạng thì ngẫu nhiên. Luôn đủ n từ.
@@ -135,9 +136,33 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     def last_main(m: str) -> int:                       # lần gần nhất làm nhân vật chính (-1 = chưa bao giờ)
         return (len(seen) - seen[::-1].index(m)) if m in seen else -1
     main = min(mains, key=last_main)
-    return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id,
+    return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id,
             "words": [{"en": w, "vi": word_info(data, w)["vi"]} for w in words],
             "main": main, "seed": rnd.randrange(1, 2 ** 31)}
+
+
+def pick_plot(data: dict, lesson_id: str, conflict_id: str, used: Sequence[str], rnd: random.Random) -> str:
+    """Khung truyện (data.json «plots», rút từ truyện mầm non / sách tranh / podcast kể chuyện) hợp bài học và chuyện xảy
+    ra; ưu tiên khung lâu chưa dùng. Không khung nào hợp cả hai thì hợp bài học; không nữa thì rỗng (vai cảnh chung)."""
+    plots = data.get("plots") or []
+    both = [p for p in plots if lesson_id in p.get("lessons", []) and conflict_id in p.get("conflicts", [])]
+    cands = both or [p for p in plots if lesson_id in p.get("lessons", [])] or []
+    if not cands:
+        return ""
+    last = {pid: k for k, pid in enumerate(used)}
+    order = sorted(cands, key=lambda p: (last.get(p["id"], -1), rnd.random()))
+    return str(order[0]["id"])
+
+
+def plot_beats(brief: dict, data: dict) -> list[str]:
+    """8 nhịp cho lời nhắc: theo khung truyện của đề (điền tên nhân vật chính / bạn giúp), không có thì SCENE_ROLES."""
+    plot = by_id(data.get("plots") or [], brief.get("plot") or "")
+    chars = data["characters"]
+    main = chars.get(brief.get("main", ""), {}).get("name_vi", "Thỏ Trắng")
+    others = [c["name_vi"] for k, c in chars.items() if k != brief.get("main")]
+    friend = others[int(brief.get("seed") or 0) % len(others)] if others else "Gấu Nâu"
+    beats = plot.get("beats") if plot else None
+    return [b.replace("{main}", main).replace("{friend}", friend) for b in beats] if beats else list(SCENE_ROLES)
 
 
 def describe(brief: dict, data: dict) -> str:
@@ -146,6 +171,8 @@ def describe(brief: dict, data: dict) -> str:
     return " · ".join(x for x in (ch.get("name_vi", ""), by_id(data["lessons"], brief.get("lesson", "")).get("vi", ""),
                                   by_id(data["settings"], brief.get("setting", "")).get("vi", ""),
                                   by_id(data["conflicts"], brief.get("conflict", "")).get("vi", ""),
+                                  ("khung: " + by_id(data.get("plots") or [], brief.get("plot") or "").get("vi", ""))
+                                  if brief.get("plot") else "",
                                   ", ".join(w["en"] for w in brief.get("words", []))) if x)
 
 

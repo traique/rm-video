@@ -79,7 +79,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']})" for c in chars.values())
     must = ", ".join(f"«{w['vi']}»" for w in story_mod.must_mention(brief, data))   # KHÔNG đưa tiếng Anh cho model
-    roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.SCENE_ROLES, 1))
+    roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.plot_beats(brief, data), 1))
+    plot = story_mod.by_id(data.get("plots") or [], brief.get("plot") or "")
     keys = ", ".join(chars)
     names_en = ", ".join(c["name_en"] for c in chars.values())
     text = (f"Viết một truyện kể cho bé 3-6 tuổi, xảy ra ở {data['world']['name']}, nơi bốn bạn nhỏ sống cùng nhau: {cast}.\n"
@@ -87,6 +88,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             f"{conflict['vi']}. Bài học: {lesson['vi']}.\n")
     if must:
         text += f"Trong truyện PHẢI nhắc tới (kể tự nhiên, là một phần của chuyện): {must}.\n"
+    if plot:
+        text += (f"Khung truyện: {plot['vi']} (kiểu {plot.get('source', '')}). Kể đúng khung này bằng chi tiết của riêng truyện hôm "
+                 "nay; vật / việc nêu ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6 và 8 (sợi chỉ xuyên suốt).\n")
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
