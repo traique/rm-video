@@ -58,7 +58,9 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
   (`big-lama.pt`, TorchScript, tải một lần về cache phiên hoặc gắn sẵn trong dataset) vẽ lại nền ở các dải chữ gốc trên mọi
   khung rồi gửi video sạch về; phụ đề mới đặt lên nền thật thay vì ô mờ. Cần `PUBLIC_URL` để phiên dựng trên Kaggle lấy được
   video sạch (không có thì Kaggle tự tải bản gốc và che mờ như cũ); dựng trên Botkeep thì dùng video sạch trực tiếp. LaMa lỗi
-  → che mờ như cũ, job không hỏng. Dải OCR tìm thêm sau đó (ngoài dải Kaggle đã xoá) vẫn được che mờ.
+  → che mờ như cũ, job không hỏng. Dải OCR tìm thêm sau đó (ngoài dải Kaggle đã xoá) vẫn được che mờ. Đo T4 19/11: dải
+  1080×320 chạy nửa cỡ 0,11 giây/khung, chỉ khung có chữ mới vẽ lại → video 90 giây phụ đề suốt ≈ 5 phút GPU (tính vào
+  phiên phân tích, mỗi video một lần, có cache).
 - **Giọng offline Piper** (`TTS_OFFLINE=1`, mặc định tắt): tầng cuối khi CapCut và edge-tts đều lỗi. Giọng được tinh
   chỉnh từ dữ liệu chỉ cho nghiên cứu: cân nhắc trước khi dùng cho video kiếm tiền.
 
