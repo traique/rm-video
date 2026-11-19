@@ -216,7 +216,19 @@ def status(slug: str) -> tuple:
 
 
 def outputs(slug: str) -> dict:
-    return call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 200})
+    """Danh sách file đầu ra của phiên chạy xong gần nhất (gộp mọi trang; đo thật 19/11: pageSize=200 cắt mất result.json khi
+    notebook ghi gần 300 file)."""
+    d = call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 500})
+    files = list(d.get("files") or [])
+    tok = d.get("nextPageToken") or ""
+    for _ in range(20):
+        if not tok:
+            break
+        more = call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 500, "pageToken": tok})
+        files += list(more.get("files") or [])
+        tok = more.get("nextPageToken") or ""
+    d["files"] = files
+    return d
 
 
 def download(url: str, dst: str, max_bytes: int = 1 << 31):
