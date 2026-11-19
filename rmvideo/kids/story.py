@@ -32,6 +32,9 @@ EN_ALSO_VI = {"run"}                   # chữ tiếng Anh trong kho trùng ch�
 SCENE_MIN, SCENE_MAX = 10, 36          # chữ mỗi cảnh
 QUESTIONS_MAX = 2                      # câu hỏi tối đa một cảnh (đo thật: model hỏi dồn 5 câu cho đủ chữ)
 HOOK_WORDS = (4, 12)                   # câu móc 3 giây đầu: 4-12 chữ (đo thật: 15 chữ -> móc kéo dài 4,3 giây)
+TAIL_WORDS = ("nha", "hen", "nhé", "nghen")   # tiểu từ cuối câu: dùng ít thôi (phản hồi 19/11: «quá nhiều nha ở cuối câu»)
+TAIL_MAX = 3                           # cả truyện + câu móc tối đa chừng này tiểu từ
+REFRAIN_MAX = 3                        # câu điệp khúc lặp đúng 3; câu khác không được lặp
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3, 3, 3, 4)                 # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa
 TITLE_MAX = 70
@@ -294,6 +297,16 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         if t.count("?") > QUESTIONS_MAX:
             problems.append(f"cảnh {i} hỏi dồn dập ({t.count('?')} câu hỏi): kể bằng hành động và lời thoại, tối đa "
                             f"{QUESTIONS_MAX} câu hỏi một cảnh")
+    n_tail = sum(len(re.findall(r"(?<![\wÀ-ỹ])" + t + r"(?![\wÀ-ỹ])", (full + " " + hook).lower())) for t in TAIL_WORDS)
+    if n_tail > TAIL_MAX:
+        problems.append(f"«nha/hen» ở cuối câu {n_tail} lần, tối đa {TAIL_MAX} cả truyện: bỏ bớt, kết câu bằng dấu chấm / "
+                        "chấm than bình thường")
+    if re.search(r"\b(nha|hen|nhé)\s*[?!.]?$", hook.strip().lower()):
+        problems.append("câu móc không kết bằng «nha/hen» (ví dụ: «phải làm sao đây?» là đủ)")
+    rep = repeated_sentences(texts)
+    if rep:
+        problems.append("lặp câu/cụm: " + "; ".join(f"«{x}» ×{n}" for x, n in rep[:3])
+                        + " — chỉ câu điệp khúc được lặp (đúng 3 lần), câu khác viết khác đi")
     if example_sentences:
         copied = [x for x in example_sentences if x.lower() in low]
         if len(copied) >= 2:
@@ -308,6 +321,26 @@ def is_greeting(w: dict, data: dict) -> bool:
 def must_mention(brief: dict, data: dict) -> list[dict]:
     """Từ mà truyện phải nhắc tới tiếng Việt (đồ vật / màu / con vật / hành động); lời chào thì không."""
     return [w for w in brief.get("words", []) if not is_greeting(w, data)]
+
+
+def repeated_sentences(texts: Sequence[str]) -> list[tuple[str, int]]:
+    """Câu (≥ 3 chữ, bỏ dấu câu/ngoặc) lặp lại ngoài mức cho phép: câu lặp nhiều nhất là điệp khúc (≤ REFRAIN_MAX lần),
+    câu khác không được lặp. Trả [(câu, số lần)] vi phạm."""
+    cnt: Counter[str] = Counter()
+    for t in texts:
+        parts = re.split(r"([.!?…:]+)", t)                      # [câu, dấu, câu, dấu, ...]
+        for i in range(0, len(parts), 2):
+            sent, delim = parts[i], parts[i + 1] if i + 1 < len(parts) else ""
+            if ":" in delim:                                    # «Gấu Nâu nói:» là lời dẫn, lặp là bình thường
+                continue
+            key = re.sub(r"\s+", " ", re.sub(r"[«»\"“”,;()]", " ", sent)).strip().lower()
+            if word_count(key) >= 4:
+                cnt[key] += 1
+    if not cnt:
+        return []
+    refrain = max(cnt, key=lambda k: cnt[k])
+    out = [(k, n) for k, n in cnt.items() if (k == refrain and n > REFRAIN_MAX) or (k != refrain and n >= 2)]
+    return sorted(out, key=lambda x: -x[1])
 
 
 def vi_forms(w: dict, data: dict) -> list[str]:
@@ -357,10 +390,13 @@ def blocking(story: dict, brief: dict, data: dict) -> list[str]:
     return out
 
 
-def beat_text(w: dict) -> str:
-    """Câu dạy từ (mã viết, người kể đọc): «Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!»"""
+BEAT_CALLS = ("Bé nói theo nè", "Cùng đọc to nào", "Bé đọc theo mình", "Nói thật to nào")   # xoay vòng, không «nha»
+
+
+def beat_text(w: dict, k: int = 0) -> str:
+    """Câu dạy từ (mã viết, người kể đọc): «Trái banh, tiếng Anh là ball. Bé nói theo nè: ball!» (lời gọi xoay vòng)."""
     vi = (w.get("vi") or "").strip()
-    return f"{vi[:1].upper()}{vi[1:]}, tiếng Anh là {w['en']}. Bé nói theo nha: {w['en']}!"
+    return f"{vi[:1].upper()}{vi[1:]}, tiếng Anh là {w['en']}. {BEAT_CALLS[k % len(BEAT_CALLS)]}: {w['en']}!"
 
 
 def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
@@ -385,7 +421,7 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
         else:
             i = spread([1 + k % 3, 2, 3, 4, 5, 1])
             lead = f"Ở đây có {w['vi']} nè. "
-        scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w)).strip()
+        scenes[i]["text"] = (scenes[i]["text"].rstrip() + " " + lead + beat_text(w, k)).strip()
         load_count[i] += 1
         out.append((w["en"], i))
     return out
@@ -396,7 +432,7 @@ def recap_text(brief: dict) -> str:
     ws = brief.get("words", [])
     if not ws:
         return ""
-    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Bé nhớ nha!"
+    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Giỏi lắm, bé nhớ hết rồi!"
 
 
 def script_text(story: dict) -> str:

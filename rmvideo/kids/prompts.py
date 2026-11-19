@@ -23,24 +23,24 @@ NORTH_VI = "bố, quả bóng, cái mũ, cái ô, bít tất, bát, thìa, ngã,
 
 EXAMPLE_HOOK = ("Ôi, con diều cứ rớt hoài, Sóc Nhỏ phải làm sao đây?", "DIỀU RỚT HOÀI!")
 EXAMPLE = [
-    # truyện mẫu (viết tay theo cách kể của truyện mầm non: câu ngắn, tiếng động, điệp khúc 3 lần, kết nhắn bé);
-    # CHỈ để model học giọng kể — bộ kiểm chặn khi chép lại ≥ 2 câu
+    # truyện mẫu (viết tay theo cách kể của truyện mầm non: câu ngắn, tiếng động, điệp khúc 3 lần, kết nhắn bé; «nha» chỉ
+    # 2 lần cả truyện); CHỈ để model học giọng kể — bộ kiểm chặn khi chép lại ≥ 2 câu
     ("Hôm nay trời nắng đẹp ghê. Sóc Nhỏ cầm con diều màu đỏ chạy ra công viên. Đuôi diều phất phơ, phất phơ.",
      ["little_squirrel"], "Little Squirrel running on green grass holding a red kite, happy"),
-    ("Sóc Nhỏ muốn thả diều bay thật cao. «Diều ơi, bay lên nha!» Sóc Nhỏ reo to.",
+    ("Sóc Nhỏ muốn thả diều bay thật cao. «Diều ơi, bay lên đi!» Sóc Nhỏ reo to.",
      ["little_squirrel"], "Little Squirrel holding a red kite up high, looking at the sky"),
     ("Sóc Nhỏ chạy một hơi. Vù vù! Gió thổi mạnh. Bịch! Con diều rớt xuống bãi cỏ. Ôi, buồn ghê.",
      ["little_squirrel"], "Little Squirrel surprised, a red kite lying on the grass"),
-    ("Sóc Nhỏ nhặt diều lên. «Thử lại lần nữa nha!» Chạy, chạy, chạy. Bịch! Diều lại rớt.",
+    ("Sóc Nhỏ nhặt diều lên, chạy thật nhanh. «Cố lên, thử lại nào!» Chạy, chạy, chạy. Bịch! Diều lại rớt.",
      ["little_squirrel"], "Little Squirrel running fast pulling a kite string"),
-    ("Sóc Nhỏ ngồi bệt xuống, mắt rưng rưng. «Thử lại lần nữa nha.» Nhưng chân mỏi quá rồi.",
+    ("Sóc Nhỏ leo lên mô đất cao mà thả. «Cố lên, thử lại nào!» Diều bay lên một chút rồi lại rơi. Chân mỏi quá rồi.",
      ["little_squirrel"], "Little Squirrel sitting on the grass, sad, a red kite beside"),
-    ("Gấu Nâu đi tới: «Để mình cầm diều cho, bạn chạy nha.» Sóc Nhỏ gật đầu: «Thử lại lần nữa nha!» Vù… Con diều bay lên "
+    ("Gấu Nâu đi tới: «Để mình cầm diều cho, bạn cứ chạy.» Sóc Nhỏ gật đầu: «Cố lên, thử lại nào!» Vù… Con diều bay lên "
      "cao, cao thật là cao!",
      ["brown_bear", "little_squirrel"], "Brown Bear holding a red kite high, Little Squirrel running with the string"),
-    ("Gấu Nâu cười: «Thấy chưa, chưa được thì mình thử lại, đừng bỏ cuộc nha.» Sóc Nhỏ gật đầu lia lịa.",
+    ("Gấu Nâu cười: «Thấy chưa, chưa được thì mình đổi cách rồi thử tiếp, đừng bỏ cuộc nha.» Sóc Nhỏ gật đầu lia lịa.",
      ["brown_bear", "little_squirrel"], "Brown Bear smiling and talking to Little Squirrel"),
-    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh. Các bé ơi, khi làm chưa được, mình thử lại nha!",
+    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh. Các bé ơi, khi làm chưa được, mình đổi cách rồi thử lại nha!",
      ["little_squirrel", "brown_bear"], "Little Squirrel and Brown Bear looking up at a red kite flying in the blue sky"),
 ]
 
@@ -91,7 +91,10 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
             f"{story_mod.WORDS_MIN + 20}-{story_mod.WORDS_MAX - 10} chữ. Một chuyện nhỏ kể liền mạch từ đầu tới cuối.\n"
-            "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp đúng 3 lần ở cảnh 4, 5, 6.\n"
+            "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp đúng 3 lần ở cảnh 4, 5, 6; "
+            "NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
+            f"- Tiểu từ «nha», «hen» ở cuối câu: cả truyện tối đa {story_mod.TAIL_MAX} lần (nhiều quá nghe ngang); câu móc "
+            "không kết bằng «nha». Câu kết bình thường bằng dấu chấm / chấm than.\n"
             "- LIỀN MẠCH: cảnh sau xảy ra VÌ cảnh trước (nhân quả), ba lần thử khác nhau và leo thang, lần ba thành công nhờ "
             "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
             "- Cảnh 7 nói bài học bằng đúng chữ: " + ", ".join(lesson.get("keywords", []))
@@ -123,7 +126,8 @@ REVISE_CHECK = (
     "3. Ba lần thử (cảnh 4, 5, 6) có KHÁC nhau, leo thang và lần ba thành công nhờ bạn giúp / cách khác không?\n"
     "4. Bài học (cảnh 7) có rút ra từ chính chuyện vừa xảy ra không (không giảng chung chung)?\n"
     "5. Câu ngắn (dưới 10 chữ), có tiếng động, có điệp khúc lặp 3 lần, lời thoại tự nhiên như trẻ con, giọng miền Nam?\n"
-    "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?")
+    "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?\n"
+    "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?")
 
 
 def revise_messages(story: dict, brief: dict, data: dict, channel: dict) -> list[dict[str, str]]:

@@ -311,11 +311,11 @@ def audio_graph(voice_idx: int, music_idx: int | None, gain_db: float, total: fl
 
 async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
                          recap: tuple[dict, str] | None = None, hook: tuple | None = None) -> list:
-    """[(start, end, chữ, cảnh)] rải theo khoảng có tiếng của từng đoạn giọng (đo năng lượng, không cần mốc từ)."""
+    """[(start, end, chữ, cảnh)] rải theo khoảng có tiếng của từng đoạn giọng (đo năng lượng, không cần mốc từ). recap:
+    giữ tham số cho tương thích, không rải phụ đề cho câu ôn từ."""
     out = []
     items = [(cl, sc["voice_at"], text) for cl, sc, text in zip(clips, pl["scenes"], texts)]
-    if recap and recap[0].get("path"):
-        items.append((recap[0], pl["recap_at"], recap[1]))
+    # câu ôn từ trong màn kết KHÔNG có phụ đề (bảng «Hôm nay bé học» đã đủ; phản hồi 19/11) — chỉ đọc
     if hook and hook[0].get("path") and pl.get("hook"):
         items.append((hook[0], pl["hook"]["voice_at"], hook[1]))
     f = float(pl.get("factor") or 1.0)        # giọng đọc nhanh hơn: mốc có tiếng cũng dồn lại theo

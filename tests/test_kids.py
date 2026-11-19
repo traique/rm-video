@@ -87,25 +87,28 @@ def test_south_kids_words():
 
 
 def _good_story(brief):
-    """Kịch bản đạt mọi điều kiện: 8 cảnh thuần tiếng Việt, nhắc tới tiếng Việt của mỗi từ, chào bé, bài học, kết vui."""
+    """Kịch bản đạt mọi điều kiện: 8 cảnh thuần tiếng Việt, nhắc tới tiếng Việt của mỗi từ, bài học, kết vui, điệp khúc
+    đúng 3 lần, «nha» ≤ 3, không câu nào khác lặp."""
     vis = [w["vi"] for w in brief["words"]]
     lesson = story.by_id(DATA["lessons"], brief["lesson"])
-    filler = "Hai bạn đi dạo."
     base = [
-        f"Chào các bé! Hôm nay Thỏ Trắng ra đồi chơi. {filler} Thỏ Trắng gặp Gấu Nâu nè.",
-        f"Thỏ Trắng thấy {vis[0]} đẹp ghê. {filler} Thỏ Trắng muốn mang về cho Mèo Cam.",
-        f"Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. {filler} Gấu Nâu hơi buồn, Sóc Nhỏ chạy tới coi.",
-        f"Thỏ Trắng nói: cố lên, cố lên nha. {filler} Vẫn chưa được, hai bạn nhìn nhau.",
-        f"Thỏ Trắng nói: cố lên, cố lên nha. {filler} Gấu Nâu nói nhỏ thôi nha mấy bạn.",
-        f"Gấu Nâu giúp một tay. Cố lên, cố lên nha! {filler} Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười.",
-        f"Gấu Nâu nói: tụi mình phải {lesson['keywords'][0]} nha. {filler} Các bạn cùng gật đầu.",
-        f"Bốn bạn ôm nhau cười vui. {filler} Các bé ơi, mình cùng chơi vui nha!",
+        "Hôm nay Thỏ Trắng ra đồi chơi. Nắng vàng trải khắp bãi cỏ. Thỏ Trắng gặp Gấu Nâu ở gốc cây to.",
+        f"Thỏ Trắng thấy {vis[0]} đẹp ghê. Thỏ Trắng muốn mang về cho Mèo Cam. Hai bạn hớn hở đi về phía đồi.",
+        "Bịch! Thỏ Trắng lỡ tay làm rơi mất rồi. Gấu Nâu hơi buồn. Sóc Nhỏ chạy tới coi chuyện gì.",
+        "Thỏ Trắng nói: cố lên, thử lại nào. Thỏ Trắng cúi xuống nhặt. Vẫn chưa được, hai bạn nhìn nhau.",
+        "Thỏ Trắng nói: cố lên, thử lại nào. Lần này Thỏ Trắng với tay thật xa. Gấu Nâu bảo nhỏ thôi, từ từ.",
+        "Gấu Nâu giúp một tay. Cố lên, thử lại nào! Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười tít mắt.",
+        f"Gấu Nâu nói: tụi mình phải {lesson['keywords'][0]} nha. Các bạn cùng gật đầu, ai cũng thấy nhẹ lòng.",
+        "Bốn bạn ôm nhau cười vui. Trời chiều mát rượi. Các bé ơi, mình cùng chơi vui với bạn nha!",
     ]
     for j, vi in enumerate(vis[1:]):                                        # các từ còn lại cũng được nhắc tới
         base[3 + j % 3] += f" Ở đây có {vi} nè."
-    while sum(story.word_count(t) for t in base) < story.WORDS_MIN + 5:       # đủ số chữ tối thiểu
-        k = min(range(8), key=lambda i: story.word_count(base[i]))
-        base[k] += " Nắng vàng nhẹ nhàng."
+    pads = ["Gió thổi nhè nhẹ.", "Chim hót líu lo.", "Hoa nở khắp đồi.", "Mây trắng bay ngang.", "Cỏ xanh mượt mà.",
+            "Bướm vàng chấp chới.", "Ong bay vo ve.", "Suối chảy róc rách."]
+    k = 0
+    while sum(story.word_count(t) for t in base) < story.WORDS_MIN + 5:       # đủ số chữ tối thiểu, mỗi câu đệm khác nhau
+        base[k % 8] += " " + pads[k % len(pads)]
+        k += 1
     scenes = [{"text": t, "characters": ["white_rabbit", "brown_bear"], "action_en": "White Rabbit talks to Brown Bear"}
               for t in base]
     return {"title": f"Thỏ Trắng và {vis[0]} trên đồi", "hook": f"Ôi, {vis[0]} của Thỏ Trắng rớt mất rồi, làm sao đây?",
@@ -152,6 +155,18 @@ def test_validate_good_and_bad():
     vi_run = json.loads(json.dumps(st))
     vi_run["scenes"][1]["text"] += " Thỏ Trắng run rẩy."                     # «run» tiếng Việt không phải tiếng Anh
     assert not any("THUẦN" in p for p in story.validate(vi_run, brief, DATA))
+    # quá nhiều «nha», câu lặp ngoài điệp khúc, câu móc kết «nha» -> lỗi
+    nha = json.loads(json.dumps(st))
+    nha["scenes"][0]["text"] += " Đi chơi nha. Vui nha. Về nha."
+    nha["hook"] = "Thỏ Trắng phải làm sao đây nha?"
+    probs = story.validate(nha, brief, DATA)
+    assert any("«nha/hen»" in p for p in probs) and any("câu móc không kết" in p for p in probs)
+    rep = json.loads(json.dumps(st))
+    rep["scenes"][1]["text"] += " Nắng vàng trải khắp bãi cỏ."                 # câu của cảnh 1 lặp lại
+    assert any("lặp câu/cụm" in p and "nắng vàng" in p for p in story.validate(rep, brief, DATA))
+    assert story.repeated_sentences(["Cố lên thử lại nào. Cố lên thử lại nào.", "Cố lên thử lại nào. Vui ghê."]) == []
+    assert story.repeated_sentences(["Cố lên thử lại nào. Cố lên thử lại nào."] * 2) == [("cố lên thử lại nào", 4)]
+    assert story.repeated_sentences(["Gấu Nâu nói: «Đi thôi.»", "Gấu Nâu nói: «Về thôi.»"]) == []    # lời dẫn không tính
     assert story.vi_mentioned("Thỏ Trắng cầm trái banh đỏ", {"en": "ball", "vi": "trái banh"}, DATA)
     assert story.vi_mentioned("banh lăn kìa", {"en": "ball", "vi": "trái banh"}, DATA)
     assert not story.vi_mentioned("bánh kem ngon", {"en": "ball", "vi": "trái banh"}, DATA)
@@ -174,21 +189,23 @@ def test_blocking_beats_and_recap():
     two = {**brief, "words": [{"en": "ball", "vi": "trái banh"}, {"en": "hat", "vi": "cái nón"}]}
     assert [i for _, i in story.add_beats(st4, two, DATA)] == [0, 1]
     txt = story.script_text(st)
-    for w in brief["words"]:
-        assert f"tiếng Anh là {w['en']}. Bé nói theo nha: {w['en']}!" in txt
-    assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "Trái banh, tiếng Anh là ball. Bé nói theo nha: ball!"
+    for k, w in enumerate(brief["words"]):
+        assert story.beat_text(w, k) in txt and "nha" not in story.beat_text(w, k)
+    assert story.beat_text({"en": "ball", "vi": "trái banh"}) == "Trái banh, tiếng Anh là ball. Bé nói theo nè: ball!"
+    assert story.beat_text({"en": "ball", "vi": "trái banh"}, 1) != story.beat_text({"en": "ball", "vi": "trái banh"}, 0)
     # không cảnh nào nhắc tới -> chèn kèm câu dẫn «Ở đây có ... nè»
     st2 = story.normalize(_good_story(brief), DATA)
     extra = {"en": "rainbow", "vi": "cầu vồng"}
     beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
     assert beats == [("rainbow", 1)] and "Ở đây có cầu vồng nè. Cầu vồng, tiếng Anh là rainbow." in st2["scenes"][1]["text"]
+    assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Giỏi lắm, bé nhớ hết rồi!")
     # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
     st3 = story.normalize(_good_story(brief), DATA)
     greet = {**brief, "words": [{"en": "good morning", "vi": "chào buổi sáng"}, {"en": "bye bye", "vi": "tạm biệt"}]}
     assert not any("nhắc tới" in p for p in story.validate(st3, greet, DATA))
     assert story.add_beats(st3, greet, DATA) == [("good morning", 0), ("bye bye", 7)]
     assert "Ở đây có chào buổi sáng" not in story.script_text(st3) and "Ở đây có tạm biệt" not in story.script_text(st3)
-    assert st3["scenes"][7]["text"].endswith("Bé nói theo nha: bye bye!") and "good morning" in st3["scenes"][0]["text"]
+    assert st3["scenes"][7]["text"].endswith(": bye bye!") and "good morning" in st3["scenes"][0]["text"]
     assert "«chào buổi sáng»" not in prompts.user_prompt(greet, DATA) and "PHẢI nhắc tới" not in prompts.user_prompt(greet, DATA)
     short = {**st, "scenes": [{**s, "text": "Hai bạn chơi vui."} for s in st["scenes"]]}
     assert any("quá ngắn" in p for p in story.blocking(short, brief, DATA))
@@ -356,7 +373,7 @@ def test_render_small_video_with_music(tmp_path):
     pl = res["plan"]
     assert pl["hook"] and res["length"] == pytest.approx(pl["hook"]["end"] + 8 * render.SCENE_MIN + outro)
     assert recap[0]["dur"] > 2.5 and "banh đâu" in res["srt"] and res["sfx"]["whoosh"] == 9 and 0.05 in res["hits"]
-    assert "Hôm nay mình học" in res["srt"]
+    assert "Hôm nay mình học" not in res["srt"]                                  # màn kết không phụ đề (bảng đã đủ)
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0",
                             out], capture_output=True, text=True).stdout
     assert "video,180,320" in probe and "audio" in probe
