@@ -396,7 +396,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
                     "think": int(config.KIDS_LLM_THINK or 0)},
             "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,
                         "hashtags": config.KIDS_HASHTAGS},
-            "music": music, "kernel_sources": nbs, "dataset_sources": dss,
+            "music": music, "fx": config.KIDS_FX, "kernel_sources": nbs, "dataset_sources": dss,
             "fetch_files": ["cover.jpg", "thumb.jpg", "story.json"]}
     if story:
         spec["story"] = story

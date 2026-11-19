@@ -80,7 +80,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     out = os.path.join(tmp, "output.mp4")
     res = await render.render(imgs, clips, texts, brief, out, tmp, music=music, title=st["title"],
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
-                              recap=(recap_clip, recap) if recap_clip.get("path") else None)
+                              recap=(recap_clip, recap) if recap_clip.get("path") else None,
+                              fx=str(spec.get("fx") or "full"))
     t["render"] = round(time.time() - t0, 1)
     sj = os.path.join(tmp, "story.json")
     with open(sj, "w", encoding="utf-8") as f:

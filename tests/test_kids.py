@@ -322,6 +322,7 @@ def test_render_small_video_with_music(tmp_path):
     imgs = [_png(str(tmp_path / f"i{k}.png"), k * 40) for k in range(8)]
     clips = [{"path": _wav(str(tmp_path / f"v{k}.wav"))} for k in range(8)]
     texts = [f"Cảnh {k + 1}: Thỏ Trắng nói {brief['words'][0]['en']} với Gấu Nâu nha!" for k in range(8)]
+    texts[2] = f"Bịch! Thỏ Trắng té. Ối! {brief['words'][0]['en']} rớt rồi."       # tiếng động -> nảy zoom + rung
     music = str(tmp_path / "m.mp3")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=6", "-c:a",
                     "libmp3lame", music], check=True)
@@ -336,7 +337,17 @@ def test_render_small_video_with_music(tmp_path):
                             out], capture_output=True, text=True).stdout
     assert "video,180,320" in probe and "audio" in probe
     assert res["music_gain_db"] is not None and brief["words"][0]["en"] in res["srt"]
-    assert open(res["ass"], encoding="utf-8").read().count("\\c&H003BD4FF&") >= 8      # từ tiếng Anh tô màu mỗi cảnh
+    ass_text = open(res["ass"], encoding="utf-8").read()
+    assert ass_text.count("\\c&H003BD4FF&") >= 8                                   # từ tiếng Anh tô màu mỗi cảnh
+    assert "\\fscx86\\fscy86\\t(0,110,\\fscx100\\fscy100)" in ass_text         # phụ đề bật lên
+    assert res["fx"] == "full" and len(res["hits"]) >= 1 and res["sfx"]["whoosh"] == 7 and res["sfx"]["ding"] >= 1
+    assert render.hits_from_words([(1.0, 1.2, "Bịch!"), (1.1, 1.3, "Rầm!"), (2.0, 2.2, "Ối!"), (3.0, 3.1, "nha")]) == [1.0, 2.0]
+    # fx=off: như 1.1.0 — không nảy, không tiếng động, không bật chữ
+    out2 = str(tmp_path / "out_off.mp4")
+    res2 = asyncio.run(render.render(imgs, clips, texts, brief, out2, str(tmp_path), title="x", channel=kids_auto.channel(),
+                                     W=180, H=320, fps=12, rnd=random.Random(1), fx="off"))
+    assert res2["hits"] == [] and res2["sfx"] == {} and os.path.getsize(out2) > 10_000
+    assert "fscx86" not in open(res2["ass"], encoding="utf-8").read()
     cov, thumb = asyncio.run(render.cover(out, str(tmp_path)))
     assert os.path.getsize(cov) > 1000 and os.path.getsize(thumb) > 500
 
@@ -463,7 +474,7 @@ def test_flow_kids_on_botkeep(tmp_path, monkeypatch):
     assert os.path.exists(out) and os.path.exists(os.path.join(os.path.dirname(out), "cover.jpg"))
     spec = calls[0]
     assert spec["kind"] == "kids" and spec["slug"] == "rmvideo-kids" and spec["voice"]["name"] == "Thục Đoan"
-    assert spec["llm"]["think"] == 1200 and spec["llm"]["hf_repo"].endswith("GGUF")
+    assert spec["llm"]["think"] == 1200 and spec["llm"]["hf_repo"].endswith("GGUF") and spec["fx"] == "full"
     assert spec["kernel_sources"] == ["rmvideo-kids-models"] and "logo_b64" not in spec
     assert spec["fetch_files"] == ["cover.jpg", "thumb.jpg", "story.json"] and spec["data"]["world"]["name"] == "Đồi Cỏ Non"
     assert "▶ Facebook:" in job.post and "🔤" in job.post and job.hook.startswith("Thỏ Trắng") and job.out_dur == 72.0

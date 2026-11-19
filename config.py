@@ -70,7 +70,7 @@ KIDS_AUTO: str; KIDS_TIMES: str; KIDS_FB_PAGE_ID: str; KIDS_FB_PAGE_TOKEN: str; 
 KIDS_LLM_PROVIDER: str; KIDS_GEMINI_MODEL: str
 KIDS_LLM_PATTERN: str; KIDS_LLM_HF: str; KIDS_LLM_THINK: str; KIDS_KAGGLE_SOURCES: str; KIDS_CHANNEL_NAME: str
 KIDS_WORLD_NAME: str
-KIDS_TAGLINE: str; KIDS_HASHTAGS: str; KIDS_BGM_LINKS: str
+KIDS_TAGLINE: str; KIDS_HASHTAGS: str; KIDS_FX: str; KIDS_BGM_LINKS: str
 
 # ===== Chỉ đặt qua biến môi trường =====
 # (BOT_TOKEN đổi là phải restart polling; WEB_PASSWORD không cho sửa từ web để kẻ lạ không tự đổi khóa)

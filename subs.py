@@ -121,10 +121,11 @@ def style_line(style: str, brand_color: str = "") -> str:
 
 
 def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke", until: float | None = None,
-              highlight: set | None = None, highlight_color: str = "#FFD43B"):
+              highlight: set | None = None, highlight_color: str = "#FFD43B", pop: bool = False):
     """Phụ đề kiểu CapCut: mỗi dòng 3-4 từ, chữ đang đọc sáng dần sang vàng đúng nhịp giọng (\\kf).
     pos_y: tâm phụ đề theo trục dọc (0-1280) để đè lên dải chữ gốc; None = đáy màn hình.
-    highlight: các chữ (đã qua _tok, viết thường) in màu `highlight_color` — từ tiếng Anh bé học (kênh truyện bé)."""
+    highlight: các chữ (đã qua _tok, viết thường) in màu `highlight_color` — từ tiếng Anh bé học (kênh truyện bé).
+    pop: mỗi cụm chữ bật lên khi hiện (\\t scale) — kênh truyện bé."""
     bs = chr(92)
     lines = group_words(words, until=until)
     pos = ("%san5%spos(360,%d)" % (bs, bs, int(pos_y))) if pos_y else ""
@@ -148,6 +149,8 @@ def write_ass(words, path: str, pos_y: int | None = None, style: str = "karaoke"
                     part = hi[0] + part + hi[1]
                 parts.append(part)
             head = "{%s%sfad(60,40)}" % (pos, bs) if pos else "{%sfad(60,40)}" % bs
+            if pop:                                   # kênh truyện bé: cụm chữ bật lên (86% -> 100% trong 110ms)
+                head = head[:-1] + "%sfscx86%sfscy86%st(0,110,%sfscx100%sfscy100)}" % (bs, bs, bs, bs, bs)
             f.write(f"Dialogue: 0,{_ts(start)},{_ts(end)},Default,,0,0,0,,{head}" + " ".join(parts) + "\n")
     return len(lines)
 

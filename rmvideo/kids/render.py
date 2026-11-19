@@ -33,6 +33,15 @@ BGM_BELOW = 16.0       # nhạc nền thấp hơn giọng chừng này dB (trư�
 MOTIONS = ("zoom_in", "zoom_out", "pan_left", "pan_right", "pan_up")
 TRANSITIONS = ("fade", "dissolve", "smoothleft", "smoothright", "smoothup", "circleopen")
 STYLE = "kids"
+# Hiệu ứng «động» (19/11, FFmpeg thuần): Ken Burns mạnh hơn + nhịp thở, nảy zoom + rung máy khi có tiếng động trong lời
+# (Bịch! Rầm!), hạt bokeh bay nhẹ, vignette, phụ đề bật lên (subs), tiếng whoosh khi chuyển cảnh + «ting» khi dạy từ.
+SOUND_WORDS = ("bịch", "rầm", "ầm", "bùm", "đùng", "choang", "phịch", "rắc", "bốp", "xoạch", "tùm", "cốc", "ối", "oái",
+               "vù", "xoẹt", "bộp", "cạch")
+HIT_GAP = 0.45          # hai cú nảy cách nhau ít nhất chừng này giây
+HIT_MAX = 14
+BREATH = (0.010, 4.0)   # biên độ zoom «thở», chu kỳ giây
+PARTICLES = 7           # hạt bokeh bay
+SFX_WHOOSH_DB, SFX_DING_DB = -21.0, -17.0
 
 
 RECAP_GAP = 0.5        # câu ôn từ bắt đầu sau khi vào màn kết chừng này
@@ -156,14 +165,31 @@ def overlays(pl: dict, title: str, words: Sequence[dict], glosses: Sequence[tupl
     return out
 
 
-def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps: int, avail: set) -> str:
-    """[0..n-1:v] ảnh -> zoompan từng cảnh -> xfade chuỗi -> [vx]."""
+def hits_from_words(words: Sequence[tuple], gap: float = HIT_GAP, limit: int = HIT_MAX) -> list[float]:
+    """Mốc giây các từ tượng thanh / thán từ trong phụ đề (Bịch! Rầm! Ối!) -> nảy zoom + rung máy lúc đó."""
+    import re
+    out: list[float] = []
+    for start, _end, tok, *_ in words:
+        t = re.sub(r"[^\w]", "", str(tok).lower())            # giữ dấu tiếng Việt (align.norm bỏ dấu)
+        if t in SOUND_WORDS and (not out or start - out[-1] >= gap):
+            out.append(round(float(start), 3))
+    return out[:limit]
+
+
+def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps: int, avail: set,
+                hits: Sequence[float] = (), fx: str = "full") -> str:
+    """[0..n-1:v] ảnh -> zoompan từng cảnh (Ken Burns + thở + nảy/rung theo tiếng động) -> xfade chuỗi -> [vx]."""
     parts = []
     bounds = _clip_bounds(pl)
+    motion_on = fx != "off"
     for j, (a, b) in enumerate(bounds):
         w, h = sizes[j]
         nf = max(2, int(round((b - a) * fps)) + 1)
-        z, x, y = slideshow.zoompan_expr(pl["scenes"][j]["motion"], "calm", nf, a, [], [], b, 1.0)
+        pulses = list(hits) if motion_on else []
+        z, x, y = slideshow.zoompan_expr(pl["scenes"][j]["motion"], "calm", nf, a, pulses, pulses, b,
+                                         1.25 if motion_on else 1.0)
+        if motion_on:
+            z = f"({z})+{BREATH[0]}*sin(2*PI*({a:.4f}+on/{fps})/{BREATH[1]})"
         parts.append(f"{slideshow._prep(j, w, h, W, H)},zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={fps},"
                      f"trim=duration={b - a:.4f},setpts=PTS-STARTPTS,format=yuv420p,setsar=1[c{j}]")
     cur = "[c0]"
@@ -171,12 +197,90 @@ def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps:
         typ = tr["type"] if tr["type"] in avail else "fade"
         parts.append(f"{cur}[c{j + 1}]xfade=transition={typ}:duration={tr['dur']:.3f}:offset={tr['start']:.3f}[x{j}]")
         cur = f"[x{j}]"
-    return ";".join(parts) + f";{cur}null[vx]"
+    tail = ",vignette=angle=PI/5.5" if motion_on else ""
+    return ";".join(parts) + f";{cur}null{tail}[vx]"
 
 
-def audio_graph(voice_idx: int, music_idx: int | None, gain_db: float, total: float) -> str:
-    """[vx] đã có; thêm phần tiếng -> [a]: giọng (+ nhạc nền tự hạ khi đang đọc) -> loudnorm."""
+def sprites(work: str) -> list[str]:
+    """Hai hạt bokeh (PNG có alpha, PIL): đĩa mềm và đĩa nhỏ sáng hơn."""
+    from PIL import Image, ImageDraw, ImageFilter
+    out = []
+    for name, size, alpha, blur in (("bokeh_a", 96, 150, 10), ("bokeh_b", 56, 200, 5)):
+        im = Image.new("RGBA", (size, size), (255, 255, 255, 0))
+        d = ImageDraw.Draw(im)
+        m = size // 6
+        d.ellipse((m, m, size - m, size - m), fill=(255, 250, 225, alpha))
+        im = im.filter(ImageFilter.GaussianBlur(blur))
+        p = os.path.join(work, f"{name}.png")
+        im.save(p)
+        out.append(p)
+    return out
+
+
+def particle_graph(first_input: int, n_sprites: int, W: int, H: int, rnd: random.Random, n: int = PARTICLES) -> str:
+    """[vx] + hạt bokeh bay lên lững lờ, đung đưa ngang -> [vp]. Ảnh hạt là input first_input.. (loop)."""
+    k = H / 1920
+    parts = []
+    per = [0] * n_sprites
+    for i in range(n):
+        per[i % n_sprites] += 1
+    for si in range(n_sprites):
+        labels = "".join(f"[s{si}_{m}]" for m in range(per[si]))
+        parts.append(f"[{first_input + si}:v]format=rgba,split={per[si]}{labels}")
+    cur = "[vx]"
+    for i in range(n):
+        si, m = i % n_sprites, i // n_sprites
+        sc = round(rnd.uniform(0.5, 1.3) * k, 3)
+        v = rnd.uniform(22, 48) * k                    # px/giây bay lên
+        x0 = rnd.uniform(0.05, 0.9) * W
+        amp = rnd.uniform(18, 46) * k
+        period = rnd.uniform(3.5, 7.0)
+        off = rnd.uniform(0, H)
+        ph = rnd.uniform(0, 6.28)
+        parts.append(f"[s{si}_{m}]scale=iw*{sc}:ih*{sc}[q{i}]")
+        parts.append(f"{cur}[q{i}]overlay=x='{x0:.0f}+{amp:.0f}*sin(2*PI*t/{period:.2f}+{ph:.2f})':"
+                     f"y='{H}-mod(t*{v:.1f}+{off:.0f},{H + 160})':eval=frame:format=auto[o{i}]")
+        cur = f"[o{i}]"
+    return ";".join(parts) + f";{cur}null[vp]"
+
+
+async def sfx_files(work: str) -> dict[str, str]:
+    """Tiếng động tự tạo (không cần file bản quyền): whoosh (nhiễu hồng vuốt) và ting (sine tắt dần + bội âm)."""
+    wh = os.path.join(work, "sfx_whoosh.wav")
+    await ff._run_ffmpeg("-y", "-f", "lavfi", "-i", "anoisesrc=c=pink:r=44100:d=0.6", "-af",
+                         "lowpass=f=1600,highpass=f=180,volume='if(lt(t,0.22),t/0.22,max(0,(0.6-t)/0.38))':eval=frame", wh)
+    dg = os.path.join(work, "sfx_ding.wav")
+    await ff._run_ffmpeg("-y", "-f", "lavfi", "-i", "sine=f=1318:r=44100:d=0.8", "-f", "lavfi", "-i",
+                         "sine=f=2637:r=44100:d=0.8", "-filter_complex",
+                         "[0:a]volume='0.6*exp(-4.5*t)':eval=frame[a];[1:a]volume='0.18*exp(-7*t)':eval=frame[b];"
+                         "[a][b]amix=inputs=2:normalize=0[o]", "-map", "[o]", dg)
+    return {"whoosh": wh, "ding": dg}
+
+
+def sfx_graph(idx: dict[str, int], events: dict[str, list[float]]) -> str:
+    """Các input tiếng động -> [sfx]: mỗi mốc một bản adelay, trộn lại."""
+    parts, labels = [], []
+    for name, times in events.items():
+        if not times or name not in idx:
+            continue
+        db = SFX_WHOOSH_DB if name == "whoosh" else SFX_DING_DB
+        outs = "".join(f"[{name}{i}]" for i in range(len(times)))
+        parts.append(f"[{idx[name]}:a]aformat=sample_rates=44100:channel_layouts=stereo,volume={db:.1f}dB,"
+                     f"asplit={len(times)}{outs}")
+        for i, t in enumerate(times):
+            ms = int(max(0.0, t) * 1000)
+            parts.append(f"[{name}{i}]adelay={ms}|{ms}[{name}d{i}]")
+            labels.append(f"[{name}d{i}]")
+    if not labels:
+        return ""
+    return ";".join(parts) + f";{''.join(labels)}amix=inputs={len(labels)}:normalize=0:dropout_transition=0[sfx]"
+
+
+def audio_graph(voice_idx: int, music_idx: int | None, gain_db: float, total: float, sfx: bool = False) -> str:
+    """[vx] đã có; thêm phần tiếng -> [a]: giọng (+ tiếng động [sfx]) (+ nhạc nền tự hạ khi đang đọc) -> loudnorm."""
     vo = f"[{voice_idx}:a]aformat=sample_rates=44100:channel_layouts=stereo"
+    if sfx:
+        vo = f"{vo}[vo0];[vo0][sfx]amix=inputs=2:duration=first:normalize=0"
     if music_idx is None:
         return f"{vo},{filtergraph.LOUDNORM},{filtergraph.AOUT},apad=whole_dur={total:.2f},atrim=duration={total:.2f}[a]"
     return (f"{vo},asplit=2[vo][key];"
@@ -236,10 +340,14 @@ def gloss_times(words_timed: Sequence[tuple], brief_words: Sequence[dict]) -> li
 
 async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[str], brief: dict, out: str, tmp: str,
                  music: str | None = None, title: str = "", channel: dict | None = None, W: int = 1080, H: int = 1920,
-                 fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None) -> dict:
+                 fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None,
+                 fx: str = "full") -> dict:
     """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). recap: (clip, lời) câu ôn từ đọc trong màn
-    kết. Trả {"length", "plan", "srt", "ass"}."""
+    kết. fx: full (chuyển động + hạt + tiếng động) | motion (chỉ chuyển động, phụ đề bật) | off (như 1.1.0).
+    Trả {"length", "plan", "srt", "ass", "hits", "sfx"}."""
     channel = channel or {}
+    rnd = rnd or random.Random(0)
+    fx = fx if fx in ("full", "motion", "off") else "full"
     work = os.path.join(tmp, "kids_render")
     os.makedirs(work, exist_ok=True)
     durs = [await voiceplan.speech_duration(c["path"]) if c.get("path") else 0.0 for c in clips]
@@ -266,24 +374,48 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     from rmvideo.kids import story as story_mod
     ass = os.path.join(work, "subs.ass")
     hi = story_mod.english_tokens(brief)
-    subs_mod.write_ass(words, ass, None, STYLE, None, highlight=hi)
+    subs_mod.write_ass(words, ass, None, STYLE, None, highlight=hi, pop=fx != "off")
     srt = subs_mod.to_srt(words)
     glosses = gloss_times(words, brief.get("words", []))
     sizes = [await asyncio.to_thread(slideshow.image_size, p) for p in images]
     avail = await asyncio.to_thread(slideshow.xfade_transitions)
-    fc = video_graph(pl, sizes, W, H, fps, avail)
-    fc += ";[vx]" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work).lstrip(",")
-    fc += (f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},fade=t=in:st=0:d=0.3,"
-           f"fade=t=out:st={max(0.0, total - 0.5):.2f}:d=0.5,format=yuv420p[v];")
+    hits = hits_from_words(words) if fx != "off" else []
+    fc = video_graph(pl, sizes, W, H, fps, avail, hits, fx)
     inputs: list[str] = []
     for p in images:
         inputs += ["-i", p]
     voice_idx = len(images)
     inputs += ["-i", voice]
+    next_idx = voice_idx + 1
+    top = "[vx]"
+    if fx == "full":                                   # hạt bokeh bay (ảnh PNG loop làm input)
+        sp = await asyncio.to_thread(sprites, work)
+        for p in sp:
+            inputs += ["-loop", "1", "-framerate", str(fps), "-i", p]
+        fc += ";" + particle_graph(next_idx, len(sp), W, H, rnd)
+        next_idx += len(sp)
+        top = "[vp]"
+    fc += f";{top}" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work).lstrip(",")
+    fc += (f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},fade=t=in:st=0:d=0.3,"
+           f"fade=t=out:st={max(0.0, total - 0.5):.2f}:d=0.5,format=yuv420p[v];")
+    events: dict[str, list[float]] = {}
+    if fx == "full":                                   # whoosh lúc chuyển cảnh, ting lúc dạy từ
+        sf = await sfx_files(work)
+        sidx = {}
+        for name, p in sf.items():
+            inputs += ["-i", p]
+            sidx[name] = next_idx
+            next_idx += 1
+        events = {"whoosh": [tr["start"] for tr in pl["transitions"]], "ding": [g[0] for g in glosses]}
+        sg = sfx_graph(sidx, events)
+        if sg:
+            fc += sg + ";"
+        else:
+            events = {}
     music_idx = None
     gain = 0.0
     if music and os.path.exists(music):
-        music_idx = voice_idx + 1
+        music_idx = next_idx
         inputs += ["-stream_loop", "-1", "-i", music]
         vo_db = await renderer._mean_db(["-i", voice])
         mu_db = await renderer._mean_db(["-t", f"{total:.2f}", "-i", music], "highpass=f=150,lowpass=f=9000,")
@@ -292,13 +424,15 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
             inputs = inputs[:-4]
         else:
             gain = max(-45.0, min(6.0, ((vo_db if vo_db is not None and vo_db > -70 else -20.0) - BGM_BELOW) - mu_db))
-    fc += audio_graph(voice_idx, music_idx, gain, total)
+    fc += audio_graph(voice_idx, music_idx, gain, total, sfx=bool(events))
     fc = await renderer.two_pass_loudness(fc, inputs, total)
-    logging.info("Truyện bé: dựng %d cảnh, %.1fs, nhạc nền %s", len(images), total,
-                 f"{gain:+.0f} dB" if music_idx is not None else "không")
+    logging.info("Truyện bé: dựng %d cảnh, %.1fs, nhạc nền %s, hiệu ứng %s (%d cú nảy, %d tiếng động)", len(images),
+                 total, f"{gain:+.0f} dB" if music_idx is not None else "không", fx, len(hits),
+                 sum(len(v) for v in events.values()))
     await ff._run_ffmpeg("-y", *ff.thread_args(), *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
                          *renderer.encode_args(H, fps), "-t", f"{total:.3f}", out)
-    return {"length": total, "plan": pl, "srt": srt, "ass": ass, "music_gain_db": gain if music_idx is not None else None}
+    return {"length": total, "plan": pl, "srt": srt, "ass": ass, "music_gain_db": gain if music_idx is not None else None,
+            "hits": hits, "sfx": {k: len(v) for k, v in events.items()}, "fx": fx}
 
 
 async def cover(video: str, out_dir: str, at: float = 1.6) -> tuple[str, str]:

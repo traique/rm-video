@@ -451,6 +451,10 @@ SCHEMA: tuple[Setting, ...] = (
       "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
     S("KIDS_HASHTAGS", "#kebenghe,#doiconon,#truyenchobe,#hoctienganhchobe,#kidsstory", "kids", "Hashtag cố định", help="Cách nhau dấu phẩy.",
       validate=_max_len("KIDS_HASHTAGS", 300), live=True),
+    S("KIDS_FX", "full", "kids", "Hiệu ứng động cho truyện bé",
+      options=(("full", "Đầy đủ (mặc định): Ken Burns mạnh + nảy/rung khi có tiếng động, hạt bokeh, whoosh + ting"),
+               ("motion", "Chỉ chuyển động + phụ đề bật lên (không hạt, không tiếng động)"),
+               ("off", "Tắt: Ken Burns nhẹ như bản 1.1.0")), choices=("full", "motion", "off")),
     S("KIDS_BGM_LINKS", "", "kids", "Link nhạc nền trẻ em",
       help="Link mp3 / YouTube / TikTok (Kaggle tự tải), cách nhau dấu phẩy; hoặc chép file nhạc vào assets/kids_bgm/ "
            "(cần PUBLIC_URL). Chỉ dùng nhạc được phép dùng thương mại.", validate=_bgm_links, live=True),
@@ -498,7 +502,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
-    "KIDS_HASHTAGS", "KIDS_BGM_LINKS",
+    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_BGM_LINKS",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )
