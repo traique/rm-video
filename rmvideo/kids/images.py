@@ -277,8 +277,12 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
                         best = img
                         break
                     shirts = [h[0].split(":")[1] for h in heads if h[0].startswith("shirt:")]
+                    head_boxes = [h for h in heads if not h[0].startswith("shirt:")]
                     why = (f"thấy {n} đầu nhân vật, cảnh chỉ có {want} bạn (ảnh hai đầu / nhân vật nhân đôi)" if n > max(1, want)
-                           else f"áo thấy {shirts}, các bạn mặc {want_c} (áo đổi màu)")
+                           else f"áo thấy {shirts}, các bạn mặc {want_c} (áo đổi màu)" if (want_c and shirts
+                                                                                       and not imgcheck.shirts_ok(
+                                                                                           [(x, 0.0, [0, 0, 1, 1]) for x in shirts], want_c))
+                           else f"hai bạn to nhỏ lệch nhau (đầu {[(b[2] - b[0]) for _q, _s, b in head_boxes]} px)")
                     log(f"Ảnh cảnh {i}: {why}" + (", vẽ lại với seed khác" if r < imgcheck.RETRIES
                                                 else ", hết lượt: giữ ảnh ít lỗi nhất"))
                     try:

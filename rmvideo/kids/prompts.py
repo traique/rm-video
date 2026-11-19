@@ -10,6 +10,9 @@ from rmvideo.kids import story as story_mod
 # Ngắn gọn: T5 của FLUX chỉ đọc 256 token; prompt 2 nhân vật + bối cảnh dài dễ bị cắt mất phần cuối (đo thật 18/11).
 STYLE_EN = ("Pixar style 3D animation, cute children's storybook, soft rounded shapes, big expressive eyes, bright cheerful "
             "colors, soft warm light, vertical 9:16, no text")
+# 19/11: nhân vật mỗi cảnh một kích cỡ (sóc to gấp đôi thỏ, thỏ mặt dài như người lớn) -> khoá tỉ lệ: tất cả cùng chiều cao,
+# dáng bé con (đầu tròn to, má phúng phính, thân ngắn)
+PROPORTION_EN = "All friends are toddler-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
 # Hành động dự phòng theo vai của cảnh khi model không viết action_en bằng tiếng Anh (đo thật: viết tiếng Việt)
 FALLBACK_ACTIONS_EN = ("looking around curiously", "playing together happily", "arguing, upset faces",
                        "sad and looking down", "a friend comforting the other, talking gently",
@@ -246,7 +249,8 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")
     # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
     who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"
-    return f"{who}: {action}. {descs}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}, no other animals"
+    return (f"{who}: {action}. {descs}. {PROPORTION_EN}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}, "
+            "no other animals")
 
 
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:

@@ -21,7 +21,7 @@
     },
     "little_squirrel": {
       "name_vi": "Sóc Nhỏ", "name_en": "Little Squirrel", "voice": "Mỹ Duyên", "quirk_vi": "nói nhanh, tò mò, hay hỏi «Hả? Sao vậy?», đuôi vẫy tít khi mừng",
-      "prompt_en": "Little Squirrel, a tiny light-brown squirrel in a plain yellow t-shirt, big fluffy tail, bright black eyes",
+      "prompt_en": "Little Squirrel, a small light-brown squirrel in a plain yellow t-shirt, fluffy tail, bright black eyes",
       "personality_vi": "tò mò, nhanh nhẹn"
     }
   },

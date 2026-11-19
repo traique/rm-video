@@ -351,6 +351,11 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert imgcheck.shirts_ok([("red", 0.5, [0, 0, 1, 1])], ["red", "green"])    # thiếu áo: không tính lỗi
     assert imgcheck.shirts_ok([], ["red"]) and imgcheck.shirts_ok(found, [])
     assert imgcheck.hue_name(5) == "red" and imgcheck.hue_name(350) == "red" and imgcheck.hue_name(30) is None
+    big_small = [("a rabbit head", 0.5, [0, 0, 300, 300]), ("a squirrel head", 0.5, [400, 500, 500, 600])]   # 9x diện tích
+    assert not imgcheck.sizes_ok(big_small, 2) and imgcheck.sizes_ok(big_small, 1)
+    assert imgcheck.sizes_ok([("a rabbit head", 0.5, [0, 0, 300, 300]), ("a cat head", 0.5, [400, 0, 600, 200])], 2)
+    b0 = story.pick(DATA, [], random.Random(2))
+    assert "same height" in prompts.image_prompt({"characters": ["white_rabbit", "little_squirrel"], "action_en": "White Rabbit hugs Little Squirrel."}, b0, DATA)
     assert prompts.shirt_color(DATA["characters"]["orange_cat"]) == "green" and prompts.shirt_color({}) == ""
     # generate: ảnh 1 bị báo thừa đầu -> vẽ lại seed khác (tối đa RETRIES), giữ ảnh ít đầu thừa nhất; ảnh 2 đạt ngay
     seeds_used = []

@@ -16,6 +16,7 @@ SHIRT_THR = 0.25
 # màu áo theo sắc độ (độ, 0-360): đỏ / xanh lá / xanh dương / vàng; cam (lông mèo) và màu khác -> None, không tính
 HUES = {"red": ((345, 360), (0, 15)), "yellow": ((46, 68),), "green": ((75, 165),), "blue": ((195, 255),)}
 THRESHOLD = 0.3
+SIZE_RATIO = 4.0                  # diện tích đầu to nhất / nhỏ nhất (2 bạn): quá mức là một bạn to gấp đôi bạn kia (đo thật mẫu 31)
 RETRIES = 2                       # vẽ lại tối đa chừng này lần cho một cảnh (~35 giây / lần trên T4)
 Box = tuple[str, float, list[int]]
 _LOADED: dict[str, Any] = {}
@@ -123,6 +124,14 @@ def shirts_ok(found: list[tuple[str, float, list[int]]], expected: list[str]) ->
     return True
 
 
+def sizes_ok(heads: list[Box], expected: int, ratio: float = SIZE_RATIO) -> bool:
+    """Cảnh 2 bạn: hai đầu phải cỡ nhau (tỉ lệ diện tích ≤ ratio); 1 bạn hay dò chưa đủ 2 đầu thì không xét."""
+    if expected < 2 or len(heads) < 2:
+        return True
+    areas = sorted(_area(b) for _q, _s, b in heads)[-2:]
+    return areas[1] / max(1.0, areas[0]) <= ratio
+
+
 def load(device: str = "cuda") -> tuple[Any, Any, str]:
     """Nạp OWLv2 một lần (processor, model, device)."""
     if "m" not in _LOADED:
@@ -157,5 +166,5 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
     boxes = detect(img, loaded)
     heads = merge_heads(boxes, thr)
     found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if colors else []
-    ok = len(heads) <= max(1, int(expected)) and shirts_ok(found, colors or [])
+    ok = (len(heads) <= max(1, int(expected)) and shirts_ok(found, colors or []) and sizes_ok(heads, int(expected)))
     return ok, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]
