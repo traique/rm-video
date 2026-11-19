@@ -345,6 +345,7 @@ def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: 
                                                                   max_duration),
                     "want_gray": bool(want_gray), "language": "vi" if vi else "", "token": secrets.token_hex(8),
                     "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook",
+                    "inpaint": config.TEXT_INPAINT == "1",             # LaMa xoá chữ in cứng (GPU) thay cho che mờ
                     "asr": config.KAGGLE_ASR if vi else "large-v3"})   # PhoWhisper chỉ tiếng Việt
 
 
@@ -625,7 +626,7 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     if res.get("token") != spec.get("token"):
         raise KaggleError("kết quả phân tích không phải của job này (notebook bị việc khác ghi đè)")
     on_step("Bóc lời + phân tích hình trên Kaggle: tải kết quả về")
-    for name, key in (("thumbs.zip", "thumbs_zip"), ("ambient.flac", "ambient")):
+    for name, key in (("thumbs.zip", "thumbs_zip"), ("ambient.flac", "ambient"), ("clean.mp4", "clean")):
         if name in files:
             p = os.path.join(tmp, f"kaggle_{name}")
             try:

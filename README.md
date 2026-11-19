@@ -54,6 +54,11 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 - **Tách giọng nhanh Spleeter**: tự dùng khi người gốc nói > 45s (trước đây phải tắt tiếng nền lúc người gốc nói).
   Nhanh hơn Kim_Vocal_2 ~30 lần trên 1 lõi; tiếng nền kém tự nhiên hơn chút nên video ngắn vẫn dùng Kim.
 - **Dò chữ in cứng bằng OCR** (`TEXT_DETECT=ocr`): bắt cả chữ màu không viền; ~8s cho 60s video.
+- **Xoá chữ in cứng bằng AI** (`TEXT_INPAINT=1`, mặc định bật; cần `KAGGLE_ANALYZE`): khi phân tích trên Kaggle, LaMa
+  (`big-lama.pt`, TorchScript, tải một lần về cache phiên hoặc gắn sẵn trong dataset) vẽ lại nền ở các dải chữ gốc trên mọi
+  khung rồi gửi video sạch về; phụ đề mới đặt lên nền thật thay vì ô mờ. Cần `PUBLIC_URL` để phiên dựng trên Kaggle lấy được
+  video sạch (không có thì Kaggle tự tải bản gốc và che mờ như cũ); dựng trên Botkeep thì dùng video sạch trực tiếp. LaMa lỗi
+  → che mờ như cũ, job không hỏng. Dải OCR tìm thêm sau đó (ngoài dải Kaggle đã xoá) vẫn được che mờ.
 - **Giọng offline Piper** (`TTS_OFFLINE=1`, mặc định tắt): tầng cuối khi CapCut và edge-tts đều lỗi. Giọng được tinh
   chỉnh từ dữ liệu chỉ cho nghiên cứu: cân nhắc trước khi dùng cho video kiếm tiền.
 

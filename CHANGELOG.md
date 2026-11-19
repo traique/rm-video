@@ -13,6 +13,14 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
+
+- Kênh bếp: `TEXT_INPAINT=1` (mặc định) — khi bóc lời + phân tích hình trên Kaggle, `rmvideo/media/inpaint.py` chạy big-lama.pt
+  (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
+  lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
+  chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: Gemini viết trên Botkeep (xem 1.1.0, mục Gemini).
+
 ## 1.1.0 — kênh truyện bé «Kể Bé Nghe» (18/11/2026)
 
 - Thêm chế độ 🧸 Truyện bé: model trên Kaggle tự viết truyện 60–90 giây ở Đồi Cỏ Non (4 nhân vật cố định, một bài học, 3–5 từ tiếng Anh), vẽ 8 cảnh, đọc giọng miền Nam, dựng rồi đăng Fanpage RIÊNG.

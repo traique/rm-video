@@ -293,6 +293,20 @@ async def analyze(spec: dict, tmp: str) -> dict:
             scene_task.cancel()
             await asyncio.gather(scene_task, return_exceptions=True)
     files = {}
+    inpainted: list = []
+    if spec.get("inpaint") and bands:                   # TEXT_INPAINT=1: LaMa vẽ lại nền ở dải chữ (GPU), thay cho che mờ
+        from rmvideo.media import inpaint
+        t1 = time.time()
+        try:
+            cp = os.path.join(tmp, "clean.mp4")
+            info = await asyncio.to_thread(inpaint.clean_video, inp, [tuple(b) for b in bands], cp, logging.info)
+            files["clean.mp4"] = cp
+            inpainted = [list(b) for b in bands]
+            t["inpaint"] = round(time.time() - t1, 1)
+            logging.info("LaMa xoá chữ: %s khung, %ss", info.get("frames"), info.get("secs"))
+        except Exception as e:                          # lỗi thì Botkeep che mờ như cũ
+            t["inpaint_error"] = str(e)[:200]
+            logging.warning("LaMa xoá chữ lỗi (%s): Botkeep sẽ che mờ như cũ", str(e)[:200])
     a = scenes.analyzed(inp)
     if a and a.get("n"):
         zp = os.path.join(tmp, "thumbs.zip")
@@ -305,8 +319,8 @@ async def analyze(spec: dict, tmp: str) -> dict:
         await core_video._run_ffmpeg("-y", "-i", amb, "-c:a", "flac", "-compression_level", "5", fl)
         files["ambient.flac"] = fl
     return {"ok": True, "kind": "analyze", "token": spec.get("token", ""), "whisper": d, "cuts": cuts,
-            "bands": [list(b) for b in bands], "dur": dur, "sep": sep_ok, "thumb_fps": scenes.THUMB_FPS,
-            "timings": t, "files": files}
+            "bands": [list(b) for b in bands], "inpainted": inpainted, "dur": dur, "sep": sep_ok,
+            "thumb_fps": scenes.THUMB_FPS, "timings": t, "files": files}
 
 
 def mounted_dir(name: str, root: str = "/kaggle/input") -> str | None:

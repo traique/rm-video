@@ -255,6 +255,10 @@ SCHEMA: tuple[Setting, ...] = (
     S("TEXT_DETECT", "heuristic", "video", "Dò chữ in cứng trên video",
       options=(("heuristic", "Heuristic (mặc định, không cần cài)"), ("ocr", "Model OCR (bắt chữ màu, cần setup_offline)")),
       choices=("heuristic", "ocr")),
+    S("TEXT_INPAINT", "1", "video", "Xoá chữ in cứng bằng AI (LaMa) khi phân tích trên Kaggle",
+      help="1: Kaggle (GPU) vẽ lại nền ở dải chữ gốc bằng big-lama.pt rồi gửi video sạch về, phụ đề mới đặt lên nền thật "
+           "thay vì ô mờ. Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
+      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1")),
     S("SCENE_ANALYSIS", "light", "video", "Mức phân tích hình", help="light nhanh nhất; full kỹ nhất (chậm trên Botkeep).",
       options=(("light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn câu "
                          "theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"),
@@ -485,7 +489,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
