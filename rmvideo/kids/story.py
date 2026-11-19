@@ -125,10 +125,12 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
 
     def unused(cands: Sequence[str]) -> list[str]:
         return [w for w in bank if w in cands and (w not in last_use or last_use[w] < cutoff)]
-    # 1-2 từ là đồ vật/con vật CÓ MẶT ở bối cảnh (truyện nhắc tới tự nhiên), 1 từ gắn với bài học (lời chào/cảm xúc/hành
-    # động), còn lại từ kho theo lần dùng gần nhất
-    words = unused(by_id(data["settings"], setting_id).get("words", []))[:2 if n >= 4 else 1]
+    # 2-3 từ là đồ vật/con vật CÓ MẶT ở bối cảnh (truyện nhắc tới tự nhiên), 1 từ gắn với bài học (lời chào/cảm xúc/hành
+    # động); chỉ khi thiếu mới lấy từ kho chung (đo thật 19/11: «car» lấy từ kho bị ép vào cảnh cuối sân chơi)
+    at_place = unused(by_id(data["settings"], setting_id).get("words", []))
+    words = at_place[:n - 1]
     words += [w for w in unused(by_id(data["lessons"], lesson_id).get("words", [])) if w not in words][:1]
+    words += [w for w in at_place if w not in words][:n - len(words)]
     words += [w for w in bank if w not in words][:n - len(words)]
     mains = list(data["characters"])
     seen = [str(s.get("main") or "") for s in sorted(stories, key=_created)]
