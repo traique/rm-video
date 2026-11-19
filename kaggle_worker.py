@@ -394,7 +394,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
                       "multi": config.KIDS_MULTI_VOICE != "0"},
-            "image": {"model": config.KIDS_IMAGE_MODEL},
+            "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0"},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
                     "think": int(config.KIDS_LLM_THINK or 0)},
             "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,

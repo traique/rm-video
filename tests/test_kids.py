@@ -314,6 +314,48 @@ def test_merge_evens_voice_levels(tmp_path):
     assert asyncio.run(dialogue.rms_db(str(tmp_path / "nope.wav"))) is None
 
 
+def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
+    """Đếm đầu: khung lồng nhau / thân áo dưới đầu gộp một (đo thật 19/11), ảnh hai đầu bị bắt; generate vẽ lại khi thừa đầu."""
+    from PIL import Image
+    from rmvideo.kids import imgcheck
+    raw05 = [("a rabbit head", 0.385, [255, 424, 520, 696]), ("a cat head", 0.353, [303, 684, 510, 830])]   # thân áo bị nhận là đầu
+    assert len(imgcheck.merge_heads(raw05)) == 1
+    raw16 = [("a rabbit head", 0.494, [83, 295, 389, 694]), ("a rabbit head", 0.326, [196, 547, 385, 685]),
+             ("a rabbit head", 0.355, [354, 516, 621, 730])]                                               # lồng nhau + bạn thứ hai
+    assert len(imgcheck.merge_heads(raw16)) == 2
+    raw14 = [("a rabbit head", 0.482, [157, 256, 518, 716]), ("a rabbit head", 0.23, [244, 536, 507, 710])]
+    assert len(imgcheck.merge_heads(raw14)) == 1
+    two = [("a rabbit head", 0.5, [300, 200, 600, 500]), ("a rabbit head", 0.4, [40, 700, 250, 900]), ("a rabbit", 0.9, [0, 0, 700, 1300])]
+    assert len(imgcheck.merge_heads(two)) == 2                                   # hai đầu xa nhau, khung «a rabbit» không tính
+    assert imgcheck.merge_heads([("a cat head", 0.2, [0, 0, 10, 10])]) == []     # dưới ngưỡng
+    # generate: ảnh 1 bị báo thừa đầu -> vẽ lại seed khác (tối đa RETRIES), giữ ảnh ít đầu thừa nhất; ảnh 2 đạt ngay
+    seeds_used = []
+
+    def fake_one(pipe, kind, prompt, seed, steps, guidance, w=10, h=20, embeds=None):
+        seeds_used.append(seed)
+        im = Image.new("RGB", (64, 112), (120, 180, 90))
+        im.putpixel((1, 1), (255, 255, 255))
+        return im
+    heads = {11: 3, 11 + 7919 * 2: 2, 11 + 7919 * 3: 2, 22: 1}
+    monkeypatch.setattr(images_mod, "generate_one", fake_one)
+    monkeypatch.setattr(images_mod, "is_blank", lambda img, band=0.05: False)
+    checked = []
+
+    def checker(img, n):
+        seed = seeds_used[-1]
+        checked.append((seed, n))
+        return heads[seed] <= n, heads[seed], []
+    st = {}
+    out = images_mod.generate(["p1", "p2"], [11, 22], str(tmp_path / "img"), "schnell", lambda s: None, pipe=object(),
+                              expected=[1, 2], checker=checker, stats=st)
+    assert len(out) == 2 and all(os.path.exists(p) for p in out)
+    assert seeds_used == [11, 11 + 7919 * 2, 11 + 7919 * 3, 22] and st == {"checked": 4, "redo": 2}
+    assert checked == [(11, 1), (11 + 7919 * 2, 1), (11 + 7919 * 3, 1), (22, 2)]
+    seeds_used.clear()
+    images_mod.generate(["p1"], [11], str(tmp_path / "img2"), "schnell", lambda s: None, pipe=object())      # không kiểm
+    assert seeds_used == [11]
+
+
 def test_rewrite_keeps_previous_draft():
     """Viết lại theo lỗi: lời nhắc kèm bản nháp trước và yêu cầu SỬA (không viết truyện khác); dài quá mức chặn thì không nhận."""
     brief = story.pick(DATA, [], random.Random(2))

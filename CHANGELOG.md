@@ -19,6 +19,12 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: kiểm ảnh hai đầu / nhân vật nhân đôi (`rmvideo/kids/imgcheck.py`, `KIDS_IMAGE_CHECK`): OWLv2 đếm đầu nhân vật
+  sau khi FLUX vẽ (gộp khung lồng nhau, bỏ khung thân áo dưới đầu, ngưỡng 0,3; đo thật 16 ảnh: 0 báo nhầm), thừa đầu so với
+  số bạn trong cảnh thì vẽ lại với seed khác (tối đa 2 lần), timings ghi `image_checked` / `image_redo`.
+- Truyện bé: câu dạy từ — dạng đố hỏi rồi mới đáp («Đố bé biết trái banh đó tiếng Anh là gì? Là ball!»), vật trong cảnh gọi
+  «đó», không chèn sau câu hỏi cho bé (câu hỏi vẫn là câu cuối cảnh); cân âm lượng từng đoạn giọng trước khi nối
+  (`dialogue.rms_db`, RMS −20 dBFS ±12 dB).
 - Truyện bé: viết lại theo lỗi thì SỬA bản nháp trước (`prompts.messages(previous=)`) thay vì viết truyện khác; truyện tối đa
   200 chữ, trên 215 là lỗi chặn (đo thật mẫu 27: 221 chữ -> 91,6 s, QA loại); thông báo dài kèm cảnh dài nhất; dựng có mức đọc
   nhanh đường cùng `TEMPO_HARD` 1,22.

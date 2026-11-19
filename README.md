@@ -246,6 +246,12 @@ Hydrogen giữ nguyên; truyện tối đa 200 chữ (trên 215 là lỗi chặn
 `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle. Gemma 4 trên Gemini API đã thử (19/11): 31B báo quá tải liên tục, không
 dùng.
 
+Kiểm ảnh (19/11, `rmvideo/kids/imgcheck.py`): FLUX với khung dọc 9:16 thỉnh thoảng vẽ nhân vật hai đầu / nhân đôi dù prompt ghi
+«đúng một nhân vật». Sau khi vẽ, OWLv2 (bộ dò vật thể mở, ~600MB, chạy trên Kaggle sau FLUX) đếm đầu thỏ / mèo / gấu / sóc,
+gộp khung lồng nhau và bỏ khung thân áo dưới đầu (đo thật 16 ảnh: 0 báo nhầm); thừa đầu so với số bạn có mặt thì vẽ lại cảnh
+với seed khác (tối đa 2 lần, ~35 giây mỗi lần). `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
+trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
+
 Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
 lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
 tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100

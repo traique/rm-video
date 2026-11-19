@@ -58,7 +58,12 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     plist = [prompts.image_prompt(s, brief, data, i) for i, s in enumerate(st["scenes"])]
     seeds = [int(brief.get("seed") or 1) + i for i in range(len(plist))]
     t0 = time.time()
-    imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log)
+    check = (spec.get("image") or {}).get("check", True)
+    expected = [len(sc.get("characters") or []) for sc in st["scenes"]] if check else None
+    istats: dict = {}
+    imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
+                                   expected=expected, stats=istats)
+    t["image_checked"], t["image_redo"] = istats.get("checked", 0), istats.get("redo", 0)
     t["images"] = round(time.time() - t0, 1)
     import kaggle_job
     t0 = time.time()
