@@ -57,6 +57,7 @@ def test_data_is_complete():
     for pl in DATA["plots"]:
         assert len(pl["beats"]) == 8 and pl["vi"] and set(pl["lessons"]) <= lids and set(pl["conflicts"]) <= cids, pl["id"]
         assert any("{main}" in b for b in pl["beats"]) and any("điệp khúc" in b for b in pl["beats"]), pl["id"]
+        assert 3 <= len(pl["refrain"].split()) <= 7, pl["id"]
     assert all(any(ls in pl["lessons"] for pl in DATA["plots"]) for ls in lids)
 
 
@@ -245,7 +246,7 @@ def test_prompts_and_schema():
     assert 3 <= len(story.must_mention(brief, DATA)) <= 14 and "ÍT NHẤT 3" in u and brief["word_pool"]
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
     assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
-    assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u
+    assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u and "Điệp khúc gợi ý" in u
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "Bản trước chưa đạt" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)

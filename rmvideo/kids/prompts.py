@@ -90,9 +90,12 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None) -> s
         text += (f"Đồ vật / con vật / việc có thể xuất hiện ở đây: {must}. Lồng ÍT NHẤT 3 thứ trong số đó vào truyện một cách tự "
                  "nhiên (là đồ bạn ấy cầm, thấy, dùng trong chuyện), KHÔNG ép thêm câu chỉ để nhắc tới; thứ nào không hợp thì bỏ.\n")
     if plot:
+        refrain = (plot.get("refrain") or "").replace("{main}", main["name_vi"])
         text += (f"Khung truyện: {plot['vi']} (kiểu {plot.get('source', '')}). Các nhịp dưới đây là Ý, KHÔNG chép chữ của nhịp: "
                  "mỗi cảnh kể bằng chi tiết riêng của truyện hôm nay (đồ vật, màu sắc, tiếng động, lời thoại của từng bạn); vật / "
-                 "việc nêu ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6 và 8 (sợi chỉ xuyên suốt).\n")
+                 "việc nêu ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6 và 8 (sợi chỉ xuyên suốt).\n"
+                 + (f"Điệp khúc gợi ý cho khung này: «{refrain}» (tiếng lòng / lời động viên hợp chuyện; có thể đổi chữ cho hợp, "
+                    "nhưng điệp khúc phải có nghĩa đúng với tình huống).\n" if refrain else ""))
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu ngắn, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
