@@ -228,14 +228,19 @@ Cài một lần:
    bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
    (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
 
-Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học chia đều, nhân vật chính luân phiên, từ tiếng Anh
-ưu tiên gắn với bài học và lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (160–240 chữ, 8 cảnh 12–40 chữ, mỗi từ tiếng Anh
-có trong lời thoại, đủ 4 bạn, có hook, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh, không hỏi dồn dập, không liệt kê nghĩa
-từ); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất và chèn từ còn thiếu bằng mã. Model chữ
+Cách kể (19/11, học theo truyện kể cho bé 3–5 tuổi và kênh dạy tiếng Anh cho bé): model viết truyện **thuần tiếng Việt** theo 8 nhịp
+(chào các bé → chuyện nhỏ → có tiếng động, có vấn đề → thử lần 1, 2 với một câu điệp khúc → bạn giúp, lần 3 được → bài học nói
+nhẹ qua lời nhân vật → kết vui, nhắn nhủ các bé), câu ngắn, có truyện mẫu trong lời nhắc để học giọng kể (chép lại ≥ 2 câu là
+lỗi). Từ tiếng Anh là **đồ vật / màu / con vật / lời chào** có mặt trong truyện (chọn theo bối cảnh + 1 từ theo bài học, 3 từ/truyện);
+model chỉ cần nhắc tới tiếng Việt của chúng, mã chèn câu dạy từ ngay cảnh đó («Trái banh, tiếng Anh là ball. Bé nói theo nha:
+ball!»), thẻ nghĩa hiện lúc đó, cuối truyện ôn lại. Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học
+chia đều, nhân vật chính luân phiên, từ lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (130–200 chữ, 8 cảnh 10–36 chữ, nhắc
+đủ đồ vật của hôm nay, không chen tiếng Anh, có nhân vật chính + bạn, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh,
+không hỏi dồn dập, không chép mẫu); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất. Model chữ
 suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
 tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài
-học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json` (mỗi từ kèm một câu mẫu `line` tự nhiên, vừa làm mẫu cho model vừa
-chèn vào truyện khi model bỏ sót từ).
+học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json` (từ: `en`, `vi`, `group`, `match` = các cách viết tiếng Việt tính là có nhắc tới;
+bối cảnh: `words` = đồ vật có mặt ở đó).
 
 Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
 khung giờ khác. Đo thật 18/11/2026: một truyện ~20 phút GPU (tải GGUF 20GB 1,5 phút, nạp model chữ 1,5 phút, viết 15 giây/lượt,

@@ -36,6 +36,11 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   «sorry = xin lỗi» khi từ được đọc lần đầu, màn kết «Hôm nay bé học» + tagline, phụ đề rải theo khoảng có tiếng, từ tiếng Anh tô màu
   (`subs.write_ass(highlight=…)`, style `kids`), nhạc nền ~16 dB dưới giọng tự hạ khi đang đọc (`assets/kids_bgm/` hoặc `KIDS_BGM_LINKS`),
   loudness −14 LUFS, NVENC. Ảnh bìa = khung lúc thẻ tiêu đề đang hiện.
+- **Cách kể cho bé nhỏ (19/11)**: sau 6 video đo thật, lời còn rời rạc và từ tiếng Anh bị ép vào thoại; viết lại theo cách của
+  truyện kể mầm non: truyện thuần tiếng Việt, 8 nhịp (chào bé, chuyện nhỏ, tiếng động, thử ba lần với điệp khúc, bạn giúp, bài học
+  nói nhẹ, nhắn bé), truyện mẫu trong lời nhắc (chép ≥ 2 câu là lỗi). Kho từ đổi sang đồ vật / màu / con vật / lời chào / hành động
+  đơn giản (107 từ), chọn theo bối cảnh + 1 từ theo bài học, 3 từ/truyện; mã chèn câu dạy từ «Trái banh, tiếng Anh là ball. Bé nói
+  theo nha: ball!» ngay cảnh đồ vật xuất hiện (`story.add_beats`), model không còn thấy từ tiếng Anh.
 - **Giọng miền Nam**: lời model qua `rmvideo/domain/dialect.south` + vài từ trẻ em (`story.south_kids`: ba, trái banh, cái nón, té, mắc cỡ, nha).
 - **Đăng**: `autopost.publish/check_token/views_of` nhận `page`/`token` (Fanpage truyện bé: `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, không bao giờ
   gửi sang Kaggle). `kids_auto.py`: trạng thái `kids_auto.json`, khung `KIDS_TIMES`, làm trước 36 giờ, 3 truyện lỗi liên tiếp thì dừng.
