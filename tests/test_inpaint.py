@@ -16,7 +16,7 @@ def test_regions_merge_and_align():
     g = r[0]
     assert g["my0"] == int((0.70 - inpaint.MARGIN) * H) and g["my1"] == int((0.76 + inpaint.MARGIN) * H) + 1
     assert g["cy0"] <= g["my0"] - inpaint.CONTEXT and g["cy1"] >= g["my1"] and (g["cy1"] - g["cy0"]) % 8 == 0
-    assert g["x0"] == int(0.06 * W) and g["x1"] == int(0.94 * W)
+    assert g["x0"] == int(inpaint.SIDE[0] * W) and g["x1"] == int(inpaint.SIDE[1] * W)
     two = inpaint.regions([(0.10, 0.14), (0.15, 0.18), (0.80, 0.85)], W, H)        # hai dải sát nhau gộp một
     assert len(two) == 2 and two[0]["my0"] < two[0]["my1"] and two[1]["my0"] > two[0]["my1"]
     edge = inpaint.regions([(0.97, 1.0)], W, H)                                     # sát mép: không vượt khung
@@ -58,7 +58,7 @@ def test_clean_video_removes_band(tmp_path, monkeypatch):
     raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt",
                           "gray", "-"], capture_output=True, check=True).stdout
     g = np.frombuffer(raw, np.uint8).reshape(288, 160)
-    assert g[int(0.73 * 288), 80] < 140 and g[int(0.73 * 288), 3] > 200    # giữa: nền đã vẽ lại; mép (6%): để nguyên
+    assert g[int(0.73 * 288), 80] < 140 and g[int(0.73 * 288), 2] > 200    # giữa: nền đã vẽ lại; mép (3%): để nguyên
     assert any("LaMa xong" in x for x in logs)
     with pytest.raises(ValueError):
         inpaint.clean_video(src, [], out, model=object(), nvenc=False)

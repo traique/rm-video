@@ -1,7 +1,7 @@
 """(Kaggle, GPU) Xoá chữ in cứng trên video nguồn bằng LaMa (big-lama.pt, TorchScript) thay cho che mờ.
 
 Dải chữ (bands, tỉ lệ 0..1 chiều cao, từ textzone / OCR) -> mỗi khung: cắt một dải ngang quanh chữ (kèm vài chục pixel
-ngữ cảnh trên dưới), mặt nạ = phần có chữ (bỏ 6% hai mép: logo góc), LaMa vẽ lại nền, dán vào khung -> video sạch cùng
+ngữ cảnh trên dưới), mặt nạ = phần có chữ (bỏ 3% hai mép), LaMa vẽ lại nền, dán vào khung -> video sạch cùng
 kích thước, cùng fps, giữ nguyên tiếng. Chỉ chạy trên GPU (T4: ~0,03 giây/khung với dải 1080×300, video 90 giây ≈ 1,5-2
 phút); Botkeep tải video sạch về làm nguồn dựng, không che mờ nữa và vẫn đặt phụ đề mới đúng chỗ.
 Model: https://github.com/Sanster/models/releases/download/add_big_lama/big-lama.pt (bản TorchScript của LaMa, dùng bởi
@@ -25,9 +25,11 @@ MODEL_URL = "https://github.com/Sanster/models/releases/download/add_big_lama/bi
 MODEL_NAME = "big-lama.pt"
 MODEL_MIN_BYTES = 150 << 20
 MARGIN = 0.012          # nới mặt nạ mỗi bên chừng này chiều cao (viền/bóng chữ)
-SIDE = (0.06, 0.94)     # mặt nạ chỉ phủ phần giữa: logo/watermark góc để nguyên
+SIDE = (0.03, 0.97)     # mặt nạ chỉ phủ phần giữa (đo thật: dòng phụ đề dài chạm 95% bề ngang); logo góc nằm ngoài dải
 CONTEXT = 48            # pixel ngữ cảnh trên/dưới dải cho LaMa nhìn thấy nền
 BATCH = 8               # khung xử lý một lượt trên GPU
+HALF_OVER = 720         # dải rộng hơn chừng này pixel thì LaMa chạy ở nửa cỡ rồi phóng lại (đo T4 19/11: 1080×320 full cỡ
+                        # 0,28 giây/khung = 12 phút cho video 90 giây; nửa cỡ nhanh ~4 lần, nền dưới phụ đề mới vẫn mịn)
 Log = Callable[[str], None]
 
 
@@ -90,19 +92,27 @@ def regions(bands: Sequence[tuple[float, float]], W: int, H: int) -> list[dict]:
     return out
 
 
-def apply(model: Any, crops: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """LaMa trên một lô dải: crops (B, h, w, 3) uint8, mask (h, w) 0/1 -> (B, h, w, 3) uint8 (chỉ dùng chỗ mặt nạ)."""
+def apply(model: Any, crops: np.ndarray, mask: np.ndarray, half_over: int = HALF_OVER) -> np.ndarray:
+    """LaMa trên một lô dải: crops (B, h, w, 3) uint8, mask (h, w) 0/1 -> (B, h, w, 3) uint8 (chỉ dùng chỗ mặt nạ).
+    Dải rộng hơn half_over: thu nửa cỡ (area), vẽ, phóng lại (bilinear) — nhanh ~4 lần."""
     import torch
+    F = torch.nn.functional
     dev = next(model.parameters()).device if hasattr(model, "parameters") else "cpu"
     B, h, w, _ = crops.shape
-    pw = -(-w // 8) * 8
     img = torch.from_numpy(np.ascontiguousarray(crops)).to(dev).permute(0, 3, 1, 2).float() / 255.0
     msk = torch.from_numpy(mask.astype(np.float32)).to(dev)[None, None].expand(B, 1, h, w)
-    if pw != w:
-        img = torch.nn.functional.pad(img, (0, pw - w), mode="reflect")
-        msk = torch.nn.functional.pad(msk, (0, pw - w), mode="reflect")
+    if w > half_over:
+        h2, w2 = -(-h // 16) * 8, -(-w // 16) * 8          # nửa cỡ, chia hết 8
+        img = F.interpolate(img, size=(h2, w2), mode="area")
+        msk = (F.interpolate(msk, size=(h2, w2), mode="area") > 0).float()
+    ph, pw = -(-img.shape[2] // 8) * 8, -(-img.shape[3] // 8) * 8
+    if (ph, pw) != tuple(img.shape[2:]):
+        img = F.pad(img, (0, pw - img.shape[3], 0, ph - img.shape[2]), mode="reflect")
+        msk = F.pad(msk, (0, pw - msk.shape[3], 0, ph - msk.shape[2]), mode="reflect")
     with torch.inference_mode():
         out = model(img, msk)
+    if out.shape[2] != h or out.shape[3] != w:
+        out = F.interpolate(out[:, :, :ph, :pw], size=(h, w), mode="bilinear", align_corners=False)
     out = out[:, :, :h, :w].clamp(0, 1).mul(255).round().byte().permute(0, 2, 3, 1).cpu().numpy()
     return out
 
