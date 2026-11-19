@@ -55,7 +55,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
                     "timings": {"llm": round(time.time() - t0, 1)}}
     t["llm"] = round(time.time() - t0, 1)
     texts = [s["text"] for s in st["scenes"]]
-    plist = [prompts.image_prompt(s, brief, data, i) for i, s in enumerate(st["scenes"])]
+    lora = str((spec.get("image") or {}).get("lora") or "")
+    plist = [prompts.image_prompt(s, brief, data, i, use_lora=bool(lora)) for i, s in enumerate(st["scenes"])]
     seeds = [int(brief.get("seed") or 1) + i for i in range(len(plist))]
     t0 = time.time()
     check = (spec.get("image") or {}).get("check", True)
@@ -64,8 +65,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
               for sc in st["scenes"]] if check else None
     istats: dict = {}
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
-                                   expected=expected, stats=istats, colors=colors)
+                                   expected=expected, stats=istats, colors=colors, lora=lora)
     t["image_checked"], t["image_redo"] = istats.get("checked", 0), istats.get("redo", 0)
+    if lora:
+        t["lora"] = istats.get("lora", False)
     t["images"] = round(time.time() - t0, 1)
     import kaggle_job
     t0 = time.time()

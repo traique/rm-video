@@ -228,9 +228,45 @@ def upscale(src: str, dst: str, w: int = OUT_W, h: int = OUT_H) -> str:
     return dst
 
 
+LORA_SCALE = 0.9
+
+
+def find_lora(name: str, root: str = INPUT_ROOT) -> str | None:
+    """File LoRA .safetensors trong /kaggle/input: `name` là tên file (có/không .safetensors) hoặc slug notebook / thư mục
+    (lấy file có số bước lớn nhất trong đó); đường dẫn tuyệt đối tồn tại thì dùng luôn."""
+    import glob
+    import re
+    if not name:
+        return None
+    if os.path.isfile(name):
+        return name
+    base = name[:-12] if name.endswith(".safetensors") else name
+    hits = [p for p in glob.glob(os.path.join(root, "**", "*.safetensors"), recursive=True)
+            if os.path.basename(p)[:-12] == base or base in p.split(os.sep)]
+    if not hits:
+        return None
+
+    def step(p: str) -> int:
+        m = re.search(r"_(\d{4,12})\.safetensors$", p)       # ai-toolkit: <tên>_000000300.safetensors
+        return int(m.group(1)) if m else 10 ** 9           # file không có số bước = bản cuối
+    return sorted(hits, key=lambda p: (step(p), p))[-1]
+
+
+def apply_lora(pipe: Any, path: str, scale: float = LORA_SCALE, log: Log = logging.info) -> bool:
+    try:
+        pipe.load_lora_weights(path, adapter_name="dcn")
+        pipe.set_adapters(["dcn"], adapter_weights=[scale])
+        log(f"LoRA nhân vật: {os.path.basename(path)} (scale {scale})")
+        return True
+    except Exception as e:
+        log(f"LoRA {os.path.basename(path)} không nạp được ({str(e)[:120]}), vẽ không LoRA")
+        return False
+
+
 def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, model: str = "schnell",
              log: Log = logging.info, pipe: Any = None, expected: Sequence[int] | None = None,
-             checker: Any = None, stats: dict | None = None, colors: Sequence[Sequence[str]] | None = None) -> list[str]:
+             checker: Any = None, stats: dict | None = None, colors: Sequence[Sequence[str]] | None = None,
+             lora: str = "") -> list[str]:
     """Sinh từng prompt -> scene_01.png ... (1080x1920). pipe: pipeline đã nạp (test); None thì tự nạp và giải phóng.
     expected: số bạn có mặt mỗi cảnh -> kiểm đầu nhân vật bằng OWLv2 (rmvideo.kids.imgcheck), thừa đầu thì vẽ lại với seed
     khác (tối đa imgcheck.RETRIES lần, giữ ảnh ít đầu thừa nhất). checker(img, n) -> (ok, số đầu, khung) để test.
@@ -257,6 +293,13 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
         local = local_dir(model)
         pipe = load_flux(m["repo"], local, log) if m["kind"] == "flux" else load_zimage(m["repo"], local, log)
         log(f"Model ảnh {model} sẵn sàng sau {time.time() - t0:.0f}s")
+        if lora:
+            path = find_lora(lora)
+            if path:
+                st["lora"] = apply_lora(pipe, path, log=log)
+            else:
+                log(f"Không thấy LoRA «{lora}» trong {INPUT_ROOT}, vẽ không LoRA")
+                st["lora"] = False
     embeds: list = []
     if m["kind"] == "flux" and getattr(pipe, "text_encoder_2", None) is not None:
         embeds = flux_encode_all(pipe, prompt_list, log)

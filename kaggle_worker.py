@@ -27,6 +27,7 @@ SLUG = "rmvideo-worker"
 SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu ra của nó (tiếng nền đã tách) làm dữ liệu vào
 SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
 SLUG_KIDS = "rmvideo-kids"               # 🧸 truyện bé: notebook riêng (không ghi đè phiên remake)
+SLUG_LORA_TRAIN = "rmvideo-lora-train"   # notebook train LoRA 4 nhân vật (đầu ra: output/<tên>/<tên>.safetensors)
 SLUG_KIDS_MODELS = "rmvideo-kids-models"  # chạy một lần (kids_setup): llama.cpp đã biên dịch + FLUX.1-schnell 4-bit
 # mã gửi kèm notebook: tính tự động từ import thật của kaggle_job.py (rmvideo/services/kaggle_bundle.py)
 BUNDLE = list(kaggle_bundle.files())
@@ -376,7 +377,13 @@ def kids_sources() -> tuple[list, list]:
         if not slug:
             kind, slug = "notebook", kind
         (dss if kind.lower() == "dataset" else nbs).append(slug.strip("/ "))
-    return (nbs or [SLUG_KIDS_MODELS]), dss
+    nbs = nbs or [SLUG_KIDS_MODELS]
+    lora = (config.KIDS_LORA or "").strip()
+    if lora and not os.path.isabs(lora):                 # LoRA nhân vật nằm trong đầu ra notebook train: gắn notebook đó
+        slug = lora.split("/")[0] if "/" in lora else SLUG_LORA_TRAIN
+        if slug not in nbs:
+            nbs.append(slug)
+    return nbs, dss
 
 
 def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = None,
@@ -394,7 +401,8 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
                       "multi": config.KIDS_MULTI_VOICE != "0"},
-            "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0"},
+            "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0",
+                      "lora": (config.KIDS_LORA or "").strip()},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
                     "think": int(config.KIDS_LLM_THINK or 0)},
             "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,

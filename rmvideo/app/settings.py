@@ -432,6 +432,9 @@ SCHEMA: tuple[Setting, ...] = (
                ("dev", "FLUX.1-dev (giấy phép PHI THƯƠNG MẠI — kênh không bật kiếm tiền; 20 bước, chậm ~6 lần schnell)"),
                ("zimage", "Z-Image-Turbo (Apache-2.0, 8 bước — đo 19/11: ảnh ĐEN trên T4 vì fp16 tràn số, chưa dùng được)")),
       choices=("schnell", "dev", "zimage")),
+    S("KIDS_LORA", "", "kids", "LoRA nhân vật (file .safetensors trong đầu ra notebook rmvideo-lora-train)",
+      help="Tên file (vd dcn_lora_v1) hoặc «slug/tên»; trống = vẽ không LoRA. Có LoRA thì prompt ảnh thêm từ khoá thotrang / "
+           "gaunau / meocam / socnho và phiên Kaggle gắn thêm notebook train.", validate=_max_len("KIDS_LORA", 120)),
     S("KIDS_IMAGE_CHECK", "1", "kids", "Kiểm ảnh hai đầu / nhân vật nhân đôi",
       options=(("1", "Bật: OWLv2 đếm đầu nhân vật sau khi vẽ, thừa đầu thì vẽ lại cảnh (≈ +35 giây mỗi lần, mặc định)"),
                ("0", "Tắt")), choices=("1", "0")),
@@ -519,7 +522,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL", "KIDS_IMAGE_CHECK",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",

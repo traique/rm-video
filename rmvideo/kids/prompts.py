@@ -236,7 +236,7 @@ def shirt_color(char: dict) -> str:
     return m.group(1) if m else ""
 
 
-def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
+def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False) -> str:
     """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx)] + [mô tả nhân
     vật nguyên văn, áo màu gì nói trước] + [bối cảnh + thế giới] + [phong cách cố định]. Giữ ngắn cho vừa 256 token T5."""
     chars = data["characters"]
@@ -245,7 +245,8 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0) -> str:
     if not story_mod.is_english(action) or len(action.split()) < 3:
         names = " and ".join(chars[k]["name_en"] for k in keys)
         action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
-    descs = ". ".join(chars[k]["prompt_en"] for k in keys)
+    descs = ". ".join(((chars[k].get("lora_token", "") + " ") if use_lora and chars[k].get("lora_token") else "")
+                      + chars[k]["prompt_en"] for k in keys)       # use_lora: từ khoá LoRA («thotrang») đứng trước mô tả
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")
     # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
     who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"

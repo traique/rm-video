@@ -387,6 +387,32 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert seeds_used == [11]
 
 
+def test_lora_wiring(tmp_path, monkeypatch):
+    """LoRA nhân vật: tìm file trong /kaggle/input (tên / slug / số bước lớn nhất), prompt có từ khoá, spec + notebook gắn thêm."""
+    import kaggle_worker
+    root = tmp_path / "input" / "notebooks" / "u" / "rmvideo-lora-train" / "output" / "dcn_lora_v1"
+    root.mkdir(parents=True)
+    for n in ("dcn_lora_v1_000000150.safetensors", "dcn_lora_v1_000000300.safetensors", "dcn_lora_v1.safetensors"):
+        (root / n).write_bytes(b"x")
+    assert images_mod.find_lora("dcn_lora_v1", str(tmp_path / "input")).endswith("dcn_lora_v1.safetensors")
+    assert images_mod.find_lora("dcn_lora_v1.safetensors", str(tmp_path / "input")).endswith("dcn_lora_v1.safetensors")
+    assert images_mod.find_lora("rmvideo-lora-train", str(tmp_path / "input")).endswith("dcn_lora_v1.safetensors")
+    (root / "dcn_lora_v1.safetensors").unlink()
+    assert images_mod.find_lora("dcn_lora_v1", str(tmp_path / "input")).endswith("_000000300.safetensors")
+    assert images_mod.find_lora("nope", str(tmp_path / "input")) is None and images_mod.find_lora("", str(tmp_path)) is None
+    b0 = story.pick(DATA, [], random.Random(2))
+    sc = {"characters": ["white_rabbit", "orange_cat"], "action_en": "White Rabbit hugs Orange Cat."}
+    assert "thotrang White Rabbit" in prompts.image_prompt(sc, b0, DATA, use_lora=True) and "meocam Orange Cat" in prompts.image_prompt(sc, b0, DATA, use_lora=True)
+    assert "thotrang" not in prompts.image_prompt(sc, b0, DATA)
+    monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1", raising=False)
+    nbs, _dss = kaggle_worker.kids_sources()
+    assert kaggle_worker.SLUG_LORA_TRAIN in nbs and nbs[0] == kaggle_worker.SLUG_KIDS_MODELS
+    job = job_factory.kids(brief=b0, source="web")
+    assert kaggle_worker.kids_spec(job, b0, None)["image"]["lora"] == "dcn_lora_v1"
+    monkeypatch.setattr(config, "KIDS_LORA", "", raising=False)
+    assert kaggle_worker.SLUG_LORA_TRAIN not in kaggle_worker.kids_sources()[0]
+
+
 def test_rewrite_keeps_previous_draft():
     """Viết lại theo lỗi: lời nhắc kèm bản nháp trước và yêu cầu SỬA (không viết truyện khác); dài quá mức chặn thì không nhận."""
     brief = story.pick(DATA, [], random.Random(2))
