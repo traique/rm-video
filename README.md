@@ -240,6 +240,13 @@ gemini-3.5-flash-lite; 1 lượt gọi mỗi truyện, +1 mỗi lần viết l�
 việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút); Gemini lỗi / hết hạn mức thì Qwen trên Kaggle viết
 thay. `gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle.
 
+Khung cốt truyện (19/11): `rmvideo/kids/data.json` có 10 **khung** rút từ truyện mầm non, sách tranh và podcast kể chuyện cho bé
+(tìm đồ bị mất, làm hỏng rồi nhận lỗi, sợ rồi dám thử, giữ riêng rồi chia sẻ, chờ tới lượt, quên lời hứa rồi sửa, giúp người thì
+được giúp lại, làm hoài không được rồi đổi cách, nói dối rồi nói thật, làm quà tặng bạn). Mỗi đề chọn khung hợp bài học + chuyện
+xảy ra, luân phiên; 8 nhịp của khung (đã điền tên nhân vật chính / bạn giúp) thay cho vai cảnh chung, kèm quy tắc «sợi chỉ xuyên
+suốt»: vật hay việc ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6, 8. Lời thoại: «nha/hen» tối đa 3 lần, câu móc không kết bằng
+«nha», ngoài điệp khúc không câu nào lặp (bộ kiểm bắt, Gemini viết lại).
+
 3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–16 chữ về chuyện sắp xảy ra, đọc ngay
 giây 0,25) trên ảnh cảnh biến cố zoom nhanh, chữ to `hook_text` (2–5 chữ in hoa), whoosh + nảy; thẻ tiêu đề lùi ra sau và chỉ
 còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** bản nháp một lượt theo checklist (móc có gây tò mò, cảnh sau xảy ra
