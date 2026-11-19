@@ -118,7 +118,7 @@ def _good_story(brief):
         "Thỏ Trắng nói: «Cố lên, thử lại nào.» Lần này Thỏ Trắng với tay thật xa. Gấu Nâu bảo nhỏ thôi, từ từ.",
         "Gấu Nâu giúp một tay. Cố lên, thử lại nào! Được rồi, Mèo Cam gật đầu, Sóc Nhỏ cười tít mắt.",
         f"Gấu Nâu nói: «Tụi mình phải {lesson['keywords'][0]} nha.» Thỏ Trắng gật đầu, hai bạn thấy nhẹ lòng.",
-        "Bốn bạn ôm nhau cười vui. Trời chiều mát rượi. Các bé ơi, mình cùng chơi vui với bạn nha!",
+        "Bốn bạn ôm nhau cười vui dưới nắng chiều mát rượi, y như lúc mới ra đồi. Mèo Cam reo: «Meo, vui quá!»",
     ]
     for j, vi in enumerate(vis[1:]):                                        # các từ còn lại cũng được nhắc tới
         base[3 + j % 3] += f" Ở đây có {vi} nè."
@@ -242,7 +242,10 @@ def test_blocking_beats_and_recap():
     extra = {"en": "rainbow", "vi": "cầu vồng"}
     beats = story.add_beats(st2, {**brief, "words": [extra]}, DATA)
     assert beats == [("rainbow", 1)] and ("Ở đây có cầu vồng nè. " + story.beat_text(extra, 0, DATA)) in st2["scenes"][1]["text"]
-    assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Giỏi lắm, bé nhớ hết rồi!")
+    assert "nha" not in story.recap_text(brief) and story.recap_text(brief).endswith("Hẹn gặp lại bé ở chuyện sau!")
+    preach = json.loads(json.dumps(st2))
+    preach["scenes"][7]["text"] += " Các bé ơi, nhớ chơi vui với bạn nha!"
+    assert any("câu kết không nói với" in q for q in story.validate(preach, brief, DATA))
     # lời chào: không bắt nhắc tới, câu dạy từ đặt ở cảnh mở đầu / kết
     st5 = story.normalize(_good_story(brief), DATA)                       # ba từ cùng ở cảnh 2 (và cảnh 8): không dồn cả ba vào 2
     st5["scenes"][1]["text"] += " Có trái táo, bánh mì và cái giỏ."

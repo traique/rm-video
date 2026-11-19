@@ -45,8 +45,8 @@ EXAMPLE = [
     ("Gấu Nâu cười hề hề: «Thấy chưa, chưa được thì mình đổi cách rồi thử tiếp, đừng bỏ cuộc nha.» Sóc Nhỏ gật đầu lia lịa, "
      "đuôi lại vẫy tít.",
      ["brown_bear", "little_squirrel"], "Brown Bear smiling and talking to Little Squirrel"),
-    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh ngắt, gió vẫn thổi mát rượi. Các bé ơi, khi làm chưa được, mình đổi "
-     "cách rồi thử lại nha!",
+    ("Hai bạn ngước nhìn con diều đỏ bay giữa trời xanh ngắt, gió vẫn thổi mát rượi. Sóc Nhỏ reo: «Hả? Bay cao thiệt rồi!» "
+     "Gấu Nâu cười hề hề.",
      ["little_squirrel", "brown_bear"], "Little Squirrel and Brown Bear looking up at a red kite flying in the blue sky"),
 ]
 
@@ -124,7 +124,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
             "- Cảnh 7: bạn kia nói bài học bằng MỘT câu ngắn như bạn bè nói với nhau, có ít nhất một chữ trong: "
             + ", ".join(lesson.get("keywords", [])) + " (đừng gom hết các chữ vào một câu, đừng giảng)"
-            + ". Cảnh 8 kết vui và câu cuối nói với «các bé».\n"
+            + ". Cảnh 8 kết vui bằng HÌNH ẢNH vòng lại cảnh 1 (các bạn chơi / cười / cùng ngắm), câu cuối ngắn và ấm; KHÔNG "
+            "«các bé ơi», không dặn dò lần nữa (bài học đã nói ở cảnh 7, nói thêm nghe giảng).\n"
             f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
             f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
             "kể trước cách giải quyết. `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, hiện to trên màn hình.\n"

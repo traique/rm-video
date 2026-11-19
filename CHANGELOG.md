@@ -19,6 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: bỏ câu kết «Các bé ơi, nhớ… nha!» (phản hồi 19/11: nghe giảng, «trớt»): cảnh 8 kết bằng hình ảnh ấm vòng lại
+  cảnh 1 (khung truyện, lời nhắc, truyện mẫu, bộ kiểm báo khi cảnh 8 nói với «các bé»); câu ôn từ trong màn kết đổi
+  «Giỏi lắm, bé nhớ hết rồi!» -> «Hẹn gặp lại bé ở chuyện sau!».
 - Truyện bé: kiểm ảnh hai đầu / nhân vật nhân đôi (`rmvideo/kids/imgcheck.py`, `KIDS_IMAGE_CHECK`): OWLv2 đếm đầu nhân vật
   sau khi FLUX vẽ (gộp khung lồng nhau, bỏ khung thân áo dưới đầu, ngưỡng 0,3; đo thật 16 ảnh: 0 báo nhầm), thừa đầu so với
   số bạn trong cảnh thì vẽ lại với seed khác (tối đa 2 lần), timings ghi `image_checked` / `image_redo`. Soát cả màu áo:

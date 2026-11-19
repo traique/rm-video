@@ -274,7 +274,8 @@ Kể cho cuốn (19/11, học từ sách tranh — The Gruffalo, We're Going on 
 **đảo** theo gợi ý riêng của khung (`plots[].twist`: «Chơi một mình chán ghê!» → «Chơi chung vui ghê!»), thất bại phải **hài** kèm
 tiếng động, cảm xúc tả qua **hành động** (tai cụp, đuôi rũ), mỗi bạn có **nét riêng** / câu cửa miệng (`characters[].quirk_vi`:
 Thỏ Trắng «Ôi chao!», Gấu Nâu «Ừm…», Mèo Cam «meo», Sóc Nhỏ «Hả? Sao vậy?»), cảnh 1 có chi tiết giác quan, câu cuối **vòng lại**
-hình ảnh mở đầu. Bộ kiểm thêm: thiếu câu hỏi cho bé (cảnh 2–6), lời kể gọi «các bạn / cả nhóm» khi hình chỉ có 2 bạn, tiêu đề
+hình ảnh mở đầu; cảnh 8 KHÔNG nói với «các bé» hay dặn dò lần nữa (bài học đã ở cảnh 7, nói thêm nghe giảng), màn kết chỉ ôn
+từ rồi «Hẹn gặp lại bé ở chuyện sau!». Bộ kiểm thêm: thiếu câu hỏi cho bé (cảnh 2–6), cảnh 8 nói với «các bé», lời kể gọi «các bạn / cả nhóm» khi hình chỉ có 2 bạn, tiêu đề
 nhắc thứ không có trong truyện; checklist soát của Gemini thêm mục «cuốn chưa?» và yêu cầu nâng bản nháp, không chỉ sửa lỗi.
 Mỗi truyện 3 từ tiếng Anh; câu dạy từ không chen vào cảnh kết, không dồn quá 2 câu một cảnh.
 

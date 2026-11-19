@@ -53,7 +53,7 @@ GREETING_SCENE = {"hello": 0, "good morning": 0, "bye bye": 7, "good night": 7}
 BANNED = ("chết", "máu", "giết", "đánh nhau", "ma quỷ", "con ma", "súng", "con dao", "đâm", "ngu ngốc", "đồ ngốc",
           "ghét", "đồ ngu", "xấu xí")
 # 8 nhịp của một truyện mầm non (học từ truyện kể cho bé 3-5 tuổi: mở bằng lời chào, một chuyện nhỏ, thử ba lần với một câu
-# điệp khúc, bạn giúp, bài học nói nhẹ qua lời nhân vật, kết nhắn nhủ các bé)
+# điệp khúc, bạn giúp, bài học nói nhẹ qua lời nhân vật, kết bằng hình ảnh vòng lại mở đầu)
 SCENE_ROLES = (
     "vào thẳng chuyện: nhân vật chính đang ở đâu, làm gì, đang vui (1-2 câu, KHÔNG chào hỏi dài; câu móc đã nói trước đó)",
     "bạn ấy muốn làm một việc nhỏ (chơi, giúp, làm quà...) và bắt đầu làm",
@@ -62,7 +62,7 @@ SCENE_ROLES = (
     "thử cách thứ hai KHÁC hẳn cách một, to tát hơn — vẫn chưa được, hơi buồn; câu điệp khúc lần 2",
     "một bạn tới gợi ý cách thứ ba (nhờ bạn / nghĩ khác đi) — được rồi! câu điệp khúc lần 3 (đổi kết vui)",
     "bài học rút ra từ chính chuyện vừa xảy ra: một bạn nói nhẹ nhàng một câu, bạn chính gật đầu",
-    "kết vui: các bạn cùng chơi/cười; câu cuối nhắn nhủ «các bé» (hỏi bé hoặc dặn bé một câu)",
+    "kết vui: các bạn cùng chơi/cười; câu cuối là hình ảnh ấm vòng lại mở đầu (không nhắn nhủ «các bé»)",
 )
 
 
@@ -368,6 +368,8 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         problems.append(f"cảnh 7 phải nói rõ bài học «{lesson['vi']}» (dùng chữ: {', '.join(lesson['keywords'])})")
     if len(texts) == N_SCENES and any(h in texts[-1].lower() for h in SAD):
         problems.append("cảnh 8 phải kết thúc vui, không còn buồn / khóc / giận / sợ")
+    if len(texts) == N_SCENES and re.search(r"các bé|bé ơi|các con|các em", texts[-1].lower()):     # phản hồi 19/11: câu kết «trớt»
+        problems.append("câu kết không nói với «các bé» / không dặn dò lần nữa (nghe giảng): kết bằng hình ảnh ấm vòng lại cảnh 1")
     bad = [b for b in BANNED if b in low]
     if bad:
         problems.append("không dùng từ: " + ", ".join(bad))
@@ -593,7 +595,7 @@ def recap_text(brief: dict) -> str:
     ws = brief.get("words", [])
     if not ws:
         return ""
-    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Giỏi lắm, bé nhớ hết rồi!"
+    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Hẹn gặp lại bé ở chuyện sau!"
 
 
 def script_text(story: dict) -> str:
