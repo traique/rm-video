@@ -117,6 +117,17 @@ def apply(model: Any, crops: np.ndarray, mask: np.ndarray, half_over: int = HALF
     return out
 
 
+def has_text(crop: np.ndarray, mask: np.ndarray, min_frac: float = 0.0015) -> np.ndarray:
+    """Khung nào trong lô thật sự có chữ ở vùng mặt nạ (pixel sáng sát pixel tối, như textzone): (B,) bool. Khung không
+    có chữ thì giữ nguyên, khỏi vẽ lại (nhanh hơn, không làm mờ nền khi phụ đề tạm tắt)."""
+    g = crop.astype(np.float32).mean(axis=3)                       # (B, h, w)
+    P = np.pad(g, ((0, 0), (1, 1), (1, 1)), mode="edge")
+    h, w = g.shape[1:]
+    mn = np.min(np.stack([P[:, dy:dy + h, dx:dx + w] for dy in range(3) for dx in range(3)]), axis=0)
+    text = (g > 165) & (mn < 90) & (mask[None] > 0)
+    return text.reshape(crop.shape[0], -1).mean(axis=1) > min_frac
+
+
 def _probe(path: str) -> tuple[int, int, float, bool]:
     p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                         "stream=width,height,avg_frame_rate", "-of", "csv=p=0", path], capture_output=True, text=True)
@@ -159,7 +170,7 @@ def clean_video(inp: str, bands: Sequence[tuple[float, float]], out: str, log: L
     enc_in += ["-i", inp, "-map", "0:v:0", "-map", "1:a:0", "-c:a", "copy"] if has_audio else ["-map", "0:v:0"]
     enc = subprocess.Popen(enc_in + vcodec + ["-pix_fmt", "yuv420p", "-movflags", "+faststart", "-shortest", out],
                            stdin=subprocess.PIPE)
-    n, size = 0, W * H * 3
+    n, done, size = 0, 0, W * H * 3
     t1 = time.time()
     try:
         assert dec.stdout is not None and enc.stdin is not None
@@ -173,9 +184,13 @@ def clean_video(inp: str, bands: Sequence[tuple[float, float]], out: str, log: L
             frames = np.frombuffer(chunk[:k * size], np.uint8).reshape(k, H, W, 3).copy()
             for r, m in zip(regs, masks):
                 crops = frames[:, r["cy0"]:r["cy1"], :, :]
-                fixed = apply(model, crops, m)
+                sel = np.where(has_text(crops, m))[0]
+                if not len(sel):
+                    continue
+                fixed = apply(model, crops[sel], m)
                 a, b = r["my0"] - r["cy0"], r["my1"] - r["cy0"]
-                frames[:, r["my0"]:r["my1"], r["x0"]:r["x1"], :] = fixed[:, a:b, r["x0"]:r["x1"], :]
+                frames[sel, r["my0"]:r["my1"], r["x0"]:r["x1"], :] = fixed[:, a:b, r["x0"]:r["x1"], :]
+                done += len(sel)
             enc.stdin.write(frames.tobytes())
             n += k
             if n % (batch * 50) == 0:
@@ -186,8 +201,8 @@ def clean_video(inp: str, bands: Sequence[tuple[float, float]], out: str, log: L
         dec.stdout.close() if dec.stdout is not None else None
         dec.wait()
         enc.wait()
-    if enc.returncode or not os.path.exists(out) or os.path.getsize(out) < 10_000 or n == 0:
+    if enc.returncode or not os.path.exists(out) or os.path.getsize(out) < 1_000 or n == 0:
         raise RuntimeError(f"ffmpeg mã hoá video sạch lỗi (mã {enc.returncode}, {n} khung)")
     secs = round(time.time() - t0, 1)
-    log(f"LaMa xong: {n} khung trong {secs}s")
-    return {"frames": n, "secs": secs, "regions": regs}
+    log(f"LaMa xong: {n} khung ({done} khung có chữ được vẽ lại) trong {secs}s")
+    return {"frames": n, "painted": done, "secs": secs, "regions": regs}

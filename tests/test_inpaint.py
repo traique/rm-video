@@ -59,9 +59,17 @@ def test_clean_video_removes_band(tmp_path, monkeypatch):
                           "gray", "-"], capture_output=True, check=True).stdout
     g = np.frombuffer(raw, np.uint8).reshape(288, 160)
     assert g[int(0.73 * 288), 80] < 140 and g[int(0.73 * 288), 2] > 200    # giữa: nền đã vẽ lại; mép (3%): để nguyên
-    assert any("LaMa xong" in x for x in logs)
+    assert any("LaMa xong" in x for x in logs) and info["painted"] == 20
     with pytest.raises(ValueError):
         inpaint.clean_video(src, [], out, model=object(), nvenc=False)
+    # khung không có chữ: giữ nguyên, không vẽ lại (phụ đề tạm tắt, hay dải dò nhầm)
+    plain = str(tmp_path / "plain.mp4")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=0x2060a0:s=160x288:r=10:d=1", "-c:v",
+                    "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", plain], check=True)
+    calls = []
+    monkeypatch.setattr(inpaint, "apply", lambda m, c, k: calls.append(c.shape) or _fake_apply(m, c, k))
+    info2 = inpaint.clean_video(plain, [(0.70, 0.76)], str(tmp_path / "plain_clean.mp4"), model=object(), nvenc=False)
+    assert info2["frames"] == 10 and info2["painted"] == 0 and calls == []
 
 
 def test_model_path_prefers_mounted(tmp_path, monkeypatch):
