@@ -398,7 +398,8 @@ async def side_clip(src: str, pieces: list, out: str, mode: str, W: int, H: int,
     for i, p in enumerate(pieces):
         L = p.length * stretch
         ch = (f"[{i}:v]trim=duration={p.b - p.a:.3f},setpts=(PTS-STARTPTS)*{stretch / p.speed:.5f},fps={fps:g},"
-              + filtergraph.look_chain(mode, W, H, src_w, src_h, zoom=p.zoom, part="all" if color else "geo"))
+              + filtergraph.look_chain(mode, W, H, src_w, src_h, zoom=p.zoom, part="all" if color else "geo",
+                                       anchor_y=p.ay))
         if p.push > 0:
             ch += "," + edl.push_filter(W, H, p.push, L).rstrip(",")
         if p.fx == "flash":

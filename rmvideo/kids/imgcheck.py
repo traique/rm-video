@@ -5,7 +5,11 @@ images.generate vẽ lại cảnh đó với seed khác. Không cần key, khôn
 Đo thật 19/11 (16 ảnh từ prompt thật): OWLv2 hay trả hai khung lồng nhau cho cùng một đầu (có tai / chỉ mặt), gọi nhầm mèo
 thành thỏ ở điểm thấp, và đánh dấu thân áo ngay dưới đầu là «đầu» (0,35). Gộp khung lồng nhau / chồng nhau, bỏ khung nằm
 ngay dưới một đầu khác, ngưỡng 0,3 -> 0/16 ảnh bị báo nhầm. Chỉ báo khi THỪA đầu (thiếu đầu không báo: bạn nhỏ ở xa hay
-bị dò sót)."""
+bị dò sót).
+
+Đo lại 20/11 (video job 1, ảnh vẽ bằng LoRA, 85 khung hình): điểm đầu thấp hơn hẳn (đầu gấu 0,15-0,23) nên 0,3 cho qua cả hai
+cảnh nhân đôi. Ngưỡng 0,18; khung bao nhiều đầu bị bỏ thay vì nuốt các đầu bên trong; khung dưới đầu chỉ là thân áo khi thẳng
+hàng hoặc mang màu áo; đếm thêm theo loài -> bắt 13/13 khung nhân đôi, 0 báo nhầm."""
 from __future__ import annotations
 
 import re
@@ -17,7 +21,10 @@ QUERIES = ("a rabbit head", "a cat head", "a bear head", "a squirrel head", "a c
 SHIRT_THR = 0.25
 # màu áo theo sắc độ (độ, 0-360): đỏ / xanh lá / xanh dương / vàng; cam (lông mèo) và màu khác -> None, không tính
 HUES = {"red": ((345, 360), (0, 15)), "yellow": ((46, 68),), "green": ((75, 165),), "blue": ((195, 255),)}
-THRESHOLD = 0.3
+# 20/11: ảnh vẽ bằng LoRA (lông nỉ) OWLv2 chấm đầu thấp hơn hẳn ảnh FLUX trơn — đầu gấu 0,15-0,23, đầu thỏ thứ hai ở cảnh
+# Gấu ôm hai Thỏ 0,297 — nên 0,3 (đo 19/11 trên ảnh không LoRA) bỏ sót gần hết. Đo 85 khung hình video job 1 (9 cảnh, 2 cảnh
+# nhân đôi): 0,18 + luật gộp mới bắt 13/13 khung nhân đôi, 0 khung báo nhầm; 0,12 bắt đầu báo nhầm.
+THRESHOLD = 0.18
 SIZE_RATIO = 4.0                  # diện tích đầu to nhất / nhỏ nhất (2 bạn): quá mức là một bạn to gấp đôi bạn kia (đo thật mẫu 31)
 RETRIES = 2                       # vẽ lại tối đa chừng này lần cho một cảnh (~35 giây / lần trên T4)
 Box = tuple[str, float, list[int]]
@@ -32,10 +39,46 @@ def _area(a: list[int]) -> float:
     return max(1.0, float((a[2] - a[0]) * (a[3] - a[1])))
 
 
-def merge_heads(boxes: list[Box], thr: float = THRESHOLD) -> list[Box]:
-    """Khung «đầu» riêng biệt (không phân loài): bỏ khung dưới ngưỡng, khung lồng / chồng khung điểm cao hơn (IoU ≥ 0,5 hay
-    ≥ 60% diện tích nằm trong nhau), và khung nằm ngay DƯỚI một đầu khác, chồng ngang ≥ 50% (thân áo bị nhận là đầu)."""
+BODY_ALIGN = 0.25        # khung dưới đầu, tâm lệch ≤ 25% bề ngang của nó so với tâm đầu: thân của chính bạn đó
+
+
+def _is_body(box: list[int], head: list[int], img: Any = None) -> bool:
+    """Khung «đầu» nằm ngay DƯỚI đầu `head` (chồng ngang ≥ 50%, đỉnh thấp hơn giữa đầu, không to hơn 1,5 lần) là THÂN của
+    chính bạn đó (đo 19/11: OWLv2 đánh dấu thân áo là đầu, 0,35) khi thẳng hàng dưới đầu hoặc vùng giữa mang màu áo. Đầu thứ
+    hai lệch sang bên (job 1 ngày 20/11, cảnh 7: Gấu ôm HAI Thỏ, đầu thỏ thứ hai ló dưới cằm thỏ thứ nhất, tâm lệch 54%) là
+    bản sao: giữ lại để đếm (luật cũ gộp mất nó)."""
+    x_over = max(0, min(box[2], head[2]) - max(box[0], head[0])) / max(1, box[2] - box[0])
+    if not (x_over >= 0.5 and box[1] >= (head[1] + head[3]) / 2 and _area(box) <= 1.5 * _area(head)):
+        return False
+    off = abs((box[0] + box[2]) / 2 - (head[0] + head[2]) / 2) / max(1, box[2] - box[0])
+    if off <= BODY_ALIGN:
+        return True
+    return img is not None and box_color(img, box) is not None
+
+
+def _inside(a: list[int], b: list[int]) -> bool:
+    return _inter(a, b) / _area(a) >= 0.6
+
+
+def _groups(cands: list[Box]) -> set[int]:
+    """Chỉ số các khung «nhóm»: bao trọn ≥ 2 khung khác tách rời nhau (job 1 cảnh 7: khung «a rabbit head» 0,32 bao cả hai
+    thỏ, điểm cao nhất nên hai đầu thật bị gộp vào nó -> đếm 1). Bỏ khung nhóm thì các đầu bên trong vẫn còn để đếm; đầu +
+    thân của cùng một bạn bên trong thì thân bị `_is_body` bỏ sau, kết quả không đổi."""
+    out = set()
+    for i, (_q, _s, big) in enumerate(cands):
+        inner = [c[2] for j, c in enumerate(cands) if j != i and _area(c[2]) < _area(big) and _inside(c[2], big)]
+        if any(not (_inside(a, b) or _inside(b, a)) for k, a in enumerate(inner) for b in inner[k + 1:]):
+            out.add(i)
+    return out
+
+
+def merge_heads(boxes: list[Box], thr: float = THRESHOLD, img: Any = None) -> list[Box]:
+    """Khung «đầu» riêng biệt (không phân loài): bỏ khung dưới ngưỡng, khung nhóm bao nhiều đầu (`_groups`), khung lồng /
+    chồng khung điểm cao hơn (IoU ≥ 0,5 hay ≥ 60% diện tích nằm trong nhau), và khung là thân của một đầu phía trên
+    (`_is_body`; img: ảnh để soát màu áo)."""
     cands = sorted([b for b in boxes if ("head" in b[0] or "face" in b[0]) and b[1] >= thr], key=lambda b: -b[1])
+    drop = _groups(cands)
+    cands = [c for i, c in enumerate(cands) if i not in drop]
     kept: list[Box] = []
     for q, s, box in cands:
         dup = False
@@ -44,8 +87,7 @@ def merge_heads(boxes: list[Box], thr: float = THRESHOLD) -> list[Box]:
             if inter / _area(box) >= 0.6 or inter / _area(k) >= 0.6 or inter / (_area(box) + _area(k) - inter) >= 0.5:
                 dup = True
                 break
-            x_over = max(0, min(box[2], k[2]) - max(box[0], k[0])) / max(1, box[2] - box[0])
-            if x_over >= 0.5 and box[1] >= (k[1] + k[3]) / 2 and _area(box) <= 1.5 * _area(k):
+            if _is_body(box, k, img):
                 dup = True
                 break
         if not dup:
@@ -209,6 +251,22 @@ def contact_ok(shirts: list[tuple[str, float, list[int]]], heads: list[Box], wid
     return gap <= CONTACT_GAP * max(1, width)
 
 
+SPECIES_THR = 0.25      # hai đầu cùng loài đều chắc chừng này mà cảnh chỉ có một bạn loài đó -> nhân đôi
+
+
+def species_twins(heads: list[Box], species: Sequence[str], thr: float = SPECIES_THR) -> tuple[str, int, int] | None:
+    """(loài, số đầu thấy, số bạn loài đó trong cảnh) khi thấy NHIỀU đầu riêng biệt của một loài hơn số bạn loài đó có mặt,
+    mỗi đầu ≥ thr (job 1 ngày 20/11, cảnh 7: Gấu ôm hai Thỏ, đầu gấu chỉ 0,19 nên đếm tổng không đủ để bắt). species: loài
+    các bạn trong cảnh («rabbit», «bear»…); rỗng thì không xét."""
+    if not species:
+        return None
+    for sp in set(species):
+        n = sum(1 for q, s, _b in heads if q == f"a {sp} head" and s >= thr)
+        if n > species.count(sp):
+            return sp, n, species.count(sp)
+    return None
+
+
 PROP_THR = 0.15         # đồ vật chính (câu hỏi mở «a toy box»): điểm thấp hơn đầu nhân vật vẫn tính là có
 
 
@@ -224,11 +282,15 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
     pq = f"a {prop.strip()}" if prop and prop.strip() else ""
     boxes = detect(img, loaded, extra=[pq] if pq else ())
     props = [b for b in boxes if pq and b[0] == pq and b[1] >= PROP_THR]
-    heads = merge_heads(boxes, thr)
-    found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if (colors or contact) else []
+    heads = merge_heads(boxes, thr, img)
+    found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2, img)) if (colors or contact) else []
     why: list[str] = []
     if len(heads) > max(1, int(expected)):
         why.append(f"thấy {len(heads)} đầu nhân vật, cảnh chỉ có {expected} bạn (ảnh hai đầu / nhân vật nhân đôi)")
+    else:
+        twin = species_twins(heads, [sp for sp, _c in pairs if sp])
+        if twin:
+            why.append(f"thấy {twin[1]} đầu {twin[0]}, cảnh chỉ có {twin[2]} (nhân vật nhân đôi)")
     if not shirts_ok(found, plain):
         why.append(f"áo thấy {[c for c, _s, _b in found]}, các bạn mặc {plain} (áo đổi màu)")
     elif owners and not owners_ok(heads, found, owners):

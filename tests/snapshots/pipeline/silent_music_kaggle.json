@@ -44,6 +44,7 @@
       "ASR_VOCAB",
       "BGM_LINKS",
       "BGM_ORIG",
+      "BGM_SOURCE",
       "BRAND_CLOSE",
       "BRAND_COLOR",
       "BRAND_GRAIN",
@@ -59,6 +60,7 @@
       "COVER",
       "COVER_TEMPLATE",
       "CUT_PROMO",
+      "FRAMING_AUTO",
       "GEMINI_ASR_MODEL",
       "GEMINI_FALLBACK_MODELS",
       "GEMINI_MODEL",
@@ -78,6 +80,7 @@
       "SPEECH_STYLE",
       "SUB_STYLE",
       "SUB_TIMING",
+      "TALK_ZOOM",
       "TEASER",
       "TEXT_DETECT",
       "TEXT_INPAINT",
@@ -91,7 +94,9 @@
       "VIENEU_VOICE_MALE",
       "VOICE_BED",
       "VOICE_HUMANIZE",
-      "VOICE_SEPARATION"
+      "VOICE_QA",
+      "VOICE_SEPARATION",
+      "VOICE_SEP_MODEL"
      ],
      "src": {
       "http": "https://bot.example.com/kin/<T>/input.mp4",

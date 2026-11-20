@@ -48,7 +48,7 @@ from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, st
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
-from rmvideo.media import autolook, edl, ff, filtergraph, renderer, tts_engine, voiceplan
+from rmvideo.media import autolook, edl, ff, filtergraph, framing, renderer, talking, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
@@ -202,26 +202,26 @@ class Remake:
     # ---------------- nhạc lót dưới lời (VOICE_BED, bản 1.0.0) ----------------
 
     async def pick_bed(self) -> dict | None:
-        """Một bài trong thư viện 🎵 Nhạc nền lót thật nhỏ dưới lời đọc (chọn một lần mỗi job, bản ngắn dùng chung).
-        Thư viện trống / tải lỗi: ghi chú, làm như cũ (không nhạc lót)."""
+        """Một bài nhạc lót thật nhỏ dưới lời đọc (chọn một lần mỗi job, bản ngắn dùng chung): kho Lyria theo màu món
+        (BGM_SOURCE=lyria) hoặc thư viện 🎵 Nhạc nền của mình. Không có bài / tải lỗi: ghi chú, làm như cũ (không nhạc lót)."""
         if self.bed_done:
             return self.bed
         self.bed_done = True
         job = self.job
         if config.VOICE_BED != "on" or job.mode not in (Mode.COOK, Mode.REVIEW):
             return None
-        if not bgm.library():
-            job.note("ℹ️ Nhạc lót dưới lời đang bật nhưng thư viện 🎵 Nhạc nền trống: thêm nhạc miễn phí bản quyền "
-                     "trên web để video có nhạc lót. ")
-            return None
         job.step = "Chọn nhạc lót dưới lời"
         prefer_links = self.remote and not (config.PUBLIC_URL or "").strip()   # Kaggle không lấy được file Botkeep
-        item, music, trim, why = await music_flow._pick_bgm(self.tmp, prefer_links, self.out_dur)
+        dish = self.facts.dish if self.facts else ""
+        item, music, trim, why = await music_flow._pick_bgm(self.tmp, prefer_links, self.out_dur, remote=self.remote,
+                                                            text=f"{dish} {self.title} {self.desc}", mode=job.mode)
         if not music:
             job.note(f"ℹ️ Chưa lót được nhạc dưới lời ({why}). ")
             return None
         self.bed = {"path": music, "trim": round(float(trim), 3), "name": item["name"], "url": item.get("url", ""),
                     "key": item["key"]}
+        if item.get("lyria"):
+            self.bed["lyria"] = item["lyria"]
         return self.bed
 
     def bed_used(self):
@@ -362,6 +362,9 @@ class Remake:
         await self.check_duplicate()
         # BRAND_LOOK=auto (bản 1.0.0): chọn tông theo video gốc MỘT lần, trước đoạn mở đầu / ảnh bìa / render
         await autolook.ensure(self.inp, src_dur, job.note)
+        # khung dọc theo nội dung (1.1.2): bỏ dải đen, nguồn ngang cắt theo tay / chảo hoặc đặt lên nền mờ
+        sw, sh, _ = await renderer.source_info(self.inp)
+        await framing.ensure(self.inp, src_dur, sw, sh, job.note)
         if common.auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
             job.long_mode = LongMode.FULL.value
             job.note(f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
@@ -449,8 +452,9 @@ class Remake:
         self.segs = [(round(a * st, 2), round(b * st, 2), t) for a, b, t in self.raw_segs]
         self.cuts = [round(c * st, 2) for c in self.cuts]
         self.speech = [(a, b) for a, b, _ in self.segs]
-        if self.bands:
-            y, h = filtergraph.band_to_output(*self.bands[0])
+        out_bands = framing.map_bands(self.bands)       # khung dọc theo nội dung: chữ gốc nằm chỗ khác trên khung ra
+        if out_bands:
+            y, h = filtergraph.band_to_output(*out_bands[0])
             self.pos_y = y + h // 2
 
     def cut_promo(self):
@@ -493,6 +497,33 @@ class Remake:
                 and config.AUTO_SKIP_ADS == "1":
             raise RuntimeError(f"{recipe.NOT_RECIPE}: dừng sớm, tự đăng chọn video khác")   # khỏi tốn giọng + dựng
 
+    async def talking_zoom(self, plan, segs_src: list, end: float):
+        """Khúc người gốc nói vào máy (mặt to ở phần trên khung, đang có lời gốc) -> đẩy cận neo đáy: lời Việt không chạy
+        trên môi người khác (rmvideo/media/talking.py). Dò mặt trên ảnh thu nhỏ đã có, ≤ ~1 ảnh/giây."""
+        if config.TALK_ZOOM == "0" or plan is None:
+            return plan
+        th = talking.thumbs_of(scenes.analyzed(self.inp), scenes.THUMB_FPS)
+        if not th:
+            return plan
+        step = max(1, round(len(th) / max(1.0, end)))
+        th = [x for x in th[::step] if x[0] < end + 0.5]
+        fr = framing.current()
+        box = (fr["box"][1] / fr["src"][1], fr["box"][3] / fr["src"][1]) if fr else None
+        try:
+            wins = await asyncio.to_thread(talking.analyze, th, [(a, b) for a, b, _ in segs_src], box)
+        except Exception as e:                      # dò mặt hỏng không được làm hỏng job
+            logging.warning("Không dò được cảnh người gốc nói vào máy: %s", str(e)[:150])
+            return plan
+        new, n = talking.apply(plan, wins)
+        share = sum(w["b"] - w["a"] for w in wins) / max(1.0, end)
+        if n:
+            self.job.note(f"🗣️ {n} khúc người gốc nói vào máy ({share:.0%} thời lượng): đẩy cận xuống tay / món, lời Việt "
+                          "không chạy trên môi. ")
+        elif wins:
+            self.job.note(f"ℹ️ {share:.0%} thời lượng là cảnh người gốc nói vào máy nhưng mặt nằm giữa khung (cận "
+                          "cũng không cắt được miệng): giữ nguyên. ")
+        return new
+
     async def restyle(self):
         """Kế hoạch dựng (REMAKE_STYLE): khúc / tốc độ / cỡ khung trên video gốc, chốt TRƯỚC khi AI viết lời; lời gốc,
         điểm chuyển cảnh, quãng người gốc nói đổi sang trục mới. Bản đã duyệt dùng lại đúng kế hoạch đã lưu."""
@@ -518,6 +549,7 @@ class Remake:
                     job.note(f"ℹ️ Dựng mạnh: {why}. ")
             else:
                 plan = style.plan_light(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL, lv)
+            plan = await self.talking_zoom(plan, segs_src, end)
             errs = plan.validate()
             if errs:
                 job.note(f"ℹ️ Không áp được kế hoạch dựng ({errs[0]}): dựng như bản gốc. ")

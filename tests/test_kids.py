@@ -22,6 +22,7 @@ from rmvideo.app import job_factory
 from rmvideo.kids import job as kids_job, llm, prompts, render, story, writer
 from rmvideo.kids import images as images_mod
 from rmvideo.kids import dialogue
+from rmvideo.media import voice_qa
 
 DATA = story.load()
 
@@ -49,7 +50,17 @@ def _state(monkeypatch, tmp_path):
         if k.startswith("KIDS_"):
             monkeypatch.setattr(config, k, config.EDITABLE[k])
     monkeypatch.setattr(config, "QUALITY", "fast")
+    # không gọi edge-tts thật (mạng): giọng Anh giả là tiếng sine ngắn, ghi lại từ nào được đọc
+    EN_CALLS.clear()
+
+    async def _fake_en(text, out, voice=dialogue.EN_VOICE, rate=dialogue.EN_RATE):
+        EN_CALLS.append((text, voice))
+        return _wav(out, 0.4)
+    monkeypatch.setattr(dialogue, "english_clip", _fake_en)
     return tmp_path
+
+
+EN_CALLS: list = []
 
 
 # ---------------- dữ liệu + chọn đề ----------------
@@ -337,7 +348,35 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert len(imgcheck.merge_heads(raw14)) == 1
     two = [("a rabbit head", 0.5, [300, 200, 600, 500]), ("a rabbit head", 0.4, [40, 700, 250, 900]), ("a rabbit", 0.9, [0, 0, 700, 1300])]
     assert len(imgcheck.merge_heads(two)) == 2                                   # hai đầu xa nhau, khung «a rabbit» không tính
-    assert imgcheck.merge_heads([("a cat head", 0.2, [0, 0, 10, 10])]) == []     # dưới ngưỡng
+    assert imgcheck.merge_heads([("a cat head", 0.15, [0, 0, 10, 10])]) == []    # dưới ngưỡng
+    # đo thật 20/11, video job 1 (LoRA, khung 1080x1920): ngưỡng 0,3 cũ chỉ thấy 1 đầu ở cảnh Gấu ôm HAI Thỏ và 2 ở cảnh thêm
+    # gấu con; giờ 3 và 3. f067: khung 0,321 bao cả hai thỏ (khung nhóm) điểm cao nhất; đầu thỏ thứ hai lệch sang bên, nằm
+    # dưới cằm thỏ thứ nhất (không phải thân). f075: gấu to 0,258 + gấu con 0,305.
+    f067 = [("a bear head", 0.202, [135, 375, 803, 954]), ("a rabbit head", 0.321, [352, 684, 1002, 1202]),
+            ("a rabbit head", 0.294, [518, 698, 1005, 1188]), ("a rabbit head", 0.237, [536, 893, 831, 1145]),
+            ("a rabbit head", 0.186, [349, 965, 771, 1309]), ("a rabbit head", 0.32, [441, 1046, 743, 1288])]
+    f075 = [("a rabbit head", 0.427, [81, 472, 587, 1106]), ("a rabbit head", 0.158, [240, 817, 576, 1095]),
+            ("a bear head", 0.258, [797, 830, 1084, 1118]), ("a bear head", 0.305, [617, 1035, 896, 1270]),
+            ("a bear head", 0.22, [607, 1038, 900, 1394])]
+    assert len(imgcheck.merge_heads(f067)) == 3 and len(imgcheck.merge_heads(f075)) == 3
+    assert len(imgcheck.merge_heads(f067, 0.3)) == 1                              # ngưỡng cũ: sót
+    assert imgcheck.species_twins(imgcheck.merge_heads(f067), ["rabbit", "bear"]) == ("rabbit", 2, 1)
+    assert imgcheck.species_twins(imgcheck.merge_heads(f067), ["rabbit", "rabbit"]) is None    # cảnh có hai thỏ thật
+    assert imgcheck.species_twins(imgcheck.merge_heads(f067), []) is None
+    # cảnh sạch cùng video: thỏ nằm bò (khung cả con, khung thân trắng thẳng dưới đầu), gấu 0,15 -> không báo nhầm
+    f033 = [("a rabbit head", 0.25, [202, 625, 580, 969]), ("a rabbit head", 0.323, [188, 620, 590, 1250]),
+            ("a rabbit head", 0.188, [226, 965, 579, 1273]), ("a bear head", 0.158, [550, 903, 996, 1467])]
+    f002 = [("a rabbit head", 0.373, [151, 597, 559, 1009]), ("a rabbit head", 0.164, [110, 600, 568, 1377]),
+            ("a rabbit head", 0.203, [187, 946, 557, 1276]), ("a bear head", 0.151, [528, 932, 1005, 1515])]
+    f042 = [("a rabbit head", 0.187, [97, 499, 451, 832]), ("a rabbit head", 0.391, [94, 494, 502, 1046]),
+            ("a rabbit head", 0.156, [228, 801, 514, 1037])]
+    assert [len(imgcheck.merge_heads(x)) for x in (f033, f002, f042)] == [1, 1, 1]
+    # thân lệch sang bên (không thẳng hàng) chỉ bị coi là thân khi vùng giữa mang màu áo
+    body = [("a rabbit head", 0.4, [100, 100, 300, 300]), ("a rabbit head", 0.3, [180, 260, 380, 440])]
+    assert len(imgcheck.merge_heads(body)) == 2
+    red = Image.new("RGB", (500, 500), (240, 240, 240))
+    red.paste((220, 30, 30), (180, 260, 380, 440))
+    assert len(imgcheck.merge_heads(body, img=red)) == 1
     # màu áo: ảnh giả có hai áo (đỏ + xanh lá), khung «a t-shirt» -> màu; cam (lông mèo) không tính
     im = Image.new("RGB", (200, 300), (120, 200, 90))
     for box, col in (([20, 120, 80, 200], (220, 30, 30)), ([120, 120, 180, 200], (40, 160, 60)), ([20, 220, 80, 290], (240, 140, 30))):
@@ -770,7 +809,8 @@ def test_prompts_and_schema():
     assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 60    # grammar ép độ dài cảnh
     assert len(prompts.example_sentences()) >= 10 and len(prompts.EXAMPLE) == 8
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
-    assert p.startswith("Exactly one character in the picture: Orange Cat jumps over a puddle. Orange Cat,")
+    assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle. Orange Cat,")
+    assert "The character is toddler-sized" in p and "All friends" not in p      # 1 bạn: không gợi ý «các bạn» (20/11)
     assert "green t-shirt" in p and p.endswith("no other animals")
     assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5
     assert "White Rabbit" not in p                                           # chỉ nhân vật có mặt trong cảnh
@@ -781,7 +821,9 @@ def test_prompts_and_schema():
     probs = story.validate(bad_act, brief, DATA)
     assert len(probs) == 8 and all("TIẾNG ANH" in q for q in probs)
     p2 = prompts.image_prompt(bad_act["scenes"][2], brief, DATA, 2)
-    assert p2.startswith("Exactly two friends in the picture: White Rabbit and Brown Bear arguing, upset faces")
+    assert p2.startswith("Exactly two friends in the picture, each appearing only once: White Rabbit and Brown Bear arguing, "
+                         "upset faces")
+    assert "Both friends are toddler-sized and the same height" in p2
     assert "nhìn" not in p2
     spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
@@ -1032,12 +1074,16 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr(kids_job, "qa_video", _qa_small)
 
     voices = []
+    vi_texts: list = []
+    spoken: dict = {}
 
     def make_synth(spec, ref):
         async def synth(items, tmp):
             voices.extend(it[2] for it in items)
+            vi_texts.extend(it[1] for it in items)
+            spoken.update({os.path.join(tmp, f"v{it[0]}.wav"): it[1] for it in items})
             return {it[0]: {"path": _wav(os.path.join(tmp, f"v{it[0]}.wav"), 0.8), "words": None} for it in items}
-        return synth
+        return voice_qa.checked(synth, spoken.get)            # Whisper giả nghe đúng lời: kiểm mà không đọc lại
     monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
     spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan", "multi": True},
             "image": {"model": "schnell"}, "llm": {}, "channel": kids_auto.channel(), "music": None, "token": "t1"}
@@ -1046,6 +1092,13 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     res = kaggle_job.main(spec, str(out_dir))[0]
     assert res["ok"] and res["token"] == "t1" and res["story"]["title"] and res["srt"]
     assert "Thục Đoan" in voices and len(set(voices)) >= 2 and res["timings"]["voices"]   # lời thoại đọc giọng nhân vật
+    # từ tiếng Anh (câu dạy từ + câu ôn từ) đọc bằng giọng Anh bản xứ, VieNeu không còn thấy chữ tiếng Anh nào (20/11)
+    words = [w["en"] for w in res["brief"]["words"]]
+    said = {t.strip(".,!?").lower() for t, _v in EN_CALLS}
+    assert set(words) <= said and all(v == dialogue.EN_VOICE for _t, v in EN_CALLS)
+    assert not any(dialogue.split_english(t, words) != [(False, t)] for t in vi_texts), vi_texts
+    assert res["timings"]["en_voice"] == dialogue.EN_VOICE
+    assert res["timings"]["voice_qa"]["checked"] >= 8 and res["timings"]["voice_qa"]["redo"] == 0
     assert (out_dir / "output.mp4").exists() and (out_dir / "cover.jpg").exists() and (out_dir / "story.json").exists()
     assert (out_dir / "scene_08.png").exists() and (out_dir / "result.json").exists()
 
@@ -1212,6 +1265,83 @@ def test_kaggle_job_skips_llm_when_story_given(tmp_path, monkeypatch):
     assert res["ok"] and res["story"]["title"] == st["title"] and res["timings"]["llm"] < 1 and res["attempts"][0]["beats"]
 
 
+def test_english_words_native_voice(tmp_path, monkeypatch):
+    """Phản hồi 20/11: VieNeu đọc «sun» thành «súng», «jump» thành «trâm» -> từ tiếng Anh tách ra đọc giọng Anh, nối lại
+    theo đúng thứ tự trong clip của cảnh; giọng Anh lỗi thì đoạn đó VieNeu đọc nguyên như cũ (kèm ghi chú)."""
+    w = ["sun", "jump", "happy", "good morning"]
+    assert dialogue.split_english("À, mặt trời đó tiếng Anh là sun. Bé nói theo nè: sun!", w) == [
+        (False, "À, mặt trời đó tiếng Anh là"), (True, "sun."), (False, "Bé nói theo nè:"), (True, "sun!")]
+    assert dialogue.split_english(story.recap_text({"words": [{"en": "sun", "vi": "mặt trời"}, {"en": "happy", "vi": "vui"}]}),
+                                  w) == [(False, "Hôm nay mình học:"), (True, "sun"), (False, "là mặt trời,"), (True, "happy"),
+                                         (False, "là vui. Hẹn gặp lại bé ở chuyện sau!")]
+    assert dialogue.split_english("Là Good  Morning! Chào buổi sáng.", w) == [(False, "Là"), (True, "Good Morning!"),
+                                                                             (False, "Chào buổi sáng.")]
+    assert dialogue.split_english("Sunny nhảy tưng tưng, tai cụp xuống.", w + ["cup"]) == [
+        (False, "Sunny nhảy tưng tưng, tai cụp xuống.")]                        # trong chữ khác / «cụp» có dấu: không tách
+    assert dialogue.split_english("sun, happy!", w) == [(True, "sun,"), (True, "happy!")]
+    # «run» trùng chữ tiếng Việt («run run vì sợ»): chỉ giọng Anh ở chỗ câu dạy / câu ôn từ đặt nó (soát 20/11)
+    assert dialogue.split_english("Thỏ Trắng run run vì sợ. À, chạy tiếng Anh là run. Bé nói theo nè: run!", ["run"]) == [
+        (False, "Thỏ Trắng run run vì sợ. À, chạy tiếng Anh là"), (True, "run."), (False, "Bé nói theo nè:"), (True, "run!")]
+    recap = story.recap_text({"words": [{"en": "sun", "vi": "mặt trời"}, {"en": "run", "vi": "chạy"}]})
+    assert [p for e, p in dialogue.split_english(recap, ["sun", "run"]) if e] == ["sun", "run"]
+    assert dialogue.split_english("Là run! Run run quá.", ["run"]) == [(False, "Là"), (True, "run!"), (False, "Run run quá.")]
+    assert dialogue.split_english("Không có từ nào.", []) == [(False, "Không có từ nào.")] and dialogue.split_english("", w) == []
+    # job: cảnh dạy «ball» -> VieNeu đọc phần Việt, giọng Anh đọc «ball», nối đủ mẩu; giọng Anh lỗi -> VieNeu đọc nguyên đoạn
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(_good_story(brief), DATA)
+    story.add_beats(st, brief, DATA)
+    monkeypatch.setattr(images_mod, "generate", lambda plist, seeds, out_dir, *a, **kw: [
+        _png(os.path.join(os.makedirs(out_dir, exist_ok=True) or out_dir, f"scene_{k + 1:02d}.png"), k * 30) for k in range(8)])
+    merged: list = []
+
+    async def fake_render(images, clips, texts, brief, out, tmp, **kw):
+        merged.extend(clips)
+        merged.append(kw.get("recap"))
+        return await _small_render(images, clips, texts, brief, out, tmp, **kw)
+    monkeypatch.setattr(render, "render", fake_render)
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+    seen: list = []
+
+    def make_synth(spec, ref):
+        async def synth(items, tmp):
+            seen.extend(items)
+            return {it[0]: {"path": _wav(os.path.join(tmp, f"v{it[0]}.wav"), 0.8), "words": None} for it in items}
+        return synth
+    monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
+    spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan", "multi": True,
+                                                                     "en": "en-US-AnaNeural"},
+            "image": {"model": "schnell", "check": False}, "llm": {}, "channel": kids_auto.channel(), "music": None, "story": st}
+    res = asyncio.run(kids_job.run(spec, str(tmp_path / "w")))
+    words = [x["en"] for x in brief["words"]]
+    assert res["ok"] and {t.strip(".,!?").lower() for t, _v in EN_CALLS} == set(words)
+    assert all(v == "en-US-AnaNeural" for _t, v in EN_CALLS) and res["timings"]["en_voice"] == "en-US-AnaNeural"
+    assert not any(re.search(r"(?<![\w])(" + "|".join(words) + r")(?![\w])", t, re.I) for _k, t, _v in seen)
+    beat_scene = next(i for i, sc in enumerate(st["scenes"]) if dialogue.split_english(sc["text"], words) != [(False, sc["text"])])
+    from rmvideo.media import ff
+    one = 0.8 + 0.3                                                            # mỗi mẩu VieNeu giả 1,1 s, mẩu Anh 0,7 s
+    assert asyncio.run(ff.probe_duration(merged[beat_scene]["path"])) > 2 * one   # nhiều mẩu đã nối thành một clip
+    assert merged[-1][1] == story.recap_text(brief) and asyncio.run(ff.probe_duration(merged[-1][0]["path"])) > 3 * one
+    # giọng Anh lỗi: không mất tiếng, VieNeu đọc nguyên đoạn có từ đó, ghi chú lý do
+    EN_CALLS.clear()
+    seen.clear()
+
+    async def broken(text, out, voice=dialogue.EN_VOICE, rate=dialogue.EN_RATE):
+        raise RuntimeError("NoAudioReceived")
+    monkeypatch.setattr(dialogue, "english_clip", broken)
+    res = asyncio.run(kids_job.run(spec, str(tmp_path / "w2")))
+    assert res["ok"] and any("giọng tiếng Anh lỗi" in n for n in res["notes"]) and "en_voice" not in res["timings"]
+    assert any(re.search(r"(?<![\w])" + re.escape(words[0]) + r"(?![\w])", t) for _k, t, _v in seen)
+    # tắt (KIDS_EN_VOICE=off -> "en": ""): không gọi giọng Anh
+    monkeypatch.setattr(dialogue, "english_clip", broken)
+    spec["voice"]["en"] = ""
+    res = asyncio.run(kids_job.run(spec, str(tmp_path / "w3")))
+    assert res["ok"] and not any("giọng tiếng Anh lỗi" in n for n in res["notes"])
+    monkeypatch.setattr(config, "KIDS_EN_VOICE", "off")
+    assert kaggle_worker.kids_spec(SimpleNamespace(id=1), brief)["voice"]["en"] == ""
+    monkeypatch.setattr(config, "KIDS_EN_VOICE", "en-US-JennyNeural")
+    assert kaggle_worker.kids_spec(SimpleNamespace(id=1), brief)["voice"]["en"] == "en-US-JennyNeural"
+
+
 def test_flow_kids_needs_kaggle(tmp_path, monkeypatch):
     import pipeline
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "")
@@ -1348,7 +1478,7 @@ def test_kids_spec_and_kernel_without_secrets(monkeypatch):
     compile(text, "kernel.py", "exec")
     assert "bi-mat" not in text and "bi_mat" not in text and "pip install" in text and "diffusers" in text
     assert spec["data"]["world"]["name"] == "Đồi Hoa Nhỏ" and spec["channel"]["world"] == "Đồi Hoa Nhỏ"
-    assert kaggle_worker.needs_gpu(spec) and kaggle_worker.pip_for(spec) == kaggle_worker.PIP_KIDS
+    assert kaggle_worker.needs_gpu(spec) and kaggle_worker.pip_for(spec) == kaggle_worker.PIP_KIDS + kaggle_worker.PIP_QA
     assert "rmvideo/kids/data.json" in kaggle_worker.bundle_b64() or True
     import base64
     import io

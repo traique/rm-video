@@ -35,10 +35,16 @@ SLUG_KIDS_MODELS = "rmvideo-kids-models"  # chạy một lần (kids_setup): lla
 BUNDLE = list(kaggle_bundle.files())
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
        "'transformers==4.57.6' safetensors yt-dlp edge-tts")
+# faster-whisper: nghe lại giọng VieNeu trên GPU (rmvideo/media/voice_qa.py). Lệnh RIÊNG nối sau cùng: cài lỗi / xung đột
+# phiên bản thì chỉ mất bước nghe lại (voice_qa tự bỏ qua khi thiếu gói), giọng VieNeu và diffusers không bị kéo theo
+PIP_QA = "; pip install -q faster-whisper"
 PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu: khỏi cài model giọng
 # phiên phân tích: Whisper (faster-whisper) + tách giọng trên GPU (onnxruntime-gpu thay bản CPU mà faster-whisper kéo về)
 PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
                "pip install -q onnxruntime-gpu)")
+# tách giọng RoFormer (VOICE_SEP_MODEL=auto, vocal_sep.roformer_wanted): cài sau cùng, ghim bản (danh sách SHA-256 model
+# đi kèm gói); cài lỗi thì chỉ mất RoFormer, tách bằng Kim_Vocal_2 như cũ. audioread: 0.48.0 import mà không khai báo
+PIP_ROFORMER = "; pip install -q audio-separator==0.48.0 audioread"
 # truyện bé: giọng VieNeu + diffusers (FLUX 4-bit) + huggingface_hub (tải GGUF); llama-server là file đã biên dịch gắn vào
 PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf peft 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
 KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-60 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
@@ -231,11 +237,12 @@ def needs_gpu(spec: dict) -> bool:
 
 
 def pip_for(spec: dict) -> str:
+    qa = PIP_QA if config.VOICE_QA != "0" else ""
     if is_kids(spec):
-        return PIP_KIDS
+        return PIP_KIDS + qa
     if any(j.get("kind") == "analyze" for j in _jobs(spec)):
-        return PIP_ANALYZE
-    return PIP if needs_vieneu(spec) else PIP_LIGHT
+        return PIP_ANALYZE + (PIP_ROFORMER if config.VOICE_SEP_MODEL == "auto" else "")
+    return PIP + qa if needs_vieneu(spec) else PIP_LIGHT
 
 
 def kernel_text(spec: dict) -> str:
@@ -281,6 +288,9 @@ def _common(spec: dict) -> dict:
     from rmvideo.media import filtergraph
     if filtergraph.AUTO_LOOK.get():                    # BRAND_LOOK=auto: tông Botkeep đã chọn cho job này (bản 1.0.0)
         spec.setdefault("look", filtergraph.AUTO_LOOK.get())
+    from rmvideo.media import framing
+    if framing.spec_value():                           # khung dọc theo nội dung Botkeep đã chọn (1.1.2)
+        spec.setdefault("framing", framing.spec_value())
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
 
@@ -315,8 +325,11 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["tail"] = tail
     if voice_bed:                                # nhạc lót dưới lời (VOICE_BED): Kaggle không lấy được thì dựng không nhạc lót
         try:
-            spec["voice_bed"] = {"music": ref(voice_bed.get("path"), voice_bed.get("url", ""), "audio"),
-                                 "trim": voice_bed.get("trim", 0.0), "name": voice_bed.get("name", "")}
+            import bgm
+            music = bgm.kaggle_ref({k: voice_bed.get(k) for k in ("path", "url", "lyria") if voice_bed.get(k)})
+            spec["voice_bed"] = {"music": music, "trim": voice_bed.get("trim", 0.0), "name": voice_bed.get("name", "")}
+            if music.get("dataset"):             # kho nhạc Lyria của bếp: gắn dataset vào phiên
+                spec["dataset_sources"] = [music["dataset"]]
         except KaggleError as e:
             logging.info("Nhạc lót không gửi kèm Kaggle được (%s): dựng không nhạc lót", e)
     if voice_name(job.voice) == CLONE:
@@ -327,16 +340,19 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
 
 def bed_spec(job, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str, bands,
              max_duration: int, music: str | None, music_url: str, trim: float, orig: str,
-             local_path: str | None = None, src: dict | None = None) -> dict:
+             local_path: str | None = None, src: dict | None = None, music_ref: dict | None = None) -> dict:
     """Video KHÔNG LỜI (NO_SPEECH=music): dựng như remake (tiêu đề, logo, che chữ, màu) nhưng tiếng là nhạc nền (+ tiếng
     gốc theo BGM_ORIG) thay cho giọng đọc. Không đọc giọng, không tách giọng: chạy CPU, không tốn giờ GPU.
     music: file nhạc trên Botkeep (Kaggle lấy qua PUBLIC_URL); music_url: link gốc (Kaggle tự tải). Không có cả hai:
-    chỉ tiếng gốc."""
-    return _common({"kind": "bed", "job": job.id, "mode": job.mode,
-                    "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
-                    "music": ref(music, music_url, "audio") if (music or music_url) else None,
-                    "trim": round(float(trim), 3), "orig": orig, "out_dur": out_dur, "render_dur": render_dur,
-                    "stretch": stretch, "allow_hd": allow_hd, "title": title, "bands": bands or []})
+    chỉ tiếng gốc. music_ref: đầu vào đã dựng sẵn (bài Lyria: file trong dataset `rmvideo-cook-bgm`, gắn vào phiên)."""
+    spec = {"kind": "bed", "job": job.id, "mode": job.mode,
+            "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
+            "music": music_ref or (ref(music, music_url, "audio") if (music or music_url) else None),
+            "trim": round(float(trim), 3), "orig": orig, "out_dur": out_dur, "render_dur": render_dur,
+            "stretch": stretch, "allow_hd": allow_hd, "title": title, "bands": bands or []}
+    if music_ref and music_ref.get("dataset"):
+        spec["dataset_sources"] = [music_ref["dataset"]]
+    return _common(spec)
 
 
 def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: bool, max_duration: int) -> dict:
@@ -348,7 +364,8 @@ def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: 
                                                                   max_duration),
                     "want_gray": bool(want_gray), "language": "vi" if vi else "", "token": secrets.token_hex(8),
                     "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook",
-                    "inpaint": config.TEXT_INPAINT == "1",             # LaMa xoá chữ in cứng (GPU) thay cho che mờ
+                    "inpaint": config.TEXT_INPAINT in ("1", "band"),   # LaMa xoá chữ in cứng (GPU) thay cho che mờ
+                    "inpaint_mask": "band" if config.TEXT_INPAINT == "band" else "text",
                     "asr": config.KAGGLE_ASR if vi else "large-v3"})   # PhoWhisper chỉ tiếng Việt
 
 
@@ -435,7 +452,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
         dss = dss + [music["dataset"]]
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
-                      "multi": config.KIDS_MULTI_VOICE != "0"},
+                      "multi": config.KIDS_MULTI_VOICE != "0", "en": "" if config.KIDS_EN_VOICE in ("", "off") else config.KIDS_EN_VOICE},
             "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0",
                       "lora": (lora_source() or ("", "", ""))[2]},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
@@ -715,6 +732,9 @@ async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
     shared = ("settings", "logo_b64", "sting_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
     spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in shared} for s in specs],
             **{k: specs[0].get(k) for k in shared if specs[0].get(k)}}
+    dss = sorted({d for s in specs for d in s.get("dataset_sources") or []})     # kho nhạc Lyria: gắn một lần cho cả lô
+    if dss:
+        spec["dataset_sources"] = dss
     try:
         async with _LOCK:
             return await asyncio.to_thread(_run_sync, spec, tmp, on_step)

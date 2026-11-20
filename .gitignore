@@ -36,8 +36,12 @@ render_speed.json
 autopost.json
 assets/bgm/
 assets/kids_bgm/lyria/
+assets/bgm_lyria/
 assets/bgm_recent.json
 voice_bank.json
 voice_bank.json.tmp
 zoom_targets.json
 .version_announced.json
+
+# bản sao git tạm của agent Claude Code (tự xoá khi xong)
+.claude/worktrees/

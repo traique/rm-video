@@ -188,8 +188,9 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 </section>
 <section class="card">
   <details id="bgm_box">
-    <summary><h2>🎵 Nhạc nền cho video không lời</h2> <span class="mut">(video không ai nói: chèn nhạc thay vì để AI bịa lời; mỗi video chọn ngẫu nhiên một bài, tránh 3 bài vừa dùng)</span></summary>
+    <summary><h2>🎵 Nhạc nền cho video không lời</h2> <span class="mut">(video không ai nói: chèn nhạc thay vì để AI bịa lời; cũng là nhạc lót dưới lời đọc; mặc định kho Lyria tự tạo theo món, kho chưa có bài thì dùng thư viện dưới đây; tránh 3 bài vừa dùng)</span></summary>
     <p id="bgm_info" class="mut"></p>
+    <div class="inline"><p id="bgm_lyria" class="mut" style="margin:0"></p><button type="button" id="bgm_ly" class="btn btn-2 btn-s">Tạo đủ kho Lyria</button></div>
     <div id="bgm_list"></div>
     <label for="bgm_link">Thêm link nhạc (TikTok / YouTube / file mp3 trên mạng; Kaggle tự tải được)</label>
     <div class="inline"><input id="bgm_link" name="bgm_link" placeholder="https://www.tiktok.com/@kenh/video/…" autocomplete="off" spellcheck="false" inputmode="url"><button type="button" id="bgm_add" class="btn">Thêm</button></div>
@@ -456,6 +457,11 @@ function bgmShow(d){
     'Tiếng gốc: '+({off:'bỏ, chỉ nhạc mới',low:'giữ nhỏ dưới nhạc',keep:'giữ to, nhạc nằm dưới'}[d.orig]||d.orig)+' (BGM_ORIG). '+
     (it.length?it.length+' bài trong thư viện.':'Thư viện trống: video không lời sẽ giữ nguyên tiếng gốc và không tự đăng.')+
     (!d.public_url&&it.some(x=>x.kind=='file')?' Chưa đặt PUBLIC_URL: file tải lên chỉ dùng khi dựng trên Botkeep (Kaggle dùng link).':'');
+  const ly=d.lyria;
+  if(ly)$('bgm_lyria').textContent=(ly.source=='lyria'?'🎼 Kho Lyria (nguồn đang dùng): ':'🎼 Kho Lyria (đang tắt, BGM_SOURCE=files): ')+
+    Object.entries(ly.moods).map(([m,n])=>({cozy:'ấm cúng',upbeat:'sôi động',chill:'thư giãn'}[m]||m)+' '+n+'/'+ly.per_mood).join(', ')+
+    '; đã đẩy Kaggle '+ly.pushed+' bài'+(ly.busy?' · đang tạo bài mới…':'');
+  if(d.msg)$('bgm_msg').textContent='🎼 '+d.msg;
   $('bgm_list').innerHTML=it.map(x=>'<div class="list-row"><span>'+(x.kind=='link'?'🔗 ':'📁 ')+esc(x.name)+'</span><button type="button" class="btn btn-2 btn-s" data-bgm="'+esc(x.key)+'" aria-label="Xoá '+esc(x.name)+'">Xoá</button></div>').join('');
   document.querySelectorAll('[data-bgm]').forEach(b=>b.onclick=()=>{if(confirm('Xoá bài nhạc này khỏi thư viện?'))bgmCall('/api/bgm/delete',JSON.stringify({key:b.dataset.bgm}),'✅ Đã xoá')});
 }
@@ -467,6 +473,7 @@ async function bgmCall(url,body,ok){
   }catch(e){$('bgm_msg').textContent='❌ '+e;return false}
 }
 $('bgm_box').addEventListener('toggle',()=>{if($('bgm_box').open)bgmCall('/api/bgm')});
+$('bgm_ly').onclick=()=>{$('bgm_msg').textContent='Đang gửi…';bgmCall('/api/bgm/lyria','{}')};
 $('bgm_add').onclick=()=>{const u=$('bgm_link').value.trim();if(!u)return;$('bgm_msg').textContent='Đang lưu…';
   bgmCall('/api/bgm/link',JSON.stringify({url:u}),'✅ Đã thêm link').then(ok=>{if(ok)$('bgm_link').value=''})};
 $('bgm_up').onclick=()=>{const fs=$('bgm_file').files;if(!fs.length)return;const f=new FormData();

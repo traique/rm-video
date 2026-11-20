@@ -74,12 +74,12 @@
     "hook": "XEM LÀ ĐÓI",
     "local": "",
     "long_mode": "",
-    "no_autopost": "video không lời, thư viện nhạc nền trống",
+    "no_autopost": "video không lời, thư viện nhạc nền trống, kho nhạc Lyria chưa có bài; gõ cook_bgm để tạo đủ kho, cần GEMINI_API_KEY",
     "out_dur": 8.0,
     "parts": [],
     "pieces": [],
     "post": "📌 Cảnh nấu ăn\n\n▶ TikTok:\nThư giãn #asmr\n\n▶ Facebook:\nThư giãn\n\n#asmr\n\n▶ YouTube Shorts:\nCảnh nấu ăn #Shorts\n\nThư giãn\n\n#asmr",
-    "script": "🎵 Video không lời nhưng chưa chèn được nhạc nền (thư viện nhạc nền trống): giữ nguyên tiếng gốc, không thêm lời đọc. Thêm nhạc ở ô «🎵 Nhạc nền cho video không lời» trên web (link TikTok/YouTube hoặc tải file lên).",
+    "script": "🎵 Video không lời nhưng chưa chèn được nhạc nền (thư viện nhạc nền trống, kho nhạc Lyria chưa có bài; gõ cook_bgm để tạo đủ kho, cần GEMINI_API_KEY): giữ nguyên tiếng gốc, không thêm lời đọc. Thêm nhạc ở ô «🎵 Nhạc nền cho video không lời» trên web (link TikTok/YouTube hoặc tải file lên).",
     "source_meta": {
      "uploader": "Kênh Gốc",
      "webpage_url": "https://www.facebook.com/reel/1234567890/"

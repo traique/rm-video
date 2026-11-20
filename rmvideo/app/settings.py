@@ -210,6 +210,9 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("Adam", "Adam (tự nhiên)"), ("Thái Sơn", "Thái Sơn (kể chuyện)"), ("Minh Triết", "Minh Triết (tin tức)"),
                ("Đức Trí", "Đức Trí (đọc truyện)"), ("clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)")),
       validate=_max_len("VIENEU_VOICE_MALE", 40)),
+    S("VOICE_QA", "1", "voice", "Nghe lại giọng VieNeu",
+      help="Whisper trên GPU Kaggle nghe lại từng câu VieNeu đọc; câu đọc sai / lặp thì đọc lại (tối đa 2 lần).",
+      options=_ONOFF_OPTS, choices=ON_OFF),
     S("KAGGLE_USE", "1", "kaggle", "Dùng Kaggle cho phần nặng",
       options=(("1", "Bật: đọc giọng + tách giọng + dựng chạy trên Kaggle (lỗi thì chạy trên Botkeep)"),
                ("0", "Tắt: mọi thứ chạy trên Botkeep")), choices=ON_OFF),
@@ -220,6 +223,14 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("large-v3", "Whisper large-v3 (mặc định, mọi ngôn ngữ)"),
                ("phowhisper", "PhoWhisper-large (VinAI, tinh chỉnh tiếng Việt; cần notebook rmvideo-phowhisper đã chạy)")),
       choices=("large-v3", "phowhisper")),
+    S("VOICE_SEP_MODEL", "kim", "kaggle", "Model tách giọng gốc trên Kaggle",
+      help="auto: phiên phân tích Kaggle (GPU) tách bằng Mel-Band RoFormer (đo trên hỗn hợp tổng hợp: giọng sót ngang "
+           "Kim_Vocal_2, tiếng xèo lúc có lời mất ít hơn 0,3-0,7 dB), lỗi / quá 7 phút thì Kim_Vocal_2. Tốn thêm cài gói "
+           "audio-separator + tải model 913MB mỗi phiên phân tích; CHƯA chạy thử trên Kaggle thật nên mặc định vẫn kim — "
+           "bật auto rồi xem log một video («Tách giọng AI (RoFormer)» hay «RoFormer lỗi»). Botkeep luôn dùng Kim_Vocal_2.",
+      options=(("kim", "Kim_Vocal_2 mọi nơi (mặc định, như cũ)"),
+               ("auto", "Thử nghiệm: RoFormer trên Kaggle GPU, dự phòng Kim_Vocal_2")),
+      choices=("kim", "auto")),
     S("KAGGLE_USERNAME", "", "api", "Tên tài khoản Kaggle",
       help="Dán link kaggle.com/<tên> hoặc gõ tên. Dùng cùng token bên dưới.", link="https://www.kaggle.com/settings",
       need="should", validate=_kaggle_user, reauth=True, live=True),
@@ -257,8 +268,20 @@ SCHEMA: tuple[Setting, ...] = (
       choices=("heuristic", "ocr")),
     S("TEXT_INPAINT", "1", "video", "Xoá chữ in cứng bằng AI (LaMa) khi phân tích trên Kaggle",
       help="1: Kaggle (GPU) vẽ lại nền ở dải chữ gốc bằng big-lama.pt rồi gửi video sạch về, phụ đề mới đặt lên nền thật "
-           "thay vì ô mờ. Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
-      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1")),
+           "thay vì ô mờ; chỉ vẽ lại chỗ có chữ thật, tay/đồ ăn đi qua dải giữ nguyên. band: vẽ lại cả dải như bản cũ "
+           "(khi nguồn có chữ trong ô nền màu). Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
+      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa, chỉ chỗ có chữ"),
+               ("band", "Bật, vẽ lại cả dải chữ như bản cũ"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1", "band")),
+    S("FRAMING_AUTO", "1", "video", "Khung dọc theo nội dung",
+      help="Nguồn có dải đen thì bỏ dải đen; nguồn ngang (16:9) thì cắt khung 9:16 theo vùng có tay / chảo, hoạt động rải "
+           "khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình. Nguồn dọc bình thường: cắt giữa như cũ.",
+      options=(("1", "Bật (mặc định, 1.1.2)"), ("0", "Tắt: luôn phóng to rồi cắt giữa như trước")), choices=("0", "1")),
+    S("TALK_ZOOM", "0", "video", "Cảnh người gốc nói vào máy",
+      help="Bật: kế hoạch dựng (REMAKE_STYLE) đẩy cận neo đáy ở các khúc người gốc đang nói mà mặt to ở phần trên khung (dò "
+           "mặt YuNet trên ảnh thu nhỏ), để lời Việt không chạy trên môi người khác. Hợp nguồn «vừa nói vừa làm món» (tay, "
+           "thớt ở dưới). Tắt mặc định: đo 20/11 trên video hai người dẫn đứng nói, cận neo đáy chỉ còn thân người cụt đầu, "
+           "và chưa có tín hiệu rẻ nào phân biệt «tay đang làm» với «đứng nói, vung tay».",
+      options=(("0", "Tắt (mặc định)"), ("1", "Bật: cận xuống tay / món khi người gốc nói vào máy")), choices=("0", "1")),
     S("SCENE_ANALYSIS", "light", "video", "Mức phân tích hình", help="light nhanh nhất; full kỹ nhất (chậm trên Botkeep).",
       options=(("light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn câu "
                          "theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"),
@@ -274,6 +297,14 @@ SCHEMA: tuple[Setting, ...] = (
     S("NO_SPEECH", "music", "video", "Video không lời", help="Chèn nhạc nền (mặc định) hay để AI viết lời.",
       options=(("music", "Chèn nhạc nền (mặc định): không thêm lời, tránh nói sai sự thật của video gốc"),
                ("narrate", "AI xem hình rồi viết lời đọc (cách cũ)")), choices=("music", "narrate")),
+    S("BGM_SOURCE", "lyria", "video", "Nguồn nhạc nền kênh bếp",
+      help="Nhạc cho video không lời và nhạc lót dưới lời đọc. Lyria: nhạc tự tạo bằng Lyria RealTime (key Gemini, free) "
+           "theo món — chiên xào / đường phố sôi động, đồ uống thư giãn, canh cháo bánh ấm cúng; tạo dần trong nền, gõ "
+           "cook_bgm để tạo đủ kho ngay; đẩy lên Kaggle (dataset rmvideo-cook-bgm), không cần PUBLIC_URL, không bị "
+           "Facebook / TikTok tắt tiếng vì bản quyền. Kho chưa có bài thì dùng thư viện 🎵 Nhạc nền của bạn.",
+      options=(("lyria", "Kho Lyria tự tạo theo món (mặc định, giống truyện bé)"),
+               ("files", "Chỉ thư viện 🎵 Nhạc nền của bạn (link / file tải lên, như trước)")),
+      choices=("lyria", "files"), live=True),
     S("BGM_LINKS", "", "video", "Thư viện nhạc nền (link)", help="Quản lý dễ hơn ở mục 🎵 Nhạc nền.",
       validate=_bgm_links, live=True),
     S("VOICE_BED", "on", "video", "Nhạc lót dưới lời đọc",
@@ -427,6 +458,14 @@ SCHEMA: tuple[Setting, ...] = (
       help="Lời thoại trong «…» đọc bằng giọng VieNeu của nhân vật (data.json: Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam "
            "Thùy Dung, Sóc Nhỏ Mỹ Duyên); lời kể vẫn là KIDS_VOICE. 0 = một giọng đọc hết.",
       options=(("1", "Bật (mặc định)"), ("0", "Tắt: một giọng")), choices=("0", "1")),
+    S("KIDS_EN_VOICE", "en-US-JennyNeural", "kids", "Giọng đọc từ tiếng Anh",
+      help="Từ tiếng Anh trong câu dạy từ và câu ôn từ đọc bằng giọng bản xứ (edge-tts, đọc trên Kaggle), phần tiếng Việt vẫn "
+           "VieNeu. VieNeu là giọng tiếng Việt nên đọc «sun» thành «xun», «jump» thành «trâm» (đo 20/11). Giọng Anh lỗi thì "
+           "đoạn đó tự đọc bằng VieNeu như cũ.",
+      options=(("en-US-JennyNeural", "Jenny — nữ Mỹ, rõ, chuẩn (mặc định)"), ("en-US-AnaNeural", "Ana — giọng bé gái Mỹ"),
+               ("en-US-AvaNeural", "Ava — nữ Mỹ, tự nhiên"), ("en-US-GuyNeural", "Guy — nam Mỹ"),
+               ("off", "Tắt: VieNeu đọc luôn từ tiếng Anh (phát âm sai)")),
+      choices=("en-US-JennyNeural", "en-US-AnaNeural", "en-US-AvaNeural", "en-US-GuyNeural", "off")),
     S("KIDS_IMAGE_MODEL", "schnell", "kids", "Model vẽ ảnh",
       options=(("schnell", "FLUX.1-schnell 4-bit (Apache-2.0, 4 bước — mặc định)"),
                ("dev", "FLUX.1-dev (giấy phép PHI THƯƠNG MẠI — kênh không bật kiếm tiền; 20 bước, chậm ~6 lần schnell)"),
@@ -513,18 +552,18 @@ GROUPS: list[tuple[str, str, str]] = [
 DISPLAY_ORDER: tuple[str, ...] = (
     "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_BOT_JID",
-    "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE",
+    "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE", "VOICE_QA",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
     "QUALITY", "TEASER", "COVER", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "SHORT_VERSION", "POST_RECIPE", "TIPS",
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT",
-    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO", "TALK_ZOOM",
+    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "VOICE_SEP_MODEL", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",

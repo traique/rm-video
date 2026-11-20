@@ -13,6 +13,129 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; kênh bếp: nhạc Lyria, khung dọc theo nội dung (20/11/2026)
+
+- Kênh bếp: khung dọc theo nội dung (`FRAMING_AUTO`, mặc định bật): nguồn có dải đen thì bỏ dải đen; nguồn ngang cắt
+  khung 9:16 theo vùng có tay / chảo, hoạt động rải khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình.
+- Kênh bếp: dò cảnh người gốc nói vào máy (YuNet) và cận neo đáy xuống tay / món (`TALK_ZOOM`, tắt mặc định — xem chi tiết).
+- Kênh bếp: dò chuyển cảnh thích nghi (so mỗi khung với các khung quanh nó, theo AdaptiveDetector của PySceneDetect)
+  thay ngưỡng cứng: máy rung / lia nhanh không còn bị tính là chuyển cảnh, cắt nhảy cùng bối cảnh được bắt. Đo 20/11:
+  F1 0,879 -> 0,933 (Botkeep mức nhanh 0,893 -> 0,966), CPU +2-5%.
+- Kênh bếp, xoá chữ LaMa (Kaggle): chỉ vẽ lại chỗ có chữ thật trong dải (nét chữ từng khung, nới phủ viền / bóng)
+  thay cho cả hình chữ nhật — tay, đồ ăn, nồi đi qua dải giữ nguyên; phụ đề 2 dòng tràn ra ngoài dải vẫn xoá trọn; mặt nạ
+  giữ thêm 3 khung trước / sau chữ, nền đứng yên trộn với khung trước nên dải đỡ nhấp nháy. `TEXT_INPAINT=band` = cách cũ.
+- Giọng VieNeu (kênh bếp + truyện bé, Kaggle): Whisper large-v3-turbo nghe lại từng câu vừa đọc; câu đọc lặp / sai nhiều
+  (CER > 0,25 hoặc một cụm 3 từ nghe lặp) thì đọc lại, tối đa 2 lần, giữ bản tốt nhất; còn sai thì ghi chú trong job.
+  `VOICE_QA=0` để tắt; không có GPU / Whisper lỗi thì giữ giọng như cũ.
+- Kênh bếp, thử nghiệm: tách giọng gốc bằng Mel-Band RoFormer trên Kaggle (`VOICE_SEP_MODEL=auto`, mặc định vẫn `kim`).
+- Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
+  (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
+  dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
+- Truyện bé: từ tiếng Anh (câu dạy từ, câu ôn từ màn kết) đọc bằng giọng Anh bản xứ (edge-tts, `KIDS_EN_VOICE`, mặc định
+  en-US-JennyNeural), phần tiếng Việt vẫn VieNeu, nối lại trong clip của cảnh. Đo bằng Whisper trên video job 1: VieNeu đọc
+  «sun» thành «súng / xuống», «jump» thành «Trân / trâm»; bản mới Whisper nghe ra đúng «Sun», «Jump», «Happy».
+- Truyện bé: bộ kiểm ảnh bắt được nhân vật nhân đôi trên ảnh vẽ bằng LoRA (job 1: Gấu ôm HAI Thỏ ở cảnh 7, thêm một gấu con ở
+  cảnh 8 — bộ kiểm cũ cho qua cả hai). Ngưỡng đầu 0,3 -> 0,18, khung bao nhiều đầu không nuốt các đầu bên trong, đầu thứ hai
+  lệch sang bên không bị coi là thân áo, thêm phép đếm theo loài. Đo trên 85 khung hình video job 1: bắt 13/13 khung nhân
+  đôi (trước: 0), 0 khung báo nhầm ở 7 cảnh sạch.
+- Truyện bé: prompt ảnh nói đúng số bạn (cảnh 1 bạn không còn «All friends…»), «each appearing only once» ngay đầu prompt;
+  vật đang dạy («mặt trời đó») phải có trong hình (job 1 cảnh 1 dạy «sun» mà hình không có mặt trời).
+
+### Chi tiết
+- **Khung dọc theo nội dung** (`rmvideo/media/framing.py`): đo một lần mỗi job trên Botkeep (8 cặp khung xám 240px cách
+  0,25 giây, cùng chỗ với chọn tông màu): hàng / cột tối ở MỌI khung mẫu là dải đen (cảnh tối không bị nhận nhầm); nội dung
+  ngang (rộng/cao > 0,66) đo chuyển động theo cột, mỗi cặp khung chuẩn hoá riêng; cửa sổ 9:16 chứa ≥ 55% chuyển động -> cắt
+  cửa sổ đó, ít hơn mà nguồn rất ngang (≥ 1,2) -> nguyên khung vừa bề ngang trên nền mờ của chính nó (nền làm ở 1/8 cỡ,
+  gần như không tốn CPU), nguồn hơi ngang -> cắt giữa như cũ. `look_chain` dùng khung đã chọn ở mọi nơi (video chính, khúc
+  kế hoạch dựng, clip phụ, đoạn mở đầu, ảnh bìa; nhãn bộ lọc riêng mỗi lần gọi); dải chữ gốc đổi sang khung ra
+  (`map_bands`: che mờ + vị trí phụ đề); Kaggle nhận `spec["framing"]`. Đo trên video nấu ăn Wikimedia Commons (giấy phép
+  mở): video ngang trong khung dọc có dải đen -> bỏ 69% khung đen, nền mờ; nguồn ngang bếp ngoài trời và quay tay -> nền
+  mờ (tâm chuyển động lệch 73-195/240 cột giữa các cảnh, cắt cố định nào cũng mất chảo ở vài cảnh); nguồn vuông -> cắt.
+  Đo 5-9 giây / video trên máy phát triển đang tải nặng. Cắt cửa sổ theo TỪNG CẢNH (chủ thể đổi chỗ) chưa làm.
+- **Cảnh người gốc nói vào máy** (`rmvideo/media/talking.py`, `TALK_ZOOM`): YuNet (OpenCV Zoo, MIT, 230KB ONNX, tải từ
+  Hugging Face / GitHub media, kiểm SHA-256, chạy bằng onnxruntime có sẵn) trên ảnh thu nhỏ bước phân tích đã trích, ≤ ~1
+  ảnh/giây (46-60 ms/ảnh 384px trên CPU). Bỏ mặt đứng yên tuyệt đối qua ≥ 6 ảnh (đo: hai bức tranh chân dung treo tường
+  được nhận là mặt 0,88-0,90 điểm); mỗi ảnh lấy mặt cao ≥ 60% mặt lớn nhất và ≥ 10% khung; quãng có lời gốc dài ≥ 2 giây,
+  miệng (phân vị 80) ở trên 42% khung -> khúc chính nằm ≥ 50% trong quãng cận vừa đủ cắt miệng (≤ 1,6), neo đáy
+  (`edl.Piece.ay`, `look_chain(anchor_y=)`, `zoomed_bands` theo neo; bản lưu cũ không đổi). Tắt mặc định: trên video hai
+  người dẫn đứng nói, cận neo đáy chỉ còn thân người cụt đầu; chuyển động dưới miệng không tách được «tay đang làm món»
+  (trung vị 0,04-0,13) với «đứng nói, vung tay» (0,20). Bật khi nguồn chủ yếu «vừa nói vừa làm món».
+- **Dò chuyển cảnh thích nghi** (`scenes.py`): vẫn một lượt giải mã 320px như cũ, nhưng `scdet` in độ khác khung trước
+  (mafd) của mọi khung. Điểm cắt là khung có mafd ≥ 8 và gấp ≥ 3 lần trung bình ±2 khung lân cận (đổi rất mạnh ≥ 16 chỉ
+  cần gấp 2,2: máy rung kèm bỏ khung ở mức fast); khung trùng (mafd≈0) bỏ qua; vẫn giữ khoảng cách 0,8 giây. Bộ cũ giữ ở
+  `scenes.CUT_DETECTOR = "fixed"`; FFmpeg chưa có scdet (< 4.4) tự dùng bộ cũ. Đo bằng nhãn tay (lệch ≤ 0,25 giây), FFmpeg
+  1 luồng, giải mã full + fast, trên video nấu ăn Wikimedia Commons (100 giây 10 cắt; 58 giây quay tay 0 cắt; 9,6 giây 0 cắt),
+  video ghép có hơi nước / nhấp nháy / loé trắng / 2 hoà tan 0,5 giây và video 12 cắt nhảy cùng bối cảnh: cũ P 0,911 R 0,850
+  F1 0,879, mới P 0,933 R 0,933 F1 0,933. Cắt cứng bắt 56/56 (cũ 51/56); bỏ được cú lia nhanh bộ cũ báo nhầm. Hoà tan cả hai
+  đều không bắt (đã thử mafd 4 khung/giây và màu trung bình: không tách được khỏi máy rung; TransNetV2 trên Kaggle bắt được
+  nhưng cần trọng số + torch, chưa làm); loé trắng một khung cả hai đều báo nhầm. CPU cả lượt phân tích video 100 giây: fast
+  4,5 -> 4,8 giây, full 9,0 -> 9,5 giây. Khoá cache `scenes` không đổi: bản đã duyệt dựng lại vẫn dùng điểm cắt đã duyệt.
+- **Xoá chữ theo nét chữ** (`rmvideo/media/inpaint.py`, `MASK="text"`): pixel chữ (sáng sát tối như textzone) -> cắt XY
+  thành dòng chữ, bỏ cụm thấp < 1% khung hay mỗi hàng < 3 nét (mép mực trắng trên thớt tối), chỉ lấy cụm đứng yên (khung kề
+  chồng ≥ 50%), nới 0,8% chiều cao; cụm nằm ≥ 1/3 trong dải được lấn sang phần ngữ cảnh (dải textzone hẹp với phụ đề 2 dòng).
+  `HOLD=3` khung trước / sau (đọc trước 4 khung), `BLEND=0.6` trộn vùng vẽ khung trước ở cột nền đứng yên. Không dùng STTN:
+  kho researchmm/STTN không ghi giấy phép cho mã / trọng số, trọng số chỉ trên Google Drive. Đo 20/11 trên CPU (video
+  720x1280 10 giây có tay, mực trắng, dao đi qua; phụ đề drawtext trắng viền đen có hiện / tắt dần và 2 dòng; bản không chữ
+  làm đáp án; LaMa nửa cỡ như nguồn 1080p): trong dải, lệch gốc ngoài chữ MAE 12,8 -> 5,6 (PSNR 20,8 -> 28,2 dB; mức sàn
+  nén lại 3,7 / 32,8), trên chữ 31,4 -> 14,4 (14,0 -> 21,0 dB); khung còn chữ 14,4% -> 0%; đổi giữa hai khung lệch gốc
+  10,2 -> 6,0 (vùng chữ 14,3 -> 8,8). Vẽ thừa ngoài chữ 44% dải -> 14%. CPU thêm ~6 ms/khung ở 1080x1920 (~16 giây cho video
+  90 giây). Chưa đo trên T4; chữ vàng / chữ trong ô nền màu chưa thử (ô nền màu: `TEXT_INPAINT=band`).
+- **Nghe lại giọng VieNeu** (`rmvideo/media/voice_qa.py`, `VOICE_QA`): `kaggle_job.make_synth` (nhánh VieNeu) bọc synth;
+  faster-whisper large-v3-turbo (cuda, int8_float16, vi, beam 5) nghe từng mẩu ≥ 4 từ, hai bên chuẩn hoá qua
+  `vi_text.normalize` (số -> chữ), giữ dấu thanh. Hỏng khi CER > 0,25 hoặc một cụm 3 từ nghe ra lặp nhiều hơn trong lời;
+  đọc lại tối đa 2 lần (VieNeu ngẫu nhiên: 12/12 lần đọc lại ra file khác), giữ bản không hỏng / CER thấp nhất; thống kê
+  `timings.voice_qa` {checked, redo, worst_cer, secs}. Đo 20/11 trên 76 clip (Thục Đoan + Mỹ Duyên, Whisper turbo CPU): 54
+  câu nấu ăn đọc đúng CER trung vị 0,022, cao nhất 0,097 (Whisper nghe nhầm giọng Nam «nêm» -> «nem»); câu có từ tiếng Anh
+  VieNeu tự đọc tới 0,197. Đoạn lỗi 20/11 («Bé nói theo nè, súng» hai lần) đọc lại 3 lần thì 2 lần lặp y lỗi cũ (CER chỉ
+  0,19-0,21, lẫn với câu đúng — bắt bằng cụm 3 từ lặp: 3/3 clip lặp, 0/74 báo nhầm), 1 lần đúng; chạy thật hết đường
+  make_synth: bản đầu lặp, đọc lại 1 lần là đúng (CER 0,049). Giới hạn: đọc sai MỘT con số trong câu dài chỉ làm CER lên
+  ~0,05-0,07, chưa bắt được. `faster-whisper` cài bằng lệnh pip RIÊNG nối cuối (`kaggle_worker.PIP_QA`): cài lỗi thì chỉ mất
+  bước nghe lại. Thời gian trên T4 chưa đo (ước vài chục giây / job: tải model 1,6 GB + ~0,2-0,5 giây / mẩu).
+- **Tách giọng RoFormer** (`vocal_sep.py`, `VOICE_SEP_MODEL=auto`, thử nghiệm): phiên phân tích Kaggle (GPU) tách bằng
+  Mel-Band RoFormer (Kimberley Jensen, `vocals_mel_band_roformer.ckpt` 913MB qua audio-separator 0.48.0 MIT; file trùng
+  SHA-256 `MelBandRoformer.ckpt` ở HF KimberleyJSN/melbandroformer, thẻ model ghi MIT; repo GitHub không có LICENSE, dữ liệu
+  train không công bố) trong tiến trình con ≤ 7 phút; lỗi / quá giờ / không CUDA thì Kim_Vocal_2 như cũ. Lấy giọng từ
+  `demix` (đúng biên độ), mặt nạ phổ k=8, không lượt 2. Đo 20/11 trên 3 hỗn hợp 45 giây biết trước (giọng edge-tts + nền
+  thật / xèo tổng hợp / xèo nhỏ hơn giọng 25 dB; cửa sổ 250ms như bản 32), so với Kim 2 lượt + mặt nạ: giọng sót -46,5 /
+  -56,6 / -74,4 dB (Kim -46,6 / -57,3 / -69,2), xèo >3,5kHz lúc có lời mất 0,5 / 0,1 / 1,1 dB (Kim 0,8 / 0,5 / 1,8). CPU ~145
+  giây máy cho 10 giây audio (một lượt Kim ~21 giây). Mặc định vẫn `kim`: chưa chạy thật trên Kaggle (gói đòi numpy ≥ 2 +
+  onnx-weekly / protobuf mới, tải 913MB mỗi phiên), lợi ích đo được nhỏ. Bật `auto` rồi xem log một video.
+- **Soát lại cả bản 1.1.2 (20/11)**: kho Lyria bếp đủ bài mà còn bài chưa lên Kaggle (lần đẩy trước lỗi, kho tạo lúc
+  Kaggle tắt) thì tự đẩy trong nền (`bgm.fill_later`); model dò mặt không tải được thì báo lỗi MỘT lần thay vì thử tải lại
+  với từng ảnh (mỗi lần tới 60 giây); khung dọc khớp theo TỈ LỆ khung, đổi cỡ vùng cắt khi Kaggle tự tải nguồn ở độ phân
+  giải khác bản Botkeep đã đo (trước đây Kaggle cắt giữa mà phụ đề vẫn đặt theo khung mới); nguồn hơi ngang không rõ chủ thể
+  giữ cách cũ, không ghi chú rỗng; lý do vẽ lại ảnh ghi đúng số bạn cùng loài; từ dạy «run» trùng chữ tiếng Việt («run run vì
+  sợ») chỉ đọc giọng Anh ở câu dạy / câu ôn từ (`dialogue.VI_HOMOGRAPHS`). Giữ nguyên: dựng lại bản đã duyệt vẫn dùng điểm
+  cắt đã lưu (bộ nhớ đệm `scenes`), để khớp đúng lời đã duyệt.
+- **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
+  dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
+  chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),
+  `mood_for` đếm chữ khớp trong tên món + tiêu đề + mô tả (hoà / không khớp: ấm cúng, review: sôi động). `choose`: đúng màu,
+  thiếu thì màu khác, kho trống thì thư viện của mình; dựng trên Kaggle chỉ lấy bài đã đẩy dataset. Màu thiếu bài thì
+  `fill_later` tạo MỘT bài trong nền rồi đẩy dataset (một việc một lúc, Lyria lỗi nghỉ 30 phút) — khác truyện bé (tạo ngay
+  trong job), vì job bếp không nên chờ ~3 phút. Kaggle: bài Lyria gửi dạng file trong dataset gắn vào phiên
+  (`bed_spec(music_ref=)`, `build_spec` nhạc lót, `produce_batch` gộp `dataset_sources` của cả lô). Web: dòng trạng thái kho +
+  nút «Tạo đủ kho Lyria» (`POST /api/bgm/lyria`); console `cook_bgm`. Chưa chạy Lyria thật với 3 prompt bếp (máy phát triển
+  không có key Gemini): lần tạo đầu xem log «Nhạc bếp: Lyria lọc prompt» nếu có.
+- **Giọng Anh** (`rmvideo/kids/dialogue.py`: `split_english`, `english_clip`; `rmvideo/kids/job.py`): mỗi đoạn lời (người kể /
+  nhân vật) tách theo các từ tiếng Anh của đề (đứng riêng, không phân biệt hoa thường, dấu câu dính sau đi kèm để giọng Anh lên
+  giọng đúng «sun!»): «À, mặt trời đó tiếng Anh là» (VieNeu) + «sun.» (giọng Anh) + «Bé nói theo nè:» (VieNeu) + «sun!» (giọng
+  Anh). edge-tts đệm ~0,2 s lặng đầu và ~1,2 s lặng cuối -> cắt còn 40/60 ms; đọc chậm 10%; mỗi mẩu kéo về cùng mức RMS như
+  trước. Mỗi cụm chữ Anh chỉ gọi edge-tts một lần, thử lại 3 lần; vẫn lỗi thì đoạn chứa nó VieNeu đọc nguyên như cũ, ghi vào
+  `notes` (không mất tiếng, không hỏng job). Kaggle đã cài sẵn edge-tts (gói PIP của notebook). `timings.en_voice` ghi giọng đã
+  dùng. Cài đặt `KIDS_EN_VOICE`: Jenny (nữ, chuẩn) / Ana (bé gái) / Ava / Guy / `off`. Nghe thử VieNeu CPU + edge thật: VieNeu
+  đọc nguyên câu còn tự lặp «Bé nói theo nè, súng» hai lần; bản tách không lặp.
+- **Kiểm ảnh** (`rmvideo/kids/imgcheck.py`): OWLv2 chấm đầu trên ảnh LoRA (lông nỉ) thấp hơn hẳn ảnh FLUX trơn đo 19/11 — đầu
+  gấu 0,15–0,23, đầu thỏ thứ hai 0,297 — nên ngưỡng 0,3 không thấy bản sao. `THRESHOLD` 0,18 (dải an toàn đo được 0,15–0,2;
+  0,12 bắt đầu báo nhầm). `_groups`: khung bao trọn ≥ 2 khung tách rời (một khung «a rabbit head» 0,32 bao cả hai thỏ, điểm cao
+  nhất) bị bỏ, các đầu bên trong giữ lại. `_is_body`: khung dưới một đầu chỉ là thân áo khi thẳng hàng (tâm lệch ≤ 25%) hoặc
+  vùng giữa mang màu áo — luật cũ (mọi khung dưới đầu) gộp mất đầu thỏ thứ hai ló dưới cằm thỏ thứ nhất (lệch 54%). `species_twins`:
+  hai đầu cùng loài ≥ 0,25 mà cảnh chỉ có một bạn loài đó -> nhân đôi. Test hồi quy dùng khung thật đo từ video job 1.
+- **Prompt ảnh** (`rmvideo/kids/prompts.py`): `PROPORTION_ONE_EN` / `PROPORTION_TWO_EN` thay câu «All friends…» cho mọi cảnh;
+  «Exactly one character in the picture, alone» / «Exactly two friends in the picture, each appearing only once» (nói khẳng định,
+  FLUX schnell không có prompt âm); từ dạy nhóm vật / thiên nhiên không có tư thế -> «the sun clearly visible in the sky» (con
+  vật không ép: bộ kiểm sẽ đếm nó là đầu thừa).
+
 ## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
 
 - Nhạc bé: cả phiên Lyria giới hạn `TIMEOUT + STALL` giây (`asyncio.wait_for`): trước đây hạn giờ chỉ xét khi có gói

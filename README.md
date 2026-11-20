@@ -249,7 +249,10 @@ dùng.
 Kiểm ảnh (19/11, `rmvideo/kids/imgcheck.py`): FLUX với khung dọc 9:16 thỉnh thoảng vẽ nhân vật hai đầu / nhân đôi dù prompt ghi
 «đúng một nhân vật». Sau khi vẽ, OWLv2 (bộ dò vật thể mở, ~600MB, chạy trên Kaggle sau FLUX) đếm đầu thỏ / mèo / gấu / sóc,
 gộp khung lồng nhau và bỏ khung thân áo dưới đầu (đo thật 16 ảnh: 0 báo nhầm); thừa đầu so với số bạn có mặt thì vẽ lại cảnh
-với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
+với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Từ 20/11 (ảnh LoRA chấm điểm thấp hơn): ngưỡng 0,18, khung bao nhiều đầu không
+nuốt các đầu bên trong, đầu lệch sang bên không bị coi là thân áo, thêm phép đếm theo loài — đo trên 85 khung hình video
+job 1: bắt 13/13 khung nhân đôi (Gấu ôm hai Thỏ, thêm gấu con), 0 báo nhầm. Từ tiếng Anh đọc bằng giọng bản xứ
+(`KIDS_EN_VOICE`, edge-tts en-US) thay vì VieNeu («sun» -> «súng»). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
 bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
 trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
 
@@ -480,12 +483,29 @@ video bằng yt-dlp. Link trang nhạc `tiktok.com/music/...` bị Cloudflare ch
    không lời). `NO_SPEECH=narrate` để quay về cách cũ: mỗi cảnh là một đoạn, AI nhìn ảnh cảnh để viết lời.
 6. Chọn thời lượng dài hơn video gốc: làm chậm hình + tiếng nền tối đa 1.4x.
 
+## 🖼️ Khung dọc theo nội dung (1.1.2)
+
+- `FRAMING_AUTO=1` (mặc định): trước khi dựng, bot đo 8 cặp khung của video gốc. Dải đen có sẵn (video ngang đặt trong khung
+  dọc) bị bỏ. Nguồn ngang 16:9: tay / chảo dồn một chỗ thì cắt khung 9:16 đúng chỗ đó; hoạt động rải khắp khung thì đặt
+  nguyên khung lên nền mờ của chính nó (không mất 2/3 hình như cắt giữa). Nguồn dọc bình thường: cắt giữa như cũ. Chữ gốc
+  cần che và vị trí phụ đề mới đổi theo khung. `0` = luôn cắt giữa như trước.
+- `TALK_ZOOM=1` (tắt mặc định): khúc người gốc nói vào máy (mặt to ở phần trên khung, đang có lời gốc) được đẩy cận neo đáy
+  xuống tay / món để lời Việt không chạy trên môi người khác. Hợp nguồn «vừa nói vừa làm món»; với người dẫn đứng nói thì
+  ra cảnh cụt đầu, nên để tắt.
+
 ## 🎵 Nhạc nền cho video không lời
 
 Video không ai nói thì bot KHÔNG để AI xem hình rồi bịa lời (dễ đoán sai món, nguyên liệu, bước làm) mà chèn nhạc nền.
 Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu, logo, che chữ gốc, ảnh bìa; bài đăng chỉ viết từ tiêu đề
 + mô tả gốc.
 
+- **Kho nhạc tự tạo bằng Lyria** (`BGM_SOURCE=lyria`, mặc định từ 1.1.2, làm giống truyện bé): bot tự tạo nhạc không lời
+  bằng Lyria RealTime (key Gemini, free) theo «màu» món: chiên xào / đường phố / review → **sôi động**, đồ uống / healthy →
+  **thư giãn**, canh cháo kho bánh → **ấm cúng** (`bgm.mood_for`, đoán từ tên món + tiêu đề + mô tả). Mỗi màu 3 bài
+  150 giây; bài thiếu được tạo dần trong nền (job không phải chờ), xong đẩy lên Kaggle thành dataset riêng tư
+  `rmvideo-cook-bgm` (Kaggle không cần `PUBLIC_URL`). Gõ `cook_bgm` ở console hoặc bấm **Tạo đủ kho Lyria** trên web để
+  tạo đủ 9 bài ngay (~25 phút, chạy nền). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
+  bài thì dùng thư viện của bạn (dưới); `BGM_SOURCE=files` để chỉ dùng thư viện của bạn như trước.
 - Thêm nhạc ở ô **🎵 Nhạc nền cho video không lời** trên web: dán link TikTok / YouTube / mp3 (lưu vào `BGM_LINKS`) hoặc
   tải file lên (mp3, m4a, wav…, tối đa 40 bài, 15MB/bài). Dựng trên Kaggle mà chưa đặt `PUBLIC_URL` thì chỉ dùng nhạc
   dạng link.
@@ -493,7 +513,7 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
 - `BGM_ORIG`: **off** (mặc định) chỉ nhạc mới; **low** giữ tiếng gốc nhỏ dưới nhạc (video ASMR tiếng xèo, tiếng dao);
   **keep** giữ tiếng gốc to, nhạc nằm dưới.
 - Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
-- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài trong thư viện này, lót
+- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài (kho Lyria hoặc thư viện), lót
   thật nhỏ dưới giọng (quãng lặng ~13 dB dưới lời, tự hạ thêm khi đang đọc, bỏ bass), video gốc đã có nhạc rõ thì
   không lót. Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
 

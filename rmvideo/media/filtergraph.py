@@ -6,7 +6,7 @@ import re
 from contextvars import ContextVar
 
 import config
-from rmvideo.media import edl, ff
+from rmvideo.media import edl, ff, framing
 
 # loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
 # sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản
@@ -202,7 +202,7 @@ def look_name() -> str:
 
 
 def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True,
-               zoom: float = 1.0, part: str = "all") -> str:
+               zoom: float = 1.0, part: str = "all", anchor_y: float = 0.5) -> str:
     """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
     phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
     tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
@@ -216,7 +216,12 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     preset = LOOKS.get(look_name())
     if preset:
         look = preset.replace("{warm}", warm_filter(5400, 0.4) if cook else "")
-    size = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},"
+    fr = framing.current(src_w, src_h)         # khung dọc theo nội dung (1.1.2): bỏ dải đen, cửa sổ 9:16, nền mờ
+    pre = framing.pre_crop(fr)
+    if fr:
+        src_w, src_h = fr["box"][2], fr["box"][3]
+    size = (framing.pad_graph(W, H) if fr.get("pad") else
+            f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},")
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
     keep = 0.96 / max(zoom, 1.0)               # zoom > 1: đẩy cận (kế hoạch dựng) ngay ở lần cắt viền, không tốn thêm
@@ -225,11 +230,13 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
     tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
     crop = "crop=in_w*0.96:in_h*0.96," if abs(zoom - 1.0) < 1e-6 else f"crop=in_w*{keep:.4f}:in_h*{keep:.4f},"
+    if anchor_y != 0.5 and abs(zoom - 1.0) >= 1e-6:     # cận neo đáy (cảnh người gốc nói vào máy): cắt mất miệng, giữ tay
+        crop = f"crop=in_w*{keep:.4f}:in_h*{keep:.4f}:(in_w-out_w)/2:(in_h-out_h)*{anchor_y:.3f},"
     if part == "geo":                          # chỉ cắt khung + đổi cỡ (màu chạy chung sau khi ghép khúc: shared_look)
-        return (crop + size).rstrip(",")
+        return (pre + crop + size).rstrip(",")
     if part == "color":                        # khử nhiễu + màu + làm nét, trên hình đã đúng cỡ
         return look + sharpen + tail
-    return crop + (look + size if upscale else size + look) + sharpen + tail
+    return pre + crop + (look + size if upscale else size + look) + sharpen + tail
 
 
 def shared_look(plan, W: int, H: int, src_w: int, src_h: int) -> bool:
@@ -289,10 +296,11 @@ def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = F
 
 def _plan_video(plan, mode: str, W: int, H: int, src_w: int, src_h: int, fps: float, side_inputs, lead) -> str:
     if shared_look(plan, W, H, src_w, src_h):
-        return (edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z, part="geo"), fps, W, H,
+        return (edl.video_graph(plan, lambda z, ay=0.5: look_chain(mode, W, H, src_w, src_h, zoom=z, part="geo",
+                                                                   anchor_y=ay), fps, W, H,
                                 side_inputs=side_inputs, lead=lead)
                 + "," + look_chain(mode, W, H, src_w, src_h, part="color"))
-    return edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z), fps, W, H,
+    return edl.video_graph(plan, lambda z, ay=0.5: look_chain(mode, W, H, src_w, src_h, zoom=z, anchor_y=ay), fps, W, H,
                            side_inputs=side_inputs, lead=lead)
 
 
@@ -329,6 +337,8 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     voice_bed: nhạc lót dưới lời {"idx": đầu vào, "gain_db": mức} (VOICE_BED) hoặc None."""
     tz = teaser if teaser and teaser.get("dur") else None
     T = float(tz["dur"]) if tz else 0.0
+    if cover_bands:                              # khung dọc theo nội dung: dải chữ gốc đổi sang khung ra (trước khi đẩy cận)
+        cover_bands = framing.map_bands(list(cover_bands), framing.current(src_w, src_h))
     plan = edit                                  # rmvideo.media.edl.EditPlan (REMAKE_STYLE) hoặc None = như cũ
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
     slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 and plan is None else ""
@@ -343,7 +353,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
             pre_audio += edl.audio_graph(plan, ambient_src, "[ambE]", side_audio=side_audio, tag="b")
             ambient_src = "[ambE]"
         if cover_bands:
-            cover_bands = edl.zoomed_bands(list(cover_bands), {p.zoom for p in plan.pieces})
+            cover_bands = edl.zoomed_bands(list(cover_bands), {(p.zoom, p.ay) for p in plan.pieces})
     if slow:
         ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
         orig_src += f"atempo={1 / stretch:.4f},"

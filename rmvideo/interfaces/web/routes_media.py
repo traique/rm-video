@@ -14,7 +14,8 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         import bgm
         return {"items": [{"key": x["key"], "name": x["name"], "kind": "link" if "url" in x else "file"}
                           for x in bgm.library()],
-                "mode": config.NO_SPEECH, "orig": config.BGM_ORIG, "public_url": bool((config.PUBLIC_URL or "").strip())}
+                "mode": config.NO_SPEECH, "orig": config.BGM_ORIG, "public_url": bool((config.PUBLIC_URL or "").strip()),
+                "lyria": bgm.lyria_state()}
 
     async def bgm_list(request):
         """Thư viện nhạc nền cho video KHÔNG LỜI (NO_SPEECH=music): link (BGM_LINKS) + file đã tải lên."""
@@ -86,6 +87,13 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
             config.save_settings({"BGM_LINKS": ",".join(x for x in links if x != key) or "-"})
         return web.json_response(_bgm_state())
 
+    async def bgm_lyria(request):
+        """Tạo đủ kho nhạc Lyria của bếp trong nền (như lệnh console cook_bgm)."""
+        _check(request)
+        import bgm
+        msg = bgm.build_lyria_later()
+        return web.json_response({**_bgm_state(), "msg": msg})
+
     async def kaggle_input(request):
         """Link tạm cho Kaggle tải file đang nằm trên Botkeep (video tải lên, nhạc, ảnh). Không cần đăng nhập: mã 32 byte
         ngẫu nhiên, chỉ trỏ đúng một file, hết hạn sau vài giờ (kaggle_worker.serve)."""
@@ -99,4 +107,5 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     app.router.add_post("/api/bgm", bgm_upload)
     app.router.add_post("/api/bgm/link", bgm_add_link)
     app.router.add_post("/api/bgm/delete", bgm_delete)
+    app.router.add_post("/api/bgm/lyria", bgm_lyria)
     app.router.add_get("/kin/{token}/{name}", kaggle_input)

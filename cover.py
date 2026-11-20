@@ -261,7 +261,9 @@ def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title
                  title_size: float, logo: bool, series_file: str | None = None) -> str:
     """filter_complex cho MỘT khung: màu như video -> che dải chữ gốc -> tối dần phía trên -> tiêu đề -> logo,
     ra 2 nhãn [big] (ảnh bìa) và [small] (thumbnail Telegram 180x320)."""
-    v = "[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h, grain=False) + core_video._cover_filter(bands or [], W, H)
+    from rmvideo.media import framing
+    v = ("[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h, grain=False)
+         + core_video._cover_filter(framing.map_bands(list(bands or []), framing.current(src_w, src_h)), W, H))
     color = _brand_rgb()
     kenh = config.COVER_TEMPLATE == "kenh"
     if title_files:
