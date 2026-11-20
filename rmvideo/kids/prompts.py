@@ -288,9 +288,19 @@ def emotion_en(text: str) -> str:
     return _last_match(EMOTION_VI, text)
 
 
+# lời cảnh nói đồ vật đang MẤT / đang tìm -> không ép vẽ nó (mẫu 34, truyện tìm đồ: «cây dù mất tiêu!» mà prompt đòi «umbrella
+# clearly visible», OWLv2 bắt vẽ lại 2 lần vì không thấy dù)
+PROP_LOST_RE = re.compile(r"(?<![\wÀ-ỹ])(?:mất|mất tiêu|mất rồi|không thấy|chẳng thấy|chưa thấy|đâu rồi|ở đâu|đi đâu|biến đâu|"
+                          r"tìm|kiếm|quên)(?![\wÀ-ỹ])")
+
+
 def prop_required(idx: int, scene: dict, prop: tuple[str, str] | None) -> bool:
-    """Cảnh này phải có đồ vật chính trong hình: cảnh 1 (sợi chỉ của truyện) và cảnh nào lời kể nhắc tới nó."""
-    return bool(prop and prop[0] and prop[1] and (idx == 0 or story_mod.prop_mentioned(prop[0], str(scene.get("text") or ""))))
+    """Cảnh này phải có đồ vật chính trong hình: cảnh 1 (sợi chỉ của truyện) và cảnh nào lời kể nhắc tới nó — trừ khi lời nói
+    nó đang mất / đang tìm / bị quên (PROP_LOST_RE)."""
+    text = str(scene.get("text") or "")
+    if not (prop and prop[0] and prop[1]) or PROP_LOST_RE.search(text.lower()):
+        return False
+    return idx == 0 or story_mod.prop_mentioned(prop[0], text)
 
 
 def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False,

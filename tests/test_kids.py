@@ -1512,6 +1512,13 @@ def test_image_prompt_cues_from_story_text():
     assert "candy bag clearly visible" in prompts.image_prompt(sc1b, brief, DATA, 0, prop=prop)
     assert prompts.prop_required(0, sc1, prop) and not prompts.prop_required(3, {"text": "Gấu ngủ."}, prop)
     assert prompts.prop_required(3, {"text": "Gấu ăn kẹo."}, prop) and not prompts.prop_required(0, sc1, None)
+    assert not prompts.prop_required(1, {"text": "Lúc quay lại, cây dù mất tiêu!"}, ("cây dù", "yellow umbrella"))   # đang mất
+    assert not prompts.prop_required(3, {"text": "Bé đoán xem cây dù ở đâu?"}, ("cây dù", "yellow umbrella"))
+    assert not prompts.prop_required(0, {"text": "Thỏ quên mất túi kẹo."}, prop)
+    assert prompts.prop_required(5, {"text": "Thấy rồi nè! Cây dù nằm ngay đó!"}, ("cây dù", "yellow umbrella"))
+    assert "umbrella clearly visible" not in prompts.image_prompt({"text": "Cây dù mất tiêu!", "characters": ["white_rabbit"],
+                                                                   "action_en": "White Rabbit looking around"}, brief, DATA, 1,
+                                                                  prop=("cây dù", "yellow umbrella"))
     sc3 = {"text": "Gấu Nâu ngồi chờ bên bàn bánh kem. Trời sắp tối mà chẳng thấy bạn đâu, Gấu Nâu buồn thiu.",
            "characters": ["brown_bear"], "action_en": "Brown Bear sitting by a table with a cake"}
     p3 = prompts.image_prompt(sc3, brief, DATA, 2, prop=prop)
