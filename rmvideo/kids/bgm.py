@@ -29,6 +29,7 @@ TRACK_SECS = 100                       # video tối đa 88 giây + đuôi
 TRACKS_PER_MOOD = 3
 RATE, CH = 48000, 2                    # Lyria trả PCM 16-bit 48 kHz stereo
 TIMEOUT = 240                          # giây cho một bài (tạo theo thời gian thật ~100 giây + dự phòng)
+STALL = 30                             # giây thêm cho bắt tay / dừng phiên ngoài TIMEOUT (xem stream)
 DATASET_WAIT = 900
 MOODS: dict[str, dict[str, Any]] = {
     "playful": {"vi": "vui tươi", "bpm": 104, "density": 0.4, "brightness": 0.55,
@@ -98,7 +99,16 @@ def _client() -> Any:
 
 
 async def stream(mood: str, secs: float, client: Any = None, log: Log = logging.info) -> bytes:
-    """PCM 16-bit 48 kHz stereo dài ≥ secs giây từ Lyria RealTime (thời gian thật)."""
+    """PCM 16-bit 48 kHz stereo dài ≥ secs giây từ Lyria RealTime (thời gian thật). Giới hạn cả phiên TIMEOUT + STALL giây:
+    vòng nhận chỉ xét TIMEOUT khi có gói gửi về, kết nối đứng im (không gửi, không đóng) thì treo mãi — job truyện bé kẹt ở
+    «chọn nhạc nền» (CI 20/11 treo 30 phút ở 94%, test luồng truyện bé gọi Lyria thật)."""
+    try:
+        return await asyncio.wait_for(_stream(mood, secs, client, log), TIMEOUT + STALL)
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"Lyria không trả nhạc sau {TIMEOUT + STALL} giây (kết nối đứng im)") from None
+
+
+async def _stream(mood: str, secs: float, client: Any, log: Log) -> bytes:
     from google.genai import types
     m = MOODS[mood]
     client = client or _client()

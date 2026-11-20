@@ -15,6 +15,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 
 ## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
 
+- Nhạc bé: cả phiên Lyria giới hạn `TIMEOUT + STALL` giây (`asyncio.wait_for`): trước đây hạn giờ chỉ xét khi có gói
+  gửi về, kết nối đứng im thì job truyện bé kẹt mãi ở «chọn nhạc nền». Test truyện bé không gọi Lyria thật nữa (CI 20/11
+  treo 30 phút ở 94%). CI: Pillow, pytest-timeout 5 phút/test, job 25 phút, in bản ffmpeg (ubuntu-latest 26.04 = FFmpeg 8).
+- Kênh bếp, LaMa: video có cờ xoay 90°/270° đọc theo khung hiển thị (`inpaint._probe`), không cắt khung sai chiều.
 - Truyện bé: lưu LoRA nhân vật trong repo (`lora/dcn_lora_v1.safetensors`, Git LFS, sha256 e5e1d8a5…) +
   `scripts/push_kids_lora.py` tạo lại dataset Kaggle `rmvideo-kids-lora` từ bản này; `lora/` không vào gói Botkeep.
 - Truyện bé, hình theo lời kể (xem mẫu 32 với mắt đạo diễn, 20/11): model ghi đồ vật chính `prop_vi`/`prop_en` (bộ kiểm đòi có

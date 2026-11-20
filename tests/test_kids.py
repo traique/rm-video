@@ -38,6 +38,13 @@ def _state(monkeypatch, tmp_path):
     monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids.json"))
     monkeypatch.setattr(kids_auto, "_POSTED", {})
     monkeypatch.setattr(kids_auto, "BGM_DIR", str(tmp_path / "no_bgm"))
+    # không gọi Lyria thật (mạng): test nào cần thì truyền client giả; kho nhạc ở thư mục tạm, không ghi vào assets/
+    from rmvideo.kids import bgm
+
+    def _no_lyria():
+        raise RuntimeError("test không gọi Lyria thật")
+    monkeypatch.setattr(bgm, "_client", _no_lyria)
+    monkeypatch.setattr(bgm, "LIB_DIR", str(tmp_path / "lyria_lib"))
     for k in config.EDITABLE:
         if k.startswith("KIDS_"):
             monkeypatch.setattr(config, k, config.EDITABLE[k])
@@ -1604,3 +1611,43 @@ def test_insert_beat_keeps_quote_closed():
     assert out == "Thỏ Trắng chạy ra suối: «Tìm nữa, tìm nữa nào!» Đố bé biết dòng suối đó tiếng Anh là gì? Là river! Bé đoán xem cây dù ở đâu?"
     assert story.ends_with_child_question(t) and not story.ends_with_child_question("«Bé đoán xem?»")
     assert story.insert_beat("Thỏ chạy. «Ôi chao!»", "À, x là y.") == "Thỏ chạy. «Ôi chao!» À, x là y."
+
+
+def test_lyria_stall_times_out(monkeypatch):
+    """Kết nối Lyria đứng im (không gửi gói nào, không đóng): stream dừng sau TIMEOUT + STALL giây, không treo job."""
+    from rmvideo.kids import bgm
+
+    class _Stall:
+        def __init__(self):
+            outer = self
+
+            class _S:
+                async def set_weighted_prompts(self, prompts):
+                    pass
+
+                async def set_music_generation_config(self, config):
+                    pass
+
+                async def play(self):
+                    pass
+
+                async def stop(self):
+                    pass
+
+                async def receive(self):
+                    await asyncio.sleep(3600)
+                    yield None
+
+            class _C:
+                async def __aenter__(self):
+                    return _S()
+
+                async def __aexit__(self, *a):
+                    return False
+            outer.aio = SimpleNamespace(live=SimpleNamespace(music=SimpleNamespace(connect=lambda model: _C())))
+    monkeypatch.setattr(bgm, "TIMEOUT", 0.2)
+    monkeypatch.setattr(bgm, "STALL", 0.1)
+    t0 = time.time()
+    with pytest.raises(RuntimeError, match="đứng im"):
+        asyncio.run(bgm.stream("playful", 2, client=_Stall(), log=lambda s: None))
+    assert time.time() - t0 < 5
