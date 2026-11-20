@@ -61,8 +61,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     check = (spec.get("image") or {}).get("check", True)
     expected = [len(sc.get("characters") or []) for sc in st["scenes"]] if check else None
-    colors = [[prompts.shirt_color(data["characters"].get(k, {})) for k in sc.get("characters") or []]
-              for sc in st["scenes"]] if check else None
+    chars = data["characters"]
+    colors = [[f"{chars.get(k, {}).get('name_en', '').split()[-1].lower()}:{prompts.shirt_color(chars.get(k, {}))}"
+               for k in sc.get("characters") or [] if k in chars]
+              for sc in st["scenes"]] if check else None       # «rabbit:red»: soát cả áo nào dưới đầu nào
     istats: dict = {}
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
                                    expected=expected, stats=istats, colors=colors, lora=lora)

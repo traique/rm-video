@@ -351,6 +351,19 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert imgcheck.shirts_ok([("red", 0.5, [0, 0, 1, 1])], ["red", "green"])    # thiếu áo: không tính lỗi
     assert imgcheck.shirts_ok([], ["red"]) and imgcheck.shirts_ok(found, [])
     assert imgcheck.hue_name(5) == "red" and imgcheck.hue_name(350) == "red" and imgcheck.hue_name(30) is None
+    # áo đúng chủ: đầu thỏ trên áo đỏ, đầu mèo trên áo xanh lá (đo thật mẫu 32: Thỏ mặc áo xanh của Gấu)
+    hd = [("a rabbit head", 0.5, [20, 40, 80, 110]), ("a cat head", 0.5, [120, 40, 180, 110])]
+    assert imgcheck.shirt_owner([20, 120, 80, 200], hd) == "rabbit" and imgcheck.shirt_owner([120, 120, 180, 200], hd) == "cat"
+    assert imgcheck.shirt_owner([20, 0, 80, 30], hd) is None                                  # áo ở TRÊN đầu: không gán
+    assert imgcheck.owners_ok(hd, found, {"rabbit": "red", "cat": "green"})
+    assert not imgcheck.owners_ok(hd, found, {"rabbit": "green", "cat": "red"})
+    monkeypatch.setattr(imgcheck, "detect", lambda img, loaded=None, min_score=0.1: hd + boxes[:2])
+    ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["rabbit:red", "cat:green"])
+    assert ok and n == 2 and not any(b[0].startswith("why:") for b in out)
+    ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["rabbit:green", "cat:red"])
+    assert not ok and any(b[0].startswith("why:áo mặc nhầm chủ") for b in out)
+    ok, _n, out = imgcheck.check(im, 1, loaded=object(), colors=["rabbit:red"])              # 2 đầu, cảnh 1 bạn
+    assert not ok and any("2 đầu" in b[0] for b in out)
     big_small = [("a rabbit head", 0.5, [0, 0, 300, 300]), ("a squirrel head", 0.5, [400, 500, 500, 600])]   # 9x diện tích
     assert not imgcheck.sizes_ok(big_small, 2) and imgcheck.sizes_ok(big_small, 1)
     assert imgcheck.sizes_ok([("a rabbit head", 0.5, [0, 0, 300, 300]), ("a cat head", 0.5, [400, 0, 600, 200])], 2)

@@ -19,6 +19,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: bộ kiểm ảnh soát áo đúng chủ (`imgcheck.shirt_owner` / `owners_ok`: áo dưới đầu thỏ phải đỏ, dưới đầu gấu phải
+  xanh dương…; đo thật mẫu 32: Thỏ mặc áo xanh của Gấu, Gấu không áo — chỉ một áo nên kiểm «hai áo cùng màu» không bắt);
+  `check` trả lý do hỏng cụ thể vào log.
 - Truyện bé: LoRA 4 nhân vật (`KIDS_LORA`, mặc định `dcn_lora_v1`) — train 20/11 trên Kaggle T4 bằng ai-toolkit (FLUX.1-schnell
   + adapter huấn luyện của ostris, Apache-2.0; 144 ảnh do pipeline tự vẽ, 36 ảnh / bạn; 600 bước fp16, transformer + T5 nén
   uint4, embedding T5 tính sẵn ngoài trainer để vừa 14,5 GB; 75 phút). File lưu ở dataset riêng tư `rmvideo-kids-lora`; phiên

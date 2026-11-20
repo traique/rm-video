@@ -8,6 +8,7 @@ ngay dưới một đầu khác, ngưỡng 0,3 -> 0/16 ảnh bị báo nhầm. C
 bị dò sót)."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
@@ -159,12 +160,51 @@ def detect(img: Any, loaded: tuple[Any, Any, str] | None = None, min_score: floa
             for box, sc, lab in zip(r["boxes"], r["scores"], r["labels"])]
 
 
+def shirt_owner(shirt: list[int], heads: list[Box]) -> str | None:
+    """Loài của đầu ngay PHÍA TRÊN áo (chồng ngang ≥ 30%, tâm đầu không thấp hơn đỉnh áo quá 20%): «rabbit», «bear»...;
+    không có / đầu không rõ loài («a cartoon animal face») thì None."""
+    best: tuple[float, str] | None = None
+    for q, _s, h in heads:
+        x_over = max(0, min(shirt[2], h[2]) - max(shirt[0], h[0])) / max(1, shirt[2] - shirt[0])
+        if x_over < 0.3 or (h[1] + h[3]) / 2 > shirt[1] + 0.2 * (shirt[3] - shirt[1]):
+            continue
+        gap = abs(shirt[1] - h[3])
+        if best is None or gap < best[0]:
+            best = (gap, q)
+    m = re.match(r"a (\w+) head$", best[1]) if best else None
+    return m.group(1) if m else None
+
+
+def owners_ok(heads: list[Box], shirts: list[tuple[str, float, list[int]]], owners: dict[str, str]) -> bool:
+    """Áo dưới đầu thỏ phải màu áo của Thỏ... (đo thật mẫu 32: Thỏ mặc áo xanh của Gấu, Gấu không áo — một áo duy nhất
+    nên shirts_ok không bắt)."""
+    for c, _s, b in shirts:
+        sp = shirt_owner(b, heads)
+        if sp and owners.get(sp) and owners[sp] != c:
+            return False
+    return True
+
+
 def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, thr: float = THRESHOLD,
           colors: list[str] | None = None) -> tuple[bool, int, list[Box]]:
-    """(đạt?, số đầu thấy, các khung): đạt khi số đầu riêng biệt ≤ số bạn có mặt (ít nhất 1) và màu áo không sai
-    (colors: màu áo của các bạn trong cảnh, xem shirts_ok). Khung trả thêm các áo thấy dưới dạng ("shirt:red", điểm, khung)."""
+    """(đạt?, số đầu thấy, các khung): đạt khi số đầu riêng biệt ≤ số bạn có mặt (ít nhất 1), màu áo không sai (colors:
+    màu áo các bạn trong cảnh, «red» hoặc «rabbit:red» — có loài thì soát cả áo nào dưới đầu nào) và hai bạn không lệch cỡ.
+    Khung trả thêm các áo thấy ("shirt:red", điểm, khung) và lý do hỏng ("why:...")."""
+    pairs = [tuple(c.split(":", 1)) if ":" in c else ("", c) for c in colors or []]
+    plain = [c for _sp, c in pairs]
+    owners = {sp: c for sp, c in pairs if sp and c}
     boxes = detect(img, loaded)
     heads = merge_heads(boxes, thr)
     found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if colors else []
-    ok = (len(heads) <= max(1, int(expected)) and shirts_ok(found, colors or []) and sizes_ok(heads, int(expected)))
-    return ok, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]
+    why: list[str] = []
+    if len(heads) > max(1, int(expected)):
+        why.append(f"thấy {len(heads)} đầu nhân vật, cảnh chỉ có {expected} bạn (ảnh hai đầu / nhân vật nhân đôi)")
+    if not shirts_ok(found, plain):
+        why.append(f"áo thấy {[c for c, _s, _b in found]}, các bạn mặc {plain} (áo đổi màu)")
+    elif owners and not owners_ok(heads, found, owners):
+        why.append(f"áo mặc nhầm chủ ({', '.join(f'{c} dưới đầu {shirt_owner(b, heads)}' for c, _s, b in found)}; "
+                   f"đúng: {owners})")
+    if not sizes_ok(heads, int(expected)):
+        why.append("hai bạn to nhỏ lệch nhau")
+    return (not why, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]
+            + [("why:" + w, 0.0, [0, 0, 1, 1]) for w in why])
