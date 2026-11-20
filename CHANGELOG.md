@@ -100,6 +100,13 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   -56,6 / -74,4 dB (Kim -46,6 / -57,3 / -69,2), xèo >3,5kHz lúc có lời mất 0,5 / 0,1 / 1,1 dB (Kim 0,8 / 0,5 / 1,8). CPU ~145
   giây máy cho 10 giây audio (một lượt Kim ~21 giây). Mặc định vẫn `kim`: chưa chạy thật trên Kaggle (gói đòi numpy ≥ 2 +
   onnx-weekly / protobuf mới, tải 913MB mỗi phiên), lợi ích đo được nhỏ. Bật `auto` rồi xem log một video.
+- **Soát lại cả bản 1.1.2 (20/11)**: kho Lyria bếp đủ bài mà còn bài chưa lên Kaggle (lần đẩy trước lỗi, kho tạo lúc
+  Kaggle tắt) thì tự đẩy trong nền (`bgm.fill_later`); model dò mặt không tải được thì báo lỗi MỘT lần thay vì thử tải lại
+  với từng ảnh (mỗi lần tới 60 giây); khung dọc khớp theo TỈ LỆ khung, đổi cỡ vùng cắt khi Kaggle tự tải nguồn ở độ phân
+  giải khác bản Botkeep đã đo (trước đây Kaggle cắt giữa mà phụ đề vẫn đặt theo khung mới); nguồn hơi ngang không rõ chủ thể
+  giữ cách cũ, không ghi chú rỗng; lý do vẽ lại ảnh ghi đúng số bạn cùng loài; từ dạy «run» trùng chữ tiếng Việt («run run vì
+  sợ») chỉ đọc giọng Anh ở câu dạy / câu ôn từ (`dialogue.VI_HOMOGRAPHS`). Giữ nguyên: dựng lại bản đã duyệt vẫn dùng điểm
+  cắt đã lưu (bộ nhớ đệm `scenes`), để khớp đúng lời đã duyệt.
 - **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
   dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
   chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),

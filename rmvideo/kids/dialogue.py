@@ -141,6 +141,16 @@ def english_pattern(words: Sequence[str]) -> re.Pattern | None:
     return re.compile(r"(?<![\w])(?:" + alt + r")(?![\w])[.!?,]*", re.I)
 
 
+# từ dạy trùng một chữ tiếng Việt viết y hệt («run run vì sợ»): chỉ coi là tiếng Anh ở đúng chỗ câu dạy / câu ôn từ đặt nó
+# (sau «là » / «: » / «, », hoặc ngay trước « là» — xem story.BEAT_TEMPLATES, recap_text)
+VI_HOMOGRAPHS = {"run"}
+_TAUGHT_BEFORE = re.compile(r"(?:(?<![\w])là|[:,])\s*$", re.I)
+
+
+def _taught_here(text: str, m: re.Match) -> bool:
+    return bool(_TAUGHT_BEFORE.search(text[:m.start()])) or bool(re.match(r"\s+là(?![\w])", text[m.end():], re.I))
+
+
 def split_english(text: str, words: Sequence[str]) -> list[tuple[bool, str]]:
     """[(là tiếng Anh?, đoạn)] theo thứ tự đọc: «À, mặt trời đó tiếng Anh là sun. Bé nói theo nè: sun!» ->
     [(False, «À, mặt trời đó tiếng Anh là»), (True, «sun.»), (False, «Bé nói theo nè:»), (True, «sun!»)]. Đoạn chỉ có dấu
@@ -152,6 +162,8 @@ def split_english(text: str, words: Sequence[str]) -> list[tuple[bool, str]]:
     out: list[tuple[bool, str]] = []
     pos = 0
     for m in pat.finditer(text):
+        if m.group(0).strip(".!?,").lower() in VI_HOMOGRAPHS and not _taught_here(text, m):
+            continue                                   # chữ tiếng Việt trùng mặt chữ: để VieNeu đọc
         before = text[pos:m.start()].strip()
         if before.strip(_PUNCT):
             out.append((False, before))

@@ -149,3 +149,17 @@ def test_render_anchored_piece(tmp_path, monkeypatch):
     got = asyncio.run(renderer.render(src, voice, out, "cook", 0, None, [(0.80, 0.86)], None, None, allow_hd=False,
                                       tmp=str(tmp_path), edit=plan.to_dict()))
     assert got == pytest.approx(plan.out_dur(), abs=0.05) and te._dur(out) == pytest.approx(got, abs=0.15)
+
+
+def test_model_failure_raises_once(monkeypatch, tmp_path):
+    """Soát 20/11: tải model lỗi -> analyze ném lỗi ngay một lần (trước đây mỗi ảnh lại thử tải 2 link, 60 giây mỗi link)."""
+    calls = []
+
+    def broken():
+        calls.append(1)
+        raise RuntimeError("không tải được face_detection_yunet_2023mar.onnx")
+    monkeypatch.setattr(talking, "_session", broken)
+    with pytest.raises(RuntimeError):
+        talking.analyze([(k * 0.5, str(tmp_path / f"{k}.jpg")) for k in range(30)], [(0, 99)])
+    assert calls == [1]
+    assert talking.analyze([], [(0, 99)]) == []

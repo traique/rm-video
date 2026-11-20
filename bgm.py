@@ -202,11 +202,16 @@ def lyria_items(mood: str = "", remote: bool = False) -> list:
 
 
 def fill_later(mood: str, log=None) -> bool:
-    """Kho thiếu bài màu `mood`: tạo thêm MỘT bài trong nền (không làm chậm job đang chạy) rồi đẩy dataset. Một việc tạo
-    một lúc; Lyria lỗi thì nghỉ LYRIA_RETRY_AFTER giây. Trả True nếu vừa bắt đầu tạo."""
-    if mood not in MOODS or not config.GEMINI_API_KEY:
+    """Kho thiếu bài màu `mood`: tạo thêm MỘT bài trong nền (không làm chậm job đang chạy) rồi đẩy dataset; màu đã đủ bài
+    mà kho có bài CHƯA đẩy lên Kaggle (lần đẩy trước lỗi mạng, hay kho tạo lúc Kaggle tắt) thì chỉ đẩy. Một việc một lúc;
+    lỗi thì nghỉ LYRIA_RETRY_AFTER giây. Trả True nếu vừa bắt đầu một việc nền."""
+    import kaggle_worker
+    if mood not in MOODS:
         return False
-    if len(lyria.tracks(lyria.load_library(LYRIA_DIR), mood)) >= LYRIA_PER_MOOD:
+    data = lyria.load_library(LYRIA_DIR)
+    make = len(lyria.tracks(data, mood)) < LYRIA_PER_MOOD and bool(config.GEMINI_API_KEY)
+    push = lyria.changed_since_push(data) and kaggle_worker.is_enabled()
+    if not (make or push):
         return False
     t = _FILL.get("task")
     if (t is not None and not t.done()) or time.time() - float(_FILL.get("fail_at") or 0) < LYRIA_RETRY_AFTER:
@@ -215,18 +220,21 @@ def fill_later(mood: str, log=None) -> bool:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return False
-    _FILL["task"] = loop.create_task(_fill(mood, log or (lambda m: logging.info("%s", m))))
+    _FILL["task"] = loop.create_task(_fill(mood if make else "", log or (lambda m: logging.info("%s", m))))
     return True
 
 
 async def _fill(mood: str, log) -> None:
+    """mood rỗng: chỉ đẩy kho lên Kaggle."""
     lib = lyria_lib()
     try:
-        await lyria.generate(lib, mood, log=log)
+        if mood:
+            await lyria.generate(lib, mood, log=log)
         await push_lyria(log)
     except Exception as e:
         _FILL["fail_at"] = time.time()
-        logging.warning("Nhạc bếp: tạo nhạc Lyria lỗi (%s), %d phút sau thử lại", str(e)[:160], LYRIA_RETRY_AFTER // 60)
+        logging.warning("Nhạc bếp: %s nhạc Lyria lỗi (%s), %d phút sau thử lại", "tạo" if mood else "đẩy",
+                        str(e)[:160], LYRIA_RETRY_AFTER // 60)
 
 
 async def push_lyria(log=None) -> dict:

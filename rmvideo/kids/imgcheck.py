@@ -254,16 +254,16 @@ def contact_ok(shirts: list[tuple[str, float, list[int]]], heads: list[Box], wid
 SPECIES_THR = 0.25      # hai đầu cùng loài đều chắc chừng này mà cảnh chỉ có một bạn loài đó -> nhân đôi
 
 
-def species_twins(heads: list[Box], species: Sequence[str], thr: float = SPECIES_THR) -> tuple[str, int] | None:
-    """(loài, số đầu) khi một loài có mặt MỘT lần trong cảnh mà thấy ≥ 2 đầu riêng biệt của loài đó, mỗi đầu ≥ thr (job 1
-    ngày 20/11, cảnh 7: Gấu ôm hai Thỏ, đầu gấu chỉ 0,19 nên đếm tổng không đủ để bắt). species: loài các bạn trong cảnh
-    («rabbit», «bear»…); rỗng thì không xét."""
+def species_twins(heads: list[Box], species: Sequence[str], thr: float = SPECIES_THR) -> tuple[str, int, int] | None:
+    """(loài, số đầu thấy, số bạn loài đó trong cảnh) khi thấy NHIỀU đầu riêng biệt của một loài hơn số bạn loài đó có mặt,
+    mỗi đầu ≥ thr (job 1 ngày 20/11, cảnh 7: Gấu ôm hai Thỏ, đầu gấu chỉ 0,19 nên đếm tổng không đủ để bắt). species: loài
+    các bạn trong cảnh («rabbit», «bear»…); rỗng thì không xét."""
     if not species:
         return None
     for sp in set(species):
         n = sum(1 for q, s, _b in heads if q == f"a {sp} head" and s >= thr)
         if n > species.count(sp):
-            return sp, n
+            return sp, n, species.count(sp)
     return None
 
 
@@ -290,7 +290,7 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
     else:
         twin = species_twins(heads, [sp for sp, _c in pairs if sp])
         if twin:
-            why.append(f"thấy {twin[1]} đầu {twin[0]}, cảnh chỉ có 1 (nhân vật nhân đôi)")
+            why.append(f"thấy {twin[1]} đầu {twin[0]}, cảnh chỉ có {twin[2]} (nhân vật nhân đôi)")
     if not shirts_ok(found, plain):
         why.append(f"áo thấy {[c for c, _s, _b in found]}, các bạn mặc {plain} (áo đổi màu)")
     elif owners and not owners_ok(heads, found, owners):

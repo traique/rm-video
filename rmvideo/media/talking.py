@@ -206,8 +206,11 @@ def windows(samples: Sequence[tuple[float, list]], speech: Sequence[tuple[float,
 
 def analyze(thumbs: Sequence[tuple[float, str]], speech: Sequence[tuple[float, float]],
             box: tuple[float, float] | None = None) -> list[dict]:
-    """Đọc ảnh thu nhỏ [(giây, đường dẫn jpg)] -> windows(). Ảnh hỏng bỏ qua."""
+    """Đọc ảnh thu nhỏ [(giây, đường dẫn jpg)] -> windows(). Ảnh hỏng bỏ qua; model không tải / nạp được thì ném lỗi MỘT
+    lần (trước đây lỗi tải bị nuốt trong vòng từng ảnh: mỗi ảnh lại thử tải 2 link, mỗi link chờ tới 60 giây)."""
     from PIL import Image
+    if thumbs:
+        _session()
     samples = []
     for t, p in thumbs:
         try:

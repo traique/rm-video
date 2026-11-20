@@ -135,7 +135,9 @@ def decide(src_w: int, src_h: int, frames: list[np.ndarray]) -> dict:
                 pad = True
                 why.append("nguồn ngang, hoạt động rải khắp khung: đặt nguyên khung lên nền mờ"
                            if level >= MOTION_MIN else "nguồn ngang, gần như tĩnh: đặt nguyên khung lên nền mờ")
-            else:                                              # hơi ngang (vuông, 3:4): cắt giữa như cũ mất ít
+            else:                                              # hơi ngang (vuông, 3:4), không rõ chủ thể: cắt giữa
+                if not has_bars:                               # = cách cũ, khỏi ghi chú «Khung dọc: .» rỗng
+                    return {}
                 start = (cw - win) // 2
         else:
             why.append(f"nguồn ngang: cắt khung 9:16 theo vùng có tay / chảo ({round(100 * frac)}% chuyển động lọt khung)")
@@ -184,14 +186,26 @@ async def ensure(path: str, dur: float, src_w: int, src_h: int, note: Note | Non
     return fr
 
 
+ASPECT_TOL = 0.015         # cùng nguồn ở độ phân giải khác (Kaggle tự tải 1080p, Botkeep đo bản 720p): lệch tỉ lệ ≤ 1,5%
+
+
 def current(src_w: int = 0, src_h: int = 0) -> dict:
-    """Khung của job đang chạy, chỉ khi đúng nguồn đã đo (cùng cỡ): đầu vào khác cỡ (ảnh, clip lạ) thì như cũ."""
+    """Khung của job đang chạy cho đầu vào cỡ src_w x src_h: cùng cỡ thì dùng nguyên; cùng TỈ LỆ khung mà khác độ phân giải
+    (Kaggle tự tải nguồn từ link khi thiếu PUBLIC_URL, yt-dlp lấy bản khác cỡ) thì đổi cỡ vùng cắt theo; khác tỉ lệ (ảnh,
+    clip lạ) thì như cũ (cắt giữa)."""
     fr = FRAMING.get() or {}
     if not fr.get("box"):
         return {}
-    if src_w and src_h and fr.get("src") and [src_w, src_h] != list(fr["src"]):
+    if not (src_w and src_h and fr.get("src")) or [src_w, src_h] == list(fr["src"]):
+        return fr
+    sw, sh = fr["src"]
+    if abs((src_w / src_h) / (sw / sh) - 1) > ASPECT_TOL:
         return {}
-    return fr
+    kx, ky = src_w / sw, src_h / sh
+    x, y, w, h = fr["box"]
+    w2, h2 = int(round(w * kx)) // 2 * 2, int(round(h * ky)) // 2 * 2
+    x2, y2 = min(int(round(x * kx)), src_w - w2), min(int(round(y * ky)), src_h - h2)
+    return {**fr, "box": [max(0, x2), max(0, y2), w2, h2], "src": [src_w, src_h]}
 
 
 def pre_crop(fr: dict) -> str:

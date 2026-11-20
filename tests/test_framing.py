@@ -78,6 +78,23 @@ def test_decide_landscape_vertical_letterbox():
     assert framing.decide(720, 1280, []) == {}
 
 
+def test_same_source_other_resolution_and_slightly_wide():
+    """Soát 20/11: Kaggle tự tải nguồn ở cỡ khác (cùng tỉ lệ) -> cùng khung, đổi cỡ theo; khác tỉ lệ -> như cũ. Nguồn hơi
+    ngang không rõ chủ thể, không dải đen -> {} (= cắt giữa cũ, không ghi chú rỗng)."""
+    tok = framing.FRAMING.set({"box": [0, 0, 720, 720], "pad": True, "src": [1280, 720], "why": "x"})
+    try:
+        assert framing.current(1280, 720)["box"] == [0, 0, 720, 720]
+        big = framing.current(1920, 1080)
+        assert big["box"] == [0, 0, 1080, 1080] and big["src"] == [1920, 1080] and big["pad"]
+        assert framing.current(1080, 1920) == {} and framing.current(1440, 1080) == {}
+        assert framing.map_bands([(0.8, 0.9)], big) == framing.map_bands([(0.8, 0.9)], framing.current(1280, 720))
+    finally:
+        framing.FRAMING.reset(tok)
+    still = [np.stack([f, f]) for f in (np.random.default_rng(k).integers(60, 200, (240, 240)).astype(np.uint8)
+                                         for k in range(6))]
+    assert framing.decide(720, 720, still) == {}                    # vuông, đứng yên: cắt giữa như cũ
+
+
 def test_map_bands():
     assert framing.map_bands([(0.8, 0.9)], {}) == [(0.8, 0.9)]
     # dải đen: chữ ở 0.6-0.65 của khung 1280 -> theo vùng nội dung y=420..860

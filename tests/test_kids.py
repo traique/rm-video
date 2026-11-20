@@ -360,7 +360,7 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
             ("a bear head", 0.22, [607, 1038, 900, 1394])]
     assert len(imgcheck.merge_heads(f067)) == 3 and len(imgcheck.merge_heads(f075)) == 3
     assert len(imgcheck.merge_heads(f067, 0.3)) == 1                              # ngưỡng cũ: sót
-    assert imgcheck.species_twins(imgcheck.merge_heads(f067), ["rabbit", "bear"]) == ("rabbit", 2)
+    assert imgcheck.species_twins(imgcheck.merge_heads(f067), ["rabbit", "bear"]) == ("rabbit", 2, 1)
     assert imgcheck.species_twins(imgcheck.merge_heads(f067), ["rabbit", "rabbit"]) is None    # cảnh có hai thỏ thật
     assert imgcheck.species_twins(imgcheck.merge_heads(f067), []) is None
     # cảnh sạch cùng video: thỏ nằm bò (khung cả con, khung thân trắng thẳng dưới đầu), gấu 0,15 -> không báo nhầm
@@ -1279,6 +1279,12 @@ def test_english_words_native_voice(tmp_path, monkeypatch):
     assert dialogue.split_english("Sunny nhảy tưng tưng, tai cụp xuống.", w + ["cup"]) == [
         (False, "Sunny nhảy tưng tưng, tai cụp xuống.")]                        # trong chữ khác / «cụp» có dấu: không tách
     assert dialogue.split_english("sun, happy!", w) == [(True, "sun,"), (True, "happy!")]
+    # «run» trùng chữ tiếng Việt («run run vì sợ»): chỉ giọng Anh ở chỗ câu dạy / câu ôn từ đặt nó (soát 20/11)
+    assert dialogue.split_english("Thỏ Trắng run run vì sợ. À, chạy tiếng Anh là run. Bé nói theo nè: run!", ["run"]) == [
+        (False, "Thỏ Trắng run run vì sợ. À, chạy tiếng Anh là"), (True, "run."), (False, "Bé nói theo nè:"), (True, "run!")]
+    recap = story.recap_text({"words": [{"en": "sun", "vi": "mặt trời"}, {"en": "run", "vi": "chạy"}]})
+    assert [p for e, p in dialogue.split_english(recap, ["sun", "run"]) if e] == ["sun", "run"]
+    assert dialogue.split_english("Là run! Run run quá.", ["run"]) == [(False, "Là"), (True, "run!"), (False, "Run run quá.")]
     assert dialogue.split_english("Không có từ nào.", []) == [(False, "Không có từ nào.")] and dialogue.split_english("", w) == []
     # job: cảnh dạy «ball» -> VieNeu đọc phần Việt, giọng Anh đọc «ball», nối đủ mẩu; giọng Anh lỗi -> VieNeu đọc nguyên đoạn
     brief = story.pick(DATA, [], random.Random(2))

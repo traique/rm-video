@@ -491,3 +491,30 @@ def test_no_speech_video_uses_lyria_track(silent_job, lyria_lib, monkeypatch):
     assert os.path.exists(out) and beds[0][1].endswith(name)
     assert "Lyria" in job.script and not job.no_autopost
     assert json.load(open(bgm.RECENT_FILE)) == ["lyria:" + name]
+
+
+def test_cook_lyria_full_but_unpushed_gets_pushed(lyria_lib, monkeypatch):
+    """Soát 20/11: kho đủ bài nhưng có bài chưa đẩy lên Kaggle (lần đẩy trước lỗi, kho tạo lúc Kaggle tắt) -> đẩy trong nền
+    (không tạo bài mới); Kaggle tắt / đã đẩy hết -> không làm gì."""
+    from rmvideo.media import lyria
+    for n in range(1, bgm.LYRIA_PER_MOOD + 1):
+        lyria_lib("cozy", n, pushed=(n < bgm.LYRIA_PER_MOOD))
+    made, pushed = [], []
+
+    async def fake_gen(*a, **k):
+        made.append(1)
+
+    async def fake_push(log=None):
+        pushed.append(1)
+        return {}
+    monkeypatch.setattr(lyria, "generate", fake_gen)
+    monkeypatch.setattr(bgm, "push_lyria", fake_push)
+    monkeypatch.setattr(kaggle_worker, "is_enabled", lambda: False)
+    assert not asyncio.run(_call(bgm.fill_later, "cozy"))
+    monkeypatch.setattr(kaggle_worker, "is_enabled", lambda: True)
+
+    async def run():
+        assert bgm.fill_later("cozy")
+        await bgm._FILL["task"]
+    asyncio.run(run())
+    assert made == [] and pushed == [1]
