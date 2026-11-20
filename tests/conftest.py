@@ -13,6 +13,7 @@ os.environ.setdefault("RECENT_LOOKS", os.path.join(_TMP, "recent_looks.json"))  
 os.environ.setdefault("RENDER_SPEED_FILE", os.path.join(_TMP, "render_speed.json"))   # tốc độ dựng đo được
 os.environ.setdefault("AUTOPOST_STATE", os.path.join(_TMP, "autopost.json"))   # trạng thái tự động đăng
 os.environ.setdefault("KIDS_STATE", os.path.join(_TMP, "kids_auto.json"))      # 🧸 truyện bé: truyện đã làm, lịch (1.1.0)
+os.environ.setdefault("YT_STATE", os.path.join(_TMP, "youtube.json"))         # ▶️ YouTube: hàng chờ tải lên (1.2.0)
 os.environ.setdefault("BGM_LYRIA_DIR", os.path.join(_TMP, "bgm_lyria"))     # kho nhạc Lyria kênh bếp (1.1.2): không dùng assets/
 os.environ.setdefault("VOICE_BANK", os.path.join(_TMP, "voice_bank.json"))   # kho lời đã duyệt (sổ giọng)
 os.environ.setdefault("ZOOM_TARGETS", os.path.join(_TMP, "zoom_targets.json"))   # nơi trả lời Zoom đã học (1.0.0)

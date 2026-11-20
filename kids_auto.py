@@ -293,6 +293,8 @@ async def _finish_pending(st: dict, now: float) -> str:
     st["pending"] = None
     st["streak"] = 0
     save_tick(st)
+    from rmvideo.app import youtube
+    youtube.after_facebook("kids", job, video, title, desc, when)     # ▶️ YouTube Shorts kênh bé (đã kết nối)
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Truyện bé: %s %s lên Fanpage, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"🧸 Đã {'hẹn đăng' if when else 'đăng'} truyện #{job.id} lên Fanpage truyện bé lúc {at}: {title[:80]}")
@@ -365,6 +367,8 @@ def status_text(now: float | None = None) -> str:
     d = data()
     rec = story_mod.recent(st["stories"], now)
     lines.append(f"Đã làm {len(st['stories'])} truyện ({len(rec)} trong 30 ngày), đã đăng {len(st['posts'])} bài.")
+    from rmvideo.app import youtube
+    lines += youtube.status_lines("kids", now)
     for s in st["stories"][-5:][::-1]:
         when = datetime.fromtimestamp(float(s.get("created_at") or 0), VN).strftime("%d/%m %H:%M")
         lines.append(f"  #{s.get('job', '?')} {when}: {s.get('title') or '(đang làm)'} — "

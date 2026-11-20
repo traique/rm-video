@@ -220,6 +220,11 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
       <button type="button" id="auto_test" class="btn btn-2">🔑 Thử token Fanpage</button>
       <button type="button" id="auto_resume" class="btn btn-2">↺ Chạy lại sau lỗi</button>
     </div>
+    <div class="actions">
+      <button type="button" id="yt_cook_connect" class="btn btn-2">▶️ Kết nối YouTube kênh bếp</button>
+      <button type="button" id="yt_cook_test" class="btn btn-2">Thử YouTube</button>
+      <button type="button" id="yt_cook_off" class="btn btn-2">Ngắt YouTube</button>
+    </div>
   </details>
 </section>
 <section class="card">
@@ -232,6 +237,11 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
       <button type="button" id="kids_setup" class="btn btn-2">☁️ Chuẩn bị model trên Kaggle (một lần, ~1 giờ)</button>
       <button type="button" id="kids_setup_status" class="btn btn-2">Tiến độ chuẩn bị</button>
       <button type="button" id="kids_resume" class="btn btn-2">↺ Chạy lại sau lỗi</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="yt_kids_connect" class="btn btn-2">▶️ Kết nối YouTube kênh bé</button>
+      <button type="button" id="yt_kids_test" class="btn btn-2">Thử YouTube</button>
+      <button type="button" id="yt_kids_off" class="btn btn-2">Ngắt YouTube</button>
     </div>
   </details>
 </section>
@@ -501,6 +511,28 @@ $('kids_test').onclick=()=>kidsCall('test');
 $('kids_setup').onclick=()=>{if(confirm('Gửi notebook chuẩn bị model lên Kaggle? (biên dịch llama.cpp + lượng tử FLUX, ~45–60 phút GPU, chỉ cần một lần)'))kidsCall('setup')};
 $('kids_setup_status').onclick=()=>kidsCall('setup_status');
 $('kids_resume').onclick=()=>kidsCall('resume');
+// ▶️ YouTube (1.2.0): kết nối mở trang Google chọn kênh, Google chuyển về /youtube/callback
+async function ytCall(ch,act){
+  const out=$(ch=='kids'?'kids_status':'auto_status');
+  const post=b=>fetch('/api/youtube/'+ch+'/'+act,{method:'POST',headers:hdr(),body:JSON.stringify(b||{})});
+  const read=async r=>{const t=await r.text();try{return JSON.parse(t)}catch(e){return {text:'❌ '+t}}};
+  try{
+    let r=await post(),d=await read(r);
+    if(r.status==403&&d.need_password){
+      const pw=await askPassword(d.error);
+      if(!pw){out.textContent='Chưa đổi: cần nhập lại mật khẩu web';return;}
+      r=await post({_password:pw});d=await read(r);
+    }
+    if(!r.ok){out.textContent='❌ '+(d.error||d.text||r.status);return;}
+    if(d.url){out.textContent='Đang mở trang Google… chọn đúng kênh YouTube rồi bấm Cho phép';location.href=d.url;return;}
+    out.textContent=d.text+'\n\n'+(d.status||[]).join('\n');
+  }catch(e){out.textContent='❌ '+e}
+}
+for(const ch of ['cook','kids']){
+  $('yt_'+ch+'_connect').onclick=()=>ytCall(ch,'connect');
+  $('yt_'+ch+'_test').onclick=()=>ytCall(ch,'test');
+  $('yt_'+ch+'_off').onclick=()=>{if(confirm('Ngắt YouTube? Video chưa tải lên sẽ chờ tới khi kết nối lại.'))ytCall(ch,'disconnect')};
+}
 function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
   const cur=$('voice').value;
   $('voice').innerHTML=vs.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('');

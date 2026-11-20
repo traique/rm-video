@@ -216,6 +216,34 @@ Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
 Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
 bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình nhưng không thay được quyền tác giả.
 
+## ▶️ Đăng YouTube Shorts (1.2.0)
+
+Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn (tải lên riêng tư + giờ công khai, YouTube tự mở đúng giờ;
+giờ sắp tới / đã qua thì công khai ngay). Kênh bếp và kênh truyện bé là **hai kênh YouTube riêng** (giống hai Fanpage).
+Tiêu đề, mô tả lấy phần «▶ YouTube Shorts» của gói nội dung. Video dọc ≤ 3 phút YouTube tự xếp vào Shorts. Kênh bé khai
+«dành cho trẻ em» (bắt buộc với nội dung cho trẻ: tắt bình luận, không quảng cáo cá nhân hoá).
+
+Một tài khoản Google quản lý được nhiều kênh (kênh thương hiệu): youtube.com → ảnh đại diện → Cài đặt → **Thêm hoặc
+quản lý kênh** → Tạo kênh. Lúc kết nối Google hỏi chọn kênh nào.
+
+Cài đặt một lần:
+1. console.cloud.google.com: tạo dự án → **APIs & Services → Library** → bật **YouTube Data API v3**.
+2. **OAuth consent screen**: loại External, điền tên app + email; **Publish app** (chuyển sang *In production*). Để
+   *Testing* thì Google thu hồi quyền sau 7 ngày, phải kết nối lại.
+3. **Credentials → Create credentials → OAuth client ID**, loại **Web application**, *Authorized redirect URIs* =
+   `PUBLIC_URL` + `/youtube/callback` (vd `https://rmvideo.bot-keep.xyz/youtube/callback`).
+4. Cài đặt → 🔑 Tài khoản & API: dán `YT_CLIENT_ID`, `YT_CLIENT_SECRET` (cần `PUBLIC_URL`).
+5. Mục 🤖 Tự động đăng bấm **▶️ Kết nối YouTube kênh bếp**, mục 🧸 Truyện bé bấm **▶️ Kết nối YouTube kênh bé** (nhập lại
+   mật khẩu web) → Google chọn tài khoản / kênh → Cho phép. Google báo «ứng dụng chưa được xác minh» thì bấm *Nâng cao →
+   Đi tới …* (ứng dụng của chính bạn). Bot lưu `YT_REFRESH_TOKEN` / `KIDS_YT_REFRESH_TOKEN`.
+
+Hạn mức: từ 1/6/2026 việc tải lên có hạn mức riêng 100 lần / ngày / dự án; từ 2/11/2026 dự án chưa qua kiểm duyệt
+không còn bị ép video riêng tư. Lỗi tạm thì thử lại sau 5 → 40 phút (5 lần), hết hạn mức thử lại sau 6 giờ, token bị
+thu hồi thì dừng kênh đó và báo admin (bấm kết nối lại là chạy tiếp). Lỗi YouTube không ảnh hưởng bài Facebook.
+
+Lưu ý kênh bếp: YouTube xét «nội dung dùng lại» khắt khe khi duyệt bật kiếm tiền; bot đã đổi lời, giọng, nhạc, cách dựng
+nhưng không thay được quyền tác giả của video nguồn.
+
 ## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
 
 Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),

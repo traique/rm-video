@@ -13,6 +13,30 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.2.0 — đăng YouTube Shorts cho kênh bếp và kênh truyện bé (20/11/2026)
+
+- Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn: kênh bếp và kênh truyện bé là hai kênh YouTube riêng.
+  Kết nối bằng nút «▶️ Kết nối YouTube» trên web (Google hỏi chọn kênh), không phải chép token tay.
+- Tiêu đề / mô tả dùng phần «▶ YouTube Shorts» AI đã viết sẵn; kênh bé khai «dành cho trẻ em».
+- Lỗi YouTube tách khỏi Facebook: tự thử lại, hết hạn mức chờ 6 giờ, token bị thu hồi thì báo admin kết nối lại.
+
+### Cần làm
+- Tạo OAuth client trên Google Cloud, dán `YT_CLIENT_ID` / `YT_CLIENT_SECRET`, bấm kết nối từng kênh (README, mục
+  «▶️ Đăng YouTube Shorts»). Chưa kết nối thì bot chạy như cũ, chỉ đăng Facebook.
+
+### Chi tiết
+- `rmvideo/app/youtube.py`: OAuth 2.0 web (state ngẫu nhiên dùng một lần 15 phút: cookie phiên SameSite=Strict không
+  đi kèm lượt Google chuyển về), refresh token lưu cài đặt bí mật (`YT_REFRESH_TOKEN`, `KIDS_YT_REFRESH_TOKEN`, không
+  gửi sang Kaggle: tiền tố `YT_` / `KIDS_`), tải lên resumable bằng aiohttp (không thêm thư viện), `publishAt` khi giờ
+  hẹn còn ≥ 15 phút, `selfDeclaredMadeForKids`, lượt xem sau 24 giờ. Hàng chờ `youtube.json` (`YT_STATE`); ghi từng mục
+  bằng đọc-sửa-ghi để autopost / kids_auto thêm video trong lúc đang tải lên không bị ghi đè.
+- `autopost._finish_pending` / `kids_auto._finish_pending`: Fanpage nhận bài xong thì `youtube.after_facebook` (lỗi gì
+  cũng không làm hỏng bài Facebook). `main.py` chạy `youtube.run_forever` (mỗi 2 phút).
+- Web: `/api/youtube`, `/api/youtube/{cook|kids}/{connect|test|disconnect}` (kết nối / ngắt phải nhập lại mật khẩu web
+  như token Fanpage), `/youtube/callback`. Trạng thái YouTube hiện trong ô 🤖 Tự động đăng và 🧸 Truyện bé.
+- Test: `tests/test_youtube.py` (máy chủ Google giả: đổi mã, refresh token, tải lên, hạn mức, token bị thu hồi, bot dừng
+  giữa lúc tải, web).
+
 ## 1.1.3 — kênh bếp: video mở bằng món đã xong, đoạn điểm danh hết chữ trùng; kênh bé: kiểm ảnh cỡ nhân vật (20/11/2026)
 
 - Kênh bếp (dựng mạnh): câu đầu kiểu «Hôm nay mình chỉ mọi người công thức…» không còn bị coi là lời chào — giữ làm câu mở

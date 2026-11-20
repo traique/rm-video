@@ -435,6 +435,19 @@ SCHEMA: tuple[Setting, ...] = (
       help="Page access token dài hạn, quyền pages_manage_posts + pages_read_engagement + pages_show_list. Bấm «Thử "
            "token Fanpage» ở mục Tự động đăng để kiểm.", link="https://developers.facebook.com/tools/explorer/",
       need="optional", secret=True, reauth=True, live=True),
+    # ----- ▶️ YouTube Shorts (1.2.0, rmvideo/app/youtube.py): một OAuth client cho cả hai kênh -----
+    S("YT_CLIENT_ID", "", "api", "YouTube · Client ID",
+      help="Đăng YouTube Shorts cùng giờ với Fanpage. Google Cloud Console: tạo dự án, bật «YouTube Data API v3», tạo "
+           "OAuth client loại «Web application» với địa chỉ chuyển hướng = PUBLIC_URL + /youtube/callback; màn hình "
+           "đồng ý OAuth chuyển sang «In production» (để «Testing» thì 7 ngày phải kết nối lại). Một client dùng cho cả "
+           "kênh bếp và kênh bé; xong bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự động đăng / 🧸 Truyện bé.",
+      link="https://console.cloud.google.com/apis/credentials", need="optional",
+      validate=_regex(r"[\w.-]+\.apps\.googleusercontent\.com", "YT_CLIENT_ID dạng …apps.googleusercontent.com"),
+      reauth=True, live=True),
+    S("YT_CLIENT_SECRET", "", "api", "YouTube · Client Secret", need="optional", secret=True, reauth=True, live=True),
+    S("YT_REFRESH_TOKEN", "", "api", "YouTube kênh bếp (tự điền)",
+      help="Tự điền khi bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự động đăng (Google hỏi chọn kênh). Điền - để xoá.",
+      need="optional", secret=True, reauth=True, live=True),
     # ----- 🧸 truyện bé (kênh «Kể Bé Nghe», docs/KE_HOACH_KIDS_STORY.md) -----
     S("KIDS_AUTO", "0", "kids", "Tự động làm + đăng truyện bé",
       options=(("0", "Tắt (làm tay bằng nút «Làm 1 truyện ngay»)"),
@@ -450,6 +463,9 @@ SCHEMA: tuple[Setting, ...] = (
     S("KIDS_FB_PAGE_TOKEN", "", "api", "Token Fanpage truyện bé",
       help="Page access token dài hạn của Fanpage truyện bé. Bấm «Thử token» ở mục 🧸 Truyện bé để kiểm.",
       link="https://developers.facebook.com/tools/explorer/", secret=True, reauth=True, live=True),
+    S("KIDS_YT_REFRESH_TOKEN", "", "api", "YouTube kênh truyện bé (tự điền)",
+      help="Tự điền khi bấm «▶️ Kết nối YouTube» ở mục 🧸 Truyện bé — chọn kênh YouTube RIÊNG của truyện bé (khác kênh "
+           "bếp). Điền - để xoá.", secret=True, reauth=True, live=True),
     S("KIDS_VOICE", "Thục Đoan", "kids", "Giọng kể (VieNeu miền Nam)",
       options=(("Thục Đoan", "Thục Đoan (kể chuyện)"), ("Mỹ Duyên", "Mỹ Duyên (đọc truyện, chậm, ấm)"),
                ("Kim Thanh", "Kim Thanh (đọc truyện)"), ("Thùy Dung", "Thùy Dung (rõ, nhanh)")),
@@ -550,7 +566,8 @@ GROUPS: list[tuple[str, str, str]] = [
 
 # Thứ tự hiện trên web (trong mỗi nhóm theo thứ tự này).
 DISPLAY_ORDER: tuple[str, ...] = (
-    "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "GROQ_API_KEY",
+    "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "YT_CLIENT_ID", "YT_CLIENT_SECRET",
+    "YT_REFRESH_TOKEN", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_BOT_JID",
     "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE", "VOICE_QA",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
@@ -563,7 +580,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
@@ -576,7 +593,7 @@ assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê
 SECRET_KEYS = frozenset(s.key for s in SCHEMA if s.secret)
 REAUTH_KEYS = frozenset(s.key for s in SCHEMA if s.reauth)
 # khoá KHÔNG gửi sang notebook Kaggle: bí mật + tài khoản/quyền/tự đăng (Kaggle không cần, lộ ra là thiệt)
-SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_")
+SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_", "YT_")
 
 
 # ---------------- lưu trữ ----------------
