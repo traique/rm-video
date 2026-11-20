@@ -404,6 +404,30 @@ def test_light_analysis_falls_back_when_keyframes_too_sparse(tmp_path):
     assert not scenes._ANALYZED[vid].get("times")
 
 
+def test_adaptive_cuts_ignore_whip_pan_on_real_video(tmp_path, monkeypatch):
+    """Video tổng hợp: lia nhanh (có tăng/giảm tốc) quanh giây 1.5-1.9, cắt cứng ở 4.0 và 6.0. Ngưỡng cứng cũ báo
+    nhầm một điểm giữa cú lia; bộ dò thích nghi chỉ ra đúng 2 điểm cắt, cả khi giải mã đủ khung lẫn bỏ khung phụ."""
+    import scenes
+    vid = str(tmp_path / "pan.mp4")
+    pan = "if(lt(t,1.5),t*40,if(lt(t,1.9),60+320*(1-cos(PI*(t-1.5)/0.4)),700+(t-1.9)*40))"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1280x180:r=25:d=4",
+                    "-f", "lavfi", "-i", "smptehdbars=s=320x180:r=25:d=2", "-f", "lavfi", "-i",
+                    "testsrc2=s=1280x180:r=25:d=5", "-filter_complex",
+                    f"[0:v]crop=320:180:x='{pan}':y=0,setsar=1[a];[1:v]setsar=1[b];"
+                    "[2:v]crop=320:180:x='200+t*40':y=0,trim=start=1,setpts=PTS-STARTPTS,setsar=1[c];"
+                    "[a][b][c]concat=n=3:v=1[v]", "-map", "[v]", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", vid], check=True)
+    for m in ("full", "fast"):
+        monkeypatch.setattr(scenes, "cut_mode", lambda m=m: m)
+        cuts = scenes._cuts_sync(vid)
+        assert len(cuts) == 2 and abs(cuts[0] - 4.0) < 0.1 and abs(cuts[1] - 6.0) < 0.1, (m, cuts)
+    near = scenes._cuts_near_sync(vid, 3.0, 7.0)                # khúc ngắn: ít khung lân cận ở hai đầu
+    assert len(near) == 2 and abs(near[0] - 4.0) < 0.1 and abs(near[1] - 6.0) < 0.1, near
+    monkeypatch.setattr(scenes, "CUT_DETECTOR", "fixed")
+    old = scenes._cuts_sync(vid)
+    assert any(1.5 < c < 1.95 for c in old) and len(old) == 3
+
+
 def test_scene_analysis_setting_validated(monkeypatch, tmp_path):
     import pytest
     monkeypatch.setattr(config, "SETTINGS_FILE", str(tmp_path / "s.json"))
