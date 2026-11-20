@@ -253,6 +253,16 @@ với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Cùng lượt dò, 
 bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
 trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
 
+Hình theo lời kể (20/11, xem mẫu 32 với mắt đạo diễn): model ghi thêm **đồ vật chính** của truyện (`prop_vi` / `prop_en`, vd
+«túi kẹo» / «candy bag», phải có trong lời cảnh 1–2) và prompt ảnh ép nó «clearly visible» ở cảnh 1 và mọi cảnh lời nhắc tới
+(mẫu 32: cốt chuyện là túi kẹo mà cảnh 1–2 không thấy). Từ đang dạy là hành động / cảm xúc (`pose` trong `data.json`: hug, jump,
+sad…) thì prompt thêm tư thế rõ; từ cần hai bạn chạm nhau (hug, help, share: `contact`) thì OWLv2 soát thêm hai áo có tách rời
+nhau không, tách rời thì vẽ lại (mẫu 32 cảnh 7: «Gấu ôm Thỏ» mà Gấu bưng bánh). Ánh sáng theo lời («trời sắp tối» → hoàng hôn,
+«trăng» → đêm, «sáng sớm», «mưa») và cảm xúc theo cụm xuất hiện sau cùng trong lời cảnh (buồn thiu / giật mình / vấp té / giận
+/ cười) được ghép vào prompt; dài quá ngân sách 165 từ (T5 cắt ở 256 token) thì bỏ cảm xúc rồi ánh sáng. Ảnh câu móc không cố
+định cảnh 3 nữa: `story.hook_scene` chọn trong cảnh 2–5 cảnh có nhiều dấu hiệu rắc rối nhất (buồn, rớt, mất, giật mình…), hoà thì
+cảnh sau; clip móc zoom chặt hơn cảnh thường 0,22 để không thấy y hệt khung đó lúc cảnh chiếu.
+
 LoRA nhân vật (20/11, `KIDS_LORA=dcn_lora_v1` mặc định): FLUX vẽ mỗi cảnh từ chữ nên gương mặt các bạn lệch nhau giữa các cảnh.
 LoRA dạy model nhớ đúng bốn bạn: train trên Kaggle T4 bằng ai-toolkit (nền FLUX.1-schnell + adapter huấn luyện, Apache-2.0) với
 144 ảnh do chính pipeline vẽ; file nằm ở dataset riêng tư `rmvideo-kids-lora`, phiên dựng tự gắn và nạp, prompt thêm từ khoá

@@ -185,17 +185,37 @@ def owners_ok(heads: list[Box], shirts: list[tuple[str, float, list[int]]], owne
     return True
 
 
+CONTACT_GAP = 0.02      # hai áo tách rời nhau theo chiều ngang quá 2% bề ngang ảnh -> chưa ôm / chạm nhau
+
+
+def _overlap(a: list[int], b: list[int]) -> bool:
+    return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
+
+
+def contact_ok(shirts: list[tuple[str, float, list[int]]], heads: list[Box], width: int) -> bool:
+    """Cảnh ôm / dắt tay / đưa đồ (từ dạy có «contact»): hai bạn phải chạm nhau. Hai đầu đè lên nhau, hoặc chỉ thấy một áo
+    (áo kia bị che khi ôm) là có; thấy hai áo mà cách nhau theo chiều ngang quá CONTACT_GAP bề ngang ảnh là đứng tách rời
+    (mẫu 32 cảnh 7: «Gấu ôm Thỏ» mà Gấu bưng bánh, Thỏ đứng cạnh)."""
+    if len(heads) == 2 and _overlap(heads[0][2], heads[1][2]):
+        return True
+    if len(shirts) < 2:
+        return True
+    two = sorted(sorted(shirts, key=lambda s: -(s[2][2] - s[2][0]) * (s[2][3] - s[2][1]))[:2], key=lambda s: s[2][0])
+    gap = two[1][2][0] - two[0][2][2]
+    return gap <= CONTACT_GAP * max(1, width)
+
+
 def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, thr: float = THRESHOLD,
-          colors: list[str] | None = None) -> tuple[bool, int, list[Box]]:
+          colors: list[str] | None = None, contact: bool = False) -> tuple[bool, int, list[Box]]:
     """(đạt?, số đầu thấy, các khung): đạt khi số đầu riêng biệt ≤ số bạn có mặt (ít nhất 1), màu áo không sai (colors:
-    màu áo các bạn trong cảnh, «red» hoặc «rabbit:red» — có loài thì soát cả áo nào dưới đầu nào) và hai bạn không lệch cỡ.
-    Khung trả thêm các áo thấy ("shirt:red", điểm, khung) và lý do hỏng ("why:...")."""
+    màu áo các bạn trong cảnh, «red» hoặc «rabbit:red» — có loài thì soát cả áo nào dưới đầu nào), hai bạn không lệch cỡ và
+    (contact) hai bạn chạm nhau. Khung trả thêm các áo thấy ("shirt:red", điểm, khung) và lý do hỏng ("why:...")."""
     pairs = [tuple(c.split(":", 1)) if ":" in c else ("", c) for c in colors or []]
     plain = [c for _sp, c in pairs]
     owners = {sp: c for sp, c in pairs if sp and c}
     boxes = detect(img, loaded)
     heads = merge_heads(boxes, thr)
-    found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if colors else []
+    found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if (colors or contact) else []
     why: list[str] = []
     if len(heads) > max(1, int(expected)):
         why.append(f"thấy {len(heads)} đầu nhân vật, cảnh chỉ có {expected} bạn (ảnh hai đầu / nhân vật nhân đôi)")
@@ -206,5 +226,7 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
                    f"đúng: {owners})")
     if not sizes_ok(heads, int(expected)):
         why.append("hai bạn to nhỏ lệch nhau")
+    if contact and int(expected) >= 2 and not contact_ok(found, heads, int(getattr(img, "width", 0) or 0)):
+        why.append("hai bạn đứng tách rời, chưa ôm / chạm nhau")
     return (not why, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]
             + [("why:" + w, 0.0, [0, 0, 1, 1]) for w in why])

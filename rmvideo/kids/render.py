@@ -48,8 +48,9 @@ RECAP_GAP = 0.5        # câu ôn từ bắt đầu sau khi vào màn kết ch�
 # Mở đầu «móc» (19/11): 3 giây đầu là ảnh cảnh biến cố + câu móc (câu hỏi/câu cảm) đọc ngay + chữ to, zoom nhanh + whoosh;
 # thẻ tiêu đề lùi ra sau, ngắn lại; lời kể bắt đầu sớm hơn.
 HOOK_LEAD, HOOK_PAD, HOOK_MIN = 0.25, 0.45, 2.6
-HOOK_IMAGE = 2         # ảnh cảnh 3 (chuyện xảy ra) dùng cho mở đầu
+HOOK_IMAGE = 2         # ảnh cảnh 3 (chuyện xảy ra) dùng cho mở đầu khi không chọn được theo lời (story.hook_scene)
 HOOK_STRENGTH = 1.7    # zoom mạnh hơn cảnh thường
+HOOK_ZOOM = 0.22       # clip móc cắt chặt hơn cảnh (zoom thêm chừng này): cùng ảnh nhưng không thấy y hệt khung lúc cảnh đó chiếu
 STORY_LEAD = 0.9       # cảnh 1 (sau móc): lời bắt đầu sau chừng này
 TITLE_LEN = 2.2        # thẻ tiêu đề hiện chừng này giây (từ lúc hết móc)
 MAX_LEN = 87.0         # Reels nhận tới 90s, QA (job.DUR_MAX) 88s: kế hoạch tự co vào mức này (đo thật: 236 chữ -> 88,9s)
@@ -192,6 +193,8 @@ def video_graph(pl: dict, sizes: Sequence[tuple[int, int]], W: int, H: int, fps:
         pulses = list(hits) if motion_on else []
         strength = HOOK_STRENGTH if clips[j].get("hook") else (1.25 if motion_on else 1.0)
         z, x, y = slideshow.zoompan_expr(clips[j]["motion"], "calm", nf, a, pulses, pulses, b, strength)
+        if clips[j].get("hook"):
+            z = f"({z})+{HOOK_ZOOM}"
         if motion_on:
             z = f"({z})+{BREATH[0]}*sin(2*PI*({a:.4f}+on/{fps})/{BREATH[1]})"
         parts.append(f"{slideshow._prep(j, w, h, W, H)},zoompan=z='{z}':x='{x}':y='{y}':d={nf}:s={W}x{H}:fps={fps},"
@@ -369,11 +372,11 @@ def gloss_times(words_timed: Sequence[tuple], brief_words: Sequence[dict]) -> li
 async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[str], brief: dict, out: str, tmp: str,
                  music: str | None = None, title: str = "", channel: dict | None = None, W: int = 1080, H: int = 1920,
                  fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None,
-                 fx: str = "full", hook: tuple[dict, str, str] | None = None) -> dict:
+                 fx: str = "full", hook: tuple[dict, str, str] | None = None, hook_scene: int | None = None) -> dict:
     """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). recap: (clip, lời) câu ôn từ đọc trong màn
     kết. fx: full (chuyển động + hạt + tiếng động) | motion (chỉ chuyển động, phụ đề bật) | off (như 1.1.0).
-    hook: (clip, câu móc đọc, chữ to) -> 3 giây đầu là ảnh cảnh 3 zoom nhanh + câu móc + chữ to, tiêu đề lùi ra sau.
-    Trả {"length", "plan", "srt", "ass", "hits", "sfx"}."""
+    hook: (clip, câu móc đọc, chữ to) -> 3 giây đầu là ảnh cảnh hook_scene (mặc định cảnh 3) zoom chặt + câu móc + chữ to,
+    tiêu đề lùi ra sau. Trả {"length", "plan", "srt", "ass", "hits", "sfx"}."""
     channel = channel or {}
     rnd = rnd or random.Random(0)
     fx = fx if fx in ("full", "motion", "off") else "full"
@@ -420,9 +423,11 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     avail = await asyncio.to_thread(slideshow.xfade_transitions)
     hits = hits_from_words(words) if fx != "off" else []
     imgs_all = list(images)
-    if hook:                                            # clip móc dùng ảnh cảnh 3 (chuyện xảy ra)
-        imgs_all = [images[min(HOOK_IMAGE, len(images) - 1)]] + imgs_all
-        sizes = [sizes[min(HOOK_IMAGE, len(sizes) - 1)]] + list(sizes)
+    if hook:                                            # clip móc dùng ảnh cảnh có chuyện xảy ra (story.hook_scene / cảnh 3)
+        hidx = min(HOOK_IMAGE if hook_scene is None else max(0, int(hook_scene)), len(images) - 1)
+        pl["hook"]["scene"] = hidx
+        imgs_all = [images[hidx]] + imgs_all
+        sizes = [sizes[hidx]] + list(sizes)
         if fx != "off":
             hits = sorted(set([0.05] + hits))           # nảy + whoosh ngay giây đầu
     fc = video_graph(pl, sizes, W, H, fps, avail, hits, fx)

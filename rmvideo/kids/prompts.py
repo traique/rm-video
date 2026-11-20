@@ -5,6 +5,8 @@ hình, 1-2 nhân vật); mã ghép [nhân vật nguyên văn từ bible] + [hàn
 Đó là cách rẻ nhất để 8 ảnh cùng một chất và nhân vật đỡ đổi dáng."""
 from __future__ import annotations
 
+import re
+
 from rmvideo.kids import story as story_mod
 
 # Ngắn gọn: T5 của FLUX chỉ đọc 256 token; prompt 2 nhân vật + bối cảnh dài dễ bị cắt mất phần cuối (đo thật 18/11).
@@ -25,6 +27,27 @@ NORTH_VI = "bố, quả bóng, cái mũ, cái ô, bít tất, bát, thìa, ngã,
 
 
 EXAMPLE_HOOK = ("Ôi, con diều cứ rớt hoài, Sóc Nhỏ phải làm sao đây?", "DIỀU RỚT HOÀI!")
+EXAMPLE_PROP = ("con diều", "red kite")
+# Ánh sáng theo lời kể (đo thật mẫu 32: «trời sắp tối» mà ảnh nắng trưa; FLUX bỏ qua «as evening approaches» nhẹ nhàng)
+LIGHTING_VI = (
+    (r"sắp tối|chiều tà|hoàng hôn|mặt trời lặn|xế chiều|chiều muộn|nắng chiều|chạng vạng",
+     "golden hour sunset light, orange and pink sky, long soft shadows"),
+    (r"ban đêm|nửa đêm|trời tối|tối om|tối mịt|tối thui|ánh trăng|trăng|sao lấp lánh|đom đóm",
+     "night scene, moonlight, starry dark blue sky, warm lamp glow"),
+    (r"sáng sớm|bình minh|mặt trời mọc|sương sớm|tinh mơ", "early morning light, soft sunrise glow, dewy grass"),
+    (r"mưa|sấm|ướt sũng|mây đen", "rainy weather, grey cloudy sky, raindrops, puddles"),
+)
+# Cảm xúc theo lời kể (lấy cụm xuất hiện SAU CÙNG trong cảnh: ảnh đứng yên suốt cảnh nên theo trạng thái cuối); mẫu 32:
+# «vấp té» mà Thỏ cười bay giữa trời, «tai cụp xuống» mà tai dựng
+EMOTION_VI = (
+    (r"buồn thiu|buồn|rưng rưng|khóc|nước mắt|rũ xuống|cụp xuống|thút thít|tủi thân|xụ mặt",
+     "sad face, teary eyes, drooping ears, slumped shoulders"),
+    (r"giật mình|hết hồn|hoảng|hốt hoảng|sợ|run cầm cập|ngạc nhiên|tròn mắt|há hốc", "startled face, wide eyes, mouth open"),
+    (r"vấp té|té nhào|té lăn|té|ngã|trượt chân", "tripping and falling down, tumbling on the ground, surprised face"),
+    (r"giận|bực|cau mày|hừ|phụng phịu|dỗi", "angry pout, furrowed brows, puffed cheeks"),
+    (r"cười|reo|vui|nhảy tưng tưng|hí hửng|khoái chí|thích thú", "happy laughing face"),
+)
+PROMPT_WORDS_MAX = 165      # T5 của FLUX cắt ở 256 token (~1,4 token/từ): quá thì bỏ bớt cụm phụ (cảm xúc trước, rồi ánh sáng)
 EXAMPLE = [
     # truyện mẫu (viết tay theo sách tranh hay: câu ngắn có từ nối, tiếng động, điệp khúc có nhịp, thất bại hài, hỏi bé giữa
     # truyện, cảm xúc qua hành động, nét riêng nhân vật, kết vòng lại mở đầu; «nha» chỉ 2 lần); CHỈ để model học giọng kể
@@ -67,7 +90,7 @@ def example_sentences() -> list[str]:
 
 
 def _example_block() -> str:
-    return (f"  hook: {EXAMPLE_HOOK[0]} · hook_text: {EXAMPLE_HOOK[1]}\n"
+    return (f"  hook: {EXAMPLE_HOOK[0]} · hook_text: {EXAMPLE_HOOK[1]} · prop_vi: {EXAMPLE_PROP[0]} · prop_en: {EXAMPLE_PROP[1]}\n"
             + "\n".join(f"  Cảnh {i}: {t}\n    characters: {c} · action_en: {a}" for i, (t, c, a) in enumerate(EXAMPLE, 1)))
 
 
@@ -147,6 +170,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
             "đồ vật trong hình, thì hiện tại; không tả ngoại hình hay quần áo (đã có sẵn), không chữ.\n"
+            "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «túi kẹo» / «candy bag»): tiếng Việt 1-3 chữ, "
+            "tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi cảnh nó "
+            "xuất hiện (bé phải THẤY nó trong hình).\n"
             f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, đặt theo CHUYỆN XẢY RA để "
             "gây tò mò (ví dụ «Thỏ Trắng và chiếc bình hoa vỡ»), KHÔNG lộ bài học hay kết («biết nhận lỗi», «học được…»), không "
             "chữ tiếng Anh.\n"
@@ -165,7 +191,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
                  + (", có ít nhất 3 thứ trong: " + must if must else "")
-                 + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, có hook và hook_text.")
+                 + ", không chữ tiếng Anh trong lời, action_en bằng tiếng Anh, có hook, hook_text, prop_vi và prop_en.")
     return text
 
 
@@ -222,11 +248,14 @@ def schema(data: dict) -> dict:
             "properties": {"title": {"type": "string", "minLength": 6, "maxLength": story_mod.TITLE_MAX + 10},
                            "hook": {"type": "string", "minLength": 10, "maxLength": 110},
                            "hook_text": {"type": "string", "minLength": 4, "maxLength": 32},
+                           "prop_vi": {"type": "string", "minLength": 2, "maxLength": 40},
+                           "prop_en": {"type": "string", "minLength": 3, "maxLength": 40},
                            "scenes": {"type": "array", "items": scene, "minItems": story_mod.N_SCENES,
                                       "maxItems": story_mod.N_SCENES},
                            "description": {"type": "string", "maxLength": 1200},
                            "hashtags": {"type": "array", "items": {"type": "string", "maxLength": 40}, "maxItems": 4}},
-            "required": ["title", "hook", "hook_text", "scenes", "description", "hashtags"], "additionalProperties": False}
+            "required": ["title", "hook", "hook_text", "prop_vi", "prop_en", "scenes", "description", "hashtags"],
+            "additionalProperties": False}
 
 
 def shirt_color(char: dict) -> str:
@@ -236,22 +265,76 @@ def shirt_color(char: dict) -> str:
     return m.group(1) if m else ""
 
 
-def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False) -> str:
-    """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx)] + [mô tả nhân
-    vật nguyên văn, áo màu gì nói trước] + [bối cảnh + thế giới] + [phong cách cố định]. Giữ ngắn cho vừa 256 token T5."""
+def _last_match(table: tuple, text: str) -> str:
+    """Cụm tiếng Anh của mẫu khớp SAU CÙNG trong lời (trạng thái cuối cảnh); không khớp: rỗng."""
+    low, best, best_at = text.lower(), "", -1
+    for pat, en in table:
+        for m in re.finditer(r"(?<![\wÀ-ỹ])(?:" + pat + r")(?![\wÀ-ỹ])", low):
+            if m.end() > best_at:
+                best, best_at = en, m.end()
+    return best
+
+
+def lighting_en(text: str) -> str:
+    """Ánh sáng theo lời kể («trời sắp tối» -> hoàng hôn); mẫu đầu tiên khớp thắng (sắp tối xét trước trời tối)."""
+    low = text.lower()
+    for pat, en in LIGHTING_VI:
+        if re.search(r"(?<![\wÀ-ỹ])(?:" + pat + r")(?![\wÀ-ỹ])", low):
+            return en
+    return ""
+
+
+def emotion_en(text: str) -> str:
+    return _last_match(EMOTION_VI, text)
+
+
+def _in_action(phrase: str, action: str) -> bool:
+    """Hành động model viết đã nhắc đồ vật / động tác chưa (một từ ≥ 3 chữ của cụm, bỏ a/the/of/and; «kite» khớp «holding a kite»)."""
+    low = action.lower()
+    toks = [t for t in re.findall(r"[a-z]+", phrase.lower()) if len(t) >= 3 and t not in ("the", "and", "with")]
+    return any(re.search(r"\b" + t[:4 if len(t) >= 5 else len(t)], low) for t in toks)
+
+
+def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False,
+                 prop: tuple[str, str] | None = None) -> str:
+    """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx) + đồ vật chính
+    + tư thế theo từ dạy + cảm xúc theo lời] + [mô tả nhân vật nguyên văn, áo màu gì nói trước] + [bối cảnh + thế giới +
+    ánh sáng theo lời] + [phong cách cố định]. prop: (tên Việt, tên Anh) đồ vật chính của truyện — cảnh 1 và cảnh nào lời
+    nhắc tới thì hình phải có (mẫu 32: «túi kẹo» là cốt chuyện mà cảnh 1-2 không thấy). Giữ ngắn cho vừa 256 token T5."""
     chars = data["characters"]
     keys = [k for k in scene.get("characters", []) if k in chars][:2] or [brief["main"]]
+    text = str(scene.get("text") or "")
     action = (scene.get("action_en") or "").strip().rstrip(".")
     if not story_mod.is_english(action) or len(action.split()) < 3:
         names = " and ".join(chars[k]["name_en"] for k in keys)
         action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
+    must: list[str] = []                       # cụm bắt buộc (đồ vật, tư thế) — không cắt
+    soft: list[str] = []                       # cụm phụ (ánh sáng, cảm xúc) — thiếu chỗ thì bỏ dần từ cuối
+    if prop and prop[0] and prop[1] and (idx == 0 or story_mod.prop_mentioned(prop[0], text)) and not _in_action(prop[1], action):
+        must.append(f"{prop[1]} clearly visible")
+    poses = [w["pose"] for w in story_mod.beat_words(text, brief, data) if w.get("pose")]
+    must += poses                              # từ hành động / cảm xúc đang dạy: tư thế rõ (mẫu 32: «hug» mà không ai ôm)
+    light = lighting_en(text)
+    emo = "" if poses else emotion_en(text)
+    if emo and not _in_action(emo.split(",")[0], action):
+        soft.append(emo)
     descs = ". ".join(((chars[k].get("lora_token", "") + " ") if use_lora and chars[k].get("lora_token") else "")
                       + chars[k]["prompt_en"] for k in keys)       # use_lora: từ khoá LoRA («thotrang») đứng trước mô tả
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")
+    style = STYLE_EN.replace("soft warm light, ", "") if light else STYLE_EN
     # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
     who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"
-    return (f"{who}: {action}. {descs}. {PROPORTION_EN}. Setting: {setting}, {data['world']['prompt_en']}. {STYLE_EN}, "
-            "no other animals")
+    extras = [light] if light else []
+    while True:
+        act = ", ".join([action] + must + soft)
+        where = ", ".join([setting, data["world"]["prompt_en"]] + extras)
+        out = f"{who}: {act}. {descs}. {PROPORTION_EN}. Setting: {where}. {style}, no other animals"
+        if len(out.split()) <= PROMPT_WORDS_MAX or not (soft or extras):
+            return out
+        if soft:
+            soft.pop()
+        else:
+            extras.pop()
 
 
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:

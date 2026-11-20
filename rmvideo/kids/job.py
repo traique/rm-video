@@ -56,7 +56,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t["llm"] = round(time.time() - t0, 1)
     texts = [s["text"] for s in st["scenes"]]
     lora = str((spec.get("image") or {}).get("lora") or "")
-    plist = [prompts.image_prompt(s, brief, data, i, use_lora=bool(lora)) for i, s in enumerate(st["scenes"])]
+    prop = (str(st.get("prop_vi") or ""), str(st.get("prop_en") or ""))
+    plist = [prompts.image_prompt(s, brief, data, i, use_lora=bool(lora), prop=prop) for i, s in enumerate(st["scenes"])]
     seeds = [int(brief.get("seed") or 1) + i for i in range(len(plist))]
     t0 = time.time()
     check = (spec.get("image") or {}).get("check", True)
@@ -65,9 +66,11 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     colors = [[f"{chars.get(k, {}).get('name_en', '').split()[-1].lower()}:{prompts.shirt_color(chars.get(k, {}))}"
                for k in sc.get("characters") or [] if k in chars]
               for sc in st["scenes"]] if check else None       # «rabbit:red»: soát cả áo nào dưới đầu nào
+    contact = [len(sc.get("characters") or []) >= 2 and any(w.get("contact") for w in story_mod.beat_words(sc["text"], brief, data))
+               for sc in st["scenes"]] if check else None       # cảnh dạy «hug» / «help» / «share»: hai bạn phải chạm nhau
     istats: dict = {}
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
-                                   expected=expected, stats=istats, colors=colors, lora=lora)
+                                   expected=expected, stats=istats, colors=colors, lora=lora, contact=contact)
     t["image_checked"], t["image_redo"] = istats.get("checked", 0), istats.get("redo", 0)
     if lora:
         t["lora"] = istats.get("lora", False)
@@ -119,7 +122,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
                               recap=(recap_clip, recap) if recap_clip.get("path") else None,
                               fx=str(spec.get("fx") or "full"),
-                              hook=(hook_clip, hook, st.get("hook_text") or "") if hook_clip.get("path") else None)
+                              hook=(hook_clip, hook, st.get("hook_text") or "") if hook_clip.get("path") else None,
+                              hook_scene=story_mod.hook_scene(st))
     t["render"] = round(time.time() - t0, 1)
     sj = os.path.join(tmp, "story.json")
     with open(sj, "w", encoding="utf-8") as f:

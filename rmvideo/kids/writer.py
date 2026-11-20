@@ -30,7 +30,7 @@ def gemini_schema(schema: dict) -> dict:
             return [clean(x) for x in node]
         return node
     out = clean(copy.deepcopy(schema))
-    out["propertyOrdering"] = ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
+    out["propertyOrdering"] = ["title", "hook", "hook_text", "prop_vi", "prop_en", "scenes", "description", "hashtags"]
     return out
 
 

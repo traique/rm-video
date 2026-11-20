@@ -291,9 +291,12 @@ def normalize(story: dict, data: dict) -> dict:
             tags.append(t)
     hook = south_kids(re.sub(r"\s+", " ", str(story.get("hook") or "")).strip().strip('"«»'))[:120]
     hook_text = re.sub(r"\s+", " ", str(story.get("hook_text") or "")).strip().strip('"«»!.').upper()[:36]
+    prop_vi = re.sub(r"\s+", " ", str(story.get("prop_vi") or "")).strip().strip('"«».!').lower()[:40]
+    prop_en = re.sub(r"\s+", " ", str(story.get("prop_en") or "")).strip().strip('"«».!').lower()[:40]
     return {"title": sentence_case(south_kids(re.sub(r"\s+", " ", str(story.get("title") or "")).strip().strip('"«»')[:TITLE_MAX]),
                                    chars),
             "hook": hook, "hook_text": (hook_text + "!") if hook_text else "",
+            "prop_vi": prop_vi, "prop_en": prop_en,           # đồ vật chính xuyên suốt (túi kẹo / candy bag) -> phải có trong hình
             "scenes": scenes,
             "description": south_kids(re.sub(r"[ \t]+", " ", str(story.get("description") or "")).strip()[:1500]),
             "hashtags": tags[:4]}
@@ -363,6 +366,11 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
     nt = word_count((story.get("hook_text") or "").rstrip("!"))
     if not (2 <= nt <= 5):
         problems.append(f"`hook_text` phải 2-5 chữ in hoa hiện to trên màn hình (đang {nt} chữ)")
+    prop = story.get("prop_vi") or ""
+    if prop and not any(prop_mentioned(prop, t) for t in texts[:2]):
+        problems.append(f"đồ vật chính `prop_vi` «{prop}» phải xuất hiện trong lời kể cảnh 1 hoặc 2 (sợi chỉ xuyên suốt truyện)")
+    if prop and not re.fullmatch(r"[a-z][a-z' \-]{1,39}", story.get("prop_en") or ""):
+        problems.append("`prop_en` phải là tên tiếng Anh của đồ vật chính (1-3 từ, ví dụ «candy bag»)")
     lesson = by_id(data["lessons"], brief.get("lesson", ""))
     if lesson and not any(k in low for k in lesson.get("keywords", [])):
         problems.append(f"cảnh 7 phải nói rõ bài học «{lesson['vi']}» (dùng chữ: {', '.join(lesson['keywords'])})")
@@ -493,6 +501,52 @@ def first_scene_with(scenes: Sequence[dict], w: dict, data: dict) -> int:
 def is_english(text: str) -> bool:
     """action_en có phải tiếng Anh (toàn ký tự ASCII, không dấu tiếng Việt)."""
     return bool(text.strip()) and all(ord(c) < 128 for c in text)
+
+
+PROP_CLASSIFIERS = {"cái", "con", "chiếc", "quả", "trái", "cục", "một", "tấm", "cây"}   # loại từ: «con diều» -> diều
+
+
+def prop_tokens(prop_vi: str) -> list[str]:
+    toks = re.findall(r"[\wÀ-ỹ]+", prop_vi.lower())
+    return [t for t in toks if t not in PROP_CLASSIFIERS] or toks
+
+
+def prop_mentioned(prop_vi: str, text: str) -> bool:
+    """Lời cảnh có nhắc đồ vật chính không (khớp lỏng: một chữ của tên đồ vật, bỏ loại từ — «túi kẹo» khớp «mang kẹo qua»)."""
+    low = text.lower()
+    return any(re.search(r"(?<![\wÀ-ỹ])" + re.escape(t) + r"(?![\wÀ-ỹ])", low) for t in prop_tokens(prop_vi))
+
+
+def beat_words(text: str, brief: dict, data: dict | None = None) -> list[dict]:
+    """Từ trong kho (brief["words"]) đã được chèn câu dạy vào lời cảnh này (lời thuần Việt, chữ tiếng Anh chỉ do add_beats).
+    data: bổ sung trường mới của kho (pose/contact) cho đề đã bốc trước khi kho có trường đó."""
+    bank = {w["en"]: w for w in (data or {}).get("words") or []}
+    out = []
+    for w in brief.get("words") or []:
+        en = str(w.get("en") or "").strip()
+        if en and re.search(r"(?<![A-Za-z])" + re.escape(en) + r"(?![A-Za-z])", text):
+            out.append({**bank.get(en, {}), **w})
+    return out
+
+
+# dấu hiệu «rắc rối» trong lời cảnh: cảnh có nhiều nhất làm ảnh câu móc (bé thấy ngay chuyện gì xảy ra)
+PROBLEM_VI = ("buồn", "khóc", "rưng rưng", "giật mình", "hết hồn", "sợ", "lo", "hỏng", "vỡ", "bể", "rớt", "rơi", "quên mất",
+              "mất", "quên", "té", "ngã", "đau", "ướt", "lạc", "hư", "kẹt", "trễ", "muộn", "cãi", "giận", "tủi", "thút thít", "cụp",
+              "rũ", "ối", "thôi rồi", "làm sao")        # «quên mất» đứng trước «mất»: đếm một
+_PROBLEM_RE = re.compile(r"(?<![\wÀ-ỹ])(?:" + "|".join(re.escape(k) for k in PROBLEM_VI) + r")(?![\wÀ-ỹ])")
+
+
+def hook_scene(story: dict, lo: int = 1, hi: int = 4, default: int = 2) -> int:
+    """Chỉ số (0-based) ảnh cảnh dùng cho câu móc: trong cảnh 2-5, cảnh có nhiều dấu hiệu rắc rối nhất (buồn, rớt, mất, giật
+    mình…); hoà thì cảnh 3 (chuyện xảy ra) như trước. Đo thật mẫu 32: móc cố định cảnh 3 là Gấu ngồi chờ, trong khi cảnh 4
+    (Thỏ giật mình, tai cụp) nói đúng «QUÊN LỜI HỨA!» hơn."""
+    scenes = story.get("scenes") or []
+    best, best_n = default, 0
+    for i in range(lo, min(hi, len(scenes) - 1) + 1):
+        n = len(_PROBLEM_RE.findall(scenes[i].get("text", "").lower()))
+        if n > best_n or (n == best_n and n > 0 and i != default):     # hoà: cảnh sau (chuyện đã leo thang) hơn cảnh trước
+            best, best_n = i, n
+    return best
 
 
 def blocking(story: dict, brief: dict, data: dict) -> list[str]:

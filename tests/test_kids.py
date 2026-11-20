@@ -726,7 +726,8 @@ def test_prompts_and_schema():
     assert "chưa đạt vì" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "hook", "hook_text", "scenes",
-                                                                                       "description", "hashtags"}
+                                                                                       "description", "hashtags", "prop_vi", "prop_en"}
+    assert "prop_vi" in u and "candy bag" in u and "prop_en: red kite" in u
     st0 = story.normalize(_good_story(brief), DATA)
     assert st0["hook_text"] == "RỚT MẤT RỒI!" and st0["hook"].endswith("?")
     grp = json.loads(json.dumps(st0))
@@ -907,10 +908,11 @@ def test_render_small_video_with_music(tmp_path):
     hook = ({"path": _wav(str(tmp_path / "hook.wav"), 1.2)}, "Ôi, trái banh đâu rồi?", "BANH ĐÂU RỒI!")
     res = asyncio.run(render.render(imgs, clips, texts, brief, out, str(tmp_path), music=music, title="Thỏ Trắng học nói",
                                     channel=kids_auto.channel(), W=180, H=320, fps=12, rnd=random.Random(1), recap=recap,
-                                    hook=hook))
+                                    hook=hook, hook_scene=3))
     outro = max(render.OUTRO, render.RECAP_GAP + recap[0]["dur"] + 1.0)
     pl = res["plan"]
     assert pl["hook"] and res["length"] == pytest.approx(pl["hook"]["end"] + 8 * render.SCENE_MIN + outro)
+    assert pl["hook"]["scene"] == 3                                               # ảnh câu móc = cảnh 4 (chọn theo lời)
     assert recap[0]["dur"] > 2.5 and "banh đâu" in res["srt"] and res["sfx"]["whoosh"] == 9 and 0.05 in res["hits"]
     assert "Hôm nay mình học" not in res["srt"]                                  # màn kết không phụ đề (bảng đã đủ)
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0",
@@ -1143,7 +1145,7 @@ def test_writer_schema_and_backend(monkeypatch):
     sch = writer.gemini_schema(prompts.schema(DATA))
     dumped = json.dumps(sch)
     assert "minLength" not in dumped and "additionalProperties" not in dumped and "enum" in dumped
-    assert sch["propertyOrdering"] == ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
+    assert sch["propertyOrdering"] == ["title", "hook", "hook_text", "prop_vi", "prop_en", "scenes", "description", "hashtags"]
     seen = []
 
     async def fake(prompt, images=None, schema=None, label="", timeout=60, thinking="", model=""):
@@ -1480,3 +1482,81 @@ def test_cards_font_fallback(monkeypatch):
     monkeypatch.setattr(ff, "FONT_PATH", "/nonexistent/font.ttf")
     f = cards._font(40)
     assert getattr(f, "size", None) == 40
+
+
+def test_image_prompt_cues_from_story_text():
+    """Prompt ảnh thêm: đồ vật chính (cảnh 1 + cảnh lời nhắc), tư thế theo từ dạy, cảm xúc theo cụm cuối trong lời, ánh sáng
+    theo lời («trời sắp tối» -> hoàng hôn, bỏ «soft warm light»); không vượt ngân sách chữ cho T5."""
+    brief = story.pick(DATA, [], random.Random(2))
+    brief["words"] = [dict(w) for w in DATA["words"] if w["en"] in ("hug", "candy", "hat")]
+    prop = ("túi kẹo", "candy bag")
+    sc1 = {"text": "Hôm nay Thỏ Trắng mang kẹo qua cho Gấu Nâu. À, kẹo tiếng Anh là candy. Bé nói theo nè: candy!",
+           "characters": ["white_rabbit"], "action_en": "White Rabbit jumping happily among balloons"}
+    p1 = prompts.image_prompt(sc1, brief, DATA, 0, prop=prop)
+    assert "candy bag clearly visible" in p1 and "soft warm light" in p1
+    sc3 = {"text": "Gấu Nâu ngồi chờ bên bàn bánh kem. Trời sắp tối mà chẳng thấy bạn đâu, Gấu Nâu buồn thiu.",
+           "characters": ["brown_bear"], "action_en": "Brown Bear sitting by a table with a cake"}
+    p3 = prompts.image_prompt(sc3, brief, DATA, 2, prop=prop)
+    assert "golden hour sunset light" in p3 and "soft warm light" not in p3 and "sad face, teary eyes" in p3
+    assert "candy bag" not in p3                                                  # lời cảnh 3 không nhắc kẹo
+    sc7 = {"text": "Gấu Nâu ôm bạn. Đố bé biết ôm tiếng Anh là gì? Là hug! Bé đọc theo mình: hug!",
+           "characters": ["brown_bear", "white_rabbit"], "action_en": "Brown Bear giving a warm hug to White Rabbit"}
+    p7 = prompts.image_prompt(sc7, brief, DATA, 6, prop=prop)
+    assert "hugging each other tightly" in p7 and "happy laughing face" not in p7
+    assert [w["en"] for w in story.beat_words(sc7["text"], brief)] == ["hug"]
+    assert story.beat_words(sc7["text"], {"words": [{"en": "hug", "vi": "ôm"}]}, DATA)[0].get("contact") is True   # kho bổ sung
+    sc5 = {"text": "Thỏ Trắng chạy thật nhanh. Bịch! Thỏ Trắng vấp té nhưng đứng dậy chạy tiếp, cười tươi.",
+           "characters": ["white_rabbit"], "action_en": "White Rabbit running on the path"}
+    assert prompts.emotion_en(sc5["text"]) == "happy laughing face"             # cụm sau cùng thắng
+    assert prompts.emotion_en("Thỏ Trắng vấp té, tai cụp xuống.") .startswith("sad face")
+    assert prompts.lighting_en("Trời tối om, trăng lên.").startswith("night scene") and prompts.lighting_en("Trời sắp tối").startswith("golden")
+    assert prompts.lighting_en("Buổi trưa nắng đẹp.") == ""
+    assert story.prop_mentioned("túi kẹo", "Thỏ mang kẹo qua") and story.prop_mentioned("con diều", "diều bay cao")
+    assert not story.prop_mentioned("con diều", "con mèo ngủ") and story.prop_tokens("cái bình hoa") == ["bình", "hoa"]
+    long = dict(sc3, action_en=" ".join(["running"] * 60))                      # hành động dài: bỏ cảm xúc rồi ánh sáng, không vượt
+    pl = prompts.image_prompt(long, brief, DATA, 2, prop=prop)
+    assert len(pl.split()) <= prompts.PROMPT_WORDS_MAX + 60 and "sad face" not in pl
+    assert all(len(prompts.image_prompt(s, brief, DATA, i, use_lora=True, prop=prop).split()) <= prompts.PROMPT_WORDS_MAX
+               for i, s in enumerate([sc1, sc3, sc7, sc5]))
+
+
+def test_prop_validation_and_hook_scene():
+    brief = story.pick(DATA, [], random.Random(2))
+    st = story.normalize(dict(_good_story(brief), prop_vi="Túi kẹo", prop_en="Candy Bag"), DATA)
+    assert st["prop_vi"] == "túi kẹo" and st["prop_en"] == "candy bag"
+    probs = story.validate(st, brief, DATA, prompts.example_sentences())
+    assert any("prop_vi" in q and "túi kẹo" in q for q in probs)               # cảnh 1-2 không nhắc kẹo
+    st["scenes"][1]["text"] += " Thỏ Trắng xách túi kẹo đi."
+    assert not any("prop" in q for q in story.validate(st, brief, DATA, prompts.example_sentences()))
+    bad = story.normalize(dict(_good_story(brief), prop_vi="túi kẹo", prop_en="túi kẹo"), DATA)
+    bad["scenes"][0]["text"] += " kẹo"
+    assert any("prop_en" in q for q in story.validate(bad, brief, DATA, prompts.example_sentences()))
+    assert story.normalize(_good_story(brief), DATA)["prop_vi"] == ""            # không có: không bắt lỗi
+    # ảnh câu móc: cảnh 2-5 nhiều dấu hiệu rắc rối nhất; hoà -> cảnh sau; không có -> cảnh 3
+    sc = lambda t: {"text": t, "characters": ["white_rabbit"], "action_en": "x"}      # noqa: E731
+    s32 = {"scenes": [sc("Hôm nay vui."), sc("Thỏ Trắng quên mất túi kẹo."), sc("Gấu Nâu buồn thiu."),
+                      sc("Thỏ Trắng giật mình, tai cụp xuống."), sc("Bịch! Thỏ vấp té."), sc("a"), sc("b"), sc("c")]}
+    assert story.hook_scene(s32) == 3
+    assert story.hook_scene({"scenes": [sc("a")] * 8}) == 2
+    assert story.hook_scene({"scenes": [sc("a"), sc("Ối, rớt rồi!"), sc("b"), sc("c"), sc("d"), sc("e"), sc("f"), sc("g")]}) == 1
+    assert story.hook_scene({"scenes": [sc("a"), sc("Ối, rớt rồi!"), sc("b"), sc("Ối, mất rồi!"), sc("d"), sc("e"), sc("f"), sc("g")]}) == 3
+
+
+def test_imgcheck_contact(monkeypatch):
+    from PIL import Image
+    from rmvideo.kids import imgcheck
+    heads = [("a bear head", 0.6, [20, 20, 100, 100]), ("a rabbit head", 0.6, [130, 40, 190, 100])]
+    far = [("blue", 0.5, [10, 100, 95, 190]), ("red", 0.5, [125, 100, 195, 190])]          # cách nhau 30 px / 200 = 15%
+    near = [("blue", 0.5, [10, 100, 120, 190]), ("red", 0.5, [122, 100, 195, 190])]        # 2 px
+    assert not imgcheck.contact_ok(far, heads, 200) and imgcheck.contact_ok(near, heads, 200)
+    assert imgcheck.contact_ok(far[:1], heads, 200)                                          # một áo bị che khi ôm
+    assert imgcheck.contact_ok(far, [("a bear head", 0.6, [20, 20, 100, 100]), ("a rabbit head", 0.6, [90, 40, 150, 100])], 200)
+    im = Image.new("RGB", (200, 300), (120, 200, 90))
+    monkeypatch.setattr(imgcheck, "detect", lambda img, loaded=None, min_score=0.1: heads)
+    monkeypatch.setattr(imgcheck, "shirt_colors", lambda img, boxes, thr=0.25, heads=None: far)
+    ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"], contact=True)
+    assert not ok and n == 2 and any("chưa ôm" in b[0] for b in out)
+    ok, _n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"])             # không đòi chạm
+    assert ok
+    monkeypatch.setattr(imgcheck, "shirt_colors", lambda img, boxes, thr=0.25, heads=None: near)
+    assert imgcheck.check(im, 2, loaded=object(), contact=True)[0]

@@ -15,6 +15,12 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 
 ## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
 
+- Truyện bé, hình theo lời kể (xem mẫu 32 với mắt đạo diễn, 20/11): model ghi đồ vật chính `prop_vi`/`prop_en` (bộ kiểm đòi có
+  trong lời cảnh 1–2), prompt ảnh ép đồ vật «clearly visible» ở cảnh 1 và cảnh lời nhắc; từ dạy là hành động / cảm xúc có `pose`
+  (data.json) ghép vào prompt, từ cần chạm nhau (`contact`: hug/help/share) được OWLv2 soát hai áo tách rời (`imgcheck.contact_ok`)
+  và vẽ lại; ánh sáng theo lời (`prompts.lighting_en`: sắp tối → hoàng hôn, trăng → đêm, sáng sớm, mưa) và cảm xúc theo cụm cuối
+  trong lời (`emotion_en`); ngân sách 165 từ cho T5. Ảnh câu móc chọn theo lời (`story.hook_scene`: cảnh 2–5 nhiều dấu hiệu rắc
+  rối nhất, hoà thì cảnh sau), clip móc zoom chặt hơn 0,22 (`render.HOOK_ZOOM`).
 - Soát code đợt 20/11 (truyện bé + Kaggle): `_call_gemini(model=…)` nhận model riêng cho từng lượt — `writer.GeminiBackend`
   không đổi `config.GEMINI_MODEL` chung nữa (kênh bếp gọi Gemini song song trên cùng tiến trình; model truyện bé bị ngừng 404
   không còn ghi đè Cài đặt). Kaggle trả `brief` cuối (Qwen viết trên Kaggle thì từ hôm nay chốt ở đó) → bài đăng và bộ nhớ
