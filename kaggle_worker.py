@@ -35,6 +35,9 @@ SLUG_KIDS_MODELS = "rmvideo-kids-models"  # chạy một lần (kids_setup): lla
 BUNDLE = list(kaggle_bundle.files())
 PIP = ("pip install -q --no-deps vieneu sea-g2p && pip install -q onnxruntime kaldi-native-fbank soxr "
        "'transformers==4.57.6' safetensors yt-dlp edge-tts")
+# faster-whisper: nghe lại giọng VieNeu trên GPU (rmvideo/media/voice_qa.py). Lệnh RIÊNG nối sau cùng: cài lỗi / xung đột
+# phiên bản thì chỉ mất bước nghe lại (voice_qa tự bỏ qua khi thiếu gói), giọng VieNeu và diffusers không bị kéo theo
+PIP_QA = "; pip install -q faster-whisper"
 PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu: khỏi cài model giọng
 # phiên phân tích: Whisper (faster-whisper) + tách giọng trên GPU (onnxruntime-gpu thay bản CPU mà faster-whisper kéo về)
 PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
@@ -234,11 +237,12 @@ def needs_gpu(spec: dict) -> bool:
 
 
 def pip_for(spec: dict) -> str:
+    qa = PIP_QA if config.VOICE_QA != "0" else ""
     if is_kids(spec):
-        return PIP_KIDS
+        return PIP_KIDS + qa
     if any(j.get("kind") == "analyze" for j in _jobs(spec)):
         return PIP_ANALYZE + (PIP_ROFORMER if config.VOICE_SEP_MODEL == "auto" else "")
-    return PIP if needs_vieneu(spec) else PIP_LIGHT
+    return PIP + qa if needs_vieneu(spec) else PIP_LIGHT
 
 
 def kernel_text(spec: dict) -> str:

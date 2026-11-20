@@ -371,6 +371,94 @@ def test_vieneu_synth_normalizes_numbers(monkeypatch, tmp_path):
     assert os.path.exists(out[0]["path"]) and out[0]["words"] is None
 
 
+def test_voice_qa_score():
+    from rmvideo.media import voice_qa as qa
+    ref = qa.norm("Cho 200g đường, nấu 15 phút!")
+    assert ref == "cho hai trăm gam đường nấu mười lăm phút"
+    assert qa.score(ref, qa.norm("Cho 200 gam đường. Nấu 15 phút.")) == (0.0, False)    # Whisper viết số: vẫn khớp
+    assert qa.score(ref, qa.norm("cho hai trăm gam đường nấu năm phút"))[1] is False    # nghe sai một chữ: chưa tính hỏng
+    assert qa.score(ref, qa.norm("cho hai gam đường nấu"))[1] is True                   # nuốt chữ
+    # đo 20/11: VieNeu lặp «Bé nói theo nè, súng» — CER chỉ ~0.17, cụm 3 từ lặp mới bắt được
+    ref = qa.norm("Mặt trời vàng ươm chiếu xuống sân chơi. Gấu Nâu đang đứng xếp hàng chờ tới lượt chơi cầu trượt. "
+                  "À, mặt trời đó tiếng Anh là sun. Bé nói theo nè: sun!")
+    hyp = qa.norm("Mặt trời vàng ươm chiếu xuống sân chơi. Gấu nâu đang đứng xếp hàng chờ tới lượt chơi cầu trượt. "
+                  "À, mặt trời đó tiếng Anh là súng. Bé nói theo nè, súng. Bé nói theo nè, súng.")
+    cer, bad = qa.score(ref, hyp)
+    assert cer < qa.CER_MAX and bad
+
+
+def _qa_tts(monkeypatch, heard):
+    """VieNeu giả: mỗi lần đọc ghi «lần|lời» vào file; Whisper giả: heard(lời, lần) -> chữ nghe được."""
+    import kaggle_job
+    from rmvideo.media import voice_qa
+    calls = []
+
+    class FakeTTS:
+        def infer_batch(self, texts, voice):
+            calls.append(list(texts))
+            return [f"{len(calls)}|{t}".encode() for t in texts]
+
+        def save(self, a, p):
+            open(p, "wb").write(a)
+
+    def hear(path):
+        n, text = open(path, "rb").read().decode().split("|", 1)
+        return heard(text, int(n))
+    monkeypatch.setattr(kaggle_job, "_vieneu", lambda: FakeTTS())
+    monkeypatch.setattr(voice_qa, "_whisper", lambda: object())     # như có GPU + faster-whisper
+    monkeypatch.setattr(voice_qa, "listen", hear)
+    return kaggle_job.make_synth({"voice": {"engine": "vieneu", "name": "Mỹ Duyên"}}, None), calls
+
+
+def test_vieneu_relisten_redoes_bad_clip_and_keeps_best(monkeypatch, tmp_path):
+    from rmvideo.media import voice_qa
+
+    def heard(text, n):
+        if text.startswith("Nêm") and n == 1:         # lần đầu đọc lặp
+            return "Nêm nửa muỗng canh nước mắm, nước mắm, nửa muỗng canh nước mắm cho thơm"
+        return text
+    synth, calls = _qa_tts(monkeypatch, heard)
+    items = [(0, "Cho 200g đường vào nồi"), (1, "Nêm 1/2 muỗng canh nước mắm cho thơm"), (2, "là vui,")]
+    out = asyncio.run(synth(items, str(tmp_path)))
+    assert calls[1] == ["Nêm nửa muỗng canh nước mắm cho thơm"]                # chỉ đọc lại mẩu hỏng
+    assert out[1]["path"] == str(tmp_path / "qa1" / "v_001.wav") and out[0]["path"] == str(tmp_path / "v_000.wav")
+    stats, bad = voice_qa.report(synth)
+    assert stats["voice_qa"]["checked"] == 2 and stats["voice_qa"]["redo"] == 1    # «là vui,» < 4 từ: không kiểm
+    assert stats["voice_qa"]["worst_cer"] == 0.0 and bad == []
+
+
+def test_vieneu_relisten_gives_up_after_two_redos(monkeypatch, tmp_path):
+    from rmvideo.media import voice_qa
+    garbled = {1: "nấu phút", 2: "nấu mười lăm phút", 3: "nấu"}       # bản đọc lại thứ nhất (qa1) gần đúng nhất
+
+    def heard(text, n):
+        return garbled[n] if text.startswith("Nấu") else text
+    synth, calls = _qa_tts(monkeypatch, heard)
+    out = asyncio.run(synth([(0, "Nấu 15 phút cho mềm thịt"), (1, "Rồi tắt bếp, nêm lại cho vừa")], str(tmp_path)))
+    assert len(calls) == 3 and out[0]["path"] == str(tmp_path / "qa1" / "v_000.wav")
+    stats, bad = voice_qa.report(synth)
+    assert stats["voice_qa"]["redo"] == 2 and stats["voice_qa"]["worst_cer"] > voice_qa.CER_MAX
+    assert len(bad) == 1 and "«nấu mười lăm phút»" in bad[0]
+
+
+def test_vieneu_relisten_failure_keeps_unchecked_voice(monkeypatch, tmp_path):
+    from rmvideo.media import voice_qa
+
+    def oom(text, n):
+        raise RuntimeError("CUDA out of memory")
+    synth, calls = _qa_tts(monkeypatch, oom)
+    out = asyncio.run(synth([(0, "Cho 200g đường vào nồi")], str(tmp_path)))
+    assert len(calls) == 1 and out[0]["path"] == str(tmp_path / "v_000.wav")
+    assert "out of memory" in voice_qa.report(synth)[0]["voice_qa"]["error"]
+    synth = _qa_tts(monkeypatch, oom)[0]
+    monkeypatch.setattr(voice_qa, "_whisper", lambda: None)                      # không GPU / thiếu faster-whisper
+    out = asyncio.run(synth([(0, "Cho 200g đường vào nồi")], str(tmp_path)))
+    assert out[0]["path"] == str(tmp_path / "v_000.wav") and voice_qa.report(synth) == ({}, [])
+    monkeypatch.setattr(config, "VOICE_QA", "0")
+    import kaggle_job
+    assert not hasattr(kaggle_job.make_synth({"voice": {"engine": "vieneu"}}, None), "qa")    # tắt: synth cũ
+
+
 def test_edge_synth_on_kaggle_keeps_word_timings(monkeypatch, tmp_path):
     import kaggle_job
 

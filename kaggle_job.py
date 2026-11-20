@@ -107,6 +107,7 @@ def _vieneu():
 def make_synth(spec: dict, ref_path: str | None):
     """async synth(items, tmp) -> {k: {"path", "words"}}. items: [(k, lời)] hoặc [(k, lời, tên giọng VieNeu)] — truyện bé
     đọc lời nhân vật bằng giọng riêng (rmvideo/kids/dialogue.py); giọng lạ / lỗi thì rơi về giọng chung."""
+    import config
     import core_video
     import vi_text
     voice = spec.get("voice") or {}
@@ -142,10 +143,12 @@ def make_synth(spec: dict, ref_path: str | None):
 
         async def synth(items, tmp):
             return await asyncio.to_thread(run, items, tmp)
-        return synth
+        if config.VOICE_QA == "0":
+            return synth
+        from rmvideo.media import voice_qa
+        return voice_qa.checked(synth)            # Whisper (GPU) nghe lại, mẩu đọc sai / lặp thì đọc lại
 
     voice_id = voice.get("id") or ""
-    import config
     config.TTS_PROVIDER = engine          # synth_clip_ex chọn CapCut / edge theo cài đặt này (lô có thể trộn hai loại)
 
     async def synth_net(items, tmp):                 # edge-tts / CapCut: dịch vụ mạng, đọc ngay trên Kaggle
@@ -433,7 +436,10 @@ async def run_one(spec: dict, tmp: str) -> dict:
     synth = make_synth(spec, ref)
     load = round(time.time() - t1, 1)
     res = await produce(spec, inp, tmp, synth)
-    res["timings"] = {"download": dl, "load_tts": load, **res["timings"]}
+    from rmvideo.media import voice_qa
+    qa, bad = voice_qa.report(synth)
+    res["timings"] = {"download": dl, "load_tts": load, **res["timings"], **qa}
+    res["notes"] = [*(res.get("notes") or []), *(f"⚠️ {n}. " for n in bad)]
     return res
 
 

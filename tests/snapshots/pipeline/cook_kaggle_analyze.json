@@ -98,6 +98,7 @@
       "VIENEU_VOICE_MALE",
       "VOICE_BED",
       "VOICE_HUMANIZE",
+      "VOICE_QA",
       "VOICE_SEPARATION",
       "VOICE_SEP_MODEL"
      ],
@@ -218,6 +219,7 @@
       "VIENEU_VOICE_MALE",
       "VOICE_BED",
       "VOICE_HUMANIZE",
+      "VOICE_QA",
       "VOICE_SEPARATION",
       "VOICE_SEP_MODEL"
      ],

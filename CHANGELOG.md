@@ -24,6 +24,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - Kênh bếp, xoá chữ LaMa (Kaggle): chỉ vẽ lại chỗ có chữ thật trong dải (nét chữ từng khung, nới phủ viền / bóng)
   thay cho cả hình chữ nhật — tay, đồ ăn, nồi đi qua dải giữ nguyên; phụ đề 2 dòng tràn ra ngoài dải vẫn xoá trọn; mặt nạ
   giữ thêm 3 khung trước / sau chữ, nền đứng yên trộn với khung trước nên dải đỡ nhấp nháy. `TEXT_INPAINT=band` = cách cũ.
+- Giọng VieNeu (kênh bếp + truyện bé, Kaggle): Whisper large-v3-turbo nghe lại từng câu vừa đọc; câu đọc lặp / sai nhiều
+  (CER > 0,25 hoặc một cụm 3 từ nghe lặp) thì đọc lại, tối đa 2 lần, giữ bản tốt nhất; còn sai thì ghi chú trong job.
+  `VOICE_QA=0` để tắt; không có GPU / Whisper lỗi thì giữ giọng như cũ.
+- Kênh bếp, thử nghiệm: tách giọng gốc bằng Mel-Band RoFormer trên Kaggle (`VOICE_SEP_MODEL=auto`, mặc định vẫn `kim`).
 - Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
   (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
   dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
@@ -76,6 +80,26 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   nén lại 3,7 / 32,8), trên chữ 31,4 -> 14,4 (14,0 -> 21,0 dB); khung còn chữ 14,4% -> 0%; đổi giữa hai khung lệch gốc
   10,2 -> 6,0 (vùng chữ 14,3 -> 8,8). Vẽ thừa ngoài chữ 44% dải -> 14%. CPU thêm ~6 ms/khung ở 1080x1920 (~16 giây cho video
   90 giây). Chưa đo trên T4; chữ vàng / chữ trong ô nền màu chưa thử (ô nền màu: `TEXT_INPAINT=band`).
+- **Nghe lại giọng VieNeu** (`rmvideo/media/voice_qa.py`, `VOICE_QA`): `kaggle_job.make_synth` (nhánh VieNeu) bọc synth;
+  faster-whisper large-v3-turbo (cuda, int8_float16, vi, beam 5) nghe từng mẩu ≥ 4 từ, hai bên chuẩn hoá qua
+  `vi_text.normalize` (số -> chữ), giữ dấu thanh. Hỏng khi CER > 0,25 hoặc một cụm 3 từ nghe ra lặp nhiều hơn trong lời;
+  đọc lại tối đa 2 lần (VieNeu ngẫu nhiên: 12/12 lần đọc lại ra file khác), giữ bản không hỏng / CER thấp nhất; thống kê
+  `timings.voice_qa` {checked, redo, worst_cer, secs}. Đo 20/11 trên 76 clip (Thục Đoan + Mỹ Duyên, Whisper turbo CPU): 54
+  câu nấu ăn đọc đúng CER trung vị 0,022, cao nhất 0,097 (Whisper nghe nhầm giọng Nam «nêm» -> «nem»); câu có từ tiếng Anh
+  VieNeu tự đọc tới 0,197. Đoạn lỗi 20/11 («Bé nói theo nè, súng» hai lần) đọc lại 3 lần thì 2 lần lặp y lỗi cũ (CER chỉ
+  0,19-0,21, lẫn với câu đúng — bắt bằng cụm 3 từ lặp: 3/3 clip lặp, 0/74 báo nhầm), 1 lần đúng; chạy thật hết đường
+  make_synth: bản đầu lặp, đọc lại 1 lần là đúng (CER 0,049). Giới hạn: đọc sai MỘT con số trong câu dài chỉ làm CER lên
+  ~0,05-0,07, chưa bắt được. `faster-whisper` cài bằng lệnh pip RIÊNG nối cuối (`kaggle_worker.PIP_QA`): cài lỗi thì chỉ mất
+  bước nghe lại. Thời gian trên T4 chưa đo (ước vài chục giây / job: tải model 1,6 GB + ~0,2-0,5 giây / mẩu).
+- **Tách giọng RoFormer** (`vocal_sep.py`, `VOICE_SEP_MODEL=auto`, thử nghiệm): phiên phân tích Kaggle (GPU) tách bằng
+  Mel-Band RoFormer (Kimberley Jensen, `vocals_mel_band_roformer.ckpt` 913MB qua audio-separator 0.48.0 MIT; file trùng
+  SHA-256 `MelBandRoformer.ckpt` ở HF KimberleyJSN/melbandroformer, thẻ model ghi MIT; repo GitHub không có LICENSE, dữ liệu
+  train không công bố) trong tiến trình con ≤ 7 phút; lỗi / quá giờ / không CUDA thì Kim_Vocal_2 như cũ. Lấy giọng từ
+  `demix` (đúng biên độ), mặt nạ phổ k=8, không lượt 2. Đo 20/11 trên 3 hỗn hợp 45 giây biết trước (giọng edge-tts + nền
+  thật / xèo tổng hợp / xèo nhỏ hơn giọng 25 dB; cửa sổ 250ms như bản 32), so với Kim 2 lượt + mặt nạ: giọng sót -46,5 /
+  -56,6 / -74,4 dB (Kim -46,6 / -57,3 / -69,2), xèo >3,5kHz lúc có lời mất 0,5 / 0,1 / 1,1 dB (Kim 0,8 / 0,5 / 1,8). CPU ~145
+  giây máy cho 10 giây audio (một lượt Kim ~21 giây). Mặc định vẫn `kim`: chưa chạy thật trên Kaggle (gói đòi numpy ≥ 2 +
+  onnx-weekly / protobuf mới, tải 913MB mỗi phiên), lợi ích đo được nhỏ. Bật `auto` rồi xem log một video.
 - **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
   dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
   chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),
