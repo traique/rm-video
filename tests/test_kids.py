@@ -1588,3 +1588,12 @@ def test_imgcheck_contact(monkeypatch):
     assert ok
     monkeypatch.setattr(imgcheck, "shirt_colors", lambda img, boxes, thr=0.25, heads=None: near)
     assert imgcheck.check(im, 2, loaded=object(), contact=True)[0]
+
+
+def test_insert_beat_keeps_quote_closed():
+    """Câu hỏi bé đứng sau lời thoại: câu dạy chèn SAU dấu » (người kể đọc), không lọt vào trong ngoặc (mẫu 34 cảnh 4)."""
+    t = "Thỏ Trắng chạy ra suối: «Tìm nữa, tìm nữa nào!» Bé đoán xem cây dù ở đâu?"
+    out = story.insert_beat(t, "Đố bé biết dòng suối đó tiếng Anh là gì? Là river!")
+    assert out == "Thỏ Trắng chạy ra suối: «Tìm nữa, tìm nữa nào!» Đố bé biết dòng suối đó tiếng Anh là gì? Là river! Bé đoán xem cây dù ở đâu?"
+    assert story.ends_with_child_question(t) and not story.ends_with_child_question("«Bé đoán xem?»")
+    assert story.insert_beat("Thỏ chạy. «Ôi chao!»", "À, x là y.") == "Thỏ chạy. «Ôi chao!» À, x là y."

@@ -580,7 +580,9 @@ BEAT_TEMPLATES = ("À, {vi} tiếng Anh là {en}. Bé nói theo nè: {en}!",
                   "Đố bé biết {vi} tiếng Anh là gì? Là {en}! Bé đọc theo mình: {en}!",
                   "À này, {vi} tiếng Anh là {en}. Nói thật to nào: {en}!")
 POINT_GROUPS = {"thing", "animal", "nature", "color"}        # nhóm từ chỉ vật đang có trong cảnh -> «trái banh đó»
-CHILD_Q_RE = re.compile(r"(\s*)([^.!?…]*(?<![\wÀ-ỹ])bé(?![\wÀ-ỹ])[^.!?…]*\?)\s*$", re.I)   # câu cuối cảnh hỏi bé
+# câu cuối cảnh hỏi bé; không nuốt dấu ngoặc đóng của lời thoại trước đó (mẫu 34: «…nào!» Bé đoán…? -> câu dạy chèn vào
+# TRƯỚC » thành lời nhân vật đọc)
+CHILD_Q_RE = re.compile(r"(\s*)([^.!?…«»\"“”]*(?<![\wÀ-ỹ])bé(?![\wÀ-ỹ])[^.!?…«»\"“”]*\?)\s*$", re.I)
 
 
 def beat_text(w: dict, k: int = 0, data: dict | None = None) -> str:
