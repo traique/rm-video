@@ -20,7 +20,9 @@ jobs:
           cache-dependency-path: requirements.txt
       - name: ffmpeg (bản của hệ thống, không tải static-ffmpeg mỗi lần chạy)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pip install -r requirements.txt pytest pytest-xdist ruff mypy
+      # pillow: chỉ phần dựng truyện bé dùng (thẻ chữ, hạt bokeh, kiểm ảnh) — chạy trên Kaggle, ảnh Kaggle có sẵn; Botkeep
+      # không cần nên không thêm vào requirements.txt (ổ Botkeep 2GB)
+      - run: pip install -r requirements.txt pytest pytest-xdist ruff mypy pillow
       - run: ruff check .
       - name: kiểm kiểu gói rmvideo
         run: if [ -d rmvideo ]; then mypy; fi
