@@ -27,6 +27,8 @@ def test_south_words():
     assert south("Đậy vung nồi lại.") == "Đậy nắp nồi lại."
     assert south("Nem rán giòn rụm, chấm xì dầu, bỏ rau mùi với mì chính.") == \
         "Chả giò giòn rụm, chấm nước tương, bỏ ngò với bột ngọt."
+    assert south("Mọi người thử ngay nhé.") == "Mọi người thử ngay nha."              # 1.1.2 job 2 (20/11)
+    assert south("Nhẹ nhàng khuấy đều.") == "Nhẹ nhàng khuấy đều."
 
 
 def test_south_keeps_other_meanings():

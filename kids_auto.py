@@ -348,9 +348,9 @@ async def resume() -> str:
     return "Đã chạy lại. " + await tick()
 
 
-def status_text() -> str:
+def status_text(now: float | None = None) -> str:
     st = load_state()
-    now = time.time()
+    now = time.time() if now is None else now
     why = enabled(st)
     lines = [f"🧸 Truyện bé «{config.KIDS_CHANNEL_NAME}»: tự động {'BẬT' if not why else 'tắt — ' + why}"
              + (f" | DỪNG: {st['paused']}" if st["paused"] else "")]

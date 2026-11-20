@@ -95,3 +95,18 @@ def test_render_strong_plan_for_real(tmp_path, monkeypatch):
                                       tmp=str(tmp_path), edit=plan.to_dict()))
     assert got == pytest.approx(plan.out_dur(), abs=0.05)
     assert asyncio.run(ff.probe_duration(out)) == pytest.approx(plan.out_dur(), abs=0.2)
+
+
+def test_dish_intro_sentence_stays_as_opening_hook():
+    """1.1.2 job 2 (20/11, canh chua cá lóc): câu đầu «Hôm nay mình chỉ mọi người công thức…» nói trên cảnh món đã xong bị
+    coi là lời chào -> điểm danh nguyên liệu chen lên giây 0, video mở bằng nồi nước. Giờ chỉ lời chào thật («xin chào»)
+    mới không giữ làm câu mở đầu: điểm danh đứng SAU câu giới thiệu món."""
+    assert style_b._hook_end([(0.3, 3.6, "Hôm nay mình chỉ chỉa mọi người công thức canh chua cá lóc chuẩn vị miền Tây"),
+                              (3.8, 8.0, "Mọi người nhớ lưu lại")], 6.0) == 3.6
+    assert style_b._hook_end([(0.0, 3.0, "Xin chào cả nhà, hôm nay mình nấu canh chua")], 6.0) == 0.0
+    segs = [(0.3, 2.8, "Hôm nay mình chỉ mọi người công thức cánh gà chiên nước mắm")] + SEGS[1:]
+    f = facts(steps=[r.Step("intro", 0, 0, t0=0.3, t1=2.8)] + facts().steps[1:])
+    plan, why = style_b.plan_strong(45, segs, [6.2, 16.2, 30.0], MOT, 1.0, "auto", f)
+    tags = [p.tag for p in plan.pieces]
+    assert why == "" and tags[0] != "montage" and tags[1:5] == ["montage"] * 4
+    assert plan.pieces[0].a == pytest.approx(0.0) and plan.pieces[0].b == pytest.approx(2.8)

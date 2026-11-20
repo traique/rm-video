@@ -371,6 +371,11 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     f042 = [("a rabbit head", 0.187, [97, 499, 451, 832]), ("a rabbit head", 0.391, [94, 494, 502, 1046]),
             ("a rabbit head", 0.156, [228, 801, 514, 1037])]
     assert [len(imgcheck.merge_heads(x)) for x in (f033, f002, f042)] == [1, 1, 1]
+    # video kid 20/11 (1.1.2), Thỏ một mình: OWLv2 tách đầu thỏ thành khung tai + khung mặt chồng dọc thẳng hàng, khung cả đầu
+    # 0,485 bao cả hai không phải khung nhóm -> 1 đầu (luật cũ bỏ khung cả đầu, đếm 2, báo nhân đôi nhầm)
+    ears = [("a rabbit head", 0.485, [396, 504, 712, 1142]), ("a rabbit head", 0.225, [401, 880, 712, 1136]),
+            ("a rabbit head", 0.219, [407, 498, 695, 885])]
+    assert len(imgcheck.merge_heads(ears)) == 1 and imgcheck.merge_heads(ears)[0][1] == 0.485
     # thân lệch sang bên (không thẳng hàng) chỉ bị coi là thân khi vùng giữa mang màu áo
     body = [("a rabbit head", 0.4, [100, 100, 300, 300]), ("a rabbit head", 0.3, [180, 260, 380, 440])]
     assert len(imgcheck.merge_heads(body)) == 2
@@ -412,7 +417,12 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert not ok and any("2 đầu" in b[0] for b in out)
     big_small = [("a rabbit head", 0.5, [0, 0, 300, 300]), ("a squirrel head", 0.5, [400, 500, 500, 600])]   # 9x diện tích
     assert not imgcheck.sizes_ok(big_small, 2) and imgcheck.sizes_ok(big_small, 1)
-    assert imgcheck.sizes_ok([("a rabbit head", 0.5, [0, 0, 300, 300]), ("a cat head", 0.5, [400, 0, 600, 200])], 2)
+    assert imgcheck.sizes_ok([("a rabbit head", 0.5, [0, 0, 300, 300]), ("a cat head", 0.5, [400, 0, 640, 240])], 2)
+    # đo thật video kid 20/11 (1.1.2, khung 1080x1920): cảnh 7 Gấu to gấp đôi Thỏ — khung đầu thỏ gồm tai nên diện tích chỉ
+    # lệch 1,45 lần (luật cũ ≤ 4 cho qua), bề ngang lệch 1,5 lần; cảnh 2 hai bạn cỡ nhau: bề ngang 1,01 lần
+    f069 = [("a rabbit head", 0.465, [521, 1063, 840, 1568]), ("a bear head", 0.202, [-2, 551, 477, 1039])]
+    f022 = [("a rabbit head", 0.463, [5, 328, 487, 1038]), ("a bear head", 0.406, [486, 596, 972, 1035])]
+    assert not imgcheck.sizes_ok(f069, 2) and imgcheck.sizes_ok(f022, 2)
     b0 = story.pick(DATA, [], random.Random(2))
     assert "same height" in prompts.image_prompt({"characters": ["white_rabbit", "little_squirrel"], "action_en": "White Rabbit hugs Little Squirrel."}, b0, DATA)
     assert prompts.shirt_color(DATA["characters"]["orange_cat"]) == "green" and prompts.shirt_color({}) == ""
@@ -1414,7 +1424,7 @@ def test_finish_pending_publishes_to_kids_page(monkeypatch, tmp_path):
     st = kids_auto.load_state()
     assert st["pending"] is None and st["posts"][-1]["fb_id"] == "fb123"
     assert st["stories"][-1]["job"] == 999 and st["bgm_recent"] == ["x"]       # không mất phần ghi song song
-    assert "Đã hẹn" in kids_auto.status_text()
+    assert "Đã hẹn" in kids_auto.status_text(now)            # giờ của test (trước đây giờ thật: hỏng sau 19:00 20/11/2026)
 
 
 def test_streak_pauses(monkeypatch):

@@ -6,7 +6,7 @@
   "characters": {
     "white_rabbit": {
       "name_vi": "Thỏ Trắng", "name_en": "White Rabbit", "lora_token": "thotrang", "voice": "Kim Thanh", "quirk_vi": "hay nhảy tưng tưng khi vui, tai cụp xuống khi buồn, câu cửa miệng «Ôi chao!»",
-      "prompt_en": "White Rabbit, a small cute white bunny in a plain red t-shirt, big round brown eyes, long upright ears, pink nose",
+      "prompt_en": "White Rabbit, a cute white bunny with white fur from head to toe, in a plain red t-shirt, big round brown eyes, long upright ears, pink nose",
       "personality_vi": "tốt bụng, hay lo cho bạn"
     },
     "brown_bear": {
