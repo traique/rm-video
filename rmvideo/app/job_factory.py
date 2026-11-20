@@ -98,6 +98,13 @@ def auto(*, url: str, title: str, duration: float, mode: str, voice: str, chat_i
                title_hint=(title or "")[:200])
 
 
+def kids(*, brief: dict, source: str, chat_id: int = 0, title_hint: str = "") -> Job:
+    """🧸 Truyện bé: không có nguồn; đề đã chọn (rmvideo/kids/story.pick) nằm trong job.brief; giọng VieNeu kể chuyện
+    (KIDS_VOICE), dựng trên Kaggle."""
+    return Job(url="", mode=Mode.KIDS.value, duration=0, voice="vieneu:" + config.KIDS_VOICE, subs=True, cover=False,
+               source=source, chat_id=chat_id, title_hint=title_hint[:200], brief=dict(brief or {}))
+
+
 def piece(parent: Job, piece_path: str, title: str, remote_src: dict) -> Job:
     """Một phần cắt từ video dài: làm TRỌN phần đã cắt (long_mode=full), mang mã job cha (link tải, nhật ký)."""
     sub = Job(url="", mode=parent.mode, duration=0, voice=parent.voice, subs=parent.subs, cover=parent.cover,

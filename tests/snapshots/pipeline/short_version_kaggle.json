@@ -382,6 +382,7 @@
        "SUB_TIMING",
        "TEASER",
        "TEXT_DETECT",
+       "TEXT_INPAINT",
        "TIME_SKIP_LABEL",
        "TIPS",
        "TTS_OFFLINE",
@@ -805,6 +806,7 @@
        "SUB_TIMING",
        "TEASER",
        "TEXT_DETECT",
+       "TEXT_INPAINT",
        "TIME_SKIP_LABEL",
        "TIPS",
        "TTS_OFFLINE",
@@ -958,7 +960,7 @@
    "job": {
     "approved": [],
     "cut_at": 0.0,
-    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Bản ngắn: giữ 12/12 bước chính; 130s -> 78s. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 51 chữ, giọng phủ 9% video, 12 quãng lặng trên 4 giây, 0/12 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ℹ️ Bản ngắn dựng chung phiên Kaggle với bản đầy đủ (dựng 60s). ",
+    "error": "ℹ️ Định lượng: lời gốc không có số cụ thể. ℹ️ Bản ngắn: giữ 12/12 bước chính; 130s -> 78s. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 51 chữ, giọng phủ 9% video, 12 quãng lặng trên 4 giây, 0/12 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng edge 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.ℹ️ Bản ngắn dựng chung phiên Kaggle với bản đầy đủ (dựng 60s). ",
     "final_segments": [
      {
       "end": 11.0,

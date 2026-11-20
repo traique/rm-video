@@ -23,7 +23,8 @@ OPTIONAL = {
     "offline": "gói offline (sherpa-onnx, model Piper/Spleeter) không cài trên Kaggle; core_video bắt ImportError",
 }
 DIRS = ("capcut_tts_api",)                          # gói đóng kèm: gửi cả thư mục (dữ liệu json + mã)
-ASSETS = ("assets/BeVietnamPro-ExtraBold.ttf",)     # font chữ hook / tiêu đề
+ASSETS = ("assets/BeVietnamPro-ExtraBold.ttf",      # font chữ hook / tiêu đề
+          "rmvideo/kids/data.json")                  # truyện bé: nhân vật, bài học, kho từ (rmvideo/kids/story.py)
 
 
 def _root_modules(root: str) -> set[str]:

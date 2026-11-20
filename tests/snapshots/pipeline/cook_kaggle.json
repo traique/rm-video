@@ -131,6 +131,7 @@
       "SUB_TIMING",
       "TEASER",
       "TEXT_DETECT",
+      "TEXT_INPAINT",
       "TIME_SKIP_LABEL",
       "TIPS",
       "TTS_OFFLINE",
@@ -210,7 +211,7 @@
    "job": {
     "approved": [],
     "cut_at": 4.95,
-    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 12 chữ, giọng phủ 61% video, 0/3 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ",
+    "error": "ℹ️ Đã cắt bỏ 3s quảng cáo sản phẩm của người gốc ở cuối. ℹ️ ghi chú Kaggle. ℹ️ Lời đọc: 12 chữ, giọng phủ 61% video, 0/3 câu kết «nha». ℹ️ Kaggle (GPU) đọc giọng VieNeu Mỹ Duyên 4s, dựng 60s; đã tách bỏ giọng gốc bằng AI. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
     "final_segments": [
      {
       "end": 2.1,

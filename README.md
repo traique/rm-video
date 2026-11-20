@@ -54,6 +54,13 @@ Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_of
 - **Tách giọng nhanh Spleeter**: tự dùng khi người gốc nói > 45s (trước đây phải tắt tiếng nền lúc người gốc nói).
   Nhanh hơn Kim_Vocal_2 ~30 lần trên 1 lõi; tiếng nền kém tự nhiên hơn chút nên video ngắn vẫn dùng Kim.
 - **Dò chữ in cứng bằng OCR** (`TEXT_DETECT=ocr`): bắt cả chữ màu không viền; ~8s cho 60s video.
+- **Xoá chữ in cứng bằng AI** (`TEXT_INPAINT=1`, mặc định bật; cần `KAGGLE_ANALYZE`): khi phân tích trên Kaggle, LaMa
+  (`big-lama.pt`, TorchScript, tải một lần về cache phiên hoặc gắn sẵn trong dataset) vẽ lại nền ở các dải chữ gốc trên mọi
+  khung rồi gửi video sạch về; phụ đề mới đặt lên nền thật thay vì ô mờ. Cần `PUBLIC_URL` để phiên dựng trên Kaggle lấy được
+  video sạch (không có thì Kaggle tự tải bản gốc và che mờ như cũ); dựng trên Botkeep thì dùng video sạch trực tiếp. LaMa lỗi
+  → che mờ như cũ, job không hỏng. Dải OCR tìm thêm sau đó (ngoài dải Kaggle đã xoá) vẫn được che mờ. Đo T4 19/11: dải
+  1080×320 chạy nửa cỡ 0,11 giây/khung, chỉ khung có chữ mới vẽ lại → video 90 giây phụ đề suốt ≈ 5 phút GPU (tính vào
+  phiên phân tích, mỗi video một lần, có cache).
 - **Giọng offline Piper** (`TTS_OFFLINE=1`, mặc định tắt): tầng cuối khi CapCut và edge-tts đều lỗi. Giọng được tinh
   chỉnh từ dữ liệu chỉ cho nghiên cứu: cân nhắc trước khi dùng cho video kiếm tiền.
 
@@ -208,6 +215,129 @@ Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
 
 Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
 bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình nhưng không thay được quyền tác giả.
+
+## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
+
+Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),
+một bài học, 3–5 từ tiếng Anh, giọng kể miền Nam. Toàn bộ chạy trên **Kaggle** (GPU): model chữ Qwen3.6-35B-A3B (llama.cpp) viết
+truyện theo đề, FLUX.1-schnell 4-bit vẽ 8 cảnh, VieNeu đọc, FFmpeg dựng; Botkeep chỉ chọn đề, kiểm, giao và đăng. Kế hoạch và lý do
+từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
+
+Cài một lần:
+1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`); Cài đặt → 🔑 Tài khoản & API: Fanpage
+   riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`)
+   và `GEMINI_API_KEY`. Nhạc nền: mặc định (`KIDS_BGM=auto`) bot tự tạo kho bằng **Lyria RealTime** (xem dưới); muốn dùng nhạc của
+   mình thì chép vào `assets/kids_bgm/` (cần `PUBLIC_URL` để Kaggle tải) hoặc dán link `KIDS_BGM_LINKS`.
+2. Gõ `kids_setup` (console hoặc nút trên web): notebook `rmvideo-kids-models` biên dịch llama.cpp cho T4 và lượng tử FLUX.1-schnell
+   4-bit, lưu làm đầu vào cho mọi phiên sau (~45–60 phút GPU, một lần). Đã có sẵn bản llama-server biên dịch (vd dataset của bài đo
+   Qwen) thì điền `KIDS_KAGGLE_SOURCES=dataset:user/slug` thay vì chạy `kids_setup`. Model chữ GGUF (~21GB) tải từ Hugging Face mỗi
+   phiên (~3 phút) vì vượt giới hạn 20GB đầu ra notebook.
+3. Bấm **🧸 Làm 1 truyện ngay** (hoặc `kids_now`): job vào hàng đợi như job thường, xong thì tải về soát (video, phụ đề `.srt`, ảnh
+   bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
+   (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+
+Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep**, hai model theo vai (`rmvideo/kids/writer.py`):
+bản nháp = `KIDS_GEMINI_MODEL` (mặc định **gemini-4-hydrogen**, free tier, mức suy nghĩ `KIDS_GEMINI_THINKING=low`; đo 19/11: đạt
+bộ kiểm ngay lượt đầu, 10–20 giây, truyện có hài, có hỏi bé, điệp khúc đảo đúng chỗ — hơn hẳn flash-lite), viết lại theo lỗi và
+lượt tự soát = `KIDS_GEMINI_REVISE_MODEL` (mặc định gemini-3.5-flash-lite, hạn mức free rộng). Hạn mức free mỗi ngày của model lớn
+nhỏ (Google không công bố) nên Hydrogen chỉ dùng 1 lượt/truyện; model của vai quá tải / hết lượt thì model kia làm thay, cả hai
+lỗi thì Qwen trên Kaggle viết. Viết lại theo lỗi là **sửa bản nháp trước** (lời nhắc kèm bản nháp + lỗi), nên cái hay của
+Hydrogen giữ nguyên; truyện tối đa 200 chữ (trên 215 là lỗi chặn vì video không vừa 88 giây). Truyện đi theo việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút).
+`gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle. Gemma 4 trên Gemini API đã thử (19/11): 31B báo quá tải liên tục, không
+dùng.
+
+Kiểm ảnh (19/11, `rmvideo/kids/imgcheck.py`): FLUX với khung dọc 9:16 thỉnh thoảng vẽ nhân vật hai đầu / nhân đôi dù prompt ghi
+«đúng một nhân vật». Sau khi vẽ, OWLv2 (bộ dò vật thể mở, ~600MB, chạy trên Kaggle sau FLUX) đếm đầu thỏ / mèo / gấu / sóc,
+gộp khung lồng nhau và bỏ khung thân áo dưới đầu (đo thật 16 ảnh: 0 báo nhầm); thừa đầu so với số bạn có mặt thì vẽ lại cảnh
+với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
+bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
+trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
+
+Hình theo lời kể (20/11, xem mẫu 32 với mắt đạo diễn): model ghi thêm **đồ vật chính** của truyện (`prop_vi` / `prop_en`, vd
+«túi kẹo» / «candy bag», phải có trong lời cảnh 1–2) và prompt ảnh ép nó «clearly visible» ở cảnh 1 và mọi cảnh lời nhắc tới
+(mẫu 32: cốt chuyện là túi kẹo mà cảnh 1–2 không thấy); sau khi vẽ, OWLv2 dò thêm câu hỏi «a {prop_en}» (ngưỡng 0,15), không
+thấy thì vẽ lại (mẫu 33: prompt ghi «beside a toy box» mà 3 trong 5 cảnh không có hộp). Cảnh mà lời nói đồ vật đang mất / đang
+tìm / bị quên (`prompts.PROP_LOST_RE`) thì không ép (mẫu 34, truyện tìm đồ: «cây dù mất tiêu!» mà prompt đòi dù, OWLv2 bắt vẽ lại). Từ đang dạy là hành động / cảm xúc (`pose` trong `data.json`: hug, jump,
+sad…) thì prompt thêm tư thế rõ; từ cần hai bạn chạm nhau (hug, help, share: `contact`) thì OWLv2 soát thêm hai áo có tách rời
+nhau không, tách rời thì vẽ lại (mẫu 32 cảnh 7: «Gấu ôm Thỏ» mà Gấu bưng bánh). Ánh sáng theo lời («trời sắp tối» → hoàng hôn,
+«trăng» → đêm, «sáng sớm», «mưa») và cảm xúc theo cụm xuất hiện sau cùng trong lời cảnh (buồn thiu / giật mình / vấp té / giận
+/ cười) được ghép vào prompt; dài quá ngân sách 165 từ (T5 cắt ở 256 token) thì bỏ cảm xúc rồi ánh sáng. Ảnh câu móc không cố
+định cảnh 3 nữa: `story.hook_scene` chọn trong cảnh 2–5 cảnh có nhiều dấu hiệu rắc rối nhất (buồn, rớt, mất, giật mình…), hoà thì
+cảnh sau; clip móc zoom chặt hơn cảnh thường 0,22 để không thấy y hệt khung đó lúc cảnh chiếu.
+
+LoRA nhân vật (20/11, `KIDS_LORA=dcn_lora_v1` mặc định): FLUX vẽ mỗi cảnh từ chữ nên gương mặt các bạn lệch nhau giữa các cảnh.
+LoRA dạy model nhớ đúng bốn bạn: train trên Kaggle T4 bằng ai-toolkit (nền FLUX.1-schnell + adapter huấn luyện, Apache-2.0) với
+144 ảnh do chính pipeline vẽ; file nằm ở dataset riêng tư `rmvideo-kids-lora`, phiên dựng tự gắn và nạp, prompt thêm từ khoá
+`thotrang`, `gaunau`, `meocam`, `socnho`. Muốn train lại (đổi kiểu dáng): vẽ bộ ảnh mới rồi chạy lại notebook train, chép file
+vào dataset. `KIDS_LORA=off` để tắt. Bản lưu trữ: `lora/dcn_lora_v1.safetensors` trong repo qua **Git LFS** (164 MB, quá
+giới hạn 100 MB/file thường của GitHub; không nằm trong gói Botkeep). Đổi tài khoản Kaggle hay lỡ xoá dataset thì
+`git lfs pull --include "lora/*"` rồi `python scripts/push_kids_lora.py` (có `KAGGLE_USERNAME` / `KAGGLE_API_TOKEN`)
+để tạo lại dataset `rmvideo-kids-lora`.
+
+Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
+lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
+tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100
+giây tạo theo thời gian thật), kho lưu `assets/kids_bgm/lyria/` + `library.json`, rồi đẩy lên Kaggle thành dataset riêng tư
+`rmvideo-kids-bgm` (`kaggle_api.dataset_push`: tải blob + tạo dataset / phiên bản mới, chờ READY); phiên Kaggle gắn dataset vào
+`/kaggle/input` nên không cần `PUBLIC_URL`, key Gemini không rời Botkeep. Lệnh console `kids_bgm` làm đủ kho một lần (9 bài,
+~15 phút). `KIDS_BGM`: auto (nhạc của mình nếu có, không thì Lyria) / lyria / files / off. Lyria hay Kaggle lỗi thì video không nhạc
+như trước. Giọng Google TTS (`gemini-3.8-flash-tts`, free, 30 giọng, đa người nói) đã thử tiếng Việt, chờ nghe mẫu rồi mới quyết.
+
+Khung cốt truyện (19/11): `rmvideo/kids/data.json` có 10 **khung** rút từ truyện mầm non, sách tranh và podcast kể chuyện cho bé
+(tìm đồ bị mất, làm hỏng rồi nhận lỗi, sợ rồi dám thử, giữ riêng rồi chia sẻ, chờ tới lượt, quên lời hứa rồi sửa, giúp người thì
+được giúp lại, làm hoài không được rồi đổi cách, nói dối rồi nói thật, làm quà tặng bạn). Mỗi đề chọn khung hợp bài học + chuyện
+xảy ra, luân phiên; 8 nhịp của khung (đã điền tên nhân vật chính / bạn giúp) thay cho vai cảnh chung, kèm quy tắc «sợi chỉ xuyên
+suốt»: vật hay việc ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6, 8. Lời thoại: «nha/hen» tối đa 3 lần, câu móc không kết bằng
+«nha», ngoài điệp khúc không câu nào lặp (bộ kiểm bắt, Gemini viết lại).
+
+Kể cho cuốn (19/11, học từ sách tranh — The Gruffalo, We're Going on a Bear Hunt, truyện mầm non): lời nhắc có khối «bí kíp»:
+**hỏi bé** 1–2 lần giữa truyện ở cuối cảnh rồi cảnh sau trả lời (lật trang sách), điệp khúc có **nhịp** hát theo được và ở cảnh 6
+**đảo** theo gợi ý riêng của khung (`plots[].twist`: «Chơi một mình chán ghê!» → «Chơi chung vui ghê!»), thất bại phải **hài** kèm
+tiếng động, cảm xúc tả qua **hành động** (tai cụp, đuôi rũ), mỗi bạn có **nét riêng** / câu cửa miệng (`characters[].quirk_vi`:
+Thỏ Trắng «Ôi chao!», Gấu Nâu «Ừm…», Mèo Cam «meo», Sóc Nhỏ «Hả? Sao vậy?»), cảnh 1 có chi tiết giác quan, câu cuối **vòng lại**
+hình ảnh mở đầu; cảnh 8 KHÔNG nói với «các bé» hay dặn dò lần nữa (bài học đã ở cảnh 7, nói thêm nghe giảng), màn kết chỉ ôn
+từ rồi «Hẹn gặp lại bé ở chuyện sau!». Bộ kiểm thêm: thiếu câu hỏi cho bé (cảnh 2–6), cảnh 8 nói với «các bé», lời kể gọi «các bạn / cả nhóm» khi hình chỉ có 2 bạn, tiêu đề
+nhắc thứ không có trong truyện; checklist soát của Gemini thêm mục «cuốn chưa?» và yêu cầu nâng bản nháp, không chỉ sửa lỗi.
+Mỗi truyện 3 từ tiếng Anh; câu dạy từ không chen vào cảnh kết, không dồn quá 2 câu một cảnh.
+
+3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–14 chữ về chuyện sắp xảy ra, đọc ngay
+giây 0,25) trên ảnh cảnh biến cố zoom nhanh, chữ to `hook_text` (2–5 chữ in hoa), whoosh + nảy; thẻ tiêu đề lùi ra sau và chỉ
+còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** bản nháp một lượt theo checklist (móc có gây tò mò, cảnh sau xảy ra
+vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được
+nhận khi qua bộ kiểm và không tệ hơn bản nháp (+1 lượt gọi, ~3 giây; Qwen trên Kaggle không soát).
+
+Giọng (19/11): lời kể là `KIDS_VOICE` (Thục Đoan); lời thoại trong «…» đọc bằng giọng VieNeu riêng của từng nhân vật
+(`KIDS_MULTI_VOICE=1`; `data.json` → Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam Thùy Dung, Sóc Nhỏ Mỹ Duyên). Người nói
+nhận theo tên ngay trước ngoặc («Gấu Nâu nói: «…»») hoặc tên + động từ nói ngay sau («…» Sóc Nhỏ reo); không rõ thì người kể
+đọc (`rmvideo/kids/dialogue.py`). Các đoạn của một cảnh nối lại thành một clip nên phần dựng không đổi. Lời kể được dặn trôi
+chảy: câu 5–14 chữ, có từ nối, câu đầu mỗi cảnh nối với cảnh trước; câu dạy từ có từ dẫn («À, cái ly tiếng Anh là cup…»).
+
+Khung hình (19/11): không mờ từ đen hay về đen; khung đầu là cảnh móc, khung cuối là bảng «Hôm nay bé học» trắng bo góc trên nền
+sáng (Reels lặp lại không lộ màn đen); thẻ tiêu đề cùng kiểu bảng trắng (`rmvideo/kids/cards.py`, PIL + font Be Vietnam Pro).
+
+Hiệu ứng động (`KIDS_FX`, mặc định `full`, FFmpeg thuần): Ken Burns mạnh hơn có nhịp "thở", nảy zoom + rung máy đúng lúc lời có
+tiếng động (Bịch! Rầm! Ối!), hạt bokeh bay nhẹ, vignette, phụ đề bật lên, tiếng whoosh khi chuyển cảnh và "ting" khi dạy từ (tiếng
+động tự tạo, không cần file bản quyền). `motion` = chỉ chuyển động + chữ bật; `off` = Ken Burns nhẹ như 1.1.0.
+
+Cách kể (19/11, học theo truyện kể cho bé 3–5 tuổi và kênh dạy tiếng Anh cho bé): model viết truyện **thuần tiếng Việt** theo 8 nhịp
+(chào các bé → chuyện nhỏ → có tiếng động, có vấn đề → thử lần 1, 2 với một câu điệp khúc → bạn giúp, lần 3 được → bài học nói
+nhẹ qua lời nhân vật → kết vui, nhắn nhủ các bé), câu ngắn, có truyện mẫu trong lời nhắc để học giọng kể (chép lại ≥ 2 câu là
+lỗi). Từ tiếng Anh là **đồ vật / màu / con vật / lời chào** có mặt trong truyện: model nhận kho gợi ý (đồ vật của bối cảnh + từ theo bài
+học), lồng ít nhất 3 thứ tự nhiên; truyện viết xong, mã chọn 3 từ hôm nay từ chính những thứ đã xuất hiện (`story.choose_words`,
+phản hồi 19/11: từ chọn trước bị ép vào như «xe hơi bóp còi»), rồi chèn câu dạy từ ngay cảnh đó (tránh cảnh biến cố và cao trào) («Trái banh, tiếng Anh là ball. Bé nói theo nha:
+ball!»), thẻ nghĩa hiện lúc đó, cuối truyện ôn lại. Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học
+chia đều, nhân vật chính luân phiên, từ lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (130–200 chữ, 8 cảnh 10–36 chữ, nhắc
+đủ đồ vật của hôm nay, không chen tiếng Anh, có nhân vật chính + bạn, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh,
+không hỏi dồn dập, không chép mẫu); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất. Model chữ
+suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
+tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài
+học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json` (từ: `en`, `vi`, `group`, `match` = các cách viết tiếng Việt tính là có nhắc tới;
+bối cảnh: `words` = đồ vật có mặt ở đó).
+
+Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
+khung giờ khác. Đo thật 18/11/2026: một truyện ~20 phút GPU (tải GGUF 20GB 1,5 phút, nạp model chữ 1,5 phút, viết 15 giây/lượt,
+nạp FLUX từ ổ Kaggle 7–8 phút — giờ chép về đĩa cục bộ song song lúc viết truyện, vẽ 31 giây/ảnh, đọc 0,5 phút, dựng 1,5 phút)
+cộng chờ máy 0–60 phút; 2 truyện/ngày ≈ 4–5 giờ GPU/tuần. Bảng đo trong `docs/KE_HOACH_KIDS_STORY.md` mục 7.
 
 ## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
 
@@ -521,6 +651,7 @@ LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử v
 | `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
 | `bgm.py` | Thư viện nhạc nền cho video không lời (link + file tải lên, chọn không lặp) |
 | `autopost.py` | 🤖 Tự động đăng: kênh nguồn Facebook / TikTok, chống trùng, giờ vàng, đăng qua Graph API |
+| `kids_auto.py`, `rmvideo/kids/` | 🧸 Truyện bé: chọn đề + kho từ (`story.py`), lời nhắc + prompt ảnh (`prompts.py`), phần chạy trên Kaggle (`llm.py`, `images.py`, `render.py`, `job.py`), lịch + đăng Fanpage riêng |
 | `slideshow.py` | 📸 Ảnh + nhạc: phân tích nhạc, chọn hiệu ứng/chuyển cảnh theo nhịp, dựng FFmpeg |
 | `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
 | `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |

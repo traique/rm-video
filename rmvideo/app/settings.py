@@ -95,6 +95,14 @@ def _bgm_links(v: str) -> str:
     return ",".join(dict.fromkeys(links))
 
 
+def _kaggle_sources(v: str) -> str:
+    """notebook:user/slug, dataset:user/slug hoặc slug (notebook của mình), cách nhau dấu phẩy."""
+    for item in re.split(r"[,\s]+", v):
+        if item and not re.fullmatch(r"(?:(?:notebook|dataset):)?[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)?", item):
+            raise ValueError("KIDS_KAGGLE_SOURCES: mỗi mục dạng notebook:user/slug hoặc dataset:user/slug")
+    return v
+
+
 def _kaggle_user(v: str) -> str:
     """Nhận cả dạng dán link: https://www.kaggle.com/<tên>."""
     v = re.sub(r"(?i)^(https?://)?(www\.)?kaggle\.com/", "", v).strip("/@ ").split("/")[0].lower()
@@ -247,6 +255,10 @@ SCHEMA: tuple[Setting, ...] = (
     S("TEXT_DETECT", "heuristic", "video", "Dò chữ in cứng trên video",
       options=(("heuristic", "Heuristic (mặc định, không cần cài)"), ("ocr", "Model OCR (bắt chữ màu, cần setup_offline)")),
       choices=("heuristic", "ocr")),
+    S("TEXT_INPAINT", "1", "video", "Xoá chữ in cứng bằng AI (LaMa) khi phân tích trên Kaggle",
+      help="1: Kaggle (GPU) vẽ lại nền ở dải chữ gốc bằng big-lama.pt rồi gửi video sạch về, phụ đề mới đặt lên nền thật "
+           "thay vì ô mờ. Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
+      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1")),
     S("SCENE_ANALYSIS", "light", "video", "Mức phân tích hình", help="light nhanh nhất; full kỹ nhất (chậm trên Botkeep).",
       options=(("light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn câu "
                          "theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"),
@@ -392,6 +404,86 @@ SCHEMA: tuple[Setting, ...] = (
       help="Page access token dài hạn, quyền pages_manage_posts + pages_read_engagement + pages_show_list. Bấm «Thử "
            "token Fanpage» ở mục Tự động đăng để kiểm.", link="https://developers.facebook.com/tools/explorer/",
       need="optional", secret=True, reauth=True, live=True),
+    # ----- 🧸 truyện bé (kênh «Kể Bé Nghe», docs/KE_HOACH_KIDS_STORY.md) -----
+    S("KIDS_AUTO", "0", "kids", "Tự động làm + đăng truyện bé",
+      options=(("0", "Tắt (làm tay bằng nút «Làm 1 truyện ngay»)"),
+               ("1", "Bật: làm trước cho các khung giờ trong 36 giờ tới, đăng Fanpage truyện bé")),
+      choices=ON_OFF, live=True),
+    S("KIDS_TIMES", "08:00,19:00", "kids", "Giờ đăng truyện bé", help="Giờ Việt Nam, cách nhau dấu phẩy.",
+      validate=_regex(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*",
+                      "KIDS_TIMES dạng 08:00,19:00 (giờ Việt Nam)"), live=True),
+    S("KIDS_FB_PAGE_ID", "", "api", "ID Fanpage truyện bé",
+      help="Fanpage RIÊNG của kênh truyện bé (khác Fanpage kênh bếp). Lấy id + token như FB_PAGE_TOKEN: me/accounts liệt "
+           "kê cả hai Page.", validate=_digits("KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_ID là dãy số id của Fanpage"),
+      reauth=True, live=True),
+    S("KIDS_FB_PAGE_TOKEN", "", "api", "Token Fanpage truyện bé",
+      help="Page access token dài hạn của Fanpage truyện bé. Bấm «Thử token» ở mục 🧸 Truyện bé để kiểm.",
+      link="https://developers.facebook.com/tools/explorer/", secret=True, reauth=True, live=True),
+    S("KIDS_VOICE", "Thục Đoan", "kids", "Giọng kể (VieNeu miền Nam)",
+      options=(("Thục Đoan", "Thục Đoan (kể chuyện)"), ("Mỹ Duyên", "Mỹ Duyên (đọc truyện, chậm, ấm)"),
+               ("Kim Thanh", "Kim Thanh (đọc truyện)"), ("Thùy Dung", "Thùy Dung (rõ, nhanh)")),
+      validate=_max_len("KIDS_VOICE", 40)),
+    S("KIDS_MULTI_VOICE", "1", "kids", "Giọng riêng cho từng nhân vật",
+      help="Lời thoại trong «…» đọc bằng giọng VieNeu của nhân vật (data.json: Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam "
+           "Thùy Dung, Sóc Nhỏ Mỹ Duyên); lời kể vẫn là KIDS_VOICE. 0 = một giọng đọc hết.",
+      options=(("1", "Bật (mặc định)"), ("0", "Tắt: một giọng")), choices=("0", "1")),
+    S("KIDS_IMAGE_MODEL", "schnell", "kids", "Model vẽ ảnh",
+      options=(("schnell", "FLUX.1-schnell 4-bit (Apache-2.0, 4 bước — mặc định)"),
+               ("dev", "FLUX.1-dev (giấy phép PHI THƯƠNG MẠI — kênh không bật kiếm tiền; 20 bước, chậm ~6 lần schnell)"),
+               ("zimage", "Z-Image-Turbo (Apache-2.0, 8 bước — đo 19/11: ảnh ĐEN trên T4 vì fp16 tràn số, chưa dùng được)")),
+      choices=("schnell", "dev", "zimage")),
+    S("KIDS_LORA", "dcn_lora_v1", "kids", "LoRA nhân vật (giữ 4 bạn giống nhau ở mọi cảnh)",
+      help="Tên file LoRA trong dataset Kaggle rmvideo-kids-lora (train 20/11: 144 ảnh, 600 bước, FLUX.1-schnell, Apache-2.0); "
+           "«notebook:slug/tên» hay «dataset:slug/tên» để lấy chỗ khác; trống / off = vẽ không LoRA. Có LoRA thì prompt ảnh "
+           "thêm từ khoá thotrang / gaunau / meocam / socnho. Tài khoản Kaggle không có dataset thì tự vẽ không LoRA.",
+      validate=_max_len("KIDS_LORA", 120)),
+    S("KIDS_IMAGE_CHECK", "1", "kids", "Kiểm ảnh hai đầu / nhân vật nhân đôi",
+      options=(("1", "Bật: OWLv2 đếm đầu nhân vật sau khi vẽ, thừa đầu thì vẽ lại cảnh (≈ +35 giây mỗi lần, mặc định)"),
+               ("0", "Tắt")), choices=("1", "0")),
+    S("KIDS_LLM_PROVIDER", "auto", "kids", "Ai viết truyện",
+      options=(("auto", "Gemini trên Botkeep (1 lượt gọi/truyện, +1 mỗi lần viết lại); lỗi thì Qwen trên Kaggle — mặc định"),
+               ("gemini", "Chỉ Gemini (không có key / lỗi thì job lỗi)"),
+               ("qwen", "Chỉ Qwen trên Kaggle (không dùng Gemini)")), choices=("auto", "gemini", "qwen")),
+    S("KIDS_GEMINI_MODEL", "gemini-4-hydrogen", "kids", "Model Gemini viết nháp truyện bé",
+      help="Gemini 4 Hydrogen (free tier, ra 12/11) viết hay hơn flash-lite rõ; hạn mức free mỗi ngày của model lớn nhỏ, chỉ "
+           "dùng cho bản nháp (1 lượt/truyện). Trống = GEMINI_MODEL như kênh bếp. Quá tải / hết lượt thì model sửa viết thay.",
+      validate=_max_len("KIDS_GEMINI_MODEL", 60)),
+    S("KIDS_GEMINI_REVISE_MODEL", "gemini-3.5-flash-lite", "kids", "Model Gemini sửa / soát truyện bé",
+      help="Viết lại theo lỗi bộ kiểm và lượt tự soát (hạn mức free rộng, 2-3 giây). Trống = cùng model viết nháp.",
+      validate=_max_len("KIDS_GEMINI_REVISE_MODEL", 60)),
+    S("KIDS_GEMINI_THINKING", "low", "kids", "Mức suy nghĩ của Gemini 4 khi viết truyện",
+      options=(("low", "low — 3-10 giây, đủ cho truyện 8 cảnh (mặc định)"), ("medium", "medium — kỹ hơn, chậm hơn"),
+               ("high", "high — mặc định của Google, chậm và tốn hạn mức token")), choices=("low", "medium", "high")),
+    S("KIDS_LLM_PATTERN", "*Qwen3.6-35B-A3B*Q4_K_M*.gguf", "kids", "File model chữ (.gguf)",
+      help="Mẫu tên file tìm trong /kaggle/input; không thấy thì tải từ repo Hugging Face bên dưới.",
+      validate=_max_len("KIDS_LLM_PATTERN", 200)),
+    S("KIDS_LLM_HF", "lmstudio-community/Qwen3.6-35B-A3B-GGUF", "kids", "Repo Hugging Face của model chữ",
+      validate=_regex(r"[\w.\-]+/[\w.\-]+", "KIDS_LLM_HF dạng user/repo trên Hugging Face")),
+    S("KIDS_LLM_THINK", "1200", "kids", "Model chữ suy nghĩ trước khi viết (token)",
+      help="0 = tắt. Suy nghĩ giúp truyện mạch lạc, đủ từ tiếng Anh hơn; ~60 token/giây trên 2 T4 (1200 token ≈ +20 giây "
+           "mỗi lượt).", validate=_regex(r"\d{1,5}", "KIDS_LLM_THINK là số token (0 = tắt)")),
+    S("KIDS_KAGGLE_SOURCES", "", "kids", "Nguồn gắn vào phiên Kaggle",
+      help="Trống = notebook rmvideo-kids-models (lệnh kids_setup tạo: llama-server đã biên dịch + FLUX 4-bit). Hoặc "
+           "notebook:user/slug, dataset:user/slug cách nhau dấu phẩy.", validate=_kaggle_sources),
+    S("KIDS_CHANNEL_NAME", "Kể Bé Nghe", "kids", "Tên kênh truyện bé", validate=_max_len("KIDS_CHANNEL_NAME", 60)),
+    S("KIDS_WORLD_NAME", "Đồi Cỏ Non", "kids", "Tên thế giới truyện", help="Nơi bốn bạn nhỏ sống; vào lời nhắc và màn mở đầu.",
+      validate=_max_len("KIDS_WORLD_NAME", 60)),
+    S("KIDS_TAGLINE", "Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh", "kids",
+      "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
+    S("KIDS_HASHTAGS", "#kebenghe,#doiconon,#truyenchobe,#hoctienganhchobe,#kidsstory", "kids", "Hashtag cố định", help="Cách nhau dấu phẩy.",
+      validate=_max_len("KIDS_HASHTAGS", 300), live=True),
+    S("KIDS_FX", "full", "kids", "Hiệu ứng động cho truyện bé",
+      options=(("full", "Đầy đủ (mặc định): Ken Burns mạnh + nảy/rung khi có tiếng động, hạt bokeh, whoosh + ting"),
+               ("motion", "Chỉ chuyển động + phụ đề bật lên (không hạt, không tiếng động)"),
+               ("off", "Tắt: Ken Burns nhẹ như bản 1.1.0")), choices=("full", "motion", "off")),
+    S("KIDS_BGM_LINKS", "", "kids", "Link nhạc nền trẻ em",
+      help="Link mp3 / YouTube / TikTok (Kaggle tự tải), cách nhau dấu phẩy; hoặc chép file nhạc vào assets/kids_bgm/ "
+           "(cần PUBLIC_URL). Chỉ dùng nhạc được phép dùng thương mại.", validate=_bgm_links, live=True),
+    S("KIDS_BGM", "auto", "kids", "Nhạc nền truyện bé",
+      options=(("auto", "File trong assets/kids_bgm hay KIDS_BGM_LINKS nếu có, không thì Lyria RealTime tự tạo kho (mặc định)"),
+               ("lyria", "Chỉ kho Lyria RealTime (Gemini API, free; 3 màu theo khung truyện, 3 bài mỗi màu)"),
+               ("files", "Chỉ file / link của mình"), ("off", "Không nhạc nền")),
+      choices=("auto", "lyria", "files", "off")),
 )
 del S
 
@@ -408,6 +500,9 @@ GROUPS: list[tuple[str, str, str]] = [
     ("brand", "🎨 Nhận diện kênh", "Màu, tông, màn kết, âm hiệu, ảnh bìa: cố định để người xem nhận ra kênh."),
     ("kaggle", "☁️ Kaggle", "Phần nặng chạy trên GPU Kaggle (cần tài khoản ở nhóm Tài khoản & API)."),
     ("auto", "🤖 Tự động đăng", "Bật/tắt và lịch. Kênh nguồn và link dán tay: sửa ngay trong mục 🤖 Tự động đăng bên dưới."),
+    ("kids", "🧸 Truyện bé", "Kênh «Kể Bé Nghe»: model trên Kaggle tự viết truyện, vẽ 8 cảnh, đọc giọng miền Nam, dựng rồi "
+             "đăng Fanpage riêng (id + token Fanpage truyện bé điền ở nhóm 🔑 Tài khoản & API). Chạy lệnh console kids_setup "
+             "một lần để chuẩn bị model."),
     ("telegram", "💬 Telegram & thông báo", "Ai được dùng bot qua Telegram, báo job làm trên web / tự đăng."),
     ("zoom", "🎥 Zoom", "Gửi link cho bot và nhận thông báo qua Zoom Team Chat (chỉ chữ + link tải, không gửi file "
              "video). Khoá Zoom (Client ID / Secret, Bot JID, Secret Token) điền ở nhóm 🔑 Tài khoản & API."),
@@ -424,11 +519,16 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
+    "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
+    "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
+    "KIDS_TAGLINE",
+    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_BGM_LINKS", "KIDS_BGM",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )
@@ -437,7 +537,7 @@ assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê
 SECRET_KEYS = frozenset(s.key for s in SCHEMA if s.secret)
 REAUTH_KEYS = frozenset(s.key for s in SCHEMA if s.reauth)
 # khoá KHÔNG gửi sang notebook Kaggle: bí mật + tài khoản/quyền/tự đăng (Kaggle không cần, lộ ra là thiệt)
-SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_")
+SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_")
 
 
 # ---------------- lưu trữ ----------------

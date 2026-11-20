@@ -75,12 +75,17 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
         fresh = True
         try:
             cache.put_json("kaggle_an", k, {x: res.get(x) for x in ("whisper", "cuts", "bands", "dur", "sep", "timings",
-                                                                     "token")})      # mã tiếng nền: phiên dựng dùng lại
+                                                                     "token", "inpainted")})   # mã tiếng nền: phiên dựng dùng lại
             zp = res.get("thumbs_zip")
             if zp:
                 cache.put("kaggle_thumbs", k, zp, ".zip")
+            if res.get("clean"):                        # video đã xoá chữ (LaMa): bản duyệt dựng lại cũng dùng
+                cache.put("kaggle_clean", k, res["clean"], ".mp4")
         except OSError:
             pass
+    clean = res.get("clean") if fresh else cache.get("kaggle_clean", k, ".mp4")
+    if clean and not os.path.exists(clean):
+        clean = None
     text, segs = transcribe.from_whisper(res.get("whisper") or {})
     if zp and os.path.exists(zp):                       # ảnh 2 khung/giây cho AI nhìn + chấm ảnh bìa
         import zipfile
@@ -97,6 +102,7 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
                  res.get("timings"))
     return {"text": text, "segs": segs, "cuts": list(res.get("cuts") or []),
             "bands": [tuple(b) for b in res.get("bands") or []], "ambient": res.get("ambient") if fresh else None,
+            "clean": clean, "inpainted": [tuple(b) for b in res.get("inpainted") or []] if clean else [],
             # mã tiếng nền giữ cả khi lấy từ cache: phiên dựng gắn đầu ra notebook phân tích, khớp mã thì dùng lại (bản 32
             # chạy lại video cũ: không có mã -> tách lại trên CPU Kaggle 418s); đã bị video khác ghi đè thì mã lệch, tự tách
             "token": res.get("token", ""), "timings": res.get("timings") or {}}

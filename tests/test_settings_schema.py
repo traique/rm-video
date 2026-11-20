@@ -26,7 +26,8 @@ def test_legacy_tables_are_derived_from_schema():
     assert list(config.META) == list(schema.DISPLAY_ORDER) and set(config.META) == set(config.EDITABLE)
     assert config.SECRET_KEYS == {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
                                   "YTDLP_COOKIES", "FB_PAGE_TOKEN", "KAGGLE_API_TOKEN",
-                                  "ZOOM_CLIENT_SECRET", "ZOOM_SECRET_TOKEN"}            # bản 1.0.0: kênh Zoom
+                                  "ZOOM_CLIENT_SECRET", "ZOOM_SECRET_TOKEN",            # bản 1.0.0: kênh Zoom
+                                  "KIDS_FB_PAGE_TOKEN"}                                 # 1.1.0: Fanpage truyện bé
     ids = {g[0] for g in config.GROUPS}
     for s in schema.SCHEMA:
         assert s.group in ids and s.label, s.key
@@ -96,7 +97,8 @@ def test_kaggle_snapshot_never_carries_secrets_or_accounts(store, monkeypatch):
     snap = kaggle_worker.settings_snapshot()
     assert "QUALITY" in snap and "SUB_STYLE" in snap
     leaked = [k for k in snap if k in config.SECRET_KEYS
-              or k.startswith(("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_"))]
+              or k.startswith(("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_"))]
+    assert "KIDS_VOICE" not in snap                  # truyện bé gửi tường minh trong kids_spec, không qua settings chung
     assert not leaked
 
 

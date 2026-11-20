@@ -110,6 +110,54 @@ def test_kaggle_side_analyze(tmp_path, monkeypatch):
     assert {"download", "sep", "asr", "scenes"} <= set(res["timings"])
 
 
+def test_kaggle_side_analyze_inpaints_text_bands(tmp_path, monkeypatch):
+    """spec["inpaint"] + có dải chữ: LaMa vẽ lại nền -> clean.mp4 trong files, inpainted = bands; LaMa lỗi -> vẫn ok,
+    timings ghi inpaint_error (Botkeep che mờ như cũ)."""
+    import asr_local
+    import kaggle_job
+    import scenes
+    import vocal_sep
+    from rmvideo.media import inpaint
+    vid = str(tmp_path / "in.mp4")
+    _video(vid)
+
+    async def fake_fetch(ref, tmp, name):
+        return vid
+
+    async def fake_sep(src, amb, timeout=0, windows=None, vocals_wav=""):
+        for p in (amb, vocals_wav):
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=200:duration=6", p],
+                           check=True)
+        return True
+    monkeypatch.setattr(kaggle_job, "fetch", fake_fetch)
+    monkeypatch.setattr(vocal_sep, "remove_voice", fake_sep)
+    monkeypatch.setattr(asr_local, "transcribe", lambda path, language="", prompt="": _whisper())
+    monkeypatch.setattr(scenes, "_analyze_sync", lambda *a, **k: ([3.0], [(0.70, 0.76)]))
+    calls = []
+
+    def fake_clean(inp, bands, out, log=None, **kw):
+        calls.append((inp, bands))
+        with open(out, "wb") as f:
+            f.write(b"\0" * 20_000)
+        return {"frames": 60, "secs": 2.0, "regions": []}
+    monkeypatch.setattr(inpaint, "clean_video", fake_clean)
+    spec = {"kind": "analyze", "src": {"url": "u"}, "want_gray": False, "language": "vi", "prompt": "",
+            "keep_ambient": False, "token": "tok2", "inpaint": True}
+    res = asyncio.run(kaggle_job.analyze(spec, str(tmp_path / "w")))
+    assert res["ok"] and calls == [(vid, [(0.70, 0.76)])] and res["inpainted"] == [[0.70, 0.76]]
+    assert res["files"]["clean.mp4"].endswith("clean.mp4") and "inpaint" in res["timings"]
+
+    def boom(*a, **k):
+        raise RuntimeError("CUDA out of memory")
+    monkeypatch.setattr(inpaint, "clean_video", boom)
+    res = asyncio.run(kaggle_job.analyze(spec, str(tmp_path / "w2")))
+    assert res["ok"] and res["inpainted"] == [] and "clean.mp4" not in res["files"]
+    assert "CUDA" in res["timings"]["inpaint_error"]
+    spec["inpaint"] = False
+    res = asyncio.run(kaggle_job.analyze(spec, str(tmp_path / "w3")))
+    assert res["ok"] and "inpaint_error" not in res["timings"]
+
+
 def test_mounted_ambient_matches_token(tmp_path):
     import kaggle_job
     d = tmp_path / "notebooks" / "u" / "rmvideo-analyze"
@@ -325,6 +373,58 @@ def test_pipeline_uses_kaggle_analysis_then_render(analyze_on, monkeypatch, tmp_
     # phân tích lấy từ cache vẫn mang mã tiếng nền: phiên dựng gắn đầu ra notebook phân tích, khớp mã thì khỏi tách lại
     # (bản 32 chạy lại video cũ: không có mã -> tách lại trên CPU Kaggle 418s)
     assert got["spec"]["amb_token"] == got["an_spec"]["token"]
+
+
+def test_pipeline_renders_from_clean_video(analyze_on, monkeypatch, tmp_path):
+    """Kaggle trả video đã xoá chữ: dựng từ video đó, không che dải nào, ghi chú LaMa; chạy lại cùng video lấy từ cache.
+    Không có PUBLIC_URL thì phiên dựng Kaggle không lấy được bản sạch -> nguồn gốc + che mờ như cũ."""
+    import pipeline
+    monkeypatch.setattr(core_video, "download", _url_job(tmp_path))
+    monkeypatch.setattr(config, "PUBLIC_URL", "https://bot.example")
+    got = {}
+
+    async def fake_analyze(spec, tmp, on_step=None):
+        got["an_spec"] = spec
+        clean = os.path.join(tmp, "kaggle_clean.mp4")
+        _video(clean, 4)
+        return {"ok": True, "token": spec["token"], "whisper": _whisper(), "cuts": [3.0], "bands": [[0.70, 0.76]],
+                "inpainted": [[0.70, 0.76]], "dur": 8.0, "sep": True, "clean": clean,
+                "timings": {"sep": 34, "asr": 55, "scenes": 59, "inpaint": 90}}
+
+    async def fake_produce(spec, tmp, on_step=None):
+        got.setdefault("specs", []).append(spec)
+        out = os.path.join(tmp, "output.mp4")
+        _video(out, 4)
+        plan = [{"start": s["start"], "factor": 1.0, "end": s["start"] + 1} for s in spec["segments"]]
+        return {"ok": True, "video": out, "plan": plan, "too_long": [], "srt": "", "amb": True, "notes": [],
+                "timings": {"tts": 4, "render": 60}, "gpu": True}
+
+    async def fake_timed(title, desc, mode, segs, out_dur, images_for=None):
+        out = [{"i": k, "start": a, "slot": max(1.0, b - a), "span": b - a, "text": f"Lời mới {k}", "orig": t}
+               for k, (a, b, t) in enumerate(segs)]
+        return {"segments": out, "script": "x", "fresh": 1.0, "title": "Cá kèo giòn", "caption": "c",
+                "hashtags": "#a", "hook": "CÁ KÈO"}
+    monkeypatch.setattr(kaggle_worker, "analyze", fake_analyze)
+    monkeypatch.setattr(kaggle_worker, "produce", fake_produce)
+    monkeypatch.setattr(prompt_engine, "generate_timed_any", fake_timed)
+    job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Mỹ Duyên")
+    (tmp_path / "w").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert os.path.exists(out) and got["an_spec"]["inpaint"] is True
+    sp = got["specs"][-1]
+    assert sp["bands"] == [] and sp["src"].get("name") == "kaggle_clean.mp4" and sp["pos_y"]   # phụ đề vẫn đúng chỗ
+    assert "xoá chữ LaMa 90s" in job.error and "xoá chữ gốc ở 1 dải bằng LaMa" in job.error
+    # chạy lại: phân tích + video sạch lấy từ cache
+    job2 = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Mỹ Duyên")
+    (tmp_path / "w2").mkdir()
+    asyncio.run(pipeline.process(job2, str(tmp_path / "w2")))
+    assert got["specs"][-1]["bands"] == [] and got["specs"][-1]["src"].get("name", "").endswith(".mp4")
+    # không có PUBLIC_URL: Kaggle tự tải bản gốc -> che mờ như cũ
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    job3 = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Mỹ Duyên")
+    (tmp_path / "w3").mkdir()
+    asyncio.run(pipeline.process(job3, str(tmp_path / "w3")))
+    assert [tuple(b) for b in got["specs"][-1]["bands"]] == [(0.70, 0.76)] and "Chưa có PUBLIC_URL" in job3.error
 
 
 def test_pipeline_falls_back_when_kaggle_analysis_fails(analyze_on, monkeypatch, tmp_path):

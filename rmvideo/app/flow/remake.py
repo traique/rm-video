@@ -80,6 +80,17 @@ def promo_cut(job: Job, segs: list, out_dur: float) -> float | None:
     return None
 
 
+
+def uncovered(bands: list, inpainted: list) -> list:
+    """Dải chữ chưa được LaMa xoá (phải che mờ): dải không chồng ≥ 60% lên dải nào đã vẽ lại nền."""
+    out = []
+    for top, bottom in bands:
+        h = max(1e-6, bottom - top)
+        if not any(min(bottom, b1) - max(top, b0) >= 0.6 * h for b0, b1 in inpainted):
+            out.append((top, bottom))
+    return out
+
+
 @dataclass
 class Separation:
     """Kế hoạch tách giọng gốc trên Botkeep (Kaggle tách cả bài, không cần giới hạn này)."""
@@ -111,6 +122,9 @@ class Remake:
         self.segs: list = []                # lời gốc trên trục video RA (kéo chậm, cộng đoạn mở đầu)
         self.cuts: list = []
         self.bands: list = []
+        self.cover_bands: list = []     # dải chữ phải che mờ (= bands trừ dải đã được LaMa xoá trên Kaggle)
+        self.inpainted: list = []       # dải đã được LaMa vẽ lại nền
+        self.render_src: str = inp      # nguồn để dựng: video gốc, hoặc bản đã xoá chữ (Kaggle trả về)
         self.speech: list = []              # lúc người gốc đang nói (trục video ra)
         self.pos_y: int | None = None
         self.sep = Separation()
@@ -405,7 +419,13 @@ class Remake:
             tm = an["timings"]
             if tm:
                 job.note(f"ℹ️ Bóc lời + phân tích hình trên Kaggle (tách giọng {tm.get('sep', 0):.0f}s, Whisper "
-                         f"{tm.get('asr', 0):.0f}s, dò cảnh {tm.get('scenes', 0):.0f}s). ")
+                         f"{tm.get('asr', 0):.0f}s, dò cảnh {tm.get('scenes', 0):.0f}s"
+                         + (f", xoá chữ LaMa {tm.get('inpaint', 0):.0f}s" if an.get("clean") else "") + "). ")
+            if an.get("clean"):
+                self.render_src = an["clean"]
+                self.inpainted = list(an.get("inpainted") or [])
+            elif tm and tm.get("inpaint_error"):
+                job.note(f"ℹ️ LaMa xoá chữ trên Kaggle lỗi ({tm['inpaint_error'][:100]}): che mờ như cũ. ")
         else:
             job.step = ("Bóc lời thoại + dò chữ in cứng (song song)" if scenes.mode() == "light"
                         else "Bóc lời thoại + dò chữ in cứng + tách cảnh (song song)")
@@ -421,6 +441,7 @@ class Remake:
                                                 need_thumbs=not job.approved))   # 1 lượt giải mã: cảnh + ảnh + chữ
         if config.TEXT_DETECT == "ocr" and job.subs and job.cover and ocr_text.available():
             self.bands = await analysis.ocr_bands(inp, self.src_dur, self.src_hash, self.bands)
+        self.cover_bands = uncovered(self.bands, self.inpainted)
 
     def place(self):
         """Lời gốc / điểm chuyển cảnh lên trục video ra (đã làm chậm); vị trí phụ đề theo dải chữ gốc đầu tiên."""
@@ -681,13 +702,15 @@ class Remake:
         # chữ nào thì vẫn tách, thay vì tắt hết tiếng nền)
         sep_r = {"ok": self.sep.ok, "windows": self.sep.windows, "secs": self.sep.secs, "why": self.sep.why,
                  "engines": self.sep.engines, "ok_remote": job.mode == Mode.COOK and config.VOICE_SEPARATION != "0"}
+        src_k, cover_k = self.kaggle_source()
         # bản đầy đủ trên Kaggle cũng được 1080p (bản 50: video đăng YouTube / Facebook; Kaggle đủ RAM, còn giới hạn
         # thời gian dựng của renderer.output_size thì vẫn áp); trên Botkeep bản đầy đủ giữ 720p cho nhanh, đủ RAM
         return kaggle_worker.build_spec(
             job, segs_t, self.out_dur, self.render_dur, self.stretch, True, common.post_title(job, self.title),
-            self.bands, self.pos_y, sep_r, self.speech,
+            cover_k, self.pos_y, sep_r, self.speech,
             config.LONG_MAX if job.long_mode == LongMode.FULL else config.MAX_DURATION,
-            local_path=self.inp, src=job.remote_src or None, amb_token=self.an["token"] if self.an else "",
+            local_path=src_k, src=(job.remote_src if src_k == self.inp else None) or None,
+            amb_token=self.an["token"] if self.an else "",
             teaser=self.tz, edit=self.edit.to_dict() if self.edit else None, overlays=self.cards or None,
             tail=self.tail, voice_bed=self.bed)
 
@@ -717,6 +740,7 @@ class Remake:
                      + ("; đã tách bỏ giọng gốc bằng AI" if res.get("amb") else "")
                      + (f"; {len(res['too_long'])} đoạn vẫn hơi dài (đọc nhanh hơn)" if res.get("too_long") else "")
                      + ". ")
+            job.note(self.bands_note())
             return res["video"]
         if kaggle_worker.collecting():
             # video dài: chạy chung một phiên với các phần khác; kèm lời đã chốt để nếu Kaggle lỗi thì làm lại phần
@@ -752,9 +776,9 @@ class Remake:
             nonlocal cover_task
             cover_task = self.pre_cover or self.start_cover(common.post_title(job, self.title))
         res = await assemble(
-            self.inp, self.tmp, mode=job.mode, segs=segs_t, out_dur=self.out_dur, render_dur=self.render_dur,
+            self.render_src, self.tmp, mode=job.mode, segs=segs_t, out_dur=self.out_dur, render_dur=self.render_dur,
             synth=lambda items, tmp_dir: self.synth(segs_t, items, tmp_dir), ambient=self.local_ambient,
-            subs=job.subs, pos_y=self.pos_y, sub_style=config.SUB_STYLE, bands=self.bands, allow_hd=not self.is_long,
+            subs=job.subs, pos_y=self.pos_y, sub_style=config.SUB_STYLE, bands=self.cover_bands, allow_hd=not self.is_long,
             title=common.post_title(job, self.title), stretch=self.stretch, teaser=self.tz,
             shorten=lambda idx, durs: self.shorten(segs_t, idx, durs), on_step=lambda st: setattr(job, "step", st),
             tts_step=f"Đọc giọng {len(segs_t)} đoạn song song" + (" + tách giọng gốc" if sep.ok else ""),
@@ -772,13 +796,13 @@ class Remake:
             job.note("ℹ️ Đã tách bỏ giọng gốc bằng AI. " if res.ambient else
                      f"ℹ️ Không tách giọng AI ({sep.why}): tắt tiếng nền lúc người gốc nói. " if sep.why else
                      "ℹ️ Tách giọng AI không chạy được (máy chậm/thiếu RAM): tắt tiếng nền lúc người gốc nói. ")
-        fast, drift, too_long, bands, cuts = res.fast, res.drift(segs_t), res.too_long, self.bands, self.cuts
+        fast, drift, too_long, cuts = res.fast, res.drift(segs_t), res.too_long, self.cuts
         job.note((f"ℹ️ Lời mới {timed['fresh'] * 100:.0f}% khác lời gốc; " if "fresh" in timed else "ℹ️ ")
                  + f"{len(res.clips)} đoạn giọng" + (f", {len(cuts)} điểm chuyển cảnh" if cuts else "")
                  + f"; lệch tối đa {drift:.1f}s"
                  + (f"; {fast} đoạn nói nhanh" if fast else "")
-                 + (f"; {len(too_long)} đoạn vẫn hơi dài" if too_long else "")
-                 + (f"; đã che {len(bands)} dải chữ gốc" if bands else "") + ".")
+                 + (f"; {len(too_long)} đoạn vẫn hơi dài" if too_long else "") + ". ")
+        job.note(self.bands_note())
         return res.video
 
     async def render_oneshot(self) -> str:
@@ -813,8 +837,8 @@ class Remake:
         post_title = common.post_title(job, title)
         cover_task = self.start_cover(post_title)
         notes: list = []
-        await renderer.render(self.inp, voice_mp3, out, job.mode, self.render_dur,
-                                self.ass if (job.subs and got_subs) else None, self.bands, amb_wav, gate,
+        await renderer.render(self.render_src, voice_mp3, out, job.mode, self.render_dur,
+                                self.ass if (job.subs and got_subs) else None, self.cover_bands, amb_wav, gate,
                                 allow_hd=not self.is_long, title=post_title, tmp=self.tmp, stretch=self.stretch,
                                 notes=notes, teaser=self.tz, voice_bed=self.bed,
                                 **_edit_kw(self.edit.to_dict() if self.edit else None, self.cards or None, self.tail))
@@ -822,9 +846,26 @@ class Remake:
         if notes:
             job.note("".join(notes))
         await self.finish_cover(cover_task)
-        if self.bands:
-            job.note(f"ℹ️ Đã che {len(self.bands)} dải chữ gốc và đặt phụ đề mới lên đó.")
+        job.note(self.bands_note())
         return out
+
+    def kaggle_source(self) -> tuple[str, list]:
+        """Nguồn + dải phải che cho phiên dựng trên Kaggle: video đã xoá chữ chỉ dùng được khi Botkeep phát được link
+        tạm (PUBLIC_URL); không thì Kaggle tự tải bản gốc và che mờ như cũ."""
+        if self.render_src != self.inp and not kaggle_worker.serve(self.render_src):
+            self.job.note("ℹ️ Chưa có PUBLIC_URL nên Kaggle không lấy được video đã xoá chữ: che mờ như cũ. ")
+            return self.inp, list(self.bands)
+        return self.render_src, list(self.cover_bands)
+
+    def bands_note(self) -> str:
+        n_in = len(self.bands) - len(self.cover_bands)
+        if not self.bands:
+            return ""
+        if n_in and self.cover_bands:
+            return f"ℹ️ Đã xoá chữ gốc ở {n_in} dải bằng LaMa, che {len(self.cover_bands)} dải và đặt phụ đề mới lên đó."
+        if n_in:
+            return f"ℹ️ Đã xoá chữ gốc ở {n_in} dải bằng LaMa (Kaggle) và đặt phụ đề mới lên nền thật."
+        return f"ℹ️ Đã che {len(self.bands)} dải chữ gốc và đặt phụ đề mới lên đó."
 
     # ---------------- công cụ của các bước ----------------
 
@@ -913,8 +954,8 @@ class Remake:
             return None
         a = scenes.analyzed(self.inp)
         t = asyncio.create_task(cover_mod.make_cover(
-            self.inp, self.tmp, self.job.mode, post_title, self.src_dur, cuts=self.cover_cuts, end=self.cover_end,
-            bands=self.bands, thumbs_dir=a["dir"] if a else None, thumb_times=a.get("times") if a else None,
+            self.render_src, self.tmp, self.job.mode, post_title, self.src_dur, cuts=self.cover_cuts, end=self.cover_end,
+            bands=self.cover_bands, thumbs_dir=a["dir"] if a else None, thumb_times=a.get("times") if a else None,
             at=self.cover_at, **({"series": s} if (s := brand.series_label(self.src_hash)) else {})))
         self.tasks.append(t)
         return t

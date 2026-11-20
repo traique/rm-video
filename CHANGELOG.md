@@ -13,6 +13,139 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
+
+- Nhạc bé: cả phiên Lyria giới hạn `TIMEOUT + STALL` giây (`asyncio.wait_for`): trước đây hạn giờ chỉ xét khi có gói
+  gửi về, kết nối đứng im thì job truyện bé kẹt mãi ở «chọn nhạc nền». Test truyện bé không gọi Lyria thật nữa (CI 20/11
+  treo 30 phút ở 94%). CI: Pillow, pytest-timeout 5 phút/test, job 25 phút, in bản ffmpeg (ubuntu-latest 26.04 = FFmpeg 8).
+- Kênh bếp, LaMa: video có cờ xoay 90°/270° đọc theo khung hiển thị (`inpaint._probe`), không cắt khung sai chiều.
+- Truyện bé: lưu LoRA nhân vật trong repo (`lora/dcn_lora_v1.safetensors`, Git LFS, sha256 e5e1d8a5…) +
+  `scripts/push_kids_lora.py` tạo lại dataset Kaggle `rmvideo-kids-lora` từ bản này; `lora/` không vào gói Botkeep.
+- Truyện bé, hình theo lời kể (xem mẫu 32 với mắt đạo diễn, 20/11): model ghi đồ vật chính `prop_vi`/`prop_en` (bộ kiểm đòi có
+  trong lời cảnh 1–2), prompt ảnh ép đồ vật «clearly visible» ở cảnh 1 và cảnh lời nhắc; từ dạy là hành động / cảm xúc có `pose`
+  (data.json) ghép vào prompt, từ cần chạm nhau (`contact`: hug/help/share) được OWLv2 soát hai áo tách rời (`imgcheck.contact_ok`)
+  và vẽ lại; đồ vật chính được OWLv2 dò thêm («a toy box», `imgcheck.PROP_THR`), thiếu thì vẽ lại (trừ cảnh lời nói nó đang
+  mất / đang tìm, `prompts.PROP_LOST_RE`); ánh sáng theo lời (`prompts.lighting_en`: sắp tối → hoàng hôn, trăng → đêm, sáng sớm, mưa) và cảm xúc theo cụm cuối
+  trong lời (`emotion_en`); ngân sách 165 từ cho T5. Ảnh câu móc chọn theo lời (`story.hook_scene`: cảnh 2–5 nhiều dấu hiệu rắc
+  rối nhất, hoà thì cảnh sau), clip móc zoom chặt hơn 0,22 (`render.HOOK_ZOOM`).
+- Soát code đợt 20/11 (truyện bé + Kaggle): `_call_gemini(model=…)` nhận model riêng cho từng lượt — `writer.GeminiBackend`
+  không đổi `config.GEMINI_MODEL` chung nữa (kênh bếp gọi Gemini song song trên cùng tiến trình; model truyện bé bị ngừng 404
+  không còn ghi đè Cài đặt). Kaggle trả `brief` cuối (Qwen viết trên Kaggle thì từ hôm nay chốt ở đó) → bài đăng và bộ nhớ
+  từ (`remember_done` ghi `words`/`plot` thật) theo đúng từ đã dạy. Vòng tự động ghi `pending/posts/streak/paused` lên bản mới
+  nhất của `kids_auto.json` (`save_tick`) — không ghi đè mất truyện worker / nút «Làm 1 truyện ngay» ghi trong lúc chờ Facebook
+  tải video. Phụ đề trả theo thời gian (câu móc đứng đầu SRT, mốc tiếng động «Bịch!» trong câu móc có nảy). Bộ kiểm ảnh hết
+  lượt giữ ảnh ÍT LỖI nhất (số lý do hỏng, lệch số đầu) thay vì ít đầu nhất. `images.find_local` so tên THƯ MỤC model («dev»
+  trong tên tài khoản Kaggle không bị nhận nhầm, «flux» không bắt thư mục flux-dev). Qwen: soát lại (`_revise`) trước khi tắt
+  llama-server; thẻ chữ font dự phòng có `.size`.
+- Kênh bếp: `TEXT_INPAINT=1` (mặc định) — khi bóc lời + phân tích hình trên Kaggle, `rmvideo/media/inpaint.py` chạy big-lama.pt
+  (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
+  lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
+  chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: bộ kiểm ảnh soát áo đúng chủ (`imgcheck.shirt_owner` / `owners_ok`: áo dưới đầu thỏ phải đỏ, dưới đầu gấu phải
+  xanh dương…; đo thật mẫu 32: Thỏ mặc áo xanh của Gấu, Gấu không áo — chỉ một áo nên kiểm «hai áo cùng màu» không bắt);
+  `check` trả lý do hỏng cụ thể vào log.
+- Truyện bé: LoRA 4 nhân vật (`KIDS_LORA`, mặc định `dcn_lora_v1`) — train 20/11 trên Kaggle T4 bằng ai-toolkit (FLUX.1-schnell
+  + adapter huấn luyện của ostris, Apache-2.0; 144 ảnh do pipeline tự vẽ, 36 ảnh / bạn; 600 bước fp16, transformer + T5 nén
+  uint4, embedding T5 tính sẵn ngoài trainer để vừa 14,5 GB; 75 phút). File lưu ở dataset riêng tư `rmvideo-kids-lora`; phiên
+  dựng gắn dataset, nạp bằng `pipe.load_lora_weights` (scale 0,9), prompt thêm từ khoá thotrang / gaunau / meocam / socnho
+  (`characters[].lora_token`). Không có dataset thì tự vẽ không LoRA (`kaggle_worker.lora_source`). Đo trên 8 cảnh mẫu 31:
+  cùng một gương mặt Thỏ Trắng ở mọi cảnh, hết ảnh hai đầu và chữ in lên áo; +80 giây mỗi truyện. Notebook cài thêm `peft`.
+  `kaggle_api.outputs` gộp mọi trang đầu ra.
+- Truyện bé: prompt ảnh khoá tỉ lệ nhân vật (`PROPORTION_EN`: cùng chiều cao, dáng bé con), sóc không «tiny»; bộ kiểm ảnh
+  thêm phép đo hai đầu to nhỏ lệch quá 2 lần (`imgcheck.sizes_ok`). Thử Z-Image-Turbo trên T4: ảnh đen (fp16), giữ FLUX.
+- Truyện bé: bỏ câu kết «Các bé ơi, nhớ… nha!» (phản hồi 19/11: nghe giảng, «trớt»): cảnh 8 kết bằng hình ảnh ấm vòng lại
+  cảnh 1 (khung truyện, lời nhắc, truyện mẫu, bộ kiểm báo khi cảnh 8 nói với «các bé»); câu ôn từ trong màn kết đổi
+  «Giỏi lắm, bé nhớ hết rồi!» -> «Hẹn gặp lại bé ở chuyện sau!».
+- Truyện bé: kiểm ảnh hai đầu / nhân vật nhân đôi (`rmvideo/kids/imgcheck.py`, `KIDS_IMAGE_CHECK`): OWLv2 đếm đầu nhân vật
+  sau khi FLUX vẽ (gộp khung lồng nhau, bỏ khung thân áo dưới đầu, ngưỡng 0,3; đo thật 16 ảnh: 0 báo nhầm), thừa đầu so với
+  số bạn trong cảnh thì vẽ lại với seed khác (tối đa 2 lần), timings ghi `image_checked` / `image_redo`. Soát cả màu áo:
+  khung «a t-shirt» -> sắc độ vùng giữa (đỏ / xanh lá / xanh dương / vàng; cam = lông mèo không tính); áo màu ngoài bộ màu
+  của các bạn trong cảnh, hay hai áo cùng màu khi hai bạn khác màu (đo thật mẫu 29: Mèo Cam mặc áo đỏ của Thỏ) -> vẽ lại.
+- Truyện bé: câu dạy từ — dạng đố hỏi rồi mới đáp («Đố bé biết trái banh đó tiếng Anh là gì? Là ball!»), vật trong cảnh gọi
+  «đó», không chèn sau câu hỏi cho bé (câu hỏi vẫn là câu cuối cảnh); cân âm lượng từng đoạn giọng trước khi nối
+  (`dialogue.rms_db`, RMS −20 dBFS ±12 dB).
+- Truyện bé: viết lại theo lỗi thì SỬA bản nháp trước (`prompts.messages(previous=)`) thay vì viết truyện khác; truyện tối đa
+  200 chữ, trên 215 là lỗi chặn (đo thật mẫu 27: 221 chữ -> 91,6 s, QA loại); thông báo dài kèm cảnh dài nhất; dựng có mức đọc
+  nhanh đường cùng `TEMPO_HARD` 1,22.
+- Truyện bé: Gemini hai model theo vai — `KIDS_GEMINI_MODEL` (mặc định gemini-4-hydrogen, `KIDS_GEMINI_THINKING` low) viết nháp,
+  `KIDS_GEMINI_REVISE_MODEL` (gemini-3.5-flash-lite) viết lại theo lỗi và tự soát; `prompt_engine._call_gemini(thinking=)` đặt mức
+  suy nghĩ cho Gemini 4; model của vai quá tải / hết lượt thì model kia làm thay (`writer.GeminiBackend`, `llm.Backend.chat(role=)`).
+- Truyện bé: nhạc nền Lyria RealTime thành kho theo màu khung truyện (`rmvideo/kids/bgm.py`, `plots[].mood`, `KIDS_BGM`, lệnh
+  `kids_bgm`), đẩy lên Kaggle dạng dataset riêng tư (`kaggle_api.upload_blob / dataset_push / dataset_wait`), Kaggle lấy file từ
+  dataset đã gắn (`kaggle_job.fetch` «mounted»); `kids_auto.pick_music` theo chính sách KIDS_BGM.
+- Truyện bé: kể cho cuốn theo sách tranh — lời nhắc có «bí kíp» (hỏi bé cuối cảnh rồi cảnh sau trả lời, điệp khúc có nhịp và
+  đảo ở cảnh 6 theo `plots[].twist`, thất bại hài + tiếng động, cảm xúc qua hành động, nét riêng / câu cửa miệng từng bạn
+  `characters[].quirk_vi`, kết vòng lại mở đầu), truyện mẫu viết lại theo đó; bộ kiểm thêm: thiếu câu hỏi cho bé, «các bạn / cả
+  nhóm» khi hình chỉ 2 bạn, tiêu đề lạc truyện (`story.title_mismatch`); khung truyện chỉ gọi tên 1–2 bạn; checklist soát thêm
+  mục «cuốn chưa?»; 3 từ tiếng Anh mỗi truyện, câu dạy từ không vào cảnh kết và không dồn 3 câu một cảnh; gạch ngang dài → phẩy.
+- Truyện bé: giọng riêng từng nhân vật (`KIDS_MULTI_VOICE`, `rmvideo/kids/dialogue.py` tách lời thoại «…» theo tên người nói,
+  `kaggle_job.make_synth` nhận giọng theo từng đoạn, nối lại theo cảnh); lời nhắc đòi lời kể trôi chảy (câu 5–14 chữ, từ nối),
+  lời thoại luôn trong «…» có tên người nói; câu dạy từ có từ dẫn.
+- Truyện bé: từ tiếng Anh chọn từ chính truyện (kho gợi ý theo bối cảnh, `story.choose_words` sau khi viết), tiêu đề không lộ bài
+  học, câu dạy từ tránh cảnh 3 và 6; thẻ nghĩa trong truyện đổi sang viên vàng + bảng trắng (PIL) cùng kiểu bảng kết.
+- Truyện bé: kho 10 khung cốt truyện (`data.json` «plots», `story.pick_plot` / `plot_beats`) rút từ truyện mầm non và podcast kể
+  chuyện; lời nhắc theo 8 nhịp của khung + sợi chỉ xuyên suốt. Lời thoại: bộ kiểm chặn «nha/hen» > 3, câu móc kết «nha», câu lặp
+  ngoài điệp khúc (`story.repeated_sentences`); câu dạy từ xoay vòng không «nha»; màn kết không phụ đề.
+- Truyện bé: không còn màn hình đen — bỏ mờ từ đen / về đen, màn kết giữ nền sáng (phủ trắng 14%) với bảng «Hôm nay bé học»
+  bo góc vẽ bằng PIL (`rmvideo/kids/cards.py`: viên vàng chữ Anh, nghĩa tím than, tagline xanh), thẻ tiêu đề cùng kiểu;
+  thẻ nghĩa không hiện trong màn kết.
+- Truyện bé: mở đầu «móc» 3 giây (`hook`/`hook_text` trong schema, `render.plan(hook_dur)`: clip móc = ảnh cảnh 3 zoom mạnh +
+  câu móc đọc ngay + chữ to, thẻ tiêu đề lùi sau 2,2 giây, lời vào sớm), vai cảnh nhấn nhân quả và ba lần thử leo thang,
+  Gemini tự soát lại theo checklist (`llm._revise`, `prompts.revise_messages`, bản sửa phải qua bộ kiểm).
+- Truyện bé: Gemini viết trên Botkeep (xem 1.1.0, mục Gemini). Hiệu ứng động `KIDS_FX` (render.py): Ken Burns mạnh + nhịp thở,
+  nảy zoom + rung máy khi lời có tiếng động (`hits_from_words`), hạt bokeh (PIL, overlay theo sin), vignette, phụ đề bật lên
+  (`subs.write_ass(pop=True)`), whoosh khi chuyển cảnh + ting khi dạy từ (lavfi, trộn trước loudnorm).
+
+## 1.1.0 — kênh truyện bé «Kể Bé Nghe» (18/11/2026)
+
+- Thêm chế độ 🧸 Truyện bé: model trên Kaggle tự viết truyện 60–90 giây ở Đồi Cỏ Non (4 nhân vật cố định, một bài học, 3–5 từ tiếng Anh), vẽ 8 cảnh, đọc giọng miền Nam, dựng rồi đăng Fanpage RIÊNG.
+- Đề truyện chọn bằng mã (bài học × bối cảnh × xung đột × kho từ), không lặp trong 30 ngày; kịch bản kiểm bằng mã, model viết lại khi chưa đạt.
+- Nút «Làm 1 truyện ngay» trên web / lệnh `kids_now` để soát vài video đầu; bật `KIDS_AUTO=1` là tự làm 2 truyện/ngày, hẹn đăng 08:00 và 19:00.
+- Lệnh `kids_setup` chuẩn bị model trên Kaggle một lần (biên dịch llama.cpp, lượng tử FLUX.1-schnell 4-bit).
+
+### Chi tiết
+- **Kiến trúc** (kế hoạch: `docs/KE_HOACH_KIDS_STORY.md`): Botkeep chọn đề (`rmvideo/kids/story.pick`) rồi gửi MỘT việc `kind="kids"`
+  sang notebook `rmvideo-kids`; trên Kaggle `rmvideo/kids/job.py` chạy lần lượt model chữ (`llm.py`: llama-server + Qwen3.6-35B-A3B
+  GGUF 4-bit, JSON theo schema, suy nghĩ trước tối đa `KIDS_LLM_THINK` token, viết lại tối đa 3 lần theo lỗi bộ kiểm), model ảnh
+  (`images.py`: FLUX.1-schnell NF4 hoặc Z-Image-Turbo, 768×1344 → 1080×1920), giọng VieNeu (`KIDS_VOICE`, mặc định Thục Đoan), dựng
+  (`render.py`). Không có đường lùi về Botkeep: Kaggle lỗi là job lỗi, vòng lịch chọn khung giờ khác và báo admin.
+- **Đo thật 18/11 (9 lần chạy Kaggle, video đầu tiên 84 giây đạt QA)**: `/kaggle/input` chỉ đọc và file đầu ra mất quyền chạy → chép
+  llama-server ra `/tmp`; `huggingface_hub<1.0` cho diffusers; T5 8-bit + transformer NF4 tràn T4 → mã hoá 8 prompt trước rồi bỏ T5, vẽ
+  768×1344; VAE giải mã fp32 trên đúng thiết bị; chờ máy giờ cao điểm tới 60 phút → `KIDS_TIMEOUT` 125 phút; 236 chữ → 88,9 giây trượt
+  QA → `render.plan` tự co đệm rồi đọc nhanh hơn (≤ ×1,15) cho ≤ 87 giây, QA hỏng vẫn giữ video + ảnh để xem; nạp FLUX từ ổ gắn 7–8 phút
+  → chép về đĩa cục bộ bằng 4 luồng ngay đầu việc; model viết `action_en` bằng tiếng Việt, hỏi dồn dập và liệt kê «X nghĩa là Y» cho
+  đủ chữ → bộ kiểm báo lỗi để viết lại (hành động dự phòng theo vai cảnh), prompt ảnh gọn cho 256 token T5, màu áo nói trước tên.
+- **Dựng**: độ dài cảnh theo giọng đọc (tối thiểu 5 giây), Ken Burns + xfade êm dùng lại biểu thức của 📸, thẻ tiêu đề 3 giây đầu, thẻ
+  «sorry = xin lỗi» khi từ được đọc lần đầu, màn kết «Hôm nay bé học» + tagline, phụ đề rải theo khoảng có tiếng, từ tiếng Anh tô màu
+  (`subs.write_ass(highlight=…)`, style `kids`), nhạc nền ~16 dB dưới giọng tự hạ khi đang đọc (`assets/kids_bgm/` hoặc `KIDS_BGM_LINKS`),
+  loudness −14 LUFS, NVENC. Ảnh bìa = khung lúc thẻ tiêu đề đang hiện.
+- **Gemini viết truyện trên Botkeep (19/11)**: `KIDS_LLM_PROVIDER` auto/gemini/qwen, `KIDS_GEMINI_MODEL`; `rmvideo/kids/writer.py`
+  (GeminiBackend cùng giao diện llama-server, dùng chung vòng kiểm/viết lại của `llm.generate_story`, gọi qua
+  `prompt_engine._call_gemini` nên có thử lại / model dự phòng); truyện sẵn nằm trong `spec["story"]`, Kaggle bỏ bước model chữ.
+  Key Gemini không bao giờ sang Kaggle. Đo: gemini-3.5-flash-lite 1 lượt, 3 giây, mạch lạc hơn Qwen 35B 4-bit.
+- **Cách kể cho bé nhỏ (19/11)**: sau 6 video đo thật, lời còn rời rạc và từ tiếng Anh bị ép vào thoại; viết lại theo cách của
+  truyện kể mầm non: truyện thuần tiếng Việt, 8 nhịp (chào bé, chuyện nhỏ, tiếng động, thử ba lần với điệp khúc, bạn giúp, bài học
+  nói nhẹ, nhắn bé), truyện mẫu trong lời nhắc (chép ≥ 2 câu là lỗi). Kho từ đổi sang đồ vật / màu / con vật / lời chào / hành động
+  đơn giản (107 từ), chọn theo bối cảnh + 1 từ theo bài học, 3 từ/truyện; mã chèn câu dạy từ «Trái banh, tiếng Anh là ball. Bé nói
+  theo nha: ball!» ngay cảnh đồ vật xuất hiện (`story.add_beats`), model không còn thấy từ tiếng Anh.
+- **Giọng miền Nam**: lời model qua `rmvideo/domain/dialect.south` + vài từ trẻ em (`story.south_kids`: ba, trái banh, cái nón, té, mắc cỡ, nha).
+- **Đăng**: `autopost.publish/check_token/views_of` nhận `page`/`token` (Fanpage truyện bé: `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, không bao giờ
+  gửi sang Kaggle). `kids_auto.py`: trạng thái `kids_auto.json`, khung `KIDS_TIMES`, làm trước 36 giờ, 3 truyện lỗi liên tiếp thì dừng.
+- **Kaggle**: `kaggle_api.push` nhận notebook của người khác (`user/slug`) và dataset; `kaggle_worker._run_sync` theo `spec["slug"]`, gắn
+  `kernel_sources`/`dataset_sources` của việc, tải thêm `fetch_files` (ảnh bìa, story.json); việc kids không chạy CPU khi hết giờ GPU.
+  `KIDS_KAGGLE_SOURCES` trỏ tới notebook/dataset có sẵn llama-server (vd bản bạn đã biên dịch khi đo Qwen).
+- **Cài đặt** nhóm 🧸 Truyện bé: `KIDS_AUTO`, `KIDS_TIMES`, `KIDS_FB_PAGE_ID`, `KIDS_FB_PAGE_TOKEN`, `KIDS_VOICE`, `KIDS_IMAGE_MODEL`,
+  `KIDS_LLM_PROVIDER`, `KIDS_GEMINI_MODEL`, `KIDS_LLM_PATTERN`, `KIDS_LLM_HF`, `KIDS_LLM_THINK`, `KIDS_KAGGLE_SOURCES`, `KIDS_CHANNEL_NAME`, `KIDS_WORLD_NAME`, `KIDS_TAGLINE`,
+  `KIDS_HASHTAGS`, `KIDS_BGM_LINKS`.
+- Web: mục 🧸 Truyện bé (trạng thái, làm ngay, thử token, chuẩn bị model, chạy lại); API `/api/kids`, `/api/kids/{now|test|setup|setup_status|resume|tick}`.
+  Console: `kids`, `kids_now`, `kids_tick`, `kids_setup`, `kids_setup_status`, `kids_fb_test`, `kids_resume`.
+- Test: `tests/test_kids.py` (chọn đề, kiểm kịch bản, prompt, kế hoạch cảnh, dựng thật cỡ nhỏ, việc Kaggle với model giả, luồng Botkeep,
+  lịch đăng, cài đặt, route). Chưa chạy thật trên Kaggle: phần model (llama-server, diffusers) sẽ chỉnh theo lần chạy đầu.
+- Đo trên Kaggle 18/11 khi chạy `kids_setup`: cmake của llama.cpp đòi `libcuda.so` mà Kaggle chỉ có `libcuda.so.1` -> build với
+  `GGML_CUDA_NO_VMM=ON`; repo `black-forest-labs/FLUX.1-schnell` đã khoá (gated) -> lấy bản sao công khai `unsloth/FLUX.1-schnell`;
+  model chữ mặc định `lmstudio-community/Qwen3.6-35B-A3B-GGUF` (một file Q4_K_M 20,2GB). Notebook chuẩn bị lưu thêm Z-Image-Turbo
+  4-bit khi còn chỗ.
+
 ## 1.0.1 — sửa theo soát video mực của job 1 (18/11/2026)
 
 - Thẻ MẸO không còn bị logo che chữ: thẻ phía trên (mẹo, tua nhanh) đặt xuống dưới logo.

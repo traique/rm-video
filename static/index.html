@@ -221,6 +221,19 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
     </div>
   </details>
 </section>
+<section class="card">
+  <details id="kids_box">
+    <summary><h2>🧸 Truyện bé</h2> <span class="mut">(kênh «Kể Bé Nghe»: model trên Kaggle tự viết truyện ở Đồi Cỏ Non, vẽ 8 cảnh, đọc giọng miền Nam, dựng 60–90s → đăng Fanpage riêng; cài đặt ở Cài đặt → 🧸 Truyện bé)</span></summary>
+    <pre id="kids_status" class="pre" role="status" aria-live="polite"></pre>
+    <div class="actions">
+      <button type="button" id="kids_now" class="btn">🧸 Làm 1 truyện ngay</button>
+      <button type="button" id="kids_test" class="btn btn-2">🔑 Thử token Fanpage truyện bé</button>
+      <button type="button" id="kids_setup" class="btn btn-2">☁️ Chuẩn bị model trên Kaggle (một lần, ~1 giờ)</button>
+      <button type="button" id="kids_setup_status" class="btn btn-2">Tiến độ chuẩn bị</button>
+      <button type="button" id="kids_resume" class="btn btn-2">↺ Chạy lại sau lỗi</button>
+    </div>
+  </details>
+</section>
 <section class="card" aria-labelledby="h-dl">
   <h2 id="h-dl">⬇️ Trình tải video (YouTube / TikTok / Facebook)</h2>
   <label for="dl_url">Dán link rồi bấm Xem định dạng, hoặc tải thẳng chất lượng tốt nhất</label>
@@ -468,6 +481,19 @@ $('auto_link_add').onclick=()=>{const u=$('auto_link').value.trim();if(!u)return
   autoPost('queue',{url:u}).then(ok=>{if(ok)$('auto_link').value=''})};
 $('auto_test').onclick=()=>autoCall('test');
 $('auto_resume').onclick=()=>autoCall('resume');
+async function kidsCall(act){
+  try{
+    const r=await fetch('/api/kids'+(act?'/'+act:''),{method:act?'POST':'GET',headers:hdr()});
+    const d=r.ok?await r.json():{text:'❌ '+await r.text()};
+    $('kids_status').textContent=(act?d.text+'\n\n':'')+(d.status||d.text||'');
+  }catch(e){$('kids_status').textContent='❌ '+e}
+}
+$('kids_box').addEventListener('toggle',()=>{if($('kids_box').open)kidsCall('')});
+$('kids_now').onclick=()=>{if(confirm('Tạo một truyện mới ngay? (model trên Kaggle viết truyện, vẽ ảnh, đọc giọng; ~20–30 phút GPU)'))kidsCall('now')};
+$('kids_test').onclick=()=>kidsCall('test');
+$('kids_setup').onclick=()=>{if(confirm('Gửi notebook chuẩn bị model lên Kaggle? (biên dịch llama.cpp + lượng tử FLUX, ~45–60 phút GPU, chỉ cần một lần)'))kidsCall('setup')};
+$('kids_setup_status').onclick=()=>kidsCall('setup_status');
+$('kids_resume').onclick=()=>kidsCall('resume');
 function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
   const cur=$('voice').value;
   $('voice').innerHTML=vs.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('');

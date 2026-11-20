@@ -567,7 +567,7 @@
    "job": {
     "approved": [],
     "cut_at": 0.0,
-    "error": "ℹ️ Định lượng: 2/2 khớp lời gốc. ℹ️ Lời đọc: 51 chữ, giọng phủ 12% video, 12 quãng lặng trên 4 giây, 0/12 câu kết «nha». ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 12 đoạn giọng; lệch tối đa 0.0s; đã che 1 dải chữ gốc.ℹ️ Bản ngắn: giữ 4/4 bước chính; 130s -> 66s. ℹ️ Lời đọc: 40 chữ, giọng phủ 20% video, 10 quãng lặng trên 4 giây, 0/10 câu kết «nha». ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 10 đoạn giọng, 10 điểm chuyển cảnh; lệch tối đa 0.0s; đã che 1 dải chữ gốc.",
+    "error": "ℹ️ Định lượng: 2/2 khớp lời gốc. ℹ️ Lời đọc: 51 chữ, giọng phủ 12% video, 12 quãng lặng trên 4 giây, 0/12 câu kết «nha». ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 12 đoạn giọng; lệch tối đa 0.0s. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.ℹ️ Bản ngắn: giữ 4/4 bước chính; 130s -> 66s. ℹ️ Lời đọc: 40 chữ, giọng phủ 20% video, 10 quãng lặng trên 4 giây, 0/10 câu kết «nha». ℹ️ Không tách giọng AI (video 130s > 120s): tắt tiếng nền lúc người gốc nói. ℹ️ Lời mới 100% khác lời gốc; 10 đoạn giọng, 10 điểm chuyển cảnh; lệch tối đa 0.0s. ℹ️ Đã che 1 dải chữ gốc và đặt phụ đề mới lên đó.",
     "final_segments": [
      {
       "end": 11.0,

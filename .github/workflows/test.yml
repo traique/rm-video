@@ -9,6 +9,7 @@ concurrency:                             # đẩy commit mới thì huỷ lượ
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25                  # bình thường ~7 phút; treo (vd ffmpeg không dừng) thì huỷ thay vì chạy tới 6 giờ
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,13 +20,18 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: ffmpeg (bản của hệ thống, không tải static-ffmpeg mỗi lần chạy)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pip install -r requirements.txt pytest pytest-xdist ruff mypy
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -1            # ubuntu-latest đổi bản ffmpeg theo hệ điều hành (26.04: FFmpeg 8)
+      # pillow: chỉ phần dựng truyện bé dùng (thẻ chữ, hạt bokeh, kiểm ảnh) — chạy trên Kaggle, ảnh Kaggle có sẵn; Botkeep
+      # không cần nên không thêm vào requirements.txt (ổ Botkeep 2GB)
+      - run: pip install -r requirements.txt pytest pytest-xdist pytest-timeout ruff mypy pillow
       - run: ruff check .
       - name: kiểm kiểu gói rmvideo
         run: if [ -d rmvideo ]; then mypy; fi
       - name: pytest song song (máy GitHub 4 lõi)
-        run: pytest -q -n auto
+        # --timeout: test nào quá 5 phút thì báo lỗi kèm vết gọi hàm (chỗ treo) thay vì treo cả job
+        run: pytest -q -n auto --timeout=300
   botkeep:
     # Sau mỗi lần gộp vào nhánh chính (test đã xanh): nhánh `botkeep` = mã chạy bot + zip phẳng vừa trình giải nén của
     # Botkeep (scripts/botkeep_zip.py). Nội dung không đổi thì không đẩy. Không tạo bản phát hành, không đổi phiên bản.

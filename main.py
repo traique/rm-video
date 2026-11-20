@@ -63,6 +63,8 @@ async def main():
     spawn(release.announce())                      # bản 1.0.0: lên phiên bản -> báo Telegram + Zoom (một lần / phiên bản)
     import autopost
     spawn(autopost.run_forever())                  # 🤖 tự động đăng Facebook (AUTO_POST=1 mới chạy)
+    import kids_auto
+    spawn(kids_auto.run_forever())                 # 🧸 truyện bé: 2 truyện/ngày lên Fanpage riêng (KIDS_AUTO=1 mới chạy)
     import potoken_setup
     if not potoken_setup.js_runtime():
         logging.info("YouTube: chưa cài bộ giải JavaScript (deno). Cần tải YouTube thì gõ  setup_youtube  (~100MB).")

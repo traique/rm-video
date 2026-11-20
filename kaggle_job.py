@@ -6,6 +6,7 @@ Không cần key API nào: lời đã viết xong ở Botkeep. Các loại việ
 - "music": 🎵 thay nhạc / nhạc nền (core_video.render_music) với thông số khớp beat Botkeep đã tính.
 - "photo": 📸 ảnh + nhạc (slideshow.render) với seed + lịch sử công thức hiệu ứng của Botkeep.
 - "batch": nhiều việc trong MỘT phiên (video dài cắt nhiều phần): nạp model + tải nguồn một lần.
+- "kids": 🧸 truyện bé (rmvideo/kids/job.py): model chữ viết truyện theo đề -> 8 ảnh -> giọng VieNeu -> dựng.
 Đầu vào (fetch): link nền tảng (Kaggle tự tải) -> không được thì link tạm của Botkeep (PUBLIC_URL); "cut" = cắt
 một đoạn của nguồn khác. Kết quả trong /kaggle/working: output[_k].mp4 + result[_k].json."""
 import asyncio
@@ -60,6 +61,12 @@ async def fetch(ref: dict, tmp: str, name: str) -> str:
         _FETCHED[key] = out
         return out
     errs = []
+    if ref.get("mounted"):               # file trong dataset / notebook đã gắn vào phiên (kho nhạc bé): không cần tải
+        path = mounted_file(str(ref["mounted"]), str(ref.get("name") or ""), INPUT_ROOT)
+        if path:
+            _FETCHED[key] = path
+            return path
+        errs.append(f"dataset {ref['mounted']} không có {ref.get('name')}")
     if ref.get("http"):                  # bản Botkeep đã dùng để bóc lời / đo beat: đúng từng khung, ưu tiên
         ext = os.path.splitext(ref.get("name") or "")[1] or ".bin"
         try:
@@ -98,7 +105,8 @@ def _vieneu():
 
 
 def make_synth(spec: dict, ref_path: str | None):
-    """async synth(items, tmp) -> {k: {"path", "words"}}. items: [(k, lời)]."""
+    """async synth(items, tmp) -> {k: {"path", "words"}}. items: [(k, lời)] hoặc [(k, lời, tên giọng VieNeu)] — truyện bé
+    đọc lời nhân vật bằng giọng riêng (rmvideo/kids/dialogue.py); giọng lạ / lỗi thì rơi về giọng chung."""
     import core_video
     import vi_text
     voice = spec.get("voice") or {}
@@ -108,19 +116,28 @@ def make_synth(spec: dict, ref_path: str | None):
         name = voice.get("name") or "Mỹ Duyên"
 
         def run(items, tmp):
-            texts = [vi_text.normalize(t) for _, t in items]       # VieNeu không tự đọc số/ký hiệu
-            if ref_path:
-                audios = [tts.infer(t, ref_audio=ref_path) for t in texts]
-            else:
-                try:
-                    audios = tts.infer_batch(texts, voice=name)
-                except Exception:
-                    audios = [tts.infer(t, voice=name) for t in texts]
+            items = [(it[0], it[1], (it[2] if len(it) > 2 and it[2] else name)) for it in items]
             out = {}
-            for (k, _), a in zip(items, audios):
-                p = os.path.join(tmp, f"v_{k:03d}.wav")
-                tts.save(a, p)
-                out[k] = {"path": p, "words": None}
+            groups: dict[str, list] = {}
+            for k, t, v in items:
+                groups.setdefault(v, []).append((k, vi_text.normalize(t)))    # VieNeu không tự đọc số/ký hiệu
+            for v, grp in groups.items():
+                texts = [t for _, t in grp]
+                if ref_path:
+                    audios = [tts.infer(t, ref_audio=ref_path) for t in texts]
+                else:
+                    try:
+                        audios = tts.infer_batch(texts, voice=v)
+                    except Exception:
+                        try:
+                            audios = [tts.infer(t, voice=v) for t in texts]
+                        except Exception:                                  # giọng không có trong bộ preset
+                            logging.warning("VieNeu: giọng «%s» không dùng được, đọc bằng «%s»", v, name)
+                            audios = tts.infer_batch(texts, voice=name)
+                for (k, _), a in zip(grp, audios):
+                    p = os.path.join(tmp, f"v_{k:03d}.wav")
+                    tts.save(a, p)
+                    out[k] = {"path": p, "words": None}
             return out
 
         async def synth(items, tmp):
@@ -292,6 +309,20 @@ async def analyze(spec: dict, tmp: str) -> dict:
             scene_task.cancel()
             await asyncio.gather(scene_task, return_exceptions=True)
     files = {}
+    inpainted: list = []
+    if spec.get("inpaint") and bands:                   # TEXT_INPAINT=1: LaMa vẽ lại nền ở dải chữ (GPU), thay cho che mờ
+        from rmvideo.media import inpaint
+        t1 = time.time()
+        try:
+            cp = os.path.join(tmp, "clean.mp4")
+            info = await asyncio.to_thread(inpaint.clean_video, inp, [tuple(b) for b in bands], cp, logging.info)
+            files["clean.mp4"] = cp
+            inpainted = [list(b) for b in bands]
+            t["inpaint"] = round(time.time() - t1, 1)
+            logging.info("LaMa xoá chữ: %s khung, %ss", info.get("frames"), info.get("secs"))
+        except Exception as e:                          # lỗi thì Botkeep che mờ như cũ
+            t["inpaint_error"] = str(e)[:200]
+            logging.warning("LaMa xoá chữ lỗi (%s): Botkeep sẽ che mờ như cũ", str(e)[:200])
     a = scenes.analyzed(inp)
     if a and a.get("n"):
         zp = os.path.join(tmp, "thumbs.zip")
@@ -304,8 +335,26 @@ async def analyze(spec: dict, tmp: str) -> dict:
         await core_video._run_ffmpeg("-y", "-i", amb, "-c:a", "flac", "-compression_level", "5", fl)
         files["ambient.flac"] = fl
     return {"ok": True, "kind": "analyze", "token": spec.get("token", ""), "whisper": d, "cuts": cuts,
-            "bands": [list(b) for b in bands], "dur": dur, "sep": sep_ok, "thumb_fps": scenes.THUMB_FPS,
-            "timings": t, "files": files}
+            "bands": [list(b) for b in bands], "inpainted": inpainted, "dur": dur, "sep": sep_ok,
+            "thumb_fps": scenes.THUMB_FPS, "timings": t, "files": files}
+
+
+INPUT_ROOT = "/kaggle/input"
+
+
+def mounted_file(slug: str, name: str, root: str = INPUT_ROOT) -> str | None:
+    """Đường dẫn file `name` trong dataset / notebook `slug` đã gắn vào phiên (/kaggle/input/datasets/<user>/<slug>/...);
+    không có thư mục đúng slug thì lấy file cùng tên ở bất kỳ đâu trong root."""
+    if not name or not os.path.isdir(root):
+        return None
+    loose = None
+    for r, _dirs, files in os.walk(root):
+        if name in files:
+            p = os.path.join(r, name)
+            if slug and slug in r.split(os.sep):
+                return p
+            loose = loose or p
+    return loose
 
 
 def mounted_dir(name: str, root: str = "/kaggle/input") -> str | None:
@@ -345,6 +394,9 @@ async def run_one(spec: dict, tmp: str) -> dict:
     kind = spec.get("kind") or "remake"
     if kind == "analyze":
         return await analyze(spec, tmp)
+    if kind == "kids":                                  # 🧸 truyện bé: chữ -> ảnh -> giọng -> dựng (rmvideo/kids/job.py)
+        from rmvideo.kids import job as kids_job
+        return await kids_job.run(spec, tmp)
     if kind == "photo":
         import slideshow
         images = [await fetch(r, tmp, f"img{k}") for k, r in enumerate(spec["images"])]
