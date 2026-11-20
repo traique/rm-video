@@ -72,6 +72,26 @@ def test_clean_video_removes_band(tmp_path, monkeypatch):
     assert info2["frames"] == 10 and info2["painted"] == 0 and calls == []
 
 
+def test_clean_video_rotated_phone_video(tmp_path, monkeypatch):
+    """Video quay dọc có cờ xoay 90° (khung lưu 288x160): FFmpeg tự xoay khi giải mã -> _probe phải báo khung hiển thị 160x288,
+    video sạch ra đúng dọc, dải chữ ở đúng chỗ (nhận xét Codex PR #13)."""
+    src = _video(str(tmp_path / "src.mp4"))                                       # 160x288, chữ trắng ở 70-76% chiều cao
+    land = str(tmp_path / "land.mp4")                                             # lưu nằm ngang + cờ xoay -> hiển thị dọc
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf", "transpose=1", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-pix_fmt", "yuv420p", "-c:a", "copy", land], check=True)
+    rot = str(tmp_path / "rot.mp4")
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-display_rotation", "90", "-i", land, "-c", "copy", rot], check=True)
+    assert inpaint._probe(rot)[:2] == (160, 288)
+    monkeypatch.setattr(inpaint, "apply", _fake_apply)
+    out = str(tmp_path / "clean.mp4")
+    info = inpaint.clean_video(rot, [(0.70, 0.76)], out, model=object(), batch=4, nvenc=False)
+    assert inpaint._probe(out)[:2] == (160, 288) and info["painted"] == 20
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "1", "-i", out, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt",
+                          "gray", "-"], capture_output=True, check=True).stdout
+    g = np.frombuffer(raw, np.uint8).reshape(288, 160)
+    assert g[int(0.73 * 288), 80] < 140 and g[int(0.73 * 288), 2] > 200
+
+
 def test_model_path_prefers_mounted(tmp_path, monkeypatch):
     root = tmp_path / "input" / "datasets" / "u" / "lama"
     root.mkdir(parents=True)

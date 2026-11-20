@@ -129,14 +129,23 @@ def has_text(crop: np.ndarray, mask: np.ndarray, min_frac: float = 0.0015) -> np
 
 
 def _probe(path: str) -> tuple[int, int, float, bool]:
+    """(rộng, cao, fps, có tiếng) theo khung HIỂN THỊ: video có cờ xoay 90°/270° (quay dọc bằng điện thoại) thì FFmpeg tự
+    xoay khi giải mã, khung ra là cao x rộng của khung lưu trong file -> đổi chỗ, không thì cắt khung sai chiều (ảnh méo)."""
+    import json
     p = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                        "stream=width,height,avg_frame_rate", "-of", "csv=p=0", path], capture_output=True, text=True)
-    w, h, fr = p.stdout.strip().split("\n")[0].split(",")[:3]
-    num, _, den = fr.partition("/")
-    fps = float(num) / float(den or 1)
+                        "stream=width,height,avg_frame_rate:stream_tags=rotate:stream_side_data=rotation", "-of", "json",
+                        path], capture_output=True, text=True)
+    st = (json.loads(p.stdout or "{}").get("streams") or [{}])[0]
+    w, h = int(st["width"]), int(st["height"])
+    rot = st.get("tags", {}).get("rotate") or next((d.get("rotation") for d in st.get("side_data_list") or []
+                                                    if "rotation" in d), 0)
+    if int(float(rot or 0)) % 180:
+        w, h = h, w
+    num, _, den = str(st.get("avg_frame_rate") or "0/1").partition("/")
+    fps = float(num) / float(den or 1) if float(den or 1) else 0.0
     a = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_type",
                         "-of", "csv=p=0", path], capture_output=True, text=True)
-    return int(w), int(h), fps if 1 <= fps <= 120 else 30.0, "audio" in a.stdout
+    return w, h, fps if 1 <= fps <= 120 else 30.0, "audio" in a.stdout
 
 
 def _has_nvenc() -> bool:
