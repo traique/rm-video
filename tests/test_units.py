@@ -108,6 +108,35 @@ def test_scene_segments_merges_short_scenes():
     assert scenes.scene_segments([1.0, 1.5, 6.0], 8.0) == [(0.0, 1.5, ""), (1.5, 6.0, ""), (6.0, 8.0, "")]
 
 
+def _cuts_of(vals):
+    return [round(t, 2) for t in scenes._adaptive_cuts([(i * 0.04, v) for i, v in enumerate(vals)])]
+
+
+def test_adaptive_cuts_compare_frame_with_neighbours():
+    """Bộ dò thích nghi: điểm cắt là khung khác khung trước NHIỀU HƠN hẳn các khung quanh nó (đo 20/11)."""
+    assert _cuts_of([1.5] * 10 + [9.5] + [1.5] * 10) == [0.4]     # cắt nhảy cùng bối cảnh: ngưỡng cứng cũ bỏ sót
+    assert _cuts_of([0.5] * 10 + [6.0] + [0.5] * 10) == []        # đổi quá ít (< 8) dù gấp nhiều lần
+    assert _cuts_of([10.0, 13.0] * 5 + [15.0] + [13.0, 10.0] * 5) == []            # máy rung: cả vùng cùng cao
+    assert _cuts_of([2, 2, 2, 8, 14, 20, 22, 20, 14, 8, 2, 2, 2]) == []             # lia nhanh tăng/giảm tốc
+    assert _cuts_of([9, 10, 9, 10, 25, 10, 9, 10, 9]) == [0.16]   # rung + bỏ khung (fast): đổi rất mạnh, gấp 2.5
+    assert _cuts_of([5, 5, 5, 0, 12, 0, 5, 5, 5]) == []           # khung trùng (mafd 0) không kéo trung bình xuống
+
+
+def test_parse_cuts_reads_scdet_log_and_keeps_old_detector(monkeypatch):
+    monkeypatch.setattr(scenes, "_SCDET", [True])
+    vals = [0.0] + [1.0] * 40 + [20.0] + [1.0] * 10 + [18.0] + [1.0] * 40
+    log = "\n".join(f"[metadata@x @ 0x1] frame:{i} pts:{i * 512} pts_time:{i * 0.04:.2f}\n"
+                    f"[metadata@x @ 0x1] lavfi.scd.mafd={v:.3f}" for i, v in enumerate(vals))
+    assert scenes._parse_cuts(log) == [1.64]                     # 2.08 cách < 0.8s: bỏ như cũ
+    assert scenes._parse_cuts(log, min_gap=0.3) == [1.64, 2.08]
+    monkeypatch.setattr(scenes, "_SCDET", [False])                # FFmpeg < 4.4 chưa có scdet: tự dùng bộ dò cũ
+    assert "gt(scene,0.3)" in scenes._scene_vf()
+    monkeypatch.setattr(scenes, "_SCDET", [True])
+    monkeypatch.setattr(scenes, "CUT_DETECTOR", "fixed")          # bộ dò cũ vẫn dùng được
+    assert "gt(scene,0.3)" in scenes._scene_vf()
+    assert scenes._parse_cuts("[Parsed_showinfo_3 @ 0x1] n: 0 pts: 900 pts_time:3.6 duration:1") == [3.6]
+
+
 # ---------- phụ đề ----------
 def test_group_words_balanced_lines():
     words = [(i * 0.3, i * 0.3 + 0.25, w) for i, w in enumerate("một hai ba bốn năm".split())]

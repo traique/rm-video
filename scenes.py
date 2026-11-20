@@ -43,9 +43,72 @@ def _decode_opts(m: str) -> list:
     return ["-skip_frame", "noref", "-skip_loop_filter", "all", "-flags2", "fast"] if m == "fast" else []
 
 
+# Bộ dò điểm chuyển cảnh. "adaptive": độ khác khung trước của TỪNG khung (scdet mafd, % thang đo) so với trung bình
+# ±2 khung lân cận, theo AdaptiveDetector của PySceneDetect (BSD-3) — máy rung / lia nhanh / hơi nước làm cả vùng
+# cùng cao nên không tính là cắt; cắt nhảy cùng bối cảnh (khác ít) vẫn bắt được. "fixed": ngưỡng cứng cũ
+# select gt(scene,0.3), giữ để quay lại. Đo 20/11 (nhãn tay, lệch ≤ 0.25s, 5 video, giải mã full + fast):
+# F1 0.879 -> 0.933 (cắt nhầm 5 -> 4, sót 9 -> 4; 4 còn sót là hoà tan 0.5s — cả hai đều không bắt), CPU +2-5%.
+CUT_DETECTOR = "adaptive"
+_ADAPT_W, _ADAPT_RATIO, _ADAPT_MIN = 2, 3.0, 8.0      # ±2 khung; gấp ≥ 3 lần lân cận; mafd ≥ 8 (≈ scene 0.2)
+_ADAPT_BIG, _ADAPT_BIG_RATIO = 16.0, 2.2              # đổi rất mạnh chỉ cần gấp 2.2: máy rung + bỏ khung (fast)
+_SCDET: list[bool] = []                               # FFmpeg có bộ lọc scdet không (thử một lần mỗi tiến trình)
+
+
+def _detector() -> str:
+    """CUT_DETECTOR; FFmpeg cũ (< 4.4, chưa có scdet) thì dùng bộ dò cũ thay vì hỏng cả lượt phân tích."""
+    if CUT_DETECTOR == "fixed":
+        return "fixed"
+    if not _SCDET:
+        try:
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True,
+                                 timeout=30).stdout
+        except Exception:
+            out = ""
+        _SCDET.append(" scdet " in out)
+    return "adaptive" if _SCDET[0] else "fixed"
+
+
+def _scene_vf(threshold: float = 0.3) -> str:
+    """Đoạn lọc dò chuyển cảnh, đặt sau scale=320:-2. threshold chỉ dùng cho bộ dò cũ (fixed)."""
+    if _detector() == "fixed":
+        return f"select='gt(scene,{threshold})',showinfo"
+    return "scdet=threshold=100,metadata=print:key=lavfi.scd.mafd"   # in mafd mọi khung, không tự quyết cắt
+
+
+def _adaptive_cuts(series: list[tuple[float, float]]) -> list[float]:
+    """series [(giây, mafd)] mọi khung -> mốc khung là điểm cắt: mafd ≥ _ADAPT_MIN và gấp ≥ _ADAPT_RATIO lần trung
+    bình ±_ADAPT_W khung lân cận (đổi rất mạnh ≥ _ADAPT_BIG: gấp _ADAPT_BIG_RATIO). Khung trùng (mafd≈0, video đổi
+    tốc độ khung bằng cách nhân khung) bỏ khỏi chuỗi để không kéo trung bình lân cận xuống."""
+    s = [(t, x) for t, x in series if x > 0.01]
+    v = [x for _, x in s]
+    out = []
+    for i, (t, x) in enumerate(s):
+        if x < _ADAPT_MIN:
+            continue
+        nb = v[max(0, i - _ADAPT_W):i] + v[i + 1:i + 1 + _ADAPT_W]
+        avg = sum(nb) / len(nb) if nb else 0.0
+        if x >= _ADAPT_RATIO * avg or (x >= _ADAPT_BIG and x >= _ADAPT_BIG_RATIO * avg):
+            out.append(t)
+    return out
+
+
+def _cut_times(err: str) -> list[float]:
+    """Mốc (giây) mọi khung được coi là điểm cắt, đọc từ log FFmpeg của _scene_vf (chưa lọc khoảng cách)."""
+    if _detector() == "fixed":
+        return [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
+    series, t = [], None
+    for m in re.finditer(r"pts_time:(-?[0-9.]+)|lavfi\.scd\.mafd=([0-9.]+)", err):
+        if m.group(1) is not None:
+            t = float(m.group(1))
+        elif t is not None:
+            series.append((t, float(m.group(2))))
+            t = None
+    return _adaptive_cuts(series)
+
+
 def _parse_cuts(err: str, min_gap: float = 0.8) -> list[float]:
     cuts = []
-    for t in (float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)):
+    for t in _cut_times(err):
         if t < 0.3:
             continue
         if not cuts or t - cuts[-1] >= min_gap:
@@ -99,7 +162,7 @@ def _analyze_sync(path: str, tmpdir: str, dur: float, want_gray: bool, threshold
     os.makedirs(tdir, exist_ok=True)
     gray = os.path.join(tmpdir, "gray.raw")
     fc = (f"[0:v]split={3 if want_gray else 2}[s][t]{'[g]' if want_gray else ''};"
-          f"[s]scale=320:-2,select='gt(scene,{threshold})',showinfo[so];"     # y hệt detect_cuts cũ
+          f"[s]scale=320:-2,{_scene_vf(threshold)}[so];"                       # y hệt detect_cuts
           f"[t]fps={THUMB_FPS},scale=384:-2[to]")                              # bớt khung TRƯỚC rồi mới thu nhỏ
     outs = ["-map", "[so]", "-f", "null", "-",
             "-map", "[to]", "-q:v", "5", os.path.join(tdir, "%05d.jpg")]
@@ -148,15 +211,9 @@ async def analyze_cached(path: str, tmpdir: str, dur: float, want_gray: bool, sr
 def _cuts_sync(path: str, threshold: float = 0.3, min_gap: float = 0.8) -> list[float]:
     err = proc.run_sync(
         ["ffmpeg", "-hide_banner", *_decode_opts(cut_mode()), "-i", path, "-an", "-vf",
-         f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
+         f"scale=320:-2,{_scene_vf(threshold)}", "-f", "null", "-"],
         capture_output=True, text=True).stderr
-    cuts = []
-    for t in (float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)):
-        if t < 0.3:
-            continue
-        if not cuts or t - cuts[-1] >= min_gap:
-            cuts.append(round(t, 2))
-    return cuts
+    return _parse_cuts(err, min_gap)
 
 
 def _cuts_near_sync(path: str, t0: float, t1: float, threshold: float = 0.3) -> list[float]:
@@ -165,9 +222,9 @@ def _cuts_near_sync(path: str, t0: float, t1: float, threshold: float = 0.3) -> 
         return []
     err = proc.run_sync(
         ["ffmpeg", "-hide_banner", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{t1 - t0:.2f}", "-i", path, "-an", "-vf",
-         f"scale=320:-2,select='gt(scene,{threshold})',showinfo", "-f", "null", "-"],
+         f"scale=320:-2,{_scene_vf(threshold)}", "-f", "null", "-"],
         capture_output=True, text=True, timeout=60).stderr
-    return [round(max(0.0, t0) + float(x), 2) for x in re.findall(r"pts_time:([0-9.]+)", err) if float(x) > 0.05]
+    return [round(max(0.0, t0) + x, 2) for x in _cut_times(err) if x > 0.05]
 
 
 async def cuts_near(path: str, t0: float, t1: float) -> list[float]:
