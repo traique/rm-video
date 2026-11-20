@@ -173,7 +173,7 @@ def hits_from_words(words: Sequence[tuple], gap: float = HIT_GAP, limit: int = H
     import re
     out: list[float] = []
     for start, _end, tok, *_ in words:
-        t = re.sub(r"[^\w]", "", str(tok).lower())            # giữ dấu tiếng Việt (align.norm bỏ dấu)
+        t = re.sub(r"[^\w]", "", str(tok).lower())            # chữ phụ đề còn nguyên dấu: chỉ bỏ dấu câu, hạ chữ thường
         if t in SOUND_WORDS and (not out or start - out[-1] >= gap):
             out.append(round(float(start), 3))
     return out[:limit]
@@ -334,6 +334,7 @@ async def subtitle_words(clips: Sequence[dict], pl: dict, texts: Sequence[str],
         dur = float(cl.get("dur") or 0.0) or (ivs[-1][1] / f if ivs else 2.0)
         shifted = [(a / f + at, b / f + at) for a, b in ivs]
         out += [(a, b, w, k) for a, b, w in align.spread_voiced(sub_tokens(text), shifted, at, at + dur + 0.05)]
+    out.sort(key=lambda w: (w[0], w[1]))       # câu móc đọc ở giây 0 nhưng thêm sau cùng: SRT và mốc tiếng động theo thời gian
     return out
 
 

@@ -21,10 +21,16 @@ SHADOW = (0, 0, 0, 70)
 
 def _font(size: int) -> Any:
     from PIL import ImageFont
+    size = max(8, int(size))
     try:
-        return ImageFont.truetype(ff.FONT_PATH, max(8, int(size)))
+        return ImageFont.truetype(ff.FONT_PATH, size)
     except OSError:
-        return ImageFont.load_default()
+        try:
+            return ImageFont.load_default(size=size)       # Pillow >= 10.1: font vector có .size (end_card/gloss_pill cần)
+        except TypeError:
+            f: Any = ImageFont.load_default()               # Pillow cũ: font bitmap cố định, gắn .size cho khỏi vỡ
+            f.size = size
+            return f
 
 
 def _wrap(draw: Any, text: str, font: Any, max_w: int) -> list[str]:

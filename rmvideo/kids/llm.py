@@ -323,16 +323,16 @@ def generate_story(spec: dict, data: dict, tmp: str, log: Log = logging.info,
                 best = (score, st)
             feedback = problems
             previous = st
+        if best is not None and not story_mod.blocking(best[1], brief, data):
+            st = best[1]
+            st, attempts = _revise(run, st, attempts, brief, data, channel, log)   # vẫn trong try: model chưa tắt
+            soft = story_mod.validate(st, brief, data, prompts.example_sentences())
+            attempts[-1]["accepted_with"] = soft
+            _finish_words(st, brief, data, attempts, log)
+            log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
+            return st, attempts
     finally:
         if own:
             run.stop()
-    if best is not None and not story_mod.blocking(best[1], brief, data):
-        st = best[1]
-        st, attempts = _revise(run, st, attempts, brief, data, channel, log)
-        soft = story_mod.validate(st, brief, data, prompts.example_sentences())
-        attempts[-1]["accepted_with"] = soft
-        _finish_words(st, brief, data, attempts, log)
-        log("Truyện bé: hết lượt, dùng bản ít lỗi nhất" + (f"; còn: {'; '.join(soft)[:200]}" if soft else ""))
-        return st, attempts
     raise StoryRejected("Kịch bản chưa đạt sau %d lượt: %s" % (1 + RETRIES, "; ".join(attempts[-1]["problems"])[:400]),
                         attempts)

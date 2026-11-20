@@ -78,6 +78,21 @@ def save_state(st: dict, path: str | None = None):
     os.replace(tmp, path)
 
 
+TICK_KEYS = ("pending", "posts", "streak", "paused")
+
+
+def save_tick(st: dict) -> None:
+    """Ghi phần vòng chạy sở hữu (pending/posts/streak/paused) lên bản MỚI NHẤT của file. Lượt đăng chờ Facebook tải video
+    hàng phút; trong lúc đó worker (remember_done), nút «Làm 1 truyện ngay» (new_brief) hay chọn nhạc (bgm_recent) đã ghi
+    file — ghi đè bằng bản chụp cũ thì mất truyện vừa ghi, lần sau bốc trùng đề."""
+    fresh = load_state()
+    for k in TICK_KEYS:
+        fresh[k] = st.get(k, fresh[k])
+    save_state(fresh)
+    st.clear()
+    st.update(fresh)
+
+
 def times() -> list:
     return sorted({t.strip() for t in (config.KIDS_TIMES or "08:00,19:00").split(",") if t.strip()})
 
@@ -116,6 +131,10 @@ def remember_done(job, brief: dict, story: dict):
         st["stories"].append(hit)
     hit["title"] = story.get("title", "")
     hit["done_at"] = time.time()
+    if brief.get("words"):                  # từ thật sự dạy (choose_words đổi theo truyện), để vòng 30 ngày xoay đúng từ
+        hit["words"] = [w["en"] if isinstance(w, dict) else str(w) for w in brief["words"]]
+    if brief.get("plot"):
+        hit["plot"] = brief["plot"]
     save_state(st)
 
 
@@ -252,7 +271,7 @@ async def _finish_pending(st: dict, now: float) -> str:
         p["slot"] = nxt[0][1] if nxt else datetime.fromtimestamp(now, VN).strftime("%H:%M")
     title, desc = autopost._post_text(job)
     p["publishing"] = now
-    save_state(st)
+    save_tick(st)
     try:
         fb_id, kind = await autopost.publish(video, title, desc, job.out_dur or 75, when, thumb,
                                              page=config.KIDS_FB_PAGE_ID, token=config.KIDS_FB_PAGE_TOKEN)
@@ -273,7 +292,7 @@ async def _finish_pending(st: dict, now: float) -> str:
     st["posts"] = st["posts"][-200:]
     st["pending"] = None
     st["streak"] = 0
-    save_state(st)
+    save_tick(st)
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Truyện bé: %s %s lên Fanpage, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"🧸 Đã {'hẹn đăng' if when else 'đăng'} truyện #{job.id} lên Fanpage truyện bé lúc {at}: {title[:80]}")
@@ -313,13 +332,12 @@ async def _tick(now: float, rnd: random.Random | None, force: bool) -> str:
             queue.put(job)
         except QueueFull:
             return "hàng đợi đầy, thử lại sau"
-        st = load_state()                                      # new_brief đã ghi file: đọc lại rồi mới ghi pending
         st["pending"] = {"job": job.id, "slot_ts": slot[0], "slot": slot[1]}
         logging.info("Truyện bé: job #%s (%s) cho khung %s %s", job.id, job.title_hint, slot[1],
                      datetime.fromtimestamp(slot[0], VN).strftime("%d/%m"))
         return f"job #{job.id}: {job.title_hint} → khung {slot[1]} {datetime.fromtimestamp(slot[0], VN).strftime('%d/%m')}"
     finally:
-        save_state(st)
+        save_tick(st)                                          # new_brief / worker đã ghi file giữa chừng: không ghi đè
 
 
 async def resume() -> str:

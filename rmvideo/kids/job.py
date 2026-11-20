@@ -134,9 +134,11 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     bad = await qa_video(out)
     if bad:                     # vẫn trả video + ảnh + kịch bản về /kaggle/working để xem được vì sao hỏng (Botkeep coi là lỗi)
         return {"ok": False, "kind": "kids", "error": "Video dựng ra không đạt: " + "; ".join(bad), "video": out,
-                "story": st, "duration": res["length"], "attempts": attempts, "timings": t, "files": files}
+                "story": st, "brief": brief, "duration": res["length"], "attempts": attempts, "timings": t, "files": files}
     cov, thumb = await render.cover(out, tmp)
     files.update({"cover.jpg": cov, "thumb.jpg": thumb})
-    return {"ok": True, "kind": "kids", "video": out, "story": st, "srt": res["srt"], "duration": res["length"],
-            "attempts": attempts, "music": bool(music), "music_gain_db": res.get("music_gain_db"),
+    # brief trả về: Qwen viết trên Kaggle thì từ hôm nay (choose_words) chỉ được chốt ở đây -> Botkeep soạn bài đăng / ghi
+    # bộ nhớ từ theo đúng từ đã dạy trong video
+    return {"ok": True, "kind": "kids", "video": out, "story": st, "brief": brief, "srt": res["srt"],
+            "duration": res["length"], "attempts": attempts, "music": bool(music), "music_gain_db": res.get("music_gain_db"),
             "notes": notes, "timings": t, "files": files}

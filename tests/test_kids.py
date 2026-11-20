@@ -398,6 +398,23 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     seeds_used.clear()
     images_mod.generate(["p1"], [11], str(tmp_path / "img2"), "schnell", lambda s: None, pipe=object())      # không kiểm
     assert seeds_used == [11]
+    # hết lượt: lượt 1 đủ 2 đầu nhưng áo nhầm chủ (1 lỗi); lượt 2-3 chỉ thấy 1 đầu + 2 lỗi -> giữ lượt 1 (ít lỗi nhất)
+    seeds_used.clear()
+    verdict = {11: (2, [("why:áo mặc nhầm chủ", 0.0, [0, 0, 1, 1])]),
+               11 + 7919 * 2: (1, [("why:a", 0.0, [0, 0, 1, 1]), ("why:b", 0.0, [0, 0, 1, 1])]),
+               11 + 7919 * 3: (1, [("why:a", 0.0, [0, 0, 1, 1]), ("why:b", 0.0, [0, 0, 1, 1])])}
+
+    def fake_one2(pipe, kind, prompt, seed, steps, guidance, w=10, h=20, embeds=None):
+        seeds_used.append(seed)
+        return Image.new("RGB", (64, 112), (seed % 256, 10, 10))
+
+    def checker2(img, n, c=None):
+        heads, boxes = verdict[seeds_used[-1]]
+        return False, heads, boxes
+    monkeypatch.setattr(images_mod, "generate_one", fake_one2)
+    images_mod.generate(["p1"], [11], str(tmp_path / "img3"), "schnell", lambda s: None, pipe=object(), expected=[2],
+                        checker=checker2, stats={}, colors=[["rabbit:red", "bear:blue"]])
+    assert Image.open(tmp_path / "img3" / "raw_01.png").getpixel((0, 0))[0] == 11
 
 
 def test_lora_wiring(tmp_path, monkeypatch):
@@ -467,16 +484,17 @@ def test_gemini_backend_routing(monkeypatch):
     import prompt_engine
     seen = []
 
-    async def fake(prompt, images=None, schema=None, label="", timeout=0, thinking=""):
-        seen.append((config.GEMINI_MODEL, thinking))
-        if config.GEMINI_MODEL == "boom":
+    async def fake(prompt, images=None, schema=None, label="", timeout=0, thinking="", model=""):
+        seen.append((model, thinking))
+        assert config.GEMINI_MODEL == before                                           # không đụng model chung
+        if model == "boom":
             raise RuntimeError("503 UNAVAILABLE: This model is currently experiencing high demand")
         return '{"ok": 1}'
+    before = config.GEMINI_MODEL
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
     monkeypatch.setattr(config, "GEMINI_API_KEY", "x")
     be = writer.GeminiBackend("gemini-4-hydrogen", revise_model="gemini-3.5-flash-lite", thinking="low")
     be.start()
-    before = config.GEMINI_MODEL
     msgs = [{"role": "user", "content": "a"}]
     assert be.chat(msgs, {"type": "object"}) == '{"ok": 1}'
     assert be.chat(msgs, {"type": "object"}, role="rewrite") == '{"ok": 1}'
@@ -773,6 +791,12 @@ def test_prefetch_copies_saved_model(tmp_path):
     dest = tmp_path / "local"
     msgs = []
     assert images_mod.find_local("schnell", str(tmp_path / "input")) == str(src)
+    devdir = tmp_path / "input" / "notebooks" / "devnguyen" / "rmvideo-kids-models" / "flux-dev-nf4"
+    devdir.mkdir(parents=True)
+    (devdir / "model_index.json").write_text("{}")
+    assert images_mod.find_local("dev", str(tmp_path / "input")) == str(devdir)          # «dev» trong tên tài khoản không tính
+    assert images_mod.find_local("schnell", str(tmp_path / "input")) == str(src)         # «flux» không bắt nhầm flux-dev
+    assert images_mod.find_local("zimage", str(tmp_path / "input")) is None
     th = images_mod.prefetch("schnell", msgs.append, str(tmp_path / "input"), str(dest))
     assert th is not None
     got = images_mod.local_dir("schnell", str(tmp_path / "input"), str(dest))
@@ -1073,7 +1097,7 @@ def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
     monkeypatch.setattr(kaggle_worker, "produce", _fake_produce(tmp_path, calls))
     monkeypatch.setattr(kids_job, "qa_video", _qa_small)
 
-    async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60, thinking=""):
+    async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60, thinking="", model=""):
         gem.append((prompt, schema))
         return json.dumps(_good_story(_LAST_BRIEF[0]), ensure_ascii=False)
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake_gemini)
@@ -1122,8 +1146,8 @@ def test_writer_schema_and_backend(monkeypatch):
     assert sch["propertyOrdering"] == ["title", "hook", "hook_text", "scenes", "description", "hashtags"]
     seen = []
 
-    async def fake(prompt, images=None, schema=None, label="", timeout=60, thinking=""):
-        seen.append((config.GEMINI_MODEL, label))
+    async def fake(prompt, images=None, schema=None, label="", timeout=60, thinking="", model=""):
+        seen.append((model, label))
         return '{"title": "x"}'
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
     monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
@@ -1220,6 +1244,10 @@ def test_finish_pending_publishes_to_kids_page(monkeypatch, tmp_path):
 
     async def fake_publish(path, title, desc, dur, when, thumb="", session=None, page="", token=""):
         seen.update(path=path, title=title, desc=desc, dur=dur, when=when, page=page, token=token)
+        s = kids_auto.load_state()                     # worker / nút web ghi file trong lúc đang tải video lên
+        s["stories"].append({"job": 999, "title": "song song"})
+        s["bgm_recent"] = ["x"]
+        kids_auto.save_state(s)
         return "fb123", "reel"
     monkeypatch.setattr(autopost, "publish", fake_publish)
     monkeypatch.setattr(queue, "pending", 0)
@@ -1232,6 +1260,7 @@ def test_finish_pending_publishes_to_kids_page(monkeypatch, tmp_path):
     assert seen["title"] == "Thỏ Trắng xin lỗi" and seen["desc"].startswith("Mô tả bé")
     st = kids_auto.load_state()
     assert st["pending"] is None and st["posts"][-1]["fb_id"] == "fb123"
+    assert st["stories"][-1]["job"] == 999 and st["bgm_recent"] == ["x"]       # không mất phần ghi song song
     assert "Đã hẹn" in kids_auto.status_text()
 
 
@@ -1367,3 +1396,87 @@ def test_autopost_publish_uses_given_page(monkeypatch, tmp_path):
     asyncio.run(autopost.publish(str(vid), "t", "d", 40, None, page="222", token="tok-kids"))
     assert seen == {"page": "222", "token": "tok-kids", "cover_token": "tok-kids"}
     assert autopost._page() == ("111", "tok-bep") and autopost._page("", "x") == ("111", "x")
+
+
+def test_call_gemini_explicit_model(monkeypatch):
+    """Truyện bé truyền model riêng: không đụng config.GEMINI_MODEL chung, model riêng bị ngừng (404) thì không tự lưu Cài
+    đặt / không dùng danh sách dự phòng chung; model chung 404 vẫn tự chuyển như cũ."""
+    import prompt_engine
+    calls, saved = [], []
+    fail = {}
+
+    class Models:
+        async def generate_content(self, model, contents, config=None):
+            calls.append((model, config))
+            if model in fail:
+                raise RuntimeError(fail[model])
+            return SimpleNamespace(text='{"ok": 1}')
+
+    class Client:
+        def __init__(self, api_key):
+            self.aio = SimpleNamespace(models=Models())
+    monkeypatch.setattr(prompt_engine, "genai", SimpleNamespace(Client=Client))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "gemini-3.5-flash-lite")
+    monkeypatch.setattr(config, "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash")
+    monkeypatch.setattr(config, "save_settings", lambda u: saved.append(u))
+    assert asyncio.run(prompt_engine._call_gemini("x", model="gemini-4-hydrogen", thinking="low")) == '{"ok": 1}'
+    assert calls == [("gemini-4-hydrogen", {"thinking_config": {"thinking_level": "low"}})]
+    assert config.GEMINI_MODEL == "gemini-3.5-flash-lite"
+    calls.clear()
+    fail["gemini-4-hydrogen"] = "404 NOT_FOUND: model retired, use models/gemini-9-x instead"
+    with pytest.raises(RuntimeError):
+        asyncio.run(prompt_engine._call_gemini("x", model="gemini-4-hydrogen"))
+    assert [m for m, _ in calls] == ["gemini-4-hydrogen"] and not saved          # không đổi model chung, không dự phòng
+    calls.clear()
+    fail["gemini-3.5-flash-lite"] = "404 NOT_FOUND: use models/gemini-9-x"
+    assert asyncio.run(prompt_engine._call_gemini("x")) == '{"ok": 1}'
+    assert [m for m, _ in calls] == ["gemini-3.5-flash-lite", "gemini-9-x"] and saved == [{"GEMINI_MODEL": "gemini-9-x"}]
+
+
+def test_subtitle_words_sorted_with_hook(monkeypatch):
+    """Câu móc đọc ở giây 0 nhưng thêm sau các cảnh: phụ đề trả về theo thời gian (SRT đúng thứ tự, mốc tiếng động ở hook)."""
+    async def ivs(path):
+        return [(0.0, 1.0)]
+    monkeypatch.setattr(render.voiceplan, "voiced_intervals", ivs)
+    clips = [{"path": "a.wav", "dur": 1.0}]
+    pl = {"scenes": [{"voice_at": 5.0}], "hook": {"voice_at": 0.3}, "factor": 1.0}
+    words = asyncio.run(render.subtitle_words(clips, pl, ["Thỏ Trắng chạy"], hook=({"path": "h.wav", "dur": 1.0}, "Bịch! Rớt rồi")))
+    starts = [w[0] for w in words]
+    assert starts == sorted(starts) and words[0][2] == "Bịch!" and words[0][3] == 1 and words[-1][3] == 0
+    assert render.hits_from_words(words)[0] == pytest.approx(0.3, abs=0.2)
+
+
+def test_flow_uses_final_words_from_kaggle(tmp_path, monkeypatch):
+    """Qwen viết trên Kaggle: từ hôm nay chốt ở đó -> bài đăng và bộ nhớ từ (xoay 30 ngày) theo từ ĐÃ dạy, không theo từ bốc lúc đầu."""
+    import pipeline
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    monkeypatch.setattr(config, "KIDS_LLM_PROVIDER", "qwen")
+    calls = []
+    inner = _fake_produce(tmp_path, calls)
+
+    async def produce(spec, tmp, on_step=None):
+        r = await inner(spec, tmp, on_step)
+        alt = [w for w in DATA["words"] if w["en"] not in {x["en"] for x in spec["brief"]["words"]}][:3]
+        r["brief"] = {**spec["brief"], "words": alt, "plot": "plot_x"}
+        return r
+    monkeypatch.setattr(kaggle_worker, "produce", produce)
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+    job = kids_auto.make_now("web")
+    first = [w["en"] for w in job.brief["words"]]
+    (tmp_path / "w").mkdir()
+    asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    final = [w["en"] for w in job.brief["words"]]
+    assert final != first and all(f"🔤 {w}" in job.post for w in final) and not any(f"🔤 {w} " in job.post for w in first)
+    hit = kids_auto.load_state()["stories"][-1]
+    assert hit["job"] == job.id and hit["words"] == final and hit["plot"] == "plot_x"
+
+
+def test_cards_font_fallback(monkeypatch):
+    from rmvideo.kids import cards
+    from rmvideo.media import ff
+    monkeypatch.setattr(ff, "FONT_PATH", "/nonexistent/font.ttf")
+    f = cards._font(40)
+    assert getattr(f, "size", None) == 40

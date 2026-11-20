@@ -70,6 +70,10 @@ async def process_kids(job: Job, tmp: str) -> str:
     if bad:
         raise RuntimeError("Video Kaggle trả về không đạt: " + "; ".join(bad))
     st = res.get("story") or {}
+    final = res.get("brief") or {}
+    if final.get("words"):                  # Qwen viết trên Kaggle: từ hôm nay chốt ở đó (choose_words) -> bài đăng + bộ nhớ theo
+        brief["words"] = final["words"]
+        brief["plot"] = final.get("plot") or brief.get("plot") or ""
     files = res.get("files") or {}
     for name in ("cover.jpg", "thumb.jpg"):                 # delivery tìm ảnh bìa cạnh file video
         if files.get(name) and os.path.exists(files[name]):

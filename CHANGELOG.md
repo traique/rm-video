@@ -15,6 +15,15 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 
 ## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
 
+- Soát code đợt 20/11 (truyện bé + Kaggle): `_call_gemini(model=…)` nhận model riêng cho từng lượt — `writer.GeminiBackend`
+  không đổi `config.GEMINI_MODEL` chung nữa (kênh bếp gọi Gemini song song trên cùng tiến trình; model truyện bé bị ngừng 404
+  không còn ghi đè Cài đặt). Kaggle trả `brief` cuối (Qwen viết trên Kaggle thì từ hôm nay chốt ở đó) → bài đăng và bộ nhớ
+  từ (`remember_done` ghi `words`/`plot` thật) theo đúng từ đã dạy. Vòng tự động ghi `pending/posts/streak/paused` lên bản mới
+  nhất của `kids_auto.json` (`save_tick`) — không ghi đè mất truyện worker / nút «Làm 1 truyện ngay» ghi trong lúc chờ Facebook
+  tải video. Phụ đề trả theo thời gian (câu móc đứng đầu SRT, mốc tiếng động «Bịch!» trong câu móc có nảy). Bộ kiểm ảnh hết
+  lượt giữ ảnh ÍT LỖI nhất (số lý do hỏng, lệch số đầu) thay vì ít đầu nhất. `images.find_local` so tên THƯ MỤC model («dev»
+  trong tên tài khoản Kaggle không bị nhận nhầm, «flux» không bắt thư mục flux-dev). Qwen: soát lại (`_revise`) trước khi tắt
+  llama-server; thẻ chữ font dự phòng có `.size`.
 - Kênh bếp: `TEXT_INPAINT=1` (mặc định) — khi bóc lời + phân tích hình trên Kaggle, `rmvideo/media/inpaint.py` chạy big-lama.pt
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,

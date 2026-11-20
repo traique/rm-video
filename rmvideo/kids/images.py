@@ -48,9 +48,11 @@ def find_local(model: str, root: str = INPUT_ROOT) -> str | None:
     if not os.path.isdir(root):
         return None
     names = MODELS.get(model, {}).get("names", (model,))
+    # tên của model KHÁC loại («dev» với schnell) thì loại; trừ tên là phần của tên mình («flux» nằm trong «flux-dev»)
+    others = {n for k, m in MODELS.items() if k != model for n in m["names"] if not any(n in x for x in names)}
     for p in sorted(glob.glob(os.path.join(root, "**", "model_index.json"), recursive=True)):
-        low = p.lower()
-        if any(n in low for n in names):
+        base = os.path.basename(os.path.dirname(p)).lower()    # chỉ tên thư mục model: «dev» trong tên tài khoản không tính
+        if any(n in base for n in names) and not any(n in base for n in others):
             return os.path.dirname(p)
     return None
 
@@ -316,7 +318,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
                 from rmvideo.kids import imgcheck
                 want = int(expected[i - 1]) if i - 1 < len(expected) else 1
                 want_c = list(colors[i - 1]) if colors is not None and i - 1 < len(colors) else None
-                best, best_n = img, None
+                best, best_rank = img, None     # giữ ảnh ít lỗi nhất: (số lý do hỏng, lệch số đầu), không chỉ ít đầu
                 for r in range(imgcheck.RETRIES + 1):
                     ok, n, heads = checker(img, want, want_c) if want_c is not None else checker(img, want)
                     st["checked"] += 1
@@ -339,8 +341,9 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
                         img.save(os.path.join(out_dir, f"raw_{i:02d}_bad{r + 1}.png"))     # giữ lại để soát bộ kiểm
                     except Exception:
                         pass
-                    if best_n is None or n < best_n:
-                        best, best_n = img, n
+                    rank = (len(whys), abs(int(n) - want))
+                    if best_rank is None or rank < best_rank:
+                        best, best_rank = img, rank
                     if r == imgcheck.RETRIES:
                         break
                     st["redo"] += 1

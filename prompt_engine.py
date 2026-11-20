@@ -282,10 +282,13 @@ def _with_thinking(cfg, model: str, level: str):
 
 
 async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ảnh đoạn", timeout: float = 60,
-                       thinking: str = "") -> str:
+                       thinking: str = "", model: str = "") -> str:
     """Gọi Gemini: thử lại khi quá tải/hết hạn mức, tự đổi model khi model cũ bị ngừng (404).
     schema (lớp pydantic): bật structured output; model không nhận schema thì lùi về JSON mode thường.
-    thinking: mức suy nghĩ cho Gemini 4 (truyện bé), xem _with_thinking."""
+    thinking: mức suy nghĩ cho Gemini 4 (truyện bé), xem _with_thinking.
+    model: model riêng cho lượt này (truyện bé: Hydrogen / flash-lite) — không đụng config.GEMINI_MODEL chung, vì kênh
+    nấu ăn gọi song song trên cùng tiến trình; model riêng bị ngừng (404) thì chỉ ném lỗi, không tự lưu Cài đặt."""
+    main = model or config.GEMINI_MODEL
     client = genai.Client(api_key=config.GEMINI_API_KEY)  # key đọc lúc gọi: đổi từ web là ăn ngay
     contents = _contents(prompt, images, label)
     json_only = {"response_mime_type": "application/json"} if "JSON" in prompt else None
@@ -318,7 +321,7 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
         except Exception as e:
             # Google ngừng model cũ và ghi tên model thay thế ngay trong lỗi 404
             m = re.search(r"use models/([\w.\-]+)", str(e))
-            if "404" not in str(e) or not m or model != config.GEMINI_MODEL:
+            if "404" not in str(e) or not m or model != main or main != config.GEMINI_MODEL:
                 raise
             new_model = m.group(1)
             logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt", model, new_model)
@@ -326,16 +329,17 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
             return await _gen(new_model, cfg)
 
     try:
-        resp = await _one(config.GEMINI_MODEL)
+        resp = await _one(main)
     except Exception as e:
         # model chính quá tải (503 "high demand", đã thử lại) / hết lượt: thử model dự phòng (hạn mức, tải riêng) thay
-        # vì bỏ cả bước (bản 43: cả job viết lời mù vì 3.5-flash-lite quá tải suốt 5 phút)
-        backups = [m for m in fallback_models() if m != config.GEMINI_MODEL]
+        # vì bỏ cả bước (bản 43: cả job viết lời mù vì 3.5-flash-lite quá tải suốt 5 phút). Model riêng (truyện bé)
+        # tự lo dự phòng ở writer.GeminiBackend nên không dùng danh sách chung.
+        backups = [] if model else [m for m in fallback_models() if m != main]
         if not backups or not _overloaded(str(e)):
             raise
         last: Exception = e
         for model in backups:
-            logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", config.GEMINI_MODEL, str(last)[:60], model)
+            logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", main, str(last)[:60], model)
             try:
                 resp = await _one(model)
                 break

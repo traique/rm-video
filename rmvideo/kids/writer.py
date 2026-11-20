@@ -77,15 +77,9 @@ class GeminiBackend:
         import prompt_engine
         self.calls += 1
         self.used.append((role, model))
-        old = config.GEMINI_MODEL
-        try:
-            if model != old:
-                config.GEMINI_MODEL = model              # _call_gemini đọc config.GEMINI_MODEL
-            text = asyncio.run(prompt_engine._call_gemini(prompt, schema=gemini_schema(schema), label="Truyện bé",
-                                                          timeout=TIMEOUT, thinking=self.thinking))
-        finally:
-            if config.GEMINI_MODEL == model and model != old:
-                config.GEMINI_MODEL = old
+        # model truyền thẳng: không đổi config.GEMINI_MODEL chung (kênh nấu ăn gọi Gemini song song trên cùng tiến trình)
+        text = asyncio.run(prompt_engine._call_gemini(prompt, schema=gemini_schema(schema), label="Truyện bé",
+                                                      timeout=TIMEOUT, thinking=self.thinking, model=model))
         return text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)
 
     def summary(self) -> str:
