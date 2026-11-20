@@ -83,7 +83,8 @@
       "VIENEU_VOICE_MALE",
       "VOICE_BED",
       "VOICE_HUMANIZE",
-      "VOICE_SEPARATION"
+      "VOICE_SEPARATION",
+      "VOICE_SEP_MODEL"
      ],
      "token": "<TOKEN>"
     }

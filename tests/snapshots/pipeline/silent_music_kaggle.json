@@ -94,7 +94,8 @@
       "VIENEU_VOICE_MALE",
       "VOICE_BED",
       "VOICE_HUMANIZE",
-      "VOICE_SEPARATION"
+      "VOICE_SEPARATION",
+      "VOICE_SEP_MODEL"
      ],
      "src": {
       "http": "https://bot.example.com/kin/<T>/input.mp4",
