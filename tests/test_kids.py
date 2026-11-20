@@ -22,6 +22,7 @@ from rmvideo.app import job_factory
 from rmvideo.kids import job as kids_job, llm, prompts, render, story, writer
 from rmvideo.kids import images as images_mod
 from rmvideo.kids import dialogue
+from rmvideo.media import voice_qa
 
 DATA = story.load()
 
@@ -1074,13 +1075,15 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
 
     voices = []
     vi_texts: list = []
+    spoken: dict = {}
 
     def make_synth(spec, ref):
         async def synth(items, tmp):
             voices.extend(it[2] for it in items)
             vi_texts.extend(it[1] for it in items)
+            spoken.update({os.path.join(tmp, f"v{it[0]}.wav"): it[1] for it in items})
             return {it[0]: {"path": _wav(os.path.join(tmp, f"v{it[0]}.wav"), 0.8), "words": None} for it in items}
-        return synth
+        return voice_qa.checked(synth, spoken.get)            # Whisper giả nghe đúng lời: kiểm mà không đọc lại
     monkeypatch.setattr(kaggle_job, "make_synth", make_synth)
     spec = {"kind": "kids", "brief": brief, "data": DATA, "voice": {"engine": "vieneu", "name": "Thục Đoan", "multi": True},
             "image": {"model": "schnell"}, "llm": {}, "channel": kids_auto.channel(), "music": None, "token": "t1"}
@@ -1095,6 +1098,7 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     assert set(words) <= said and all(v == dialogue.EN_VOICE for _t, v in EN_CALLS)
     assert not any(dialogue.split_english(t, words) != [(False, t)] for t in vi_texts), vi_texts
     assert res["timings"]["en_voice"] == dialogue.EN_VOICE
+    assert res["timings"]["voice_qa"]["checked"] >= 8 and res["timings"]["voice_qa"]["redo"] == 0
     assert (out_dir / "output.mp4").exists() and (out_dir / "cover.jpg").exists() and (out_dir / "story.json").exists()
     assert (out_dir / "scene_08.png").exists() and (out_dir / "result.json").exists()
 

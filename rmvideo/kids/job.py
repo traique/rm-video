@@ -124,6 +124,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
                     seq.append(k)
         order[g] = seq
     voiced = await synth(items, tmp)
+    from rmvideo.media import voice_qa
+    qa, bad = voice_qa.report(synth)                # Whisper nghe lại mẩu VieNeu (kaggle_job.make_synth)
+    t.update(qa)
+    notes += bad
 
     async def _clip(g: int, name: str) -> dict:
         """Nối các mẩu của một clip thành một file (một mẩu thì dùng luôn)."""

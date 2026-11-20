@@ -210,6 +210,9 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("Adam", "Adam (tự nhiên)"), ("Thái Sơn", "Thái Sơn (kể chuyện)"), ("Minh Triết", "Minh Triết (tin tức)"),
                ("Đức Trí", "Đức Trí (đọc truyện)"), ("clone", "Giọng nhân bản (đoạn mẫu tải lên bên dưới)")),
       validate=_max_len("VIENEU_VOICE_MALE", 40)),
+    S("VOICE_QA", "1", "voice", "Nghe lại giọng VieNeu",
+      help="Whisper trên GPU Kaggle nghe lại từng câu VieNeu đọc; câu đọc sai / lặp thì đọc lại (tối đa 2 lần).",
+      options=_ONOFF_OPTS, choices=ON_OFF),
     S("KAGGLE_USE", "1", "kaggle", "Dùng Kaggle cho phần nặng",
       options=(("1", "Bật: đọc giọng + tách giọng + dựng chạy trên Kaggle (lỗi thì chạy trên Botkeep)"),
                ("0", "Tắt: mọi thứ chạy trên Botkeep")), choices=ON_OFF),
@@ -529,7 +532,7 @@ GROUPS: list[tuple[str, str, str]] = [
 DISPLAY_ORDER: tuple[str, ...] = (
     "GEMINI_API_KEY", "KAGGLE_USERNAME", "KAGGLE_API_TOKEN", "PUBLIC_URL", "FB_PAGE_ID", "FB_PAGE_TOKEN", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_BOT_JID",
-    "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE",
+    "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE", "VOICE_QA",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
     "QUALITY", "TEASER", "COVER", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "SHORT_VERSION", "POST_RECIPE", "TIPS",
     "QTY_CHECK",
