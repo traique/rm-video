@@ -257,8 +257,10 @@ SCHEMA: tuple[Setting, ...] = (
       choices=("heuristic", "ocr")),
     S("TEXT_INPAINT", "1", "video", "Xoá chữ in cứng bằng AI (LaMa) khi phân tích trên Kaggle",
       help="1: Kaggle (GPU) vẽ lại nền ở dải chữ gốc bằng big-lama.pt rồi gửi video sạch về, phụ đề mới đặt lên nền thật "
-           "thay vì ô mờ. Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
-      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1")),
+           "thay vì ô mờ; chỉ vẽ lại chỗ có chữ thật, tay/đồ ăn đi qua dải giữ nguyên. band: vẽ lại cả dải như bản cũ "
+           "(khi nguồn có chữ trong ô nền màu). Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
+      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa, chỉ chỗ có chữ"),
+               ("band", "Bật, vẽ lại cả dải chữ như bản cũ"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1", "band")),
     S("SCENE_ANALYSIS", "light", "video", "Mức phân tích hình", help="light nhanh nhất; full kỹ nhất (chậm trên Botkeep).",
       options=(("light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn câu "
                          "theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"),

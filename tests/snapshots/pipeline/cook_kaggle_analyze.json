@@ -37,6 +37,7 @@
     {
      "asr": "large-v3",
      "inpaint": true,
+     "inpaint_mask": "text",
      "job": 110,
      "keep_ambient": true,
      "kind": "analyze",
