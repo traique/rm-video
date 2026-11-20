@@ -136,15 +136,15 @@ def test_kaggle_side_analyze_inpaints_text_bands(tmp_path, monkeypatch):
     calls = []
 
     def fake_clean(inp, bands, out, log=None, **kw):
-        calls.append((inp, bands))
+        calls.append((inp, bands, kw.get("mask")))
         with open(out, "wb") as f:
             f.write(b"\0" * 20_000)
         return {"frames": 60, "secs": 2.0, "regions": []}
     monkeypatch.setattr(inpaint, "clean_video", fake_clean)
     spec = {"kind": "analyze", "src": {"url": "u"}, "want_gray": False, "language": "vi", "prompt": "",
-            "keep_ambient": False, "token": "tok2", "inpaint": True}
+            "keep_ambient": False, "token": "tok2", "inpaint": True, "inpaint_mask": "band"}
     res = asyncio.run(kaggle_job.analyze(spec, str(tmp_path / "w")))
-    assert res["ok"] and calls == [(vid, [(0.70, 0.76)])] and res["inpainted"] == [[0.70, 0.76]]
+    assert res["ok"] and calls == [(vid, [(0.70, 0.76)], "band")] and res["inpainted"] == [[0.70, 0.76]]
     assert res["files"]["clean.mp4"].endswith("clean.mp4") and "inpaint" in res["timings"]
 
     def boom(*a, **k):
@@ -410,7 +410,7 @@ def test_pipeline_renders_from_clean_video(analyze_on, monkeypatch, tmp_path):
     job = Job(url="https://www.facebook.com/reel/1/", mode="cook", duration=0, voice="vieneu:Mỹ Duyên")
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
-    assert os.path.exists(out) and got["an_spec"]["inpaint"] is True
+    assert os.path.exists(out) and got["an_spec"]["inpaint"] is True and got["an_spec"]["inpaint_mask"] == "text"
     sp = got["specs"][-1]
     assert sp["bands"] == [] and sp["src"].get("name") == "kaggle_clean.mp4" and sp["pos_y"]   # phụ đề vẫn đúng chỗ
     assert "xoá chữ LaMa 90s" in job.error and "xoá chữ gốc ở 1 dải bằng LaMa" in job.error

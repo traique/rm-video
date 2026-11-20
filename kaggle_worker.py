@@ -357,7 +357,8 @@ def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: 
                                                                   max_duration),
                     "want_gray": bool(want_gray), "language": "vi" if vi else "", "token": secrets.token_hex(8),
                     "prompt": vocab.groq_prompt(title, desc), "keep_ambient": job.mode == "cook",
-                    "inpaint": config.TEXT_INPAINT == "1",             # LaMa xoá chữ in cứng (GPU) thay cho che mờ
+                    "inpaint": config.TEXT_INPAINT in ("1", "band"),   # LaMa xoá chữ in cứng (GPU) thay cho che mờ
+                    "inpaint_mask": "band" if config.TEXT_INPAINT == "band" else "text",
                     "asr": config.KAGGLE_ASR if vi else "large-v3"})   # PhoWhisper chỉ tiếng Việt
 
 

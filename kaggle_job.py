@@ -315,7 +315,8 @@ async def analyze(spec: dict, tmp: str) -> dict:
         t1 = time.time()
         try:
             cp = os.path.join(tmp, "clean.mp4")
-            info = await asyncio.to_thread(inpaint.clean_video, inp, [tuple(b) for b in bands], cp, logging.info)
+            info = await asyncio.to_thread(inpaint.clean_video, inp, [tuple(b) for b in bands], cp, logging.info,
+                                           mask=spec.get("inpaint_mask"))
             files["clean.mp4"] = cp
             inpainted = [list(b) for b in bands]
             t["inpaint"] = round(time.time() - t1, 1)

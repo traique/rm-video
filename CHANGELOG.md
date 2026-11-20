@@ -21,6 +21,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - Kênh bếp: dò chuyển cảnh thích nghi (so mỗi khung với các khung quanh nó, theo AdaptiveDetector của PySceneDetect)
   thay ngưỡng cứng: máy rung / lia nhanh không còn bị tính là chuyển cảnh, cắt nhảy cùng bối cảnh được bắt. Đo 20/11:
   F1 0,879 -> 0,933 (Botkeep mức nhanh 0,893 -> 0,966), CPU +2-5%.
+- Kênh bếp, xoá chữ LaMa (Kaggle): chỉ vẽ lại chỗ có chữ thật trong dải (nét chữ từng khung, nới phủ viền / bóng)
+  thay cho cả hình chữ nhật — tay, đồ ăn, nồi đi qua dải giữ nguyên; phụ đề 2 dòng tràn ra ngoài dải vẫn xoá trọn; mặt nạ
+  giữ thêm 3 khung trước / sau chữ, nền đứng yên trộn với khung trước nên dải đỡ nhấp nháy. `TEXT_INPAINT=band` = cách cũ.
 - Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
   (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
   dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
@@ -63,6 +66,16 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   đều không bắt (đã thử mafd 4 khung/giây và màu trung bình: không tách được khỏi máy rung; TransNetV2 trên Kaggle bắt được
   nhưng cần trọng số + torch, chưa làm); loé trắng một khung cả hai đều báo nhầm. CPU cả lượt phân tích video 100 giây: fast
   4,5 -> 4,8 giây, full 9,0 -> 9,5 giây. Khoá cache `scenes` không đổi: bản đã duyệt dựng lại vẫn dùng điểm cắt đã duyệt.
+- **Xoá chữ theo nét chữ** (`rmvideo/media/inpaint.py`, `MASK="text"`): pixel chữ (sáng sát tối như textzone) -> cắt XY
+  thành dòng chữ, bỏ cụm thấp < 1% khung hay mỗi hàng < 3 nét (mép mực trắng trên thớt tối), chỉ lấy cụm đứng yên (khung kề
+  chồng ≥ 50%), nới 0,8% chiều cao; cụm nằm ≥ 1/3 trong dải được lấn sang phần ngữ cảnh (dải textzone hẹp với phụ đề 2 dòng).
+  `HOLD=3` khung trước / sau (đọc trước 4 khung), `BLEND=0.6` trộn vùng vẽ khung trước ở cột nền đứng yên. Không dùng STTN:
+  kho researchmm/STTN không ghi giấy phép cho mã / trọng số, trọng số chỉ trên Google Drive. Đo 20/11 trên CPU (video
+  720x1280 10 giây có tay, mực trắng, dao đi qua; phụ đề drawtext trắng viền đen có hiện / tắt dần và 2 dòng; bản không chữ
+  làm đáp án; LaMa nửa cỡ như nguồn 1080p): trong dải, lệch gốc ngoài chữ MAE 12,8 -> 5,6 (PSNR 20,8 -> 28,2 dB; mức sàn
+  nén lại 3,7 / 32,8), trên chữ 31,4 -> 14,4 (14,0 -> 21,0 dB); khung còn chữ 14,4% -> 0%; đổi giữa hai khung lệch gốc
+  10,2 -> 6,0 (vùng chữ 14,3 -> 8,8). Vẽ thừa ngoài chữ 44% dải -> 14%. CPU thêm ~6 ms/khung ở 1080x1920 (~16 giây cho video
+  90 giây). Chưa đo trên T4; chữ vàng / chữ trong ô nền màu chưa thử (ô nền màu: `TEXT_INPAINT=band`).
 - **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
   dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
   chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),

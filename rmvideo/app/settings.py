@@ -257,8 +257,10 @@ SCHEMA: tuple[Setting, ...] = (
       choices=("heuristic", "ocr")),
     S("TEXT_INPAINT", "1", "video", "Xoá chữ in cứng bằng AI (LaMa) khi phân tích trên Kaggle",
       help="1: Kaggle (GPU) vẽ lại nền ở dải chữ gốc bằng big-lama.pt rồi gửi video sạch về, phụ đề mới đặt lên nền thật "
-           "thay vì ô mờ. Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
-      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1")),
+           "thay vì ô mờ; chỉ vẽ lại chỗ có chữ thật, tay/đồ ăn đi qua dải giữ nguyên. band: vẽ lại cả dải như bản cũ "
+           "(khi nguồn có chữ trong ô nền màu). Chỉ khi KAGGLE_ANALYZE bật; lỗi thì che mờ như cũ. 0: luôn che mờ.",
+      options=(("1", "Bật (mặc định): Kaggle xoá chữ bằng LaMa, chỉ chỗ có chữ"),
+               ("band", "Bật, vẽ lại cả dải chữ như bản cũ"), ("0", "Tắt: che mờ như cũ")), choices=("0", "1", "band")),
     S("FRAMING_AUTO", "1", "video", "Khung dọc theo nội dung",
       help="Nguồn có dải đen thì bỏ dải đen; nguồn ngang (16:9) thì cắt khung 9:16 theo vùng có tay / chảo, hoạt động rải "
            "khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình. Nguồn dọc bình thường: cắt giữa như cũ.",
