@@ -927,6 +927,8 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         logging.error("Tự động đăng: đã đăng %s nhưng không ghi được autopost.json (%s)", fb_id, e)
     from rmvideo.app import youtube
     youtube.after_facebook("cook", job, video, title, desc, when)     # ▶️ YouTube Shorts cùng giờ (kênh đã kết nối)
+    from rmvideo.app import tiktok_kit
+    tiktok_kit.after_facebook("cook", job, video, desc, when)        # 🎵 gói đăng TikTok gửi admin đúng giờ
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Tự động đăng: %s %s lên Page, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"📅 Đã {'hẹn đăng' if when else 'đăng'} video #{job.id} lên Fanpage lúc {at}: {title[:80]}")
@@ -1040,6 +1042,8 @@ def status_text() -> str:
                  f"đã đăng {len(st['posts'])} bài.")
     from rmvideo.app import youtube
     lines += youtube.status_lines("cook", now)
+    from rmvideo.app import tiktok_kit
+    lines += tiktok_kit.status_lines("cook", now)
     if not why:
         save_state(st)                       # khung giờ hôm nay vừa chọn (nếu chưa có) phải giữ nguyên cho vòng chạy
     return "\n".join(lines)

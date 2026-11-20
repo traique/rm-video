@@ -13,12 +13,16 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
-## 1.2.0 — đăng YouTube Shorts cho kênh bếp và kênh truyện bé (20/11/2026)
+## 1.2.0 — đăng YouTube Shorts + gói đăng TikTok cho kênh bếp và kênh truyện bé (20/11/2026)
 
 - Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn: kênh bếp và kênh truyện bé là hai kênh YouTube riêng.
   Kết nối bằng nút «▶️ Kết nối YouTube» trên web (Google hỏi chọn kênh), không phải chép token tay.
 - Tiêu đề / mô tả dùng phần «▶ YouTube Shorts» AI đã viết sẵn; kênh bé khai «dành cho trẻ em».
 - Lỗi YouTube tách khỏi Facebook: tự thử lại, hết hạn mức chờ 6 giờ, token bị thu hồi thì báo admin kết nối lại.
+- TikTok bán tự động: 10 phút trước giờ vàng, Telegram nhận file video + một tin riêng chỉ có chữ đăng TikTok
+  (Zoom: chữ + link tải) để đăng tay ~30 giây hoặc hẹn giờ trong TikTok Studio. TikTok không cho bot đăng
+  thẳng lên tài khoản của chính mình (API chỉ đăng «chỉ mình tôi» khi chưa kiểm duyệt; kiểm duyệt từ chối
+  công cụ đăng cho tài khoản của mình và ứng dụng chép nội dung từ nền tảng khác).
 
 ### Cần làm
 - Tạo OAuth client trên Google Cloud, dán `YT_CLIENT_ID` / `YT_CLIENT_SECRET`, bấm kết nối từng kênh (README, mục
@@ -34,6 +38,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   cũng không làm hỏng bài Facebook). `main.py` chạy `youtube.run_forever` (mỗi 2 phút).
 - Web: `/api/youtube`, `/api/youtube/{cook|kids}/{connect|test|disconnect}` (kết nối / ngắt phải nhập lại mật khẩu web
   như token Fanpage), `/youtube/callback`. Trạng thái YouTube hiện trong ô 🤖 Tự động đăng và 🧸 Truyện bé.
+- `rmvideo/app/tiktok_kit.py`: `TIKTOK_KIT` / `KIDS_TIKTOK_KIT` = slot (mặc định, gửi trước giờ hẹn Fanpage 10
+  phút) | ready (gửi ngay, tự hẹn giờ trong TikTok Studio) | off. Caption = phần «▶ TikTok» của gói nội dung.
+  Không kênh nào nhận được thì thử lại 10 phút / lần (3 lần); quá giờ vàng 6 giờ (bot tắt lâu) thì bỏ, không
+  gửi gói cũ. Hàng chờ `tiktok_kit.json` (`TIKTOK_STATE`). `tests/test_tiktok_kit.py`.
 - Test: `tests/test_youtube.py` (máy chủ Google giả: đổi mã, refresh token, tải lên, hạn mức, token bị thu hồi, bot dừng
   giữa lúc tải, web).
 

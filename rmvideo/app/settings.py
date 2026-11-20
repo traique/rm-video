@@ -427,6 +427,13 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_digits("AUTO_MIN_HEIGHT", "AUTO_MIN_HEIGHT là số điểm ảnh, vd 540")),
     S("AUTO_MODE", "cook", "auto", "Chế độ làm lại", options=(("cook", "Nấu ăn"), ("review", "Review")),
       choices=("cook", "review"), live=True),
+    S("TIKTOK_KIT", "slot", "auto", "Gói đăng TikTok (kênh bếp)",
+      help="TikTok không cho bot đăng thẳng lên tài khoản của chính mình (API chỉ đăng «chỉ mình tôi» khi chưa kiểm duyệt, "
+           "kiểm duyệt từ chối công cụ kiểu này). Bot gửi qua Telegram file video + tin riêng chứa chữ đăng TikTok "
+           "(Zoom: chữ + link tải) để bạn đăng tay ~30 giây, hoặc hẹn giờ trong TikTok Studio.",
+      options=(("slot", "Gửi 10 phút trước giờ vàng (mặc định)"),
+               ("ready", "Gửi ngay khi video xong (tự hẹn giờ trong TikTok Studio)"), ("off", "Tắt")),
+      choices=("slot", "ready", "off"), live=True),
     S("FB_PAGE_ID", "", "api", "ID Fanpage",
       help="Dãy số id của Fanpage (Trang → Giới thiệu → ID trang). Chỉ cần khi tự động đăng.",
       link="https://www.facebook.com/help/1503421039731588", need="optional",
@@ -466,6 +473,12 @@ SCHEMA: tuple[Setting, ...] = (
     S("KIDS_YT_REFRESH_TOKEN", "", "api", "YouTube kênh truyện bé (tự điền)",
       help="Tự điền khi bấm «▶️ Kết nối YouTube» ở mục 🧸 Truyện bé — chọn kênh YouTube RIÊNG của truyện bé (khác kênh "
            "bếp). Điền - để xoá.", secret=True, reauth=True, live=True),
+    S("KIDS_TIKTOK_KIT", "slot", "kids", "Gói đăng TikTok (kênh bé)",
+      help="Như TIKTOK_KIT nhưng cho truyện bé: video + chữ đăng TikTok gửi qua Telegram / Zoom để đăng lên tài khoản TikTok "
+           "của kênh bé.",
+      options=(("slot", "Gửi 10 phút trước giờ vàng (mặc định)"),
+               ("ready", "Gửi ngay khi video xong (tự hẹn giờ trong TikTok Studio)"), ("off", "Tắt")),
+      choices=("slot", "ready", "off"), live=True),
     S("KIDS_VOICE", "Thục Đoan", "kids", "Giọng kể (VieNeu miền Nam)",
       options=(("Thục Đoan", "Thục Đoan (kể chuyện)"), ("Mỹ Duyên", "Mỹ Duyên (đọc truyện, chậm, ấm)"),
                ("Kim Thanh", "Kim Thanh (đọc truyện)"), ("Thùy Dung", "Thùy Dung (rõ, nhanh)")),
@@ -577,10 +590,11 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
     "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO", "TALK_ZOOM",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "VOICE_SEP_MODEL", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
-    "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
+    "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT", "TIKTOK_KIT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
+    "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
@@ -593,7 +607,8 @@ assert sorted(DISPLAY_ORDER) == sorted(BY_KEY), "DISPLAY_ORDER phải liệt kê
 SECRET_KEYS = frozenset(s.key for s in SCHEMA if s.secret)
 REAUTH_KEYS = frozenset(s.key for s in SCHEMA if s.reauth)
 # khoá KHÔNG gửi sang notebook Kaggle: bí mật + tài khoản/quyền/tự đăng (Kaggle không cần, lộ ra là thiệt)
-SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_", "YT_")
+SNAPSHOT_EXCLUDE_PREFIXES = ("KAGGLE_", "FB_", "AUTO_", "ALLOWED_", "ADMIN_", "ZOOM_", "NOTIFY_", "KIDS_", "YT_",
+                             "TIKTOK_")
 
 
 # ---------------- lưu trữ ----------------

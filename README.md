@@ -244,6 +244,22 @@ thu hồi thì dừng kênh đó và báo admin (bấm kết nối lại là ch�
 Lưu ý kênh bếp: YouTube xét «nội dung dùng lại» khắt khe khi duyệt bật kiếm tiền; bot đã đổi lời, giọng, nhạc, cách dựng
 nhưng không thay được quyền tác giả của video nguồn.
 
+## 🎵 Gói đăng TikTok (1.2.0, bán tự động)
+
+TikTok không cho bot đăng thẳng lên tài khoản của chính mình: API chỉ đăng video «chỉ mình tôi» khi ứng dụng chưa được
+kiểm duyệt, và hướng dẫn kiểm duyệt ghi rõ không chấp nhận công cụ đăng cho tài khoản của mình / nhóm mình và ứng
+dụng chép nội dung từ nền tảng khác. Nên bot làm phần còn lại cho bạn:
+
+- 10 phút trước giờ vàng (giờ hẹn Fanpage), Telegram nhận **file video** + một **tin riêng chỉ có chữ đăng TikTok**
+  (caption + hashtag + ghi nguồn). Trên điện thoại: lưu video → TikTok → **+** → Tải lên → nhấn giữ tin chữ → Sao chép →
+  dán → Đăng (~30 giây). Zoom nhận chữ + link tải.
+- `TIKTOK_KIT` (mục 🤖 Tự động đăng) / `KIDS_TIKTOK_KIT` (mục 🧸 Truyện bé): `slot` (mặc định) | `ready` (gửi ngay khi
+  video xong, bạn tự hẹn giờ trong TikTok Studio trên web) | `off`.
+- Cần kênh thông báo quản trị: Telegram (`BOT_TOKEN` + `ADMIN_CHAT_ID` / `ALLOWED_USERS`) và/hoặc Zoom (`ZOOM_ADMIN`).
+
+Lưu ý kênh bếp: nhiều video nguồn lấy từ TikTok; đăng bản làm lại ngược lên TikTok dễ bị coi là «nội dung không nguyên
+bản» và bị hạn chế phân phối. Kênh bé là nội dung tự tạo nên hợp TikTok hơn.
+
 ## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
 
 Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),
