@@ -115,8 +115,8 @@ def new_brief(job=None, rnd: random.Random | None = None) -> dict:
     st = load_state()
     brief = story_mod.pick(data(), st["stories"], rnd)
     st["stories"].append({"job": getattr(job, "id", 0), "created_at": time.time(), "lesson": brief["lesson"],
-                          "setting": brief["setting"], "conflict": brief["conflict"],
-                          "words": [w["en"] for w in brief["words"]], "main": brief["main"], "title": ""})
+                          "setting": brief["setting"], "conflict": brief["conflict"], "plot": brief.get("plot") or "",
+                          "words": [w["en"] for w in brief["words"]], "main": brief["main"], "title": ""})  # plot: xoay khung
     save_state(st)
     return brief
 

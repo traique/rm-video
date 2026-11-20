@@ -1225,6 +1225,7 @@ def test_free_slots_and_tick(monkeypatch, tmp_path):
     assert put and put[0].mode == "kids" and put[0].source == "auto" and "19:00" in msg
     st = kids_auto.load_state()
     assert st["pending"]["job"] == put[0].id and st["stories"][-1]["job"] == put[0].id
+    assert st["stories"][-1]["plot"] == put[0].brief["plot"]                    # ghi khung ngay lúc bốc để pick_plot xoay khung
     assert asyncio.run(kids_auto.tick(now, random.Random(1))).startswith("đang làm") or "job" in asyncio.run(
         kids_auto.tick(now, random.Random(1)))
 
