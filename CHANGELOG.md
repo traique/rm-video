@@ -13,7 +13,7 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
-## 1.1.3 — kênh bếp: video mở bằng món đã xong, đoạn điểm danh hết chữ trùng (20/11/2026)
+## 1.1.3 — kênh bếp: video mở bằng món đã xong, đoạn điểm danh hết chữ trùng; kênh bé: kiểm ảnh cỡ nhân vật (20/11/2026)
 
 - Kênh bếp (dựng mạnh): câu đầu kiểu «Hôm nay mình chỉ mọi người công thức…» không còn bị coi là lời chào — giữ làm câu mở
   đầu (cảnh món đã xong của bản gốc), điểm danh nguyên liệu đứng SAU nó. Job 2 ngày 20/11 (canh chua cá lóc): video mở bằng
@@ -21,6 +21,11 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - Kênh bếp: đoạn điểm danh nguyên liệu không còn phụ đề — thẻ «1/4 trái khóm» đã hiện từng món, phụ đề lặp đúng chữ đó ngay
   bên dưới mà lệch nhịp (thẻ «4 muỗng đường» trong lúc phụ đề còn «50g me cục»).
 - Giọng miền Nam: «nhé» -> «nha» (lời kết job 2 «Mọi người thử ngay nhé»).
+- Kênh bé (video job 1 ngày 20/11, bản 1.1.2): bộ kiểm ảnh so cỡ hai bạn theo BỀ NGANG đầu (≤ 1,35 lần) thay vì diện tích
+  (≤ 4 lần) — cảnh 7 Gấu to gấp đôi Thỏ lọt qua vì khung đầu thỏ gồm cả tai. Thỏ đứng một mình không còn bị báo «2 đầu»
+  nhầm (OWLv2 tách tai và mặt thỏ thành hai khung) nên đỡ vẽ lại thừa.
+- Kênh bé: mô tả Thỏ «lông trắng từ đầu tới chân», bỏ chữ «small» (cảnh 2 Thỏ mang thân lông nâu của Gấu khi đứng sát
+  nhau; «small» cãi câu «hai bạn cao bằng nhau» của prompt).
 
 ### Chi tiết
 - `style_b._hook_end` dùng `_SALUTE_RE` (chỉ «xin chào», «chào mừng / cả nhà / mọi người / các bạn / bà con», «hello») thay cho
@@ -32,6 +37,14 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - Soát cả video job 2 (108 giây gốc -> 114 giây): lời đủ bước, đúng số liệu (Whisper nghe lại khớp kịch bản); −13,9 LUFS; có
   nhạc lót Lyria (điểm nhạc 0,186; gốc 0,004 — gốc không nhạc); quãng không lời còn tiếng nền + nhạc (−23 đến −25 dB); nguồn
   dọc nên khung không đổi; không có chữ in cứng.
+- `imgcheck._groups`: hai khung bên trong chồng dọc thẳng hàng (`_stacked`, luật `_is_body` theo một chiều) là hai phần của
+  một bạn, khung ngoài không bị bỏ như khung nhóm. Đo lại 87 khung hình video kid job 1 (1.1.2): 9 khung Thỏ một mình bị
+  đếm 2 đầu -> 0; video job 1 cũ (85 khung): 1 -> 0, các khung nhân đôi thật (Gấu ôm hai Thỏ, gấu con thừa) vẫn 3 đầu.
+  `sizes_ok`: bề ngang, `SIZE_RATIO` 4 (diện tích) -> 1,35 (bề ngang): hai bạn cỡ nhau đo được 1,00-1,15, cảnh lệch cỡ
+  1,45-1,50. Chưa bắt: cảnh mà OWLv2 không thấy đầu bạn kia (gấu điểm < 0,18) thì không xét cỡ; lông Gấu lan sang thân
+  Thỏ chưa có cách đo tin được (màu nâu dưới đầu thỏ trùng màu lối đất) nên sửa ở prompt.
+- Soát cả video kid job 1 (86,8 giây): không nhân vật nhân đôi; từ tiếng Anh đúng (Whisper tiếng Anh nghe «balloon»,
+  «sing», «happy» cả phần ôn cuối); −14,1 LUFS; lời mạch lạc, có điệp khúc, câu hỏi cho bé, kết vòng lại đầu truyện.
 
 ## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; kênh bếp: nhạc Lyria, khung dọc theo nội dung (20/11/2026)
 

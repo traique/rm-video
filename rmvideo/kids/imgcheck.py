@@ -25,7 +25,10 @@ HUES = {"red": ((345, 360), (0, 15)), "yellow": ((46, 68),), "green": ((75, 165)
 # Gấu ôm hai Thỏ 0,297 — nên 0,3 (đo 19/11 trên ảnh không LoRA) bỏ sót gần hết. Đo 85 khung hình video job 1 (9 cảnh, 2 cảnh
 # nhân đôi): 0,18 + luật gộp mới bắt 13/13 khung nhân đôi, 0 khung báo nhầm; 0,12 bắt đầu báo nhầm.
 THRESHOLD = 0.18
-SIZE_RATIO = 4.0                  # diện tích đầu to nhất / nhỏ nhất (2 bạn): quá mức là một bạn to gấp đôi bạn kia (đo thật mẫu 31)
+# bề ngang đầu to nhất / nhỏ nhất (2 bạn). Bản cũ so DIỆN TÍCH ≤ 4 (mẫu 31) nhưng khung đầu thỏ gồm cả tai nên cao gấp
+# đôi: video kid 20/11 (1.1.2) cảnh 7 Gấu to gấp đôi Thỏ mà diện tích chỉ lệch 1,45 lần. Đo 87 khung hình: hai bạn cỡ
+# nhau 1,00-1,15 lần, cảnh lệch cỡ 1,45-1,50 lần.
+SIZE_RATIO = 1.35
 RETRIES = 2                       # vẽ lại tối đa chừng này lần cho một cảnh (~35 giây / lần trên T4)
 Box = tuple[str, float, list[int]]
 _LOADED: dict[str, Any] = {}
@@ -60,14 +63,24 @@ def _inside(a: list[int], b: list[int]) -> bool:
     return _inter(a, b) / _area(a) >= 0.6
 
 
+def _stacked(a: list[int], b: list[int]) -> bool:
+    """Hai khung chồng dọc thẳng hàng (`_is_body` theo một chiều): phần trên / phần dưới của CÙNG một bạn — tai + mặt thỏ,
+    đầu + thân."""
+    return _is_body(b, a) or _is_body(a, b)
+
+
 def _groups(cands: list[Box]) -> set[int]:
     """Chỉ số các khung «nhóm»: bao trọn ≥ 2 khung khác tách rời nhau (job 1 cảnh 7: khung «a rabbit head» 0,32 bao cả hai
     thỏ, điểm cao nhất nên hai đầu thật bị gộp vào nó -> đếm 1). Bỏ khung nhóm thì các đầu bên trong vẫn còn để đếm; đầu +
-    thân của cùng một bạn bên trong thì thân bị `_is_body` bỏ sau, kết quả không đổi."""
+    thân của cùng một bạn bên trong thì thân bị `_is_body` bỏ sau, kết quả không đổi. Hai khung bên trong chồng dọc thẳng
+    hàng (`_stacked`) là hai phần của một bạn, không làm khung ngoài thành khung nhóm: video kid job 1 ngày 20/11 (bản 1.1.2),
+    Thỏ một mình ở cảnh 1 và 4 — OWLv2 tách đôi đầu thỏ thành khung tai 0,19-0,22 và khung mặt 0,22-0,30, khung cả đầu
+    0,49-0,55 bao cả hai bị bỏ như khung nhóm -> đếm 2 đầu, báo nhân đôi nhầm (9/87 khung hình; video job 1 trước
+    đó 1/85). Đo lại: 0 khung báo nhầm, các khung nhân đôi thật vẫn bắt đủ."""
     out = set()
     for i, (_q, _s, big) in enumerate(cands):
         inner = [c[2] for j, c in enumerate(cands) if j != i and _area(c[2]) < _area(big) and _inside(c[2], big)]
-        if any(not (_inside(a, b) or _inside(b, a)) for k, a in enumerate(inner) for b in inner[k + 1:]):
+        if any(not (_inside(a, b) or _inside(b, a) or _stacked(a, b)) for k, a in enumerate(inner) for b in inner[k + 1:]):
             out.add(i)
     return out
 
@@ -169,11 +182,12 @@ def shirts_ok(found: list[tuple[str, float, list[int]]], expected: list[str]) ->
 
 
 def sizes_ok(heads: list[Box], expected: int, ratio: float = SIZE_RATIO) -> bool:
-    """Cảnh 2 bạn: hai đầu phải cỡ nhau (tỉ lệ diện tích ≤ ratio); 1 bạn hay dò chưa đủ 2 đầu thì không xét."""
+    """Cảnh 2 bạn: hai đầu phải cỡ nhau (bề ngang đầu to nhất / nhỏ nhất trong hai đầu lớn nhất ≤ ratio; bề ngang vì tai thỏ
+    làm khung cao gấp đôi); 1 bạn hay dò chưa đủ 2 đầu thì không xét."""
     if expected < 2 or len(heads) < 2:
         return True
-    areas = sorted(_area(b) for _q, _s, b in heads)[-2:]
-    return areas[1] / max(1.0, areas[0]) <= ratio
+    widths = sorted(max(1, b[2] - b[0]) for _q, _s, b in heads)[-2:]
+    return widths[1] / widths[0] <= ratio
 
 
 def load(device: str = "cuda") -> tuple[Any, Any, str]:
