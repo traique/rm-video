@@ -15,6 +15,16 @@ STYLE_EN = ("Pixar style 3D animation, cute children's storybook, soft rounded s
 # 19/11: nhân vật mỗi cảnh một kích cỡ (sóc to gấp đôi thỏ, thỏ mặt dài như người lớn) -> khoá tỉ lệ: tất cả cùng chiều cao,
 # dáng bé con (đầu tròn to, má phúng phính, thân ngắn)
 PROPORTION_EN = "All friends are toddler-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
+# 20/11 (job 1: Gấu ôm HAI Thỏ, cảnh kết thêm một gấu con): câu tỉ lệ nói theo đúng số bạn — «All friends» ở cảnh 1 bạn gợi ý
+# vẽ thêm bạn; nhắc lại «chỉ một bản» ngay sau số bạn thay vì chỉ có «no other animals» ở cuối prompt (T5 đọc nhẹ phần cuối)
+PROPORTION_ONE_EN = "The character is toddler-sized: big round head, chubby cheeks, short body, standing on two legs"
+PROPORTION_TWO_EN = "Both friends are toddler-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
+# nói khẳng định (FLUX schnell không có prompt âm; chữ «copies» trong prompt lại gợi ra bản sao)
+ONLY_EN = {1: "alone", 2: "each appearing only once"}
+# từ dạy là vật / thiên nhiên mà câu dạy gọi «mặt trời đó» -> vật phải có trong hình (job 1 cảnh 1: dạy «sun», hình không có
+# mặt trời); con vật không ép (bộ kiểm ảnh sẽ đếm nhầm là đầu nhân vật thừa)
+SHOW_GROUPS = {"thing", "nature"}
+SKY_WORDS = {"sun", "moon", "star", "rainbow", "cloud"}
 # Hành động dự phòng theo vai của cảnh khi model không viết action_en bằng tiếng Anh (đo thật: viết tiếng Việt)
 FALLBACK_ACTIONS_EN = ("looking around curiously", "playing together happily", "arguing, upset faces",
                        "sad and looking down", "a friend comforting the other, talking gently",
@@ -320,8 +330,14 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
     soft: list[str] = []                       # cụm phụ (ánh sáng, cảm xúc) — thiếu chỗ thì bỏ dần từ cuối
     if prop_required(idx, scene, prop):        # luôn nhắc lại dù action_en đã ghi: mẫu 33 «beside a toy box» mà 3/5 cảnh không vẽ hộp
         must.append(f"{prop[1]} clearly visible in the picture")       # type: ignore[index]
-    poses = [w["pose"] for w in story_mod.beat_words(text, brief, data) if w.get("pose")]
+    taught = story_mod.beat_words(text, brief, data)
+    poses = [w["pose"] for w in taught if w.get("pose")]
     must += poses                              # từ hành động / cảm xúc đang dạy: tư thế rõ (mẫu 32: «hug» mà không ai ôm)
+    shown = (prop[1] if prop else "").lower()
+    for w in taught:                           # vật đang dạy («mặt trời đó») có trong hình
+        en = str(w.get("en") or "").strip()
+        if w.get("group") in SHOW_GROUPS and not w.get("pose") and en and en.lower() not in shown:
+            must.append(f"the {en} clearly visible" + (" in the sky" if en.lower() in SKY_WORDS else ""))
     light = lighting_en(text)
     emo = "" if poses else emotion_en(text)    # nhắc lại dù action_en đã tả (mẫu 33: «falling down… then running» -> vẽ chạy)
     if emo:
@@ -332,11 +348,13 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
     style = STYLE_EN.replace("soft warm light, ", "") if light else STYLE_EN
     # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
     who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"
+    who += ", " + ONLY_EN[2 if len(keys) == 2 else 1]
+    proportion = PROPORTION_TWO_EN if len(keys) == 2 else PROPORTION_ONE_EN
     extras = [light] if light else []
     while True:
         act = ", ".join([action] + must + soft)
         where = ", ".join([setting, data["world"]["prompt_en"]] + extras)
-        out = f"{who}: {act}. {descs}. {PROPORTION_EN}. Setting: {where}. {style}, no other animals"
+        out = f"{who}: {act}. {descs}. {proportion}. Setting: {where}. {style}, no other animals"
         if len(out.split()) <= PROMPT_WORDS_MAX or not (soft or extras):
             return out
         if soft:

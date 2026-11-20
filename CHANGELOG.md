@@ -13,6 +13,38 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ (20/11/2026)
+
+- Truyện bé: từ tiếng Anh (câu dạy từ, câu ôn từ màn kết) đọc bằng giọng Anh bản xứ (edge-tts, `KIDS_EN_VOICE`, mặc định
+  en-US-JennyNeural), phần tiếng Việt vẫn VieNeu, nối lại trong clip của cảnh. Đo bằng Whisper trên video job 1: VieNeu đọc
+  «sun» thành «súng / xuống», «jump» thành «Trân / trâm»; bản mới Whisper nghe ra đúng «Sun», «Jump», «Happy».
+- Truyện bé: bộ kiểm ảnh bắt được nhân vật nhân đôi trên ảnh vẽ bằng LoRA (job 1: Gấu ôm HAI Thỏ ở cảnh 7, thêm một gấu con ở
+  cảnh 8 — bộ kiểm cũ cho qua cả hai). Ngưỡng đầu 0,3 -> 0,18, khung bao nhiều đầu không nuốt các đầu bên trong, đầu thứ hai
+  lệch sang bên không bị coi là thân áo, thêm phép đếm theo loài. Đo trên 85 khung hình video job 1: bắt 13/13 khung nhân
+  đôi (trước: 0), 0 khung báo nhầm ở 7 cảnh sạch.
+- Truyện bé: prompt ảnh nói đúng số bạn (cảnh 1 bạn không còn «All friends…»), «each appearing only once» ngay đầu prompt;
+  vật đang dạy («mặt trời đó») phải có trong hình (job 1 cảnh 1 dạy «sun» mà hình không có mặt trời).
+
+### Chi tiết
+- **Giọng Anh** (`rmvideo/kids/dialogue.py`: `split_english`, `english_clip`; `rmvideo/kids/job.py`): mỗi đoạn lời (người kể /
+  nhân vật) tách theo các từ tiếng Anh của đề (đứng riêng, không phân biệt hoa thường, dấu câu dính sau đi kèm để giọng Anh lên
+  giọng đúng «sun!»): «À, mặt trời đó tiếng Anh là» (VieNeu) + «sun.» (giọng Anh) + «Bé nói theo nè:» (VieNeu) + «sun!» (giọng
+  Anh). edge-tts đệm ~0,2 s lặng đầu và ~1,2 s lặng cuối -> cắt còn 40/60 ms; đọc chậm 10%; mỗi mẩu kéo về cùng mức RMS như
+  trước. Mỗi cụm chữ Anh chỉ gọi edge-tts một lần, thử lại 3 lần; vẫn lỗi thì đoạn chứa nó VieNeu đọc nguyên như cũ, ghi vào
+  `notes` (không mất tiếng, không hỏng job). Kaggle đã cài sẵn edge-tts (gói PIP của notebook). `timings.en_voice` ghi giọng đã
+  dùng. Cài đặt `KIDS_EN_VOICE`: Jenny (nữ, chuẩn) / Ana (bé gái) / Ava / Guy / `off`. Nghe thử VieNeu CPU + edge thật: VieNeu
+  đọc nguyên câu còn tự lặp «Bé nói theo nè, súng» hai lần; bản tách không lặp.
+- **Kiểm ảnh** (`rmvideo/kids/imgcheck.py`): OWLv2 chấm đầu trên ảnh LoRA (lông nỉ) thấp hơn hẳn ảnh FLUX trơn đo 19/11 — đầu
+  gấu 0,15–0,23, đầu thỏ thứ hai 0,297 — nên ngưỡng 0,3 không thấy bản sao. `THRESHOLD` 0,18 (dải an toàn đo được 0,15–0,2;
+  0,12 bắt đầu báo nhầm). `_groups`: khung bao trọn ≥ 2 khung tách rời (một khung «a rabbit head» 0,32 bao cả hai thỏ, điểm cao
+  nhất) bị bỏ, các đầu bên trong giữ lại. `_is_body`: khung dưới một đầu chỉ là thân áo khi thẳng hàng (tâm lệch ≤ 25%) hoặc
+  vùng giữa mang màu áo — luật cũ (mọi khung dưới đầu) gộp mất đầu thỏ thứ hai ló dưới cằm thỏ thứ nhất (lệch 54%). `species_twins`:
+  hai đầu cùng loài ≥ 0,25 mà cảnh chỉ có một bạn loài đó -> nhân đôi. Test hồi quy dùng khung thật đo từ video job 1.
+- **Prompt ảnh** (`rmvideo/kids/prompts.py`): `PROPORTION_ONE_EN` / `PROPORTION_TWO_EN` thay câu «All friends…» cho mọi cảnh;
+  «Exactly one character in the picture, alone» / «Exactly two friends in the picture, each appearing only once» (nói khẳng định,
+  FLUX schnell không có prompt âm); từ dạy nhóm vật / thiên nhiên không có tư thế -> «the sun clearly visible in the sky» (con
+  vật không ép: bộ kiểm sẽ đếm nó là đầu thừa).
+
 ## 1.1.1 — xoá chữ in cứng bằng LaMa (19/11/2026)
 
 - Nhạc bé: cả phiên Lyria giới hạn `TIMEOUT + STALL` giây (`asyncio.wait_for`): trước đây hạn giờ chỉ xét khi có gói

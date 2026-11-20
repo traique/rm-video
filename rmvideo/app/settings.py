@@ -427,6 +427,14 @@ SCHEMA: tuple[Setting, ...] = (
       help="Lời thoại trong «…» đọc bằng giọng VieNeu của nhân vật (data.json: Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam "
            "Thùy Dung, Sóc Nhỏ Mỹ Duyên); lời kể vẫn là KIDS_VOICE. 0 = một giọng đọc hết.",
       options=(("1", "Bật (mặc định)"), ("0", "Tắt: một giọng")), choices=("0", "1")),
+    S("KIDS_EN_VOICE", "en-US-JennyNeural", "kids", "Giọng đọc từ tiếng Anh",
+      help="Từ tiếng Anh trong câu dạy từ và câu ôn từ đọc bằng giọng bản xứ (edge-tts, đọc trên Kaggle), phần tiếng Việt vẫn "
+           "VieNeu. VieNeu là giọng tiếng Việt nên đọc «sun» thành «xun», «jump» thành «trâm» (đo 20/11). Giọng Anh lỗi thì "
+           "đoạn đó tự đọc bằng VieNeu như cũ.",
+      options=(("en-US-JennyNeural", "Jenny — nữ Mỹ, rõ, chuẩn (mặc định)"), ("en-US-AnaNeural", "Ana — giọng bé gái Mỹ"),
+               ("en-US-AvaNeural", "Ava — nữ Mỹ, tự nhiên"), ("en-US-GuyNeural", "Guy — nam Mỹ"),
+               ("off", "Tắt: VieNeu đọc luôn từ tiếng Anh (phát âm sai)")),
+      choices=("en-US-JennyNeural", "en-US-AnaNeural", "en-US-AvaNeural", "en-US-GuyNeural", "off")),
     S("KIDS_IMAGE_MODEL", "schnell", "kids", "Model vẽ ảnh",
       options=(("schnell", "FLUX.1-schnell 4-bit (Apache-2.0, 4 bước — mặc định)"),
                ("dev", "FLUX.1-dev (giấy phép PHI THƯƠNG MẠI — kênh không bật kiếm tiền; 20 bước, chậm ~6 lần schnell)"),
@@ -524,7 +532,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",

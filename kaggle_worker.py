@@ -435,7 +435,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
         dss = dss + [music["dataset"]]
     spec = {"kind": "kids", "slug": SLUG_KIDS, "title": "rmvideo kids", "job": job.id, "brief": brief, "data": data,
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
-                      "multi": config.KIDS_MULTI_VOICE != "0"},
+                      "multi": config.KIDS_MULTI_VOICE != "0", "en": "" if config.KIDS_EN_VOICE in ("", "off") else config.KIDS_EN_VOICE},
             "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0",
                       "lora": (lora_source() or ("", "", ""))[2]},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,

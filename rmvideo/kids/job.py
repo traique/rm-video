@@ -78,38 +78,67 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t["images"] = round(time.time() - t0, 1)
     import kaggle_job
     t0 = time.time()
+    notes: list[str] = []
     synth = kaggle_job.make_synth(spec, None)
     recap = story_mod.recap_text(brief)             # câu ôn từ (mã viết) đọc trong màn kết: mỗi từ chắc chắn được nghe kèm nghĩa
     hook = (st.get("hook") or "").strip()           # câu móc 3 giây đầu (đọc trước truyện)
     narrator = (spec.get("voice") or {}).get("name") or ""
     multi = bool((spec.get("voice") or {}).get("multi", True))
+    en_voice = str((spec.get("voice") or {}).get("en", dialogue.EN_VOICE) or "")    # trống: VieNeu đọc cả từ tiếng Anh
     chars = data["characters"]
-    items: list = []                                # (khoá, lời, giọng); khoá = cảnh*100 + đoạn; 9000 = ôn từ, 9001 = móc
-    seg_keys: list[list[int]] = []
+    # mỗi clip (cảnh 0-7, 90 = ôn từ, 91 = móc) là các đoạn (người nói, lời); từ tiếng Anh trong đoạn đọc bằng giọng Anh
+    groups: dict[int, list[tuple[str, str]]] = {}
     for i, text in enumerate(texts):
-        segs = dialogue.split(text, chars, brief.get("main", "")) if multi else [("narrator", text)]
-        keys = []
-        for j, (who, part) in enumerate(segs):
-            k = i * 100 + j
-            items.append((k, part, dialogue.voice_for(who, chars, narrator)))
-            keys.append(k)
-        seg_keys.append(keys)
-    items.append((9000, recap, narrator))
+        groups[i] = dialogue.split(text, chars, brief.get("main", "")) if multi else [("narrator", text)]
+    if recap:
+        groups[90] = [("narrator", recap)]
     if hook:
-        items.append((9001, hook, narrator))
+        groups[91] = [("narrator", hook)]
+    en_words = [w["en"] for w in brief.get("words", [])] if en_voice else []
+    en_texts = sorted({p for segs in groups.values() for _, part in segs
+                       for is_en, p in dialogue.split_english(part, en_words) if is_en})
+    en_clip: dict[str, str] = {}
+    if en_texts:
+        async def _en(j: int, w: str) -> None:
+            try:
+                en_clip[w] = await dialogue.english_clip(w, os.path.join(tmp, f"en_{j:02d}.wav"), en_voice)
+            except Exception as e:
+                notes.append(f"từ «{w}» đọc bằng VieNeu (giọng tiếng Anh lỗi: {str(e)[:100]})")
+                logging.warning("Truyện bé: %s", notes[-1])
+        await asyncio.gather(*[_en(j, w) for j, w in enumerate(en_texts)])
+    items: list = []                                # (khoá, lời, giọng) cho VieNeu; khoá = clip*10000 + đoạn*100 + mẩu
+    order: dict[int, list] = {}                     # clip -> các mẩu theo thứ tự đọc: khoá VieNeu hoặc đường dẫn giọng Anh
+    for g, segs in groups.items():
+        seq: list = []
+        for j, (who, part) in enumerate(segs):
+            voice = dialogue.voice_for(who, chars, narrator)
+            pieces = dialogue.split_english(part, en_words)
+            if any(is_en and p not in en_clip for is_en, p in pieces):
+                pieces = [(False, part)]            # giọng Anh lỗi: đọc cả đoạn bằng VieNeu như trước
+            for q, (is_en, p) in enumerate(pieces):
+                if is_en:
+                    seq.append(en_clip[p])
+                else:
+                    k = g * 10000 + j * 100 + q
+                    items.append((k, p, voice))
+                    seq.append(k)
+        order[g] = seq
     voiced = await synth(items, tmp)
-    clips: list[dict] = []
-    for i, keys in enumerate(seg_keys):             # nối các đoạn của một cảnh thành một clip (giữ nguyên phần dựng)
-        paths = [voiced[k]["path"] for k in keys if voiced.get(k, {}).get("path")]
+
+    async def _clip(g: int, name: str) -> dict:
+        """Nối các mẩu của một clip thành một file (một mẩu thì dùng luôn)."""
+        paths = [x if isinstance(x, str) else voiced.get(x, {}).get("path") for x in order.get(g, [])]
+        paths = [p for p in paths if p]
         if len(paths) > 1:
-            clips.append({"path": await dialogue.merge(paths, os.path.join(tmp, f"scene_{i:02d}.wav"))})
-        else:
-            clips.append({"path": paths[0] if paths else None})
-    recap_clip = voiced.get(9000) or {"path": None}
-    hook_clip = (voiced.get(9001) or {"path": None}) if hook else {"path": None}
+            return {"path": await dialogue.merge(paths, os.path.join(tmp, name))}
+        return {"path": paths[0] if paths else None}
+    clips: list[dict] = [await _clip(i, f"scene_{i:02d}.wav") for i in range(len(texts))]   # phần dựng giữ nguyên
+    recap_clip = await _clip(90, "recap.wav") if recap else {"path": None}
+    hook_clip = await _clip(91, "hook.wav") if hook else {"path": None}
+    if en_clip:
+        t["en_voice"] = en_voice
     t["voices"] = sorted({v for _, _, v in items})
     t["tts"] = round(time.time() - t0, 1)
-    notes: list[str] = []
     music = None
     if spec.get("music"):
         try:

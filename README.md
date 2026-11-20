@@ -249,7 +249,10 @@ dùng.
 Kiểm ảnh (19/11, `rmvideo/kids/imgcheck.py`): FLUX với khung dọc 9:16 thỉnh thoảng vẽ nhân vật hai đầu / nhân đôi dù prompt ghi
 «đúng một nhân vật». Sau khi vẽ, OWLv2 (bộ dò vật thể mở, ~600MB, chạy trên Kaggle sau FLUX) đếm đầu thỏ / mèo / gấu / sóc,
 gộp khung lồng nhau và bỏ khung thân áo dưới đầu (đo thật 16 ảnh: 0 báo nhầm); thừa đầu so với số bạn có mặt thì vẽ lại cảnh
-với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
+với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Từ 20/11 (ảnh LoRA chấm điểm thấp hơn): ngưỡng 0,18, khung bao nhiều đầu không
+nuốt các đầu bên trong, đầu lệch sang bên không bị coi là thân áo, thêm phép đếm theo loài — đo trên 85 khung hình video
+job 1: bắt 13/13 khung nhân đôi (Gấu ôm hai Thỏ, thêm gấu con), 0 báo nhầm. Từ tiếng Anh đọc bằng giọng bản xứ
+(`KIDS_EN_VOICE`, edge-tts en-US) thay vì VieNeu («sun» -> «súng»). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
 bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
 trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
 
