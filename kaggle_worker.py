@@ -28,6 +28,8 @@ SLUG_ANALYZE = "rmvideo-analyze"   # notebook riêng: phiên dựng gắn đầu
 SLUG_PHOWHISPER = "rmvideo-phowhisper"   # notebook giữ model PhoWhisper-large đã chuyển CTranslate2 (chạy một lần)
 SLUG_KIDS = "rmvideo-kids"               # 🧸 truyện bé: notebook riêng (không ghi đè phiên remake)
 SLUG_LORA_TRAIN = "rmvideo-lora-train"   # notebook train LoRA 4 nhân vật (đầu ra: output/<tên>/<tên>.safetensors)
+SLUG_KIDS_LORA = "rmvideo-kids-lora"     # dataset riêng tư giữ bản LoRA đang dùng (train lại không xoá mất)
+_LORA_OK: dict[str, tuple[bool, float]] = {}
 SLUG_KIDS_MODELS = "rmvideo-kids-models"  # chạy một lần (kids_setup): llama.cpp đã biên dịch + FLUX.1-schnell 4-bit
 # mã gửi kèm notebook: tính tự động từ import thật của kaggle_job.py (rmvideo/services/kaggle_bundle.py)
 BUNDLE = list(kaggle_bundle.files())
@@ -378,12 +380,45 @@ def kids_sources() -> tuple[list, list]:
             kind, slug = "notebook", kind
         (dss if kind.lower() == "dataset" else nbs).append(slug.strip("/ "))
     nbs = nbs or [SLUG_KIDS_MODELS]
-    lora = (config.KIDS_LORA or "").strip()
-    if lora and not os.path.isabs(lora):                 # LoRA nhân vật nằm trong đầu ra notebook train: gắn notebook đó
-        slug = lora.split("/")[0] if "/" in lora else SLUG_LORA_TRAIN
-        if slug not in nbs:
-            nbs.append(slug)
+    src = lora_source()
+    if src:                                              # LoRA nhân vật: gắn dataset / notebook chứa file
+        lst = dss if src[0] == "dataset" else nbs
+        if src[1] not in lst:
+            lst.append(src[1])
     return nbs, dss
+
+
+def lora_source() -> tuple[str, str, str] | None:
+    """KIDS_LORA -> (dataset|notebook, slug, tên file) hoặc None (tắt / tài khoản không có dataset LoRA).
+    «dcn_lora_v1» = dataset rmvideo-kids-lora; «dataset:slug/tên», «notebook:slug/tên» (vd notebook:rmvideo-lora-train/
+    dcn_lora_v1 = đầu ra notebook train). Dataset được hỏi Kaggle có tồn tại không (nhớ 1 giờ): không có thì vẽ không LoRA
+    thay vì để Kaggle từ chối cả phiên."""
+    v = (config.KIDS_LORA or "").strip()
+    if not v or v.lower() in ("0", "off", "none"):
+        return None
+    kind, _, rest = v.partition(":")
+    if not rest:
+        kind, rest = "dataset", v
+    kind = "notebook" if kind.strip().lower() == "notebook" else "dataset"
+    slug, _, name = rest.strip("/ ").rpartition("/")
+    slug = slug or (SLUG_KIDS_LORA if kind == "dataset" else SLUG_LORA_TRAIN)
+    if not name:
+        return None
+    if kind == "dataset" and kaggle_api.configured():
+        now = time.time()
+        hit = _LORA_OK.get(slug)
+        if not hit or now - hit[1] > 3600:
+            try:
+                ok = kaggle_api.dataset_exists(slug)
+            except Exception as e:                       # không hỏi được: cứ gắn, Kaggle sẽ báo nếu sai
+                logging.warning("Không kiểm được dataset LoRA %s (%s)", slug, str(e)[:120])
+                ok = True
+            _LORA_OK[slug] = (ok, now)
+            if not ok:
+                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, vẽ không LoRA", slug)
+        if not _LORA_OK[slug][0]:
+            return None
+    return kind, slug, name
 
 
 def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = None,
@@ -402,7 +437,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
             "voice": {"engine": "vieneu", "name": config.KIDS_VOICE, "id": "vieneu:" + config.KIDS_VOICE,
                       "multi": config.KIDS_MULTI_VOICE != "0"},
             "image": {"model": config.KIDS_IMAGE_MODEL, "check": config.KIDS_IMAGE_CHECK != "0",
-                      "lora": (config.KIDS_LORA or "").strip()},
+                      "lora": (lora_source() or ("", "", ""))[2]},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
                     "think": int(config.KIDS_LLM_THINK or 0)},
             "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,

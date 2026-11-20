@@ -253,6 +253,12 @@ với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Cùng lượt dò, 
 bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
 trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
 
+LoRA nhân vật (20/11, `KIDS_LORA=dcn_lora_v1` mặc định): FLUX vẽ mỗi cảnh từ chữ nên gương mặt các bạn lệch nhau giữa các cảnh.
+LoRA dạy model nhớ đúng bốn bạn: train trên Kaggle T4 bằng ai-toolkit (nền FLUX.1-schnell + adapter huấn luyện, Apache-2.0) với
+144 ảnh do chính pipeline vẽ; file nằm ở dataset riêng tư `rmvideo-kids-lora`, phiên dựng tự gắn và nạp, prompt thêm từ khoá
+`thotrang`, `gaunau`, `meocam`, `socnho`. Muốn train lại (đổi kiểu dáng): vẽ bộ ảnh mới rồi chạy lại notebook train, chép file
+vào dataset. `KIDS_LORA=off` để tắt.
+
 Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
 lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
 tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100

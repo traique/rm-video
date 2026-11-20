@@ -404,13 +404,29 @@ def test_lora_wiring(tmp_path, monkeypatch):
     sc = {"characters": ["white_rabbit", "orange_cat"], "action_en": "White Rabbit hugs Orange Cat."}
     assert "thotrang White Rabbit" in prompts.image_prompt(sc, b0, DATA, use_lora=True) and "meocam Orange Cat" in prompts.image_prompt(sc, b0, DATA, use_lora=True)
     assert "thotrang" not in prompts.image_prompt(sc, b0, DATA)
+    import kaggle_api
+    exists = {"v": True}
+    asked = []
+    monkeypatch.setattr(kaggle_api, "configured", lambda: True)
+    monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: asked.append(slug) or exists["v"])
+    kaggle_worker._LORA_OK.clear()
     monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1", raising=False)
-    nbs, _dss = kaggle_worker.kids_sources()
-    assert kaggle_worker.SLUG_LORA_TRAIN in nbs and nbs[0] == kaggle_worker.SLUG_KIDS_MODELS
+    nbs, dss = kaggle_worker.kids_sources()
+    assert kaggle_worker.SLUG_KIDS_LORA in dss and nbs == [kaggle_worker.SLUG_KIDS_MODELS]
     job = job_factory.kids(brief=b0, source="web")
-    assert kaggle_worker.kids_spec(job, b0, None)["image"]["lora"] == "dcn_lora_v1"
-    monkeypatch.setattr(config, "KIDS_LORA", "", raising=False)
-    assert kaggle_worker.SLUG_LORA_TRAIN not in kaggle_worker.kids_sources()[0]
+    sp = kaggle_worker.kids_spec(job, b0, None)
+    assert sp["image"]["lora"] == "dcn_lora_v1" and kaggle_worker.SLUG_KIDS_LORA in sp["dataset_sources"]
+    assert asked == [kaggle_worker.SLUG_KIDS_LORA]                                    # nhớ kết quả, hỏi một lần
+    monkeypatch.setattr(config, "KIDS_LORA", "notebook:rmvideo-lora-train/dcn_lora_v1", raising=False)
+    assert kaggle_worker.SLUG_LORA_TRAIN in kaggle_worker.kids_sources()[0]
+    assert kaggle_worker.lora_source() == ("notebook", "rmvideo-lora-train", "dcn_lora_v1")
+    exists["v"] = False                                                              # tài khoản không có dataset: vẽ không LoRA
+    kaggle_worker._LORA_OK.clear()
+    monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1", raising=False)
+    assert kaggle_worker.lora_source() is None and kaggle_worker.kids_spec(job, b0, None)["image"]["lora"] == ""
+    for off in ("", "off"):
+        monkeypatch.setattr(config, "KIDS_LORA", off, raising=False)
+        assert kaggle_worker.lora_source() is None and kaggle_worker.SLUG_KIDS_LORA not in kaggle_worker.kids_sources()[1]
 
 
 def test_rewrite_keeps_previous_draft():
@@ -1238,7 +1254,8 @@ def test_settings_and_snapshot(monkeypatch, tmp_path):
         config.save_settings({"KIDS_TIMES": "8h"})
     with pytest.raises(ValueError, match="KIDS_KAGGLE_SOURCES"):
         config.save_settings({"KIDS_KAGGLE_SOURCES": "dataset:a b/c/d"})
-    config.save_settings({"KIDS_KAGGLE_SOURCES": "notebook:ban/llama-build, dataset:ban/models, rmvideo-kids-models"})
+    config.save_settings({"KIDS_KAGGLE_SOURCES": "notebook:ban/llama-build, dataset:ban/models, rmvideo-kids-models",
+                          "KIDS_LORA": "off"})
     assert kaggle_worker.kids_sources() == (["ban/llama-build", "rmvideo-kids-models"], ["ban/models"])
     assert "KIDS_FB_PAGE_TOKEN" in config.SECRET_KEYS
     assert config.reauth_keys({"KIDS_FB_PAGE_ID": "1"}) == ["KIDS_FB_PAGE_ID"]

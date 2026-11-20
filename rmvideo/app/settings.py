@@ -432,9 +432,11 @@ SCHEMA: tuple[Setting, ...] = (
                ("dev", "FLUX.1-dev (giấy phép PHI THƯƠNG MẠI — kênh không bật kiếm tiền; 20 bước, chậm ~6 lần schnell)"),
                ("zimage", "Z-Image-Turbo (Apache-2.0, 8 bước — đo 19/11: ảnh ĐEN trên T4 vì fp16 tràn số, chưa dùng được)")),
       choices=("schnell", "dev", "zimage")),
-    S("KIDS_LORA", "", "kids", "LoRA nhân vật (file .safetensors trong đầu ra notebook rmvideo-lora-train)",
-      help="Tên file (vd dcn_lora_v1) hoặc «slug/tên»; trống = vẽ không LoRA. Có LoRA thì prompt ảnh thêm từ khoá thotrang / "
-           "gaunau / meocam / socnho và phiên Kaggle gắn thêm notebook train.", validate=_max_len("KIDS_LORA", 120)),
+    S("KIDS_LORA", "dcn_lora_v1", "kids", "LoRA nhân vật (giữ 4 bạn giống nhau ở mọi cảnh)",
+      help="Tên file LoRA trong dataset Kaggle rmvideo-kids-lora (train 20/11: 144 ảnh, 600 bước, FLUX.1-schnell, Apache-2.0); "
+           "«notebook:slug/tên» hay «dataset:slug/tên» để lấy chỗ khác; trống / off = vẽ không LoRA. Có LoRA thì prompt ảnh "
+           "thêm từ khoá thotrang / gaunau / meocam / socnho. Tài khoản Kaggle không có dataset thì tự vẽ không LoRA.",
+      validate=_max_len("KIDS_LORA", 120)),
     S("KIDS_IMAGE_CHECK", "1", "kids", "Kiểm ảnh hai đầu / nhân vật nhân đôi",
       options=(("1", "Bật: OWLv2 đếm đầu nhân vật sau khi vẽ, thừa đầu thì vẽ lại cảnh (≈ +35 giây mỗi lần, mặc định)"),
                ("0", "Tắt")), choices=("1", "0")),

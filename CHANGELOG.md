@@ -19,6 +19,13 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (TorchScript LaMa) vẽ lại nền ở các dải chữ gốc trên mọi khung (cắt dải + ngữ cảnh 48px, mặt nạ bỏ 6% hai mép cho logo góc,
   lô 8 khung, NVENC) → `clean.mp4` về Botkeep, cache theo video; dựng (Botkeep hoặc Kaggle qua `PUBLIC_URL`) dùng video sạch,
   chỉ che mờ dải nào chưa xoá (`remake.uncovered`), ghi chú «Đã xoá chữ gốc ở N dải bằng LaMa». Lỗi → che mờ như cũ.
+- Truyện bé: LoRA 4 nhân vật (`KIDS_LORA`, mặc định `dcn_lora_v1`) — train 20/11 trên Kaggle T4 bằng ai-toolkit (FLUX.1-schnell
+  + adapter huấn luyện của ostris, Apache-2.0; 144 ảnh do pipeline tự vẽ, 36 ảnh / bạn; 600 bước fp16, transformer + T5 nén
+  uint4, embedding T5 tính sẵn ngoài trainer để vừa 14,5 GB; 75 phút). File lưu ở dataset riêng tư `rmvideo-kids-lora`; phiên
+  dựng gắn dataset, nạp bằng `pipe.load_lora_weights` (scale 0,9), prompt thêm từ khoá thotrang / gaunau / meocam / socnho
+  (`characters[].lora_token`). Không có dataset thì tự vẽ không LoRA (`kaggle_worker.lora_source`). Đo trên 8 cảnh mẫu 31:
+  cùng một gương mặt Thỏ Trắng ở mọi cảnh, hết ảnh hai đầu và chữ in lên áo; +80 giây mỗi truyện. Notebook cài thêm `peft`.
+  `kaggle_api.outputs` gộp mọi trang đầu ra.
 - Truyện bé: prompt ảnh khoá tỉ lệ nhân vật (`PROPORTION_EN`: cùng chiều cao, dáng bé con), sóc không «tiny»; bộ kiểm ảnh
   thêm phép đo hai đầu to nhỏ lệch quá 2 lần (`imgcheck.sizes_ok`). Thử Z-Image-Turbo trên T4: ảnh đen (fp16), giữ FLUX.
 - Truyện bé: bỏ câu kết «Các bé ơi, nhớ… nha!» (phản hồi 19/11: nghe giảng, «trớt»): cảnh 8 kết bằng hình ảnh ấm vòng lại
