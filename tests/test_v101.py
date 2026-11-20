@@ -147,6 +147,12 @@ def test_hook_subtitle_hidden_while_hook_title_shows(monkeypatch):
             {"start": 2.4, "slot": 4.0, "text": "Chuẩn bị mực"}]
     assert filtergraph.subtitle_texts(segs, None, title_shown=True) == ["", "Chuẩn bị mực"]
     assert filtergraph.subtitle_texts(segs, None) == [s["text"] for s in segs]          # không có chữ hook to
+    # 1.1.2 job 2: trong đoạn điểm danh nguyên liệu, thẻ nguyên liệu đã hiện -> không phụ đề (trùng chữ, lệch nhịp)
+    edit = {"texts": [{"t": 0.0, "dur": 6.0, "kind": "montage", "text": "Nguyên liệu gồm: x."}, {"t": 50, "dur": 3, "kind": "recap"}]}
+    assert filtergraph.montage_windows(edit) == [(0.0, 6.0)] and filtergraph.montage_windows(edit, {"dur": 3.0}) == [(3.0, 9.0)]
+    assert filtergraph.montage_windows(None) == []
+    assert filtergraph.subtitle_texts(segs, None, quiet=[(0.0, 2.0)]) == ["", "Chuẩn bị mực"]
+    assert filtergraph.subtitle_texts(segs, None, quiet=[(2.3, 6.0)]) == [segs[0]["text"], ""]
     long_hook = [{"start": 0.0, "slot": 6.0, "text": "Câu mở đầu dài hơn lúc chữ hook hiện"}]
     assert filtergraph.subtitle_texts(long_hook, None, title_shown=True) == [long_hook[0]["text"]]
     monkeypatch.setattr(config, "BRAND_INTRO", "0")

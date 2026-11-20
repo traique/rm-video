@@ -44,6 +44,7 @@ _RULES: list[tuple[str, str | Callable[[re.Match], str]]] = [
     (r"(đem|mang|đi) trần", r"\1 trụng"),
     (r"quả(?= (?:" + _FRUIT + r")\b)", "trái"),
     (r"(\d+(?:[.,]\d+)?) quả", r"\1 trái"),
+    (r"nhé", "nha"),                  # 1.1.2 job 2: «Mọi người thử ngay nhé» — tiếng đệm miền Bắc trong giọng miền Nam
 ]
 _COMPILED = [(re.compile(r"(?<![\w])(?:" + p + r")(?![\w])", re.IGNORECASE), r) for p, r in _RULES]
 

@@ -13,6 +13,26 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.1.3 — kênh bếp: video mở bằng món đã xong, đoạn điểm danh hết chữ trùng (20/11/2026)
+
+- Kênh bếp (dựng mạnh): câu đầu kiểu «Hôm nay mình chỉ mọi người công thức…» không còn bị coi là lời chào — giữ làm câu mở
+  đầu (cảnh món đã xong của bản gốc), điểm danh nguyên liệu đứng SAU nó. Job 2 ngày 20/11 (canh chua cá lóc): video mở bằng
+  nồi nước còn khóm, chữ hook đè lên nồi, tô canh chua của bản gốc bị đẩy xuống giây 6.
+- Kênh bếp: đoạn điểm danh nguyên liệu không còn phụ đề — thẻ «1/4 trái khóm» đã hiện từng món, phụ đề lặp đúng chữ đó ngay
+  bên dưới mà lệch nhịp (thẻ «4 muỗng đường» trong lúc phụ đề còn «50g me cục»).
+- Giọng miền Nam: «nhé» -> «nha» (lời kết job 2 «Mọi người thử ngay nhé»).
+
+### Chi tiết
+- `style_b._hook_end` dùng `_SALUTE_RE` (chỉ «xin chào», «chào mừng / cả nhà / mọi người / các bạn / bà con», «hello») thay cho
+  `prompt_engine._GREET_RE` (bắt cả «hôm nay mình…», mẫu đó vẫn dùng để nhận đoạn mở đầu khi AI viết lời). Phần chào thật vẫn
+  bị bỏ như bản 43.
+- `filtergraph.montage_windows(edit, teaser)` + `subtitle_texts(quiet=)`: đoạn lời có mốc bắt đầu trong quãng điểm danh (trục
+  video ra, đã cộng đoạn mở đầu) không phụ đề; giọng vẫn đọc, thẻ nguyên liệu vẫn hiện. Áp cho cả Botkeep và Kaggle (cùng
+  `assemble`).
+- Soát cả video job 2 (108 giây gốc -> 114 giây): lời đủ bước, đúng số liệu (Whisper nghe lại khớp kịch bản); −13,9 LUFS; có
+  nhạc lót Lyria (điểm nhạc 0,186; gốc 0,004 — gốc không nhạc); quãng không lời còn tiếng nền + nhạc (−23 đến −25 dB); nguồn
+  dọc nên khung không đổi; không có chữ in cứng.
+
 ## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; kênh bếp: nhạc Lyria, khung dọc theo nội dung (20/11/2026)
 
 - Kênh bếp: khung dọc theo nội dung (`FRAMING_AUTO`, mặc định bật): nguồn có dải đen thì bỏ dải đen; nguồn ngang cắt

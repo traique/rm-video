@@ -275,7 +275,15 @@ def teaser_window(t: float, cuts: list, end: float, dur: float = TEASER_DUR) -> 
 HOOK_TITLE_UNTIL = 3.3      # chữ hook to hiện tới chừng này khi không có đoạn mở đầu (renderer.hook_title_end)
 
 
-def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = False) -> list:
+def montage_windows(edit: dict | None, teaser: dict | None = None) -> list[tuple[float, float]]:
+    """Quãng điểm danh nguyên liệu (kế hoạch dựng mạnh) trên trục video ra, đã cộng đoạn mở đầu."""
+    T = float(teaser.get("dur") or 0.0) if teaser else 0.0
+    return [(float(x["t"]) + T, float(x["t"]) + T + float(x.get("dur") or 0.0))
+            for x in (edit or {}).get("texts") or [] if x.get("kind") == "montage"]
+
+
+def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = False,
+                   quiet: list | None = None) -> list:
     """Chữ phụ đề của từng đoạn: đoạn giữ tiếng gốc không có chữ; chữ hook to đang hiện trên màn hình (BRAND_INTRO)
     thì câu hook không hiện phụ đề nữa (hai lớp chữ chồng nhau che mất món). Bản 1.0.1: cả khi không có đoạn mở đầu
     (title_shown) — job 1 hiện cùng lúc «MỰC ĐÔNG HẤP KHÔNG RÃ ĐÔNG» và phụ đề «Mực đông hấp kiểu này ngon ghê» —
@@ -290,7 +298,13 @@ def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = F
         end = float(s.get("start", 0.0)) + float(s.get("slot") or s.get("span") or 99.0)
         return title_shown and end <= HOOK_TITLE_UNTIL + 0.3
 
-    return ["" if s.get("ost") == "orig" or (k == 0 and hook_hidden(s)) else s["text"]
+    def in_quiet(s: dict) -> bool:
+        # 1.1.2 job 2 (20/11): trong đoạn điểm danh nguyên liệu, thẻ «1/4 trái khóm» đã hiện từng món; phụ đề đọc cả câu
+        # lặp lại đúng chữ đó ngay bên dưới mà lệch nhịp (thẻ «4 muỗng đường» trong lúc phụ đề còn «50g me cục») -> ẩn
+        st = float(s.get("start", -1.0))
+        return any(a - 0.2 <= st < b for a, b in quiet or [])
+
+    return ["" if s.get("ost") == "orig" or (k == 0 and hook_hidden(s)) or in_quiet(s) else s["text"]
             for k, s in enumerate(segs)]
 
 

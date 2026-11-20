@@ -1414,7 +1414,7 @@ def test_finish_pending_publishes_to_kids_page(monkeypatch, tmp_path):
     st = kids_auto.load_state()
     assert st["pending"] is None and st["posts"][-1]["fb_id"] == "fb123"
     assert st["stories"][-1]["job"] == 999 and st["bgm_recent"] == ["x"]       # không mất phần ghi song song
-    assert "Đã hẹn" in kids_auto.status_text()
+    assert "Đã hẹn" in kids_auto.status_text(now)            # giờ của test (trước đây giờ thật: hỏng sau 19:00 20/11/2026)
 
 
 def test_streak_pauses(monkeypatch):

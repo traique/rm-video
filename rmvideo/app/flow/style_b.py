@@ -22,6 +22,8 @@ Luật:
 """
 from __future__ import annotations
 
+import re
+
 import ingredients
 from rmvideo.app.flow import style
 from rmvideo.domain import recipe
@@ -70,13 +72,18 @@ def _cut_out(pieces: list, a: float, b: float) -> list:
     return out
 
 
+# lời chào THẬT (không đáng giữ làm câu mở đầu). Khác prompt_engine._GREET_RE: «Hôm nay mình chỉ mọi người canh chua cá
+# lóc…» là câu giới thiệu món, thường nói trên cảnh món đã xong — 1.1.2 job 2 (20/11): câu đó bị coi là lời chào, điểm danh
+# nguyên liệu chen lên giây 0, video mở bằng nồi nước còn tô canh chua của bản gốc bị đẩy xuống giây 6
+_SALUTE_RE = re.compile(r"^\W*(xin\s+chào|chào\s+(mừng|cả\s+nhà|mọi\s+người|các\s+bạn|bà\s+con)|hello\b)", re.I)
+
+
 def _hook_end(segs: list, intro_end: float) -> float:
     """Hết câu mở đầu: cuối câu đầu tiên kết thúc sau HOOK_KEEP giây (không quá HOOK_MAX / hết phần chào). Bản 43
     (video mực): bỏ cả phần chào từ giây 0 làm mất cảnh đầu bếp nhấc mực thành phẩm, video mở bằng thẻ "1/2 muỗng bột
     ngọt"; giờ giữ câu đầu làm câu hook rồi mới tới điểm danh nguyên liệu."""
-    import prompt_engine
     for a, b, t in segs:
-        if prompt_engine._GREET_RE.search(t or ""):         # câu chào ("xin chào cả nhà"): không đáng giữ làm hook
+        if _SALUTE_RE.search(t or ""):                     # câu chào ("xin chào cả nhà"): không đáng giữ làm hook
             return 0.0
         if b >= HOOK_KEEP:
             return round(b, 3) if b <= min(HOOK_MAX, intro_end + 0.05) else 0.0
