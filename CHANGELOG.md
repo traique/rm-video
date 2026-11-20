@@ -13,8 +13,11 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
-## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; nhạc nền bếp tự tạo bằng Lyria (20/11/2026)
+## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; kênh bếp: nhạc Lyria, khung dọc theo nội dung (20/11/2026)
 
+- Kênh bếp: khung dọc theo nội dung (`FRAMING_AUTO`, mặc định bật): nguồn có dải đen thì bỏ dải đen; nguồn ngang cắt
+  khung 9:16 theo vùng có tay / chảo, hoạt động rải khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình.
+- Kênh bếp: dò cảnh người gốc nói vào máy (YuNet) và cận neo đáy xuống tay / món (`TALK_ZOOM`, tắt mặc định — xem chi tiết).
 - Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
   (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
   dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
@@ -29,6 +32,24 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   vật đang dạy («mặt trời đó») phải có trong hình (job 1 cảnh 1 dạy «sun» mà hình không có mặt trời).
 
 ### Chi tiết
+- **Khung dọc theo nội dung** (`rmvideo/media/framing.py`): đo một lần mỗi job trên Botkeep (8 cặp khung xám 240px cách
+  0,25 giây, cùng chỗ với chọn tông màu): hàng / cột tối ở MỌI khung mẫu là dải đen (cảnh tối không bị nhận nhầm); nội dung
+  ngang (rộng/cao > 0,66) đo chuyển động theo cột, mỗi cặp khung chuẩn hoá riêng; cửa sổ 9:16 chứa ≥ 55% chuyển động -> cắt
+  cửa sổ đó, ít hơn mà nguồn rất ngang (≥ 1,2) -> nguyên khung vừa bề ngang trên nền mờ của chính nó (nền làm ở 1/8 cỡ,
+  gần như không tốn CPU), nguồn hơi ngang -> cắt giữa như cũ. `look_chain` dùng khung đã chọn ở mọi nơi (video chính, khúc
+  kế hoạch dựng, clip phụ, đoạn mở đầu, ảnh bìa; nhãn bộ lọc riêng mỗi lần gọi); dải chữ gốc đổi sang khung ra
+  (`map_bands`: che mờ + vị trí phụ đề); Kaggle nhận `spec["framing"]`. Đo trên video nấu ăn Wikimedia Commons (giấy phép
+  mở): video ngang trong khung dọc có dải đen -> bỏ 69% khung đen, nền mờ; nguồn ngang bếp ngoài trời và quay tay -> nền
+  mờ (tâm chuyển động lệch 73-195/240 cột giữa các cảnh, cắt cố định nào cũng mất chảo ở vài cảnh); nguồn vuông -> cắt.
+  Đo 5-9 giây / video trên máy phát triển đang tải nặng. Cắt cửa sổ theo TỪNG CẢNH (chủ thể đổi chỗ) chưa làm.
+- **Cảnh người gốc nói vào máy** (`rmvideo/media/talking.py`, `TALK_ZOOM`): YuNet (OpenCV Zoo, MIT, 230KB ONNX, tải từ
+  Hugging Face / GitHub media, kiểm SHA-256, chạy bằng onnxruntime có sẵn) trên ảnh thu nhỏ bước phân tích đã trích, ≤ ~1
+  ảnh/giây (46-60 ms/ảnh 384px trên CPU). Bỏ mặt đứng yên tuyệt đối qua ≥ 6 ảnh (đo: hai bức tranh chân dung treo tường
+  được nhận là mặt 0,88-0,90 điểm); mỗi ảnh lấy mặt cao ≥ 60% mặt lớn nhất và ≥ 10% khung; quãng có lời gốc dài ≥ 2 giây,
+  miệng (phân vị 80) ở trên 42% khung -> khúc chính nằm ≥ 50% trong quãng cận vừa đủ cắt miệng (≤ 1,6), neo đáy
+  (`edl.Piece.ay`, `look_chain(anchor_y=)`, `zoomed_bands` theo neo; bản lưu cũ không đổi). Tắt mặc định: trên video hai
+  người dẫn đứng nói, cận neo đáy chỉ còn thân người cụt đầu; chuyển động dưới miệng không tách được «tay đang làm món»
+  (trung vị 0,04-0,13) với «đứng nói, vung tay» (0,20). Bật khi nguồn chủ yếu «vừa nói vừa làm món».
 - **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
   dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
   chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),

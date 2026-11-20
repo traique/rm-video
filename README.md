@@ -483,6 +483,16 @@ video bằng yt-dlp. Link trang nhạc `tiktok.com/music/...` bị Cloudflare ch
    không lời). `NO_SPEECH=narrate` để quay về cách cũ: mỗi cảnh là một đoạn, AI nhìn ảnh cảnh để viết lời.
 6. Chọn thời lượng dài hơn video gốc: làm chậm hình + tiếng nền tối đa 1.4x.
 
+## 🖼️ Khung dọc theo nội dung (1.1.2)
+
+- `FRAMING_AUTO=1` (mặc định): trước khi dựng, bot đo 8 cặp khung của video gốc. Dải đen có sẵn (video ngang đặt trong khung
+  dọc) bị bỏ. Nguồn ngang 16:9: tay / chảo dồn một chỗ thì cắt khung 9:16 đúng chỗ đó; hoạt động rải khắp khung thì đặt
+  nguyên khung lên nền mờ của chính nó (không mất 2/3 hình như cắt giữa). Nguồn dọc bình thường: cắt giữa như cũ. Chữ gốc
+  cần che và vị trí phụ đề mới đổi theo khung. `0` = luôn cắt giữa như trước.
+- `TALK_ZOOM=1` (tắt mặc định): khúc người gốc nói vào máy (mặt to ở phần trên khung, đang có lời gốc) được đẩy cận neo đáy
+  xuống tay / món để lời Việt không chạy trên môi người khác. Hợp nguồn «vừa nói vừa làm món»; với người dẫn đứng nói thì
+  ra cảnh cụt đầu, nên để tắt.
+
 ## 🎵 Nhạc nền cho video không lời
 
 Video không ai nói thì bot KHÔNG để AI xem hình rồi bịa lời (dễ đoán sai món, nguyên liệu, bước làm) mà chèn nhạc nền.
