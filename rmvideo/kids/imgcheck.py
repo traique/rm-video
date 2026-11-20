@@ -9,6 +9,7 @@ bị dò sót)."""
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from typing import Any
 
 MODEL_ID = "google/owlv2-base-patch16-ensemble"
@@ -147,16 +148,19 @@ def unload() -> None:
     _LOADED.clear()
 
 
-def detect(img: Any, loaded: tuple[Any, Any, str] | None = None, min_score: float = 0.1) -> list[Box]:
-    """Mọi khung đầu / mặt OWLv2 thấy (điểm ≥ min_score), toạ độ pixel của ảnh gốc (OWLv2 đệm ảnh thành vuông theo cạnh dài)."""
+def detect(img: Any, loaded: tuple[Any, Any, str] | None = None, min_score: float = 0.1,
+           extra: Sequence[str] = ()) -> list[Box]:
+    """Mọi khung đầu / mặt OWLv2 thấy (điểm ≥ min_score), toạ độ pixel của ảnh gốc (OWLv2 đệm ảnh thành vuông theo cạnh dài).
+    extra: câu hỏi thêm cho lượt dò này («a toy box»: đồ vật chính của truyện)."""
     import torch
+    queries = list(QUERIES) + [q for q in extra if q]
     proc, model, device = loaded or load()
-    inputs = proc(text=[list(QUERIES)], images=img, return_tensors="pt").to(device)
+    inputs = proc(text=[queries], images=img, return_tensors="pt").to(device)
     with torch.no_grad():
         out = model(**inputs)
     side = max(img.size)
     r = proc.post_process_object_detection(out, threshold=min_score, target_sizes=torch.tensor([[side, side]]).to(device))[0]
-    return [(QUERIES[int(lab)], float(sc), [int(round(v)) for v in box.tolist()])
+    return [(queries[int(lab)], float(sc), [int(round(v)) for v in box.tolist()])
             for box, sc, lab in zip(r["boxes"], r["scores"], r["labels"])]
 
 
@@ -205,15 +209,21 @@ def contact_ok(shirts: list[tuple[str, float, list[int]]], heads: list[Box], wid
     return gap <= CONTACT_GAP * max(1, width)
 
 
+PROP_THR = 0.15         # đồ vật chính (câu hỏi mở «a toy box»): điểm thấp hơn đầu nhân vật vẫn tính là có
+
+
 def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, thr: float = THRESHOLD,
-          colors: list[str] | None = None, contact: bool = False) -> tuple[bool, int, list[Box]]:
+          colors: list[str] | None = None, contact: bool = False, prop: str = "") -> tuple[bool, int, list[Box]]:
     """(đạt?, số đầu thấy, các khung): đạt khi số đầu riêng biệt ≤ số bạn có mặt (ít nhất 1), màu áo không sai (colors:
-    màu áo các bạn trong cảnh, «red» hoặc «rabbit:red» — có loài thì soát cả áo nào dưới đầu nào), hai bạn không lệch cỡ và
-    (contact) hai bạn chạm nhau. Khung trả thêm các áo thấy ("shirt:red", điểm, khung) và lý do hỏng ("why:...")."""
+    màu áo các bạn trong cảnh, «red» hoặc «rabbit:red» — có loài thì soát cả áo nào dưới đầu nào), hai bạn không lệch cỡ,
+    (contact) hai bạn chạm nhau và (prop) có đồ vật chính «prop» trong hình (mẫu 33: «toy box» ghi trong prompt mà 3/5 cảnh
+    không vẽ). Khung trả thêm các áo thấy ("shirt:red", điểm, khung), đồ vật ("prop:toy box") và lý do hỏng ("why:...")."""
     pairs = [tuple(c.split(":", 1)) if ":" in c else ("", c) for c in colors or []]
     plain = [c for _sp, c in pairs]
     owners = {sp: c for sp, c in pairs if sp and c}
-    boxes = detect(img, loaded)
+    pq = f"a {prop.strip()}" if prop and prop.strip() else ""
+    boxes = detect(img, loaded, extra=[pq] if pq else ())
+    props = [b for b in boxes if pq and b[0] == pq and b[1] >= PROP_THR]
     heads = merge_heads(boxes, thr)
     found = shirt_colors(img, boxes, heads=merge_heads(boxes, 0.2)) if (colors or contact) else []
     why: list[str] = []
@@ -228,5 +238,8 @@ def check(img: Any, expected: int, loaded: tuple[Any, Any, str] | None = None, t
         why.append("hai bạn to nhỏ lệch nhau")
     if contact and int(expected) >= 2 and not contact_ok(found, heads, int(getattr(img, "width", 0) or 0)):
         why.append("hai bạn đứng tách rời, chưa ôm / chạm nhau")
+    if pq and not props:
+        why.append(f"không thấy đồ vật chính «{prop.strip()}» trong hình")
     return (not why, len(heads), heads + [("shirt:" + c, sc, b) for c, sc, b in found]
+            + [("prop:" + prop.strip(), sc, b) for _q, sc, b in props]
             + [("why:" + w, 0.0, [0, 0, 1, 1]) for w in why])

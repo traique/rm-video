@@ -255,7 +255,8 @@ trước khi nối, người kể và các bạn nghe đều nhau; câu dạy t�
 
 Hình theo lời kể (20/11, xem mẫu 32 với mắt đạo diễn): model ghi thêm **đồ vật chính** của truyện (`prop_vi` / `prop_en`, vd
 «túi kẹo» / «candy bag», phải có trong lời cảnh 1–2) và prompt ảnh ép nó «clearly visible» ở cảnh 1 và mọi cảnh lời nhắc tới
-(mẫu 32: cốt chuyện là túi kẹo mà cảnh 1–2 không thấy). Từ đang dạy là hành động / cảm xúc (`pose` trong `data.json`: hug, jump,
+(mẫu 32: cốt chuyện là túi kẹo mà cảnh 1–2 không thấy); sau khi vẽ, OWLv2 dò thêm câu hỏi «a {prop_en}» (ngưỡng 0,15), không
+thấy thì vẽ lại (mẫu 33: prompt ghi «beside a toy box» mà 3 trong 5 cảnh không có hộp). Từ đang dạy là hành động / cảm xúc (`pose` trong `data.json`: hug, jump,
 sad…) thì prompt thêm tư thế rõ; từ cần hai bạn chạm nhau (hug, help, share: `contact`) thì OWLv2 soát thêm hai áo có tách rời
 nhau không, tách rời thì vẽ lại (mẫu 32 cảnh 7: «Gấu ôm Thỏ» mà Gấu bưng bánh). Ánh sáng theo lời («trời sắp tối» → hoàng hôn,
 «trăng» → đêm, «sáng sớm», «mưa») và cảm xúc theo cụm xuất hiện sau cùng trong lời cảnh (buồn thiu / giật mình / vấp té / giận

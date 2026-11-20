@@ -357,7 +357,7 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     assert imgcheck.shirt_owner([20, 0, 80, 30], hd) is None                                  # áo ở TRÊN đầu: không gán
     assert imgcheck.owners_ok(hd, found, {"rabbit": "red", "cat": "green"})
     assert not imgcheck.owners_ok(hd, found, {"rabbit": "green", "cat": "red"})
-    monkeypatch.setattr(imgcheck, "detect", lambda img, loaded=None, min_score=0.1: hd + boxes[:2])
+    monkeypatch.setattr(imgcheck, "detect", lambda img, loaded=None, min_score=0.1, extra=(): hd + boxes[:2])
     ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["rabbit:red", "cat:green"])
     assert ok and n == 2 and not any(b[0].startswith("why:") for b in out)
     ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["rabbit:green", "cat:red"])
@@ -415,6 +415,15 @@ def test_imgcheck_merge_and_regenerate(tmp_path, monkeypatch):
     images_mod.generate(["p1"], [11], str(tmp_path / "img3"), "schnell", lambda s: None, pipe=object(), expected=[2],
                         checker=checker2, stats={}, colors=[["rabbit:red", "bear:blue"]])
     assert Image.open(tmp_path / "img3" / "raw_01.png").getpixel((0, 0))[0] == 11
+    got = []
+
+    def checker3(img, n, c=None, **kw):
+        got.append((n, c, kw))
+        return True, n, []
+    images_mod.generate(["p1", "p2"], [11, 22], str(tmp_path / "img4"), "schnell", lambda s: None, pipe=object(), expected=[2, 1],
+                        checker=checker3, stats={}, colors=[["rabbit:red", "bear:blue"], ["rabbit:red"]], contact=[True, False],
+                        props=["toy box", ""])
+    assert got == [(2, ["rabbit:red", "bear:blue"], {"contact": True, "prop": "toy box"}), (1, ["rabbit:red"], {})]
 
 
 def test_lora_wiring(tmp_path, monkeypatch):
@@ -731,7 +740,7 @@ def test_prompts_and_schema():
     sch = prompts.schema(DATA)
     assert sch["properties"]["scenes"]["minItems"] == 8 and set(sch["required"]) == {"title", "hook", "hook_text", "scenes",
                                                                                        "description", "hashtags", "prop_vi", "prop_en"}
-    assert "prop_vi" in u and "candy bag" in u and "prop_en: red kite" in u
+    assert "prop_vi" in u and "wooden ladder" in u and "prop_vi: con diều" in u
     st0 = story.normalize(_good_story(brief), DATA)
     assert st0["hook_text"] == "RỚT MẤT RỒI!" and st0["hook"].endswith("?")
     grp = json.loads(json.dumps(st0))
@@ -765,7 +774,7 @@ def test_prompts_and_schema():
     probs = story.validate(bad_act, brief, DATA)
     assert len(probs) == 8 and all("TIẾNG ANH" in q for q in probs)
     p2 = prompts.image_prompt(bad_act["scenes"][2], brief, DATA, 2)
-    assert p2.startswith("Exactly two friends in the picture: White Rabbit and Brown Bear arguing, upset faces.")
+    assert p2.startswith("Exactly two friends in the picture: White Rabbit and Brown Bear arguing, upset faces")
     assert "nhìn" not in p2
     spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
@@ -1499,10 +1508,15 @@ def test_image_prompt_cues_from_story_text():
            "characters": ["white_rabbit"], "action_en": "White Rabbit jumping happily among balloons"}
     p1 = prompts.image_prompt(sc1, brief, DATA, 0, prop=prop)
     assert "candy bag clearly visible" in p1 and "soft warm light" in p1
+    sc1b = dict(sc1, action_en="White Rabbit holding a candy bag")                 # action đã ghi vẫn nhắc lại (mẫu 33)
+    assert "candy bag clearly visible" in prompts.image_prompt(sc1b, brief, DATA, 0, prop=prop)
+    assert prompts.prop_required(0, sc1, prop) and not prompts.prop_required(3, {"text": "Gấu ngủ."}, prop)
+    assert prompts.prop_required(3, {"text": "Gấu ăn kẹo."}, prop) and not prompts.prop_required(0, sc1, None)
     sc3 = {"text": "Gấu Nâu ngồi chờ bên bàn bánh kem. Trời sắp tối mà chẳng thấy bạn đâu, Gấu Nâu buồn thiu.",
            "characters": ["brown_bear"], "action_en": "Brown Bear sitting by a table with a cake"}
     p3 = prompts.image_prompt(sc3, brief, DATA, 2, prop=prop)
     assert "golden hour sunset light" in p3 and "soft warm light" not in p3 and "sad face, teary eyes" in p3
+    assert "sad face, teary eyes" in prompts.image_prompt(dict(sc3, action_en="Brown Bear sitting sadly"), brief, DATA, 2)
     assert "candy bag" not in p3                                                  # lời cảnh 3 không nhắc kẹo
     sc7 = {"text": "Gấu Nâu ôm bạn. Đố bé biết ôm tiếng Anh là gì? Là hug! Bé đọc theo mình: hug!",
            "characters": ["brown_bear", "white_rabbit"], "action_en": "Brown Bear giving a warm hug to White Rabbit"}
@@ -1557,10 +1571,19 @@ def test_imgcheck_contact(monkeypatch):
     assert imgcheck.contact_ok(far[:1], heads, 200)                                          # một áo bị che khi ôm
     assert imgcheck.contact_ok(far, [("a bear head", 0.6, [20, 20, 100, 100]), ("a rabbit head", 0.6, [90, 40, 150, 100])], 200)
     im = Image.new("RGB", (200, 300), (120, 200, 90))
-    monkeypatch.setattr(imgcheck, "detect", lambda img, loaded=None, min_score=0.1: heads)
+    seen_extra = []
+
+    def fake_detect(img, loaded=None, min_score=0.1, extra=()):
+        seen_extra.append(tuple(extra))
+        return heads + ([("a toy box", 0.2, [50, 200, 150, 290])] if "a toy box" in extra and len(seen_extra) > 1 else [])
+    monkeypatch.setattr(imgcheck, "detect", fake_detect)
     monkeypatch.setattr(imgcheck, "shirt_colors", lambda img, boxes, thr=0.25, heads=None: far)
-    ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"], contact=True)
-    assert not ok and n == 2 and any("chưa ôm" in b[0] for b in out)
+    ok, n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"], contact=True, prop="toy box")
+    assert not ok and n == 2 and any("chưa ôm" in b[0] for b in out) and any("không thấy đồ vật chính «toy box»" in b[0] for b in out)
+    assert seen_extra[-1] == ("a toy box",)
+    ok, _n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"], prop="toy box")   # lần 2: thấy hộp
+    assert ok and any(b[0] == "prop:toy box" for b in out) and seen_extra[-1] == ("a toy box",)
+    assert imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"])[0] and seen_extra[-1] == ()
     ok, _n, out = imgcheck.check(im, 2, loaded=object(), colors=["bear:blue", "rabbit:red"])             # không đòi chạm
     assert ok
     monkeypatch.setattr(imgcheck, "shirt_colors", lambda img, boxes, thr=0.25, heads=None: near)

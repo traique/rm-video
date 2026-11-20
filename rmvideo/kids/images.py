@@ -268,11 +268,12 @@ def apply_lora(pipe: Any, path: str, scale: float = LORA_SCALE, log: Log = loggi
 def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, model: str = "schnell",
              log: Log = logging.info, pipe: Any = None, expected: Sequence[int] | None = None,
              checker: Any = None, stats: dict | None = None, colors: Sequence[Sequence[str]] | None = None,
-             lora: str = "", contact: Sequence[bool] | None = None) -> list[str]:
+             lora: str = "", contact: Sequence[bool] | None = None, props: Sequence[str] | None = None) -> list[str]:
     """Sinh từng prompt -> scene_01.png ... (1080x1920). pipe: pipeline đã nạp (test); None thì tự nạp và giải phóng.
     expected: số bạn có mặt mỗi cảnh -> kiểm đầu nhân vật bằng OWLv2 (rmvideo.kids.imgcheck), thừa đầu thì vẽ lại với seed
     khác (tối đa imgcheck.RETRIES lần, giữ ảnh ít đầu thừa nhất). checker(img, n) -> (ok, số đầu, khung) để test.
-    contact: cảnh nào hai bạn phải chạm nhau (ôm / dắt tay) -> checker(img, n, colors, True). stats: ghi {"checked", "redo"}."""
+    contact: cảnh nào hai bạn phải chạm nhau (ôm / dắt tay) -> checker(..., contact=True); props: đồ vật chính phải có trong
+    cảnh («toy box», rỗng = không soát) -> checker(..., prop=...). stats: ghi {"checked", "redo"}."""
     os.makedirs(out_dir, exist_ok=True)
     st = stats if stats is not None else {}
     st.setdefault("checked", 0)
@@ -282,7 +283,7 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
             from rmvideo.kids import imgcheck
             t0 = time.time()
             loaded = imgcheck.load()
-            checker = lambda img, n, c=None, touch=False, _l=loaded: imgcheck.check(img, n, _l, colors=c, contact=touch)  # noqa: E731
+            checker = lambda img, n, c=None, _l=loaded, **kw: imgcheck.check(img, n, _l, colors=c, **kw)      # noqa: E731
             log(f"Kiểm ảnh: OWLv2 sẵn sàng sau {time.time() - t0:.0f}s")
         except Exception as e:
             log(f"Kiểm ảnh: không nạp được OWLv2 ({str(e)[:100]}), bỏ qua bước kiểm")
@@ -318,11 +319,15 @@ def generate(prompt_list: Sequence[str], seeds: Sequence[int], out_dir: str, mod
                 from rmvideo.kids import imgcheck
                 want = int(expected[i - 1]) if i - 1 < len(expected) else 1
                 want_c = list(colors[i - 1]) if colors is not None and i - 1 < len(colors) else None
-                want_t = bool(contact[i - 1]) if contact is not None and i - 1 < len(contact) else False
+                kw: dict = {}
+                if contact is not None and i - 1 < len(contact) and contact[i - 1]:
+                    kw["contact"] = True
+                if props is not None and i - 1 < len(props) and props[i - 1]:
+                    kw["prop"] = str(props[i - 1])
                 best, best_rank = img, None     # giữ ảnh ít lỗi nhất: (số lý do hỏng, lệch số đầu), không chỉ ít đầu
                 for r in range(imgcheck.RETRIES + 1):
-                    if want_t:
-                        ok, n, heads = checker(img, want, want_c, True)
+                    if kw:
+                        ok, n, heads = checker(img, want, want_c, **kw)
                     else:
                         ok, n, heads = checker(img, want, want_c) if want_c is not None else checker(img, want)
                     st["checked"] += 1

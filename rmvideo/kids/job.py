@@ -68,9 +68,10 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
               for sc in st["scenes"]] if check else None       # «rabbit:red»: soát cả áo nào dưới đầu nào
     contact = [len(sc.get("characters") or []) >= 2 and any(w.get("contact") for w in story_mod.beat_words(sc["text"], brief, data))
                for sc in st["scenes"]] if check else None       # cảnh dạy «hug» / «help» / «share»: hai bạn phải chạm nhau
+    props = [prop[1] if prompts.prop_required(i, sc, prop) else "" for i, sc in enumerate(st["scenes"])] if check else None
     istats: dict = {}
     imgs = await asyncio.to_thread(images_mod.generate, plist, seeds, os.path.join(tmp, "img"), image_model, log,
-                                   expected=expected, stats=istats, colors=colors, lora=lora, contact=contact)
+                                   expected=expected, stats=istats, colors=colors, lora=lora, contact=contact, props=props)
     t["image_checked"], t["image_redo"] = istats.get("checked", 0), istats.get("redo", 0)
     if lora:
         t["lora"] = istats.get("lora", False)

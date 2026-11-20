@@ -27,7 +27,7 @@ NORTH_VI = "bố, quả bóng, cái mũ, cái ô, bít tất, bát, thìa, ngã,
 
 
 EXAMPLE_HOOK = ("Ôi, con diều cứ rớt hoài, Sóc Nhỏ phải làm sao đây?", "DIỀU RỚT HOÀI!")
-EXAMPLE_PROP = ("con diều", "red kite")
+EXAMPLE_PROP = "con diều"       # ví dụ chỉ ghi tiếng Việt: KHÔNG đưa từ tiếng Anh trong kho (kite, candy, box…) vào lời nhắc
 # Ánh sáng theo lời kể (đo thật mẫu 32: «trời sắp tối» mà ảnh nắng trưa; FLUX bỏ qua «as evening approaches» nhẹ nhàng)
 LIGHTING_VI = (
     (r"sắp tối|chiều tà|hoàng hôn|mặt trời lặn|xế chiều|chiều muộn|nắng chiều|chạng vạng",
@@ -90,7 +90,7 @@ def example_sentences() -> list[str]:
 
 
 def _example_block() -> str:
-    return (f"  hook: {EXAMPLE_HOOK[0]} · hook_text: {EXAMPLE_HOOK[1]} · prop_vi: {EXAMPLE_PROP[0]} · prop_en: {EXAMPLE_PROP[1]}\n"
+    return (f"  hook: {EXAMPLE_HOOK[0]} · hook_text: {EXAMPLE_HOOK[1]} · prop_vi: {EXAMPLE_PROP}\n"
             + "\n".join(f"  Cảnh {i}: {t}\n    characters: {c} · action_en: {a}" for i, (t, c, a) in enumerate(EXAMPLE, 1)))
 
 
@@ -170,9 +170,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
             "đồ vật trong hình, thì hiện tại; không tả ngoại hình hay quần áo (đã có sẵn), không chữ.\n"
-            "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «túi kẹo» / «candy bag»): tiếng Việt 1-3 chữ, "
-            "tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi cảnh nó "
-            "xuất hiện (bé phải THẤY nó trong hình).\n"
+            "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «cái thang gỗ» / «wooden ladder»): tiếng Việt "
+            "1-3 chữ, tên tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi "
+            "cảnh nó xuất hiện (bé phải THẤY nó trong hình).\n"
             f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, đặt theo CHUYỆN XẢY RA để "
             "gây tò mò (ví dụ «Thỏ Trắng và chiếc bình hoa vỡ»), KHÔNG lộ bài học hay kết («biết nhận lỗi», «học được…»), không "
             "chữ tiếng Anh.\n"
@@ -288,11 +288,9 @@ def emotion_en(text: str) -> str:
     return _last_match(EMOTION_VI, text)
 
 
-def _in_action(phrase: str, action: str) -> bool:
-    """Hành động model viết đã nhắc đồ vật / động tác chưa (một từ ≥ 3 chữ của cụm, bỏ a/the/of/and; «kite» khớp «holding a kite»)."""
-    low = action.lower()
-    toks = [t for t in re.findall(r"[a-z]+", phrase.lower()) if len(t) >= 3 and t not in ("the", "and", "with")]
-    return any(re.search(r"\b" + t[:4 if len(t) >= 5 else len(t)], low) for t in toks)
+def prop_required(idx: int, scene: dict, prop: tuple[str, str] | None) -> bool:
+    """Cảnh này phải có đồ vật chính trong hình: cảnh 1 (sợi chỉ của truyện) và cảnh nào lời kể nhắc tới nó."""
+    return bool(prop and prop[0] and prop[1] and (idx == 0 or story_mod.prop_mentioned(prop[0], str(scene.get("text") or ""))))
 
 
 def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False,
@@ -310,13 +308,13 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
         action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
     must: list[str] = []                       # cụm bắt buộc (đồ vật, tư thế) — không cắt
     soft: list[str] = []                       # cụm phụ (ánh sáng, cảm xúc) — thiếu chỗ thì bỏ dần từ cuối
-    if prop and prop[0] and prop[1] and (idx == 0 or story_mod.prop_mentioned(prop[0], text)) and not _in_action(prop[1], action):
-        must.append(f"{prop[1]} clearly visible")
+    if prop_required(idx, scene, prop):        # luôn nhắc lại dù action_en đã ghi: mẫu 33 «beside a toy box» mà 3/5 cảnh không vẽ hộp
+        must.append(f"{prop[1]} clearly visible in the picture")       # type: ignore[index]
     poses = [w["pose"] for w in story_mod.beat_words(text, brief, data) if w.get("pose")]
     must += poses                              # từ hành động / cảm xúc đang dạy: tư thế rõ (mẫu 32: «hug» mà không ai ôm)
     light = lighting_en(text)
-    emo = "" if poses else emotion_en(text)
-    if emo and not _in_action(emo.split(",")[0], action):
+    emo = "" if poses else emotion_en(text)    # nhắc lại dù action_en đã tả (mẫu 33: «falling down… then running» -> vẽ chạy)
+    if emo:
         soft.append(emo)
     descs = ". ".join(((chars[k].get("lora_token", "") + " ") if use_lora and chars[k].get("lora_token") else "")
                       + chars[k]["prompt_en"] for k in keys)       # use_lora: từ khoá LoRA («thotrang») đứng trước mô tả
