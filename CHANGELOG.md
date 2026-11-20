@@ -18,6 +18,9 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - Kênh bếp: khung dọc theo nội dung (`FRAMING_AUTO`, mặc định bật): nguồn có dải đen thì bỏ dải đen; nguồn ngang cắt
   khung 9:16 theo vùng có tay / chảo, hoạt động rải khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình.
 - Kênh bếp: dò cảnh người gốc nói vào máy (YuNet) và cận neo đáy xuống tay / món (`TALK_ZOOM`, tắt mặc định — xem chi tiết).
+- Kênh bếp: dò chuyển cảnh thích nghi (so mỗi khung với các khung quanh nó, theo AdaptiveDetector của PySceneDetect)
+  thay ngưỡng cứng: máy rung / lia nhanh không còn bị tính là chuyển cảnh, cắt nhảy cùng bối cảnh được bắt. Đo 20/11:
+  F1 0,879 -> 0,933 (Botkeep mức nhanh 0,893 -> 0,966), CPU +2-5%.
 - Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
   (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
   dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
@@ -50,6 +53,16 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   (`edl.Piece.ay`, `look_chain(anchor_y=)`, `zoomed_bands` theo neo; bản lưu cũ không đổi). Tắt mặc định: trên video hai
   người dẫn đứng nói, cận neo đáy chỉ còn thân người cụt đầu; chuyển động dưới miệng không tách được «tay đang làm món»
   (trung vị 0,04-0,13) với «đứng nói, vung tay» (0,20). Bật khi nguồn chủ yếu «vừa nói vừa làm món».
+- **Dò chuyển cảnh thích nghi** (`scenes.py`): vẫn một lượt giải mã 320px như cũ, nhưng `scdet` in độ khác khung trước
+  (mafd) của mọi khung. Điểm cắt là khung có mafd ≥ 8 và gấp ≥ 3 lần trung bình ±2 khung lân cận (đổi rất mạnh ≥ 16 chỉ
+  cần gấp 2,2: máy rung kèm bỏ khung ở mức fast); khung trùng (mafd≈0) bỏ qua; vẫn giữ khoảng cách 0,8 giây. Bộ cũ giữ ở
+  `scenes.CUT_DETECTOR = "fixed"`; FFmpeg chưa có scdet (< 4.4) tự dùng bộ cũ. Đo bằng nhãn tay (lệch ≤ 0,25 giây), FFmpeg
+  1 luồng, giải mã full + fast, trên video nấu ăn Wikimedia Commons (100 giây 10 cắt; 58 giây quay tay 0 cắt; 9,6 giây 0 cắt),
+  video ghép có hơi nước / nhấp nháy / loé trắng / 2 hoà tan 0,5 giây và video 12 cắt nhảy cùng bối cảnh: cũ P 0,911 R 0,850
+  F1 0,879, mới P 0,933 R 0,933 F1 0,933. Cắt cứng bắt 56/56 (cũ 51/56); bỏ được cú lia nhanh bộ cũ báo nhầm. Hoà tan cả hai
+  đều không bắt (đã thử mafd 4 khung/giây và màu trung bình: không tách được khỏi máy rung; TransNetV2 trên Kaggle bắt được
+  nhưng cần trọng số + torch, chưa làm); loé trắng một khung cả hai đều báo nhầm. CPU cả lượt phân tích video 100 giây: fast
+  4,5 -> 4,8 giây, full 9,0 -> 9,5 giây. Khoá cache `scenes` không đổi: bản đã duyệt dựng lại vẫn dùng điểm cắt đã duyệt.
 - **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
   dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
   chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),
