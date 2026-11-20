@@ -48,7 +48,7 @@ from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, st
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
-from rmvideo.media import autolook, edl, ff, filtergraph, renderer, tts_engine, voiceplan
+from rmvideo.media import autolook, edl, ff, filtergraph, framing, renderer, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
@@ -362,6 +362,9 @@ class Remake:
         await self.check_duplicate()
         # BRAND_LOOK=auto (bản 1.0.0): chọn tông theo video gốc MỘT lần, trước đoạn mở đầu / ảnh bìa / render
         await autolook.ensure(self.inp, src_dur, job.note)
+        # khung dọc theo nội dung (1.1.2): bỏ dải đen, nguồn ngang cắt theo tay / chảo hoặc đặt lên nền mờ
+        sw, sh, _ = await renderer.source_info(self.inp)
+        await framing.ensure(self.inp, src_dur, sw, sh, job.note)
         if common.auto_full(job) and config.MAX_DURATION + 0.5 < src_dur:
             job.long_mode = LongMode.FULL.value
             job.note(f"ℹ️ Video {src_dur:.0f}s, chọn «Giữ nguyên» nên làm nguyên cả video "
@@ -449,8 +452,9 @@ class Remake:
         self.segs = [(round(a * st, 2), round(b * st, 2), t) for a, b, t in self.raw_segs]
         self.cuts = [round(c * st, 2) for c in self.cuts]
         self.speech = [(a, b) for a, b, _ in self.segs]
-        if self.bands:
-            y, h = filtergraph.band_to_output(*self.bands[0])
+        out_bands = framing.map_bands(self.bands)       # khung dọc theo nội dung: chữ gốc nằm chỗ khác trên khung ra
+        if out_bands:
+            y, h = filtergraph.band_to_output(*out_bands[0])
             self.pos_y = y + h // 2
 
     def cut_promo(self):

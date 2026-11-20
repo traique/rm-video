@@ -281,6 +281,9 @@ def _common(spec: dict) -> dict:
     from rmvideo.media import filtergraph
     if filtergraph.AUTO_LOOK.get():                    # BRAND_LOOK=auto: tông Botkeep đã chọn cho job này (bản 1.0.0)
         spec.setdefault("look", filtergraph.AUTO_LOOK.get())
+    from rmvideo.media import framing
+    if framing.spec_value():                           # khung dọc theo nội dung Botkeep đã chọn (1.1.2)
+        spec.setdefault("framing", framing.spec_value())
     spec.setdefault("token", secrets.token_hex(8))     # mã riêng từng việc: không nhận nhầm kết quả phiên trước
     return spec
 

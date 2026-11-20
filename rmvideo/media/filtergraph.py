@@ -6,7 +6,7 @@ import re
 from contextvars import ContextVar
 
 import config
-from rmvideo.media import edl, ff
+from rmvideo.media import edl, ff, framing
 
 # loudnorm một lượt (động) đoán độ to khi chưa nghe hết bài: đầu video nhỏ rồi to dần, tự nén lên xuống theo cửa
 # sổ 3 giây (nghe "thở"), và độ to cuối cùng lệch mục tiêu. Hai lượt: đo độ to tích hợp EBU R128 của chính bản
@@ -216,7 +216,12 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     preset = LOOKS.get(look_name())
     if preset:
         look = preset.replace("{warm}", warm_filter(5400, 0.4) if cook else "")
-    size = f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},"
+    fr = framing.current(src_w, src_h)         # khung dọc theo nội dung (1.1.2): bỏ dải đen, cửa sổ 9:16, nền mờ
+    pre = framing.pre_crop(fr)
+    if fr:
+        src_w, src_h = fr["box"][2], fr["box"][3]
+    size = (framing.pad_graph(W, H) if fr.get("pad") else
+            f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},")
     # Nguồn NHỎ hơn đầu ra (vd 360x640 -> 720x1280): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to
     # (ít điểm ảnh hơn 4 lần; khử nhiễu trên điểm ảnh thật tốt hơn trên điểm ảnh nội suy).
     keep = 0.96 / max(zoom, 1.0)               # zoom > 1: đẩy cận (kế hoạch dựng) ngay ở lần cắt viền, không tốn thêm
@@ -226,10 +231,10 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
     crop = "crop=in_w*0.96:in_h*0.96," if abs(zoom - 1.0) < 1e-6 else f"crop=in_w*{keep:.4f}:in_h*{keep:.4f},"
     if part == "geo":                          # chỉ cắt khung + đổi cỡ (màu chạy chung sau khi ghép khúc: shared_look)
-        return (crop + size).rstrip(",")
+        return (pre + crop + size).rstrip(",")
     if part == "color":                        # khử nhiễu + màu + làm nét, trên hình đã đúng cỡ
         return look + sharpen + tail
-    return crop + (look + size if upscale else size + look) + sharpen + tail
+    return pre + crop + (look + size if upscale else size + look) + sharpen + tail
 
 
 def shared_look(plan, W: int, H: int, src_w: int, src_h: int) -> bool:
@@ -329,6 +334,8 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
     voice_bed: nhạc lót dưới lời {"idx": đầu vào, "gain_db": mức} (VOICE_BED) hoặc None."""
     tz = teaser if teaser and teaser.get("dur") else None
     T = float(tz["dur"]) if tz else 0.0
+    if cover_bands:                              # khung dọc theo nội dung: dải chữ gốc đổi sang khung ra (trước khi đẩy cận)
+        cover_bands = framing.map_bands(list(cover_bands), framing.current(src_w, src_h))
     plan = edit                                  # rmvideo.media.edl.EditPlan (REMAKE_STYLE) hoặc None = như cũ
     # stretch > 1: làm chậm hình ngay trong lần render này (trước đây stretch() mã hoá cả video một lần riêng)
     slow = f"setpts=PTS*{stretch:.4f}," if abs(stretch - 1) > 1e-3 and plan is None else ""

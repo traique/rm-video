@@ -60,6 +60,7 @@
       "COVER",
       "COVER_TEMPLATE",
       "CUT_PROMO",
+      "FRAMING_AUTO",
       "GEMINI_ASR_MODEL",
       "GEMINI_FALLBACK_MODELS",
       "GEMINI_MODEL",

@@ -390,6 +390,8 @@ async def run_one(spec: dict, tmp: str) -> dict:
     # Mỗi việc chạy trong asyncio.run riêng (ngữ cảnh riêng): việc không mang sẵn thì renderer tự đo trên nguồn.
     if spec.get("look") in filtergraph.LOOKS or spec.get("look") == "goc":
         filtergraph.AUTO_LOOK.set(spec["look"])
+    from rmvideo.media import framing
+    framing.apply_spec(spec)                            # khung dọc theo nội dung Botkeep đã chọn (1.1.2)
     t0 = time.time()
     kind = spec.get("kind") or "remake"
     if kind == "analyze":

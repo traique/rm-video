@@ -22,7 +22,8 @@ os.environ.pop("BOT_TOKEN", None)          # test không bao giờ nối Telegra
 # đặt nhận diện: ghim lại như cũ; test của bộ mặc định mới (test_ban43.py) tự đặt lại giá trị.
 _OLD_DEFAULTS = {"BRAND_NAME": "0", "BRAND_TAGLINE": "0", "BRAND_CLOSE": "0", "BRAND_SERIES": "0", "BRAND_COLOR": "0",
                  "BRAND_LOOK": "goc", "COVER_TEMPLATE": "goc", "POST_RECIPE": "0", "TIPS": "off", "REMAKE_STYLE": "off",
-                 "SHORT_VERSION": "off", "VOICE_BED": "off"}      # 1.0.0: nhạc lót dưới lời (test riêng ở test_v100.py)
+                 "SHORT_VERSION": "off", "VOICE_BED": "off",      # 1.0.0: nhạc lót dưới lời (test riêng ở test_v100.py)
+                 "FRAMING_AUTO": "0"}                             # 1.1.2: khung dọc theo nội dung (test riêng: test_framing.py)
 for _k, _v in _OLD_DEFAULTS.items():
     os.environ.setdefault(_k, _v)
 os.environ.setdefault("RM_BRAND_DIR", os.path.join(_TMP, "no_brand_kit"))   # không có logo / âm hiệu mặc định
