@@ -269,7 +269,10 @@ LoRA nhân vật (20/11, `KIDS_LORA=dcn_lora_v1` mặc định): FLUX vẽ mỗi
 LoRA dạy model nhớ đúng bốn bạn: train trên Kaggle T4 bằng ai-toolkit (nền FLUX.1-schnell + adapter huấn luyện, Apache-2.0) với
 144 ảnh do chính pipeline vẽ; file nằm ở dataset riêng tư `rmvideo-kids-lora`, phiên dựng tự gắn và nạp, prompt thêm từ khoá
 `thotrang`, `gaunau`, `meocam`, `socnho`. Muốn train lại (đổi kiểu dáng): vẽ bộ ảnh mới rồi chạy lại notebook train, chép file
-vào dataset. `KIDS_LORA=off` để tắt.
+vào dataset. `KIDS_LORA=off` để tắt. Bản lưu trữ: `lora/dcn_lora_v1.safetensors` trong repo qua **Git LFS** (164 MB, quá
+giới hạn 100 MB/file thường của GitHub; không nằm trong gói Botkeep). Đổi tài khoản Kaggle hay lỡ xoá dataset thì
+`git lfs pull --include "lora/*"` rồi `python scripts/push_kids_lora.py` (có `KAGGLE_USERNAME` / `KAGGLE_API_TOKEN`)
+để tạo lại dataset `rmvideo-kids-lora`.
 
 Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
 lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /

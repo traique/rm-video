@@ -4,7 +4,8 @@ Giới hạn của Botkeep (Extract archive): zip ≤ 4 MB, ≤ 250 mục (tính
 Zip «Download ZIP» của GitHub có cả test, tài liệu, cấu hình CI (bản 1.0.0: ~270 mục) nên bị từ chối, và luôn bọc mọi
 thứ trong một thư mục `rm-video-<nhánh>/`, trong khi bot chạy thẳng ở thư mục gốc (`/home/container`).
 
-Ở đây chỉ lấy file git đang theo dõi, bỏ phần chỉ dùng khi phát triển (tests/, docs/, .github/, scripts/):
+Ở đây chỉ lấy file git đang theo dõi, bỏ phần chỉ dùng khi phát triển (tests/, docs/, .github/, scripts/) và file model lưu trữ
+(lora/: LoRA nhân vật truyện bé 164 MB qua Git LFS, chỉ để khôi phục dataset Kaggle):
 - `rm-video-botkeep.zip`: zip PHẲNG (không có thư mục bọc ngoài): tải lên Botkeep, giải nén vào `/` là đè đúng chỗ.
 - nhánh `botkeep`: mã chạy bot + zip phẳng ở trên + BOTKEEP.md. Mỗi lần đồng bộ là MỘT commit thay hẳn bản trước
   (zip đổi mỗi lần, giữ lịch sử thì repo phình ra), nội dung commit ghi rõ lấy từ commit nào của nhánh chính.
@@ -27,7 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAIN = "ccr-0f4ff082-rshcy5"                   # nhánh chính
 BRANCH = "botkeep"                             # nhánh mã chạy bot
 ZIP_NAME = "rm-video-botkeep.zip"
-SKIP = ("tests/", "docs/", ".github/", "scripts/")
+SKIP = ("tests/", "docs/", ".github/", "scripts/", "lora/")
 MAX_ENTRIES, MAX_ZIP, MAX_TOTAL, MAX_FILE = 250, 4 << 20, 20 << 20, 4 << 20
 # giờ cố định cho mọi mục trong zip: CI mỗi lần checkout là giờ file mới -> zip khác dù mã y nguyên -> đẩy bản «mới» giả
 STAMP = (2026, 1, 1, 0, 0, 0)
