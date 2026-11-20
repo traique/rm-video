@@ -206,12 +206,17 @@ async def pick(brief: dict, data: dict, rnd: random.Random | None = None, lib_di
     rnd = rnd or random.Random()
     have = tracks(load_library(d), mood)
     if len(have) < TRACKS_PER_MOOD:
-        try:
-            have = await ensure(mood, len(have) + 1, d, client, log)
-        except Exception as e:
-            log(f"Nhạc bé: Lyria lỗi ({str(e)[:120]})")
-            if not have:
-                return None
+        for attempt in range(2):                    # Lyria đứt kết nối giữa chừng (1006 abnormal closure, đo thật 20/11): thử lại một lần
+            try:
+                have = await ensure(mood, len(have) + 1, d, client, log)
+                break
+            except Exception as e:
+                log(f"Nhạc bé: Lyria lỗi ({str(e)[:120]})" + (", thử lại" if attempt == 0 else ""))
+    if not have:                                    # màu này chưa có bài nào: lấy bài màu khác còn hơn không nhạc
+        have = [t for t in load_library(d).get("tracks") or []]
+        if not have:
+            return None
+        log(f"Nhạc bé: chưa có bài màu «{mood}», dùng bài màu khác")
     lib = load_library(d)
     if changed_since_push(lib):
         try:

@@ -609,8 +609,12 @@ def test_bgm_library(tmp_path, monkeypatch):
     r3 = asyncio.run(bgm.pick({"plot": "fear_new"}, DATA, rnd=random.Random(1), lib_dir=lib, client=_FakeLyria(fail=True),
                               log=lambda s: None))
     assert r3 and len(pushes) == 2
-    # Lyria lỗi mà kho rỗng -> None; kho có bài -> vẫn chọn
-    assert asyncio.run(bgm.pick({"plot": "lost_quest"}, DATA, lib_dir=lib, client=_FakeLyria(fail=True), log=lambda s: None)) is None
+    # Lyria lỗi (thử lại 2 lần) mà màu này chưa có bài -> dùng bài màu khác; kho rỗng hẳn -> None
+    logs = []
+    rr = asyncio.run(bgm.pick({"plot": "lost_quest"}, DATA, lib_dir=lib, client=_FakeLyria(fail=True), log=logs.append))
+    assert rr and rr["name"].startswith("tender_") and sum("Lyria lỗi" in m for m in logs) == 2 and any("màu khác" in m for m in logs)
+    assert asyncio.run(bgm.pick({"plot": "lost_quest"}, DATA, lib_dir=str(tmp_path / "empty"), client=_FakeLyria(fail=True),
+                                log=lambda s: None)) is None
     # đẩy dataset lỗi: chỉ dùng bài Kaggle đã có
     monkeypatch.setattr(bgm, "push_dataset_sync", lambda lib_dir=None, log=None: (_ for _ in ()).throw(RuntimeError("kaggle")))
     asyncio.run(bgm.generate("playful", lib, secs=2, client=fake, log=lambda s: None))
