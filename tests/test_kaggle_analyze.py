@@ -197,11 +197,16 @@ def test_render_reuses_mounted_ambient(tmp_path, monkeypatch):
     assert res["amb"] is True and res["timings"]["sep"] == 0.0 and os.path.getsize(res["video"]) > 0
 
 
-def test_analysis_notebook_bundle_and_gpu():
+def test_analysis_notebook_bundle_and_gpu(monkeypatch):
+    monkeypatch.setattr(config, "VOICE_SEP_MODEL", "auto")
     spec = kaggle_worker._common({"kind": "analyze", "src": {"url": "u"}, "token": "x"})
     text = kaggle_worker.kernel_text(spec)
     assert kaggle_worker.needs_gpu(spec) and "faster-whisper" in kaggle_worker.pip_for(spec)
     assert "onnxruntime-gpu" in kaggle_worker.pip_for(spec) and "edge-tts" in kaggle_worker.pip_for(spec)
+    assert "audio-separator==" in kaggle_worker.pip_for(spec)                  # RoFormer: chỉ phiên phân tích (GPU)
+    assert "audio-separator" not in kaggle_worker.pip_for({"kind": "remake"})
+    monkeypatch.setattr(config, "VOICE_SEP_MODEL", "kim")
+    assert "audio-separator" not in kaggle_worker.pip_for(spec)
     import base64
     b64 = text.split('b64decode("', 1)[1].split('"', 1)[0]
     names = set(zipfile.ZipFile(io.BytesIO(base64.b64decode(b64))).namelist())

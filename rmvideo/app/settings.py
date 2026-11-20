@@ -220,6 +220,14 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("large-v3", "Whisper large-v3 (mặc định, mọi ngôn ngữ)"),
                ("phowhisper", "PhoWhisper-large (VinAI, tinh chỉnh tiếng Việt; cần notebook rmvideo-phowhisper đã chạy)")),
       choices=("large-v3", "phowhisper")),
+    S("VOICE_SEP_MODEL", "kim", "kaggle", "Model tách giọng gốc trên Kaggle",
+      help="auto: phiên phân tích Kaggle (GPU) tách bằng Mel-Band RoFormer (đo trên hỗn hợp tổng hợp: giọng sót ngang "
+           "Kim_Vocal_2, tiếng xèo lúc có lời mất ít hơn 0,3-0,7 dB), lỗi / quá 7 phút thì Kim_Vocal_2. Tốn thêm cài gói "
+           "audio-separator + tải model 913MB mỗi phiên phân tích; CHƯA chạy thử trên Kaggle thật nên mặc định vẫn kim — "
+           "bật auto rồi xem log một video («Tách giọng AI (RoFormer)» hay «RoFormer lỗi»). Botkeep luôn dùng Kim_Vocal_2.",
+      options=(("kim", "Kim_Vocal_2 mọi nơi (mặc định, như cũ)"),
+               ("auto", "Thử nghiệm: RoFormer trên Kaggle GPU, dự phòng Kim_Vocal_2")),
+      choices=("kim", "auto")),
     S("KAGGLE_USERNAME", "", "api", "Tên tài khoản Kaggle",
       help="Dán link kaggle.com/<tên> hoặc gõ tên. Dùng cùng token bên dưới.", link="https://www.kaggle.com/settings",
       need="should", validate=_kaggle_user, reauth=True, live=True),
@@ -548,7 +556,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
     "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO", "TALK_ZOOM",
-    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
+    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "VOICE_SEP_MODEL", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",

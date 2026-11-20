@@ -39,6 +39,9 @@ PIP_LIGHT = "pip install -q yt-dlp edge-tts"         # không có giọng VieNeu
 # phiên phân tích: Whisper (faster-whisper) + tách giọng trên GPU (onnxruntime-gpu thay bản CPU mà faster-whisper kéo về)
 PIP_ANALYZE = ("pip install -q faster-whisper yt-dlp edge-tts && (pip uninstall -y -q onnxruntime; "
                "pip install -q onnxruntime-gpu)")
+# tách giọng RoFormer (VOICE_SEP_MODEL=auto, vocal_sep.roformer_wanted): cài sau cùng, ghim bản (danh sách SHA-256 model
+# đi kèm gói); cài lỗi thì chỉ mất RoFormer, tách bằng Kim_Vocal_2 như cũ. audioread: 0.48.0 import mà không khai báo
+PIP_ROFORMER = "; pip install -q audio-separator==0.48.0 audioread"
 # truyện bé: giọng VieNeu + diffusers (FLUX 4-bit) + huggingface_hub (tải GGUF); llama-server là file đã biên dịch gắn vào
 PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf peft 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
 KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-60 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
@@ -234,7 +237,7 @@ def pip_for(spec: dict) -> str:
     if is_kids(spec):
         return PIP_KIDS
     if any(j.get("kind") == "analyze" for j in _jobs(spec)):
-        return PIP_ANALYZE
+        return PIP_ANALYZE + (PIP_ROFORMER if config.VOICE_SEP_MODEL == "auto" else "")
     return PIP if needs_vieneu(spec) else PIP_LIGHT
 
 
