@@ -382,3 +382,86 @@ def test_kaggle_wait_survives_transient_network_errors(monkeypatch):
     monkeypatch.setattr(kaggle_api, "status", always)
     with pytest.raises(kaggle_api.KaggleError, match="Không gọi được"):         # mạng hỏng hẳn: vẫn báo lỗi
         kaggle_api.wait("s", 600, every=0, sleep=lambda s: None)
+
+
+# ---------------- tách giọng RoFormer trên Kaggle GPU, Kim_Vocal_2 dự phòng ----------------
+
+def test_roformer_only_on_kaggle_notebook_with_package(monkeypatch):
+    import importlib.util
+
+    import vocal_sep
+    found = {"audio_separator": object()}
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: found.get(name))
+    monkeypatch.setattr(config, "VOICE_SEP_MODEL", "auto")
+    monkeypatch.delenv("SEP_DEVICE", raising=False)
+    assert not vocal_sep.roformer_wanted()                              # Botkeep: luôn Kim_Vocal_2
+    monkeypatch.setenv("SEP_DEVICE", "cuda")                            # notebook Kaggle (kaggle_job đặt)
+    assert vocal_sep.roformer_wanted()
+    monkeypatch.setattr(config, "VOICE_SEP_MODEL", "kim")
+    assert not vocal_sep.roformer_wanted()
+    monkeypatch.setattr(config, "VOICE_SEP_MODEL", "auto")
+    found.clear()                                                       # phiên dựng: không cài audio-separator
+    assert not vocal_sep.roformer_wanted()
+
+
+def test_roformer_error_or_timeout_falls_back_to_kim(tmp_path, monkeypatch, caplog):
+    import vocal_sep
+    amb, voc = str(tmp_path / "amb.wav"), str(tmp_path / "voc.wav")
+    calls = []
+    monkeypatch.setattr(vocal_sep, "roformer_wanted", lambda: True)
+    monkeypatch.setattr(vocal_sep, "free_mb", lambda: 99999)
+    monkeypatch.setattr(vocal_sep, "_model_path", lambda: "Kim_Vocal_2.onnx")      # không tải model
+
+    def child_for(rof, kim_ok=True):
+        async def child(args, timeout):
+            engine = (args[4:] or ["kim"])[0]
+            calls.append(engine)
+            if engine == "roformer" and rof == "timeout":
+                raise asyncio.TimeoutError
+            if (engine == "roformer" and rof == "error") or (engine == "kim" and not kim_ok):
+                with open(args[1], "wb") as f:                          # file dở trước khi hỏng
+                    f.write(b"do dang")
+                return 1, ["RuntimeError: RoFormer cần GPU (không có CUDA)"]
+            for p in filter(None, (args[1], args[3])):
+                with open(p, "wb") as f:
+                    f.write(b"wav")
+            return 0, ["xong"]
+        return child
+    caplog.set_level("INFO")
+    for rof, want in (("ok", ["roformer"]), ("error", ["roformer", "kim"]), ("timeout", ["roformer", "kim"])):
+        calls.clear()
+        monkeypatch.setattr(vocal_sep, "_child", child_for(rof))
+        assert asyncio.run(vocal_sep.remove_voice("src.mp4", amb, vocals_wav=voc)) and calls == want, rof
+    assert "Tách giọng AI (RoFormer)" in caplog.text and "RoFormer lỗi (mã 1" in caplog.text
+    assert f"RoFormer lỗi (quá {vocal_sep.ROF_TIMEOUT:.0f}s): tách giọng bằng Kim_Vocal_2" in caplog.text
+    monkeypatch.setattr(vocal_sep, "_child", child_for("error", kim_ok=False))
+    os.remove(amb)
+    assert not asyncio.run(vocal_sep.remove_voice("src.mp4", amb, vocals_wav=voc))  # cả hai lỗi: False như cũ
+    monkeypatch.setattr(vocal_sep, "roformer_wanted", lambda: False)                # Botkeep: không thử RoFormer
+    monkeypatch.setattr(vocal_sep, "_child", child_for("ok"))
+    calls.clear()
+    assert asyncio.run(vocal_sep.remove_voice("src.mp4", amb)) and calls == ["kim"]
+
+
+def test_split_sync_roformer_engine_needs_cuda(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    import vocal_sep
+    src = str(tmp_path / "s.mp4")
+    _video(src, 3)
+    cuda = {"ok": False}
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(cuda=types.SimpleNamespace(
+        is_available=lambda: cuda["ok"])))
+    monkeypatch.setattr(vocal_sep, "_separate", lambda *a, **k: pytest.fail("không được chạy Kim_Vocal_2"))
+    monkeypatch.setattr(vocal_sep, "_separate_roformer", lambda mix: 0.5 * mix)
+    ks = []
+    mask = vocal_sep.suppress_residual
+    monkeypatch.setattr(vocal_sep, "suppress_residual", lambda amb, voc, k=1.0: ks.append(k) or mask(amb, voc, k=k))
+    with pytest.raises(RuntimeError, match="CUDA"):                     # CPU: RoFormer quá chậm, về Kim_Vocal_2
+        vocal_sep._split_sync(src, str(tmp_path / "a.wav"), engine="roformer")
+    cuda["ok"] = True
+    monkeypatch.setenv("SEP_PASSES", "2")                               # lượt 2 chỉ dành cho Kim_Vocal_2
+    vocal_sep._split_sync(src, str(tmp_path / "a.wav"), engine="roformer", vocals_wav=str(tmp_path / "v.wav"))
+    assert os.path.getsize(tmp_path / "a.wav") > 1000 and os.path.getsize(tmp_path / "v.wav") > 1000
+    assert ks == [vocal_sep.ROF_MASK_K]                                 # mặt nạ mạnh hơn cho nền RoFormer
