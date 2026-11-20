@@ -274,6 +274,14 @@ SCHEMA: tuple[Setting, ...] = (
     S("NO_SPEECH", "music", "video", "Video không lời", help="Chèn nhạc nền (mặc định) hay để AI viết lời.",
       options=(("music", "Chèn nhạc nền (mặc định): không thêm lời, tránh nói sai sự thật của video gốc"),
                ("narrate", "AI xem hình rồi viết lời đọc (cách cũ)")), choices=("music", "narrate")),
+    S("BGM_SOURCE", "lyria", "video", "Nguồn nhạc nền kênh bếp",
+      help="Nhạc cho video không lời và nhạc lót dưới lời đọc. Lyria: nhạc tự tạo bằng Lyria RealTime (key Gemini, free) "
+           "theo món — chiên xào / đường phố sôi động, đồ uống thư giãn, canh cháo bánh ấm cúng; tạo dần trong nền, gõ "
+           "cook_bgm để tạo đủ kho ngay; đẩy lên Kaggle (dataset rmvideo-cook-bgm), không cần PUBLIC_URL, không bị "
+           "Facebook / TikTok tắt tiếng vì bản quyền. Kho chưa có bài thì dùng thư viện 🎵 Nhạc nền của bạn.",
+      options=(("lyria", "Kho Lyria tự tạo theo món (mặc định, giống truyện bé)"),
+               ("files", "Chỉ thư viện 🎵 Nhạc nền của bạn (link / file tải lên, như trước)")),
+      choices=("lyria", "files"), live=True),
     S("BGM_LINKS", "", "video", "Thư viện nhạc nền (link)", help="Quản lý dễ hơn ở mục 🎵 Nhạc nền.",
       validate=_bgm_links, live=True),
     S("VOICE_BED", "on", "video", "Nhạc lót dưới lời đọc",
@@ -527,7 +535,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",

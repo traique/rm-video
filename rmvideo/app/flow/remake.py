@@ -202,26 +202,26 @@ class Remake:
     # ---------------- nhạc lót dưới lời (VOICE_BED, bản 1.0.0) ----------------
 
     async def pick_bed(self) -> dict | None:
-        """Một bài trong thư viện 🎵 Nhạc nền lót thật nhỏ dưới lời đọc (chọn một lần mỗi job, bản ngắn dùng chung).
-        Thư viện trống / tải lỗi: ghi chú, làm như cũ (không nhạc lót)."""
+        """Một bài nhạc lót thật nhỏ dưới lời đọc (chọn một lần mỗi job, bản ngắn dùng chung): kho Lyria theo màu món
+        (BGM_SOURCE=lyria) hoặc thư viện 🎵 Nhạc nền của mình. Không có bài / tải lỗi: ghi chú, làm như cũ (không nhạc lót)."""
         if self.bed_done:
             return self.bed
         self.bed_done = True
         job = self.job
         if config.VOICE_BED != "on" or job.mode not in (Mode.COOK, Mode.REVIEW):
             return None
-        if not bgm.library():
-            job.note("ℹ️ Nhạc lót dưới lời đang bật nhưng thư viện 🎵 Nhạc nền trống: thêm nhạc miễn phí bản quyền "
-                     "trên web để video có nhạc lót. ")
-            return None
         job.step = "Chọn nhạc lót dưới lời"
         prefer_links = self.remote and not (config.PUBLIC_URL or "").strip()   # Kaggle không lấy được file Botkeep
-        item, music, trim, why = await music_flow._pick_bgm(self.tmp, prefer_links, self.out_dur)
+        dish = self.facts.dish if self.facts else ""
+        item, music, trim, why = await music_flow._pick_bgm(self.tmp, prefer_links, self.out_dur, remote=self.remote,
+                                                            text=f"{dish} {self.title} {self.desc}", mode=job.mode)
         if not music:
             job.note(f"ℹ️ Chưa lót được nhạc dưới lời ({why}). ")
             return None
         self.bed = {"path": music, "trim": round(float(trim), 3), "name": item["name"], "url": item.get("url", ""),
                     "key": item["key"]}
+        if item.get("lyria"):
+            self.bed["lyria"] = item["lyria"]
         return self.bed
 
     def bed_used(self):

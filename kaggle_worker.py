@@ -315,8 +315,11 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
         spec["tail"] = tail
     if voice_bed:                                # nhạc lót dưới lời (VOICE_BED): Kaggle không lấy được thì dựng không nhạc lót
         try:
-            spec["voice_bed"] = {"music": ref(voice_bed.get("path"), voice_bed.get("url", ""), "audio"),
-                                 "trim": voice_bed.get("trim", 0.0), "name": voice_bed.get("name", "")}
+            import bgm
+            music = bgm.kaggle_ref({k: voice_bed.get(k) for k in ("path", "url", "lyria") if voice_bed.get(k)})
+            spec["voice_bed"] = {"music": music, "trim": voice_bed.get("trim", 0.0), "name": voice_bed.get("name", "")}
+            if music.get("dataset"):             # kho nhạc Lyria của bếp: gắn dataset vào phiên
+                spec["dataset_sources"] = [music["dataset"]]
         except KaggleError as e:
             logging.info("Nhạc lót không gửi kèm Kaggle được (%s): dựng không nhạc lót", e)
     if voice_name(job.voice) == CLONE:
@@ -327,16 +330,19 @@ def build_spec(job, segments: list, out_dur: float, render_dur: float, stretch: 
 
 def bed_spec(job, out_dur: float, render_dur: float, stretch: float, allow_hd: bool, title: str, bands,
              max_duration: int, music: str | None, music_url: str, trim: float, orig: str,
-             local_path: str | None = None, src: dict | None = None) -> dict:
+             local_path: str | None = None, src: dict | None = None, music_ref: dict | None = None) -> dict:
     """Video KHÔNG LỜI (NO_SPEECH=music): dựng như remake (tiêu đề, logo, che chữ, màu) nhưng tiếng là nhạc nền (+ tiếng
     gốc theo BGM_ORIG) thay cho giọng đọc. Không đọc giọng, không tách giọng: chạy CPU, không tốn giờ GPU.
     music: file nhạc trên Botkeep (Kaggle lấy qua PUBLIC_URL); music_url: link gốc (Kaggle tự tải). Không có cả hai:
-    chỉ tiếng gốc."""
-    return _common({"kind": "bed", "job": job.id, "mode": job.mode,
-                    "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
-                    "music": ref(music, music_url, "audio") if (music or music_url) else None,
-                    "trim": round(float(trim), 3), "orig": orig, "out_dur": out_dur, "render_dur": render_dur,
-                    "stretch": stretch, "allow_hd": allow_hd, "title": title, "bands": bands or []})
+    chỉ tiếng gốc. music_ref: đầu vào đã dựng sẵn (bài Lyria: file trong dataset `rmvideo-cook-bgm`, gắn vào phiên)."""
+    spec = {"kind": "bed", "job": job.id, "mode": job.mode,
+            "src": src or ref(local_path or job.local or None, job.url, "video", max_duration),
+            "music": music_ref or (ref(music, music_url, "audio") if (music or music_url) else None),
+            "trim": round(float(trim), 3), "orig": orig, "out_dur": out_dur, "render_dur": render_dur,
+            "stretch": stretch, "allow_hd": allow_hd, "title": title, "bands": bands or []}
+    if music_ref and music_ref.get("dataset"):
+        spec["dataset_sources"] = [music_ref["dataset"]]
+    return _common(spec)
 
 
 def analyze_spec(job, local_path: str | None, title: str, desc: str, want_gray: bool, max_duration: int) -> dict:
@@ -715,6 +721,9 @@ async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
     shared = ("settings", "logo_b64", "sting_b64", "ref_b64", "ref_ext")       # giống nhau ở mọi việc: gói một lần (notebook < 1MB)
     spec = {"kind": "batch", "jobs": [{k: v for k, v in s.items() if k not in shared} for s in specs],
             **{k: specs[0].get(k) for k in shared if specs[0].get(k)}}
+    dss = sorted({d for s in specs for d in s.get("dataset_sources") or []})     # kho nhạc Lyria: gắn một lần cho cả lô
+    if dss:
+        spec["dataset_sources"] = dss
     try:
         async with _LOCK:
             return await asyncio.to_thread(_run_sync, spec, tmp, on_step)

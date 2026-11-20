@@ -13,8 +13,11 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
-## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ (20/11/2026)
+## 1.1.2 — truyện bé: bắt nhân vật nhân đôi, từ tiếng Anh giọng bản xứ; nhạc nền bếp tự tạo bằng Lyria (20/11/2026)
 
+- Kênh bếp: nhạc nền (video không lời) và nhạc lót dưới lời đọc lấy từ kho tự tạo bằng Lyria RealTime như truyện bé
+  (`BGM_SOURCE=lyria`, mặc định): 3 màu theo món (ấm cúng / sôi động / thư giãn), tạo dần trong nền, đẩy lên Kaggle thành
+  dataset `rmvideo-cook-bgm`, không cần PUBLIC_URL, không bị tắt tiếng vì bản quyền. Lệnh `cook_bgm` / nút web tạo đủ kho.
 - Truyện bé: từ tiếng Anh (câu dạy từ, câu ôn từ màn kết) đọc bằng giọng Anh bản xứ (edge-tts, `KIDS_EN_VOICE`, mặc định
   en-US-JennyNeural), phần tiếng Việt vẫn VieNeu, nối lại trong clip của cảnh. Đo bằng Whisper trên video job 1: VieNeu đọc
   «sun» thành «súng / xuống», «jump» thành «Trân / trâm»; bản mới Whisper nghe ra đúng «Sun», «Jump», «Happy».
@@ -26,6 +29,16 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   vật đang dạy («mặt trời đó») phải có trong hình (job 1 cảnh 1 dạy «sun» mà hình không có mặt trời).
 
 ### Chi tiết
+- **Nhạc nền bếp bằng Lyria**: lõi kho nhạc Lyria tách từ `rmvideo/kids/bgm.py` thành `rmvideo/media/lyria.py` (`Lib`: thư mục,
+  dataset, các màu, độ dài bài) dùng chung; `rmvideo/kids/bgm.py` giữ nguyên giao diện. Bếp (`bgm.py`): `MOODS` cozy / upbeat /
+  chill (prompt chỉ tả nhạc cụ, nhịp, cảm giác — Lyria lọc tên nghệ sĩ), bài 150 giây (video dài hơn thì nhạc lặp như cũ),
+  `mood_for` đếm chữ khớp trong tên món + tiêu đề + mô tả (hoà / không khớp: ấm cúng, review: sôi động). `choose`: đúng màu,
+  thiếu thì màu khác, kho trống thì thư viện của mình; dựng trên Kaggle chỉ lấy bài đã đẩy dataset. Màu thiếu bài thì
+  `fill_later` tạo MỘT bài trong nền rồi đẩy dataset (một việc một lúc, Lyria lỗi nghỉ 30 phút) — khác truyện bé (tạo ngay
+  trong job), vì job bếp không nên chờ ~3 phút. Kaggle: bài Lyria gửi dạng file trong dataset gắn vào phiên
+  (`bed_spec(music_ref=)`, `build_spec` nhạc lót, `produce_batch` gộp `dataset_sources` của cả lô). Web: dòng trạng thái kho +
+  nút «Tạo đủ kho Lyria» (`POST /api/bgm/lyria`); console `cook_bgm`. Chưa chạy Lyria thật với 3 prompt bếp (máy phát triển
+  không có key Gemini): lần tạo đầu xem log «Nhạc bếp: Lyria lọc prompt» nếu có.
 - **Giọng Anh** (`rmvideo/kids/dialogue.py`: `split_english`, `english_clip`; `rmvideo/kids/job.py`): mỗi đoạn lời (người kể /
   nhân vật) tách theo các từ tiếng Anh của đề (đứng riêng, không phân biệt hoa thường, dấu câu dính sau đi kèm để giọng Anh lên
   giọng đúng «sun!»): «À, mặt trời đó tiếng Anh là» (VieNeu) + «sun.» (giọng Anh) + «Bé nói theo nè:» (VieNeu) + «sun!» (giọng

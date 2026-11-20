@@ -20,13 +20,15 @@ from rmvideo.media import fetch, ff, renderer
 BED_ORIG_VI = {"off": "bỏ tiếng gốc", "low": "giữ tiếng gốc nhỏ dưới nhạc", "keep": "giữ tiếng gốc, nhạc nằm dưới"}
 
 
-async def _pick_bgm(tmp: str, prefer_links: bool, need: float) -> tuple:
-    """(bài, file nhạc, giây bắt đầu, lý do lỗi). Bài tải lỗi thì thử một bài khác trong thư viện."""
+async def _pick_bgm(tmp: str, prefer_links: bool, need: float, remote: bool = False, text: str = "",
+                    mode: str = "cook") -> tuple:
+    """(bài, file nhạc, giây bắt đầu, lý do lỗi). Nguồn theo BGM_SOURCE (bgm.choose: kho Lyria theo màu món `text`, hoặc
+    thư viện của mình). Bài tải lỗi thì thử một bài khác trong thư viện."""
     tried, why = set(), ""
     for _ in range(2):
-        item = bgm.pick(prefer_links=prefer_links, exclude=tried)
+        item = bgm.choose(bgm.mood_for(text, mode), remote=remote, prefer_links=prefer_links, exclude=tried)
         if not item:
-            return None, None, 0.0, why or "thư viện nhạc nền trống"
+            return None, None, 0.0, why or empty_why()
         try:
             music = await bgm.fetch(item, tmp)
             return item, music, await asyncio.to_thread(bgm.best_start, music, need), ""
@@ -37,6 +39,15 @@ async def _pick_bgm(tmp: str, prefer_links: bool, need: float) -> tuple:
     return None, None, 0.0, why
 
 
+def empty_why() -> str:
+    """Lý do chưa có nhạc (thư viện trống) theo nguồn đang chọn."""
+    if (config.BGM_SOURCE or "lyria") == "lyria":
+        st = bgm.lyria_state()
+        return "thư viện nhạc nền trống, " + ("kho nhạc Lyria đang tạo bài đầu tiên trong nền" if st["busy"] else
+                                             "kho nhạc Lyria chưa có bài; gõ cook_bgm để tạo đủ kho, cần GEMINI_API_KEY")
+    return "thư viện nhạc nền trống"
+
+
 async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_dur: float, render_dur: float,
                       stretch: float, is_long: bool, bands, local_only: bool, start_cover, finish_cover):
     """Video KHÔNG LỜI (NO_SPEECH=music): chèn nhạc nền, KHÔNG để AI xem hình rồi bịa lời (dễ nói sai sự thật của
@@ -44,7 +55,8 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
     bìa. Có Kaggle thì dựng trên Kaggle (CPU, không đọc giọng, không tách giọng)."""
     job.step = "Video không lời: chọn nhạc nền"
     on_kaggle = not local_only and kaggle_worker.is_enabled()
-    item, music, trim, why = await _pick_bgm(tmp, on_kaggle and not (config.PUBLIC_URL or "").strip(), out_dur)
+    item, music, trim, why = await _pick_bgm(tmp, on_kaggle and not (config.PUBLIC_URL or "").strip(), out_dur,
+                                             remote=on_kaggle, text=f"{title} {desc}", mode=job.mode)
     orig = config.BGM_ORIG if music else "keep"
     if music:
         job.script = (f"🎵 Video không lời: chèn nhạc nền «{item['name']}» (từ giây {trim:.0f} của bài), "
@@ -86,7 +98,8 @@ async def _music_only(job: Job, inp: str, tmp: str, title: str, desc: str, out_d
         try:
             spec = kaggle_worker.bed_spec(job, out_dur, render_dur, stretch, not is_long, post_title, bands, max_dur,
                                           music, (item or {}).get("url", "") if music else "", trim, orig,
-                                          local_path=inp, src=job.remote_src or None)
+                                          local_path=inp, src=job.remote_src or None,
+                                          music_ref=bgm.kaggle_ref(item) if music and item.get("lyria") else None)
         except Exception as e:
             job.note(f"ℹ️ Chưa dựng được trên Kaggle ({str(e)[:140]}): dựng trên Botkeep. ")
         if spec is not None and kaggle_worker.collecting():

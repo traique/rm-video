@@ -489,6 +489,13 @@ Video không ai nói thì bot KHÔNG để AI xem hình rồi bịa lời (dễ 
 Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu, logo, che chữ gốc, ảnh bìa; bài đăng chỉ viết từ tiêu đề
 + mô tả gốc.
 
+- **Kho nhạc tự tạo bằng Lyria** (`BGM_SOURCE=lyria`, mặc định từ 1.1.2, làm giống truyện bé): bot tự tạo nhạc không lời
+  bằng Lyria RealTime (key Gemini, free) theo «màu» món: chiên xào / đường phố / review → **sôi động**, đồ uống / healthy →
+  **thư giãn**, canh cháo kho bánh → **ấm cúng** (`bgm.mood_for`, đoán từ tên món + tiêu đề + mô tả). Mỗi màu 3 bài
+  150 giây; bài thiếu được tạo dần trong nền (job không phải chờ), xong đẩy lên Kaggle thành dataset riêng tư
+  `rmvideo-cook-bgm` (Kaggle không cần `PUBLIC_URL`). Gõ `cook_bgm` ở console hoặc bấm **Tạo đủ kho Lyria** trên web để
+  tạo đủ 9 bài ngay (~25 phút, chạy nền). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
+  bài thì dùng thư viện của bạn (dưới); `BGM_SOURCE=files` để chỉ dùng thư viện của bạn như trước.
 - Thêm nhạc ở ô **🎵 Nhạc nền cho video không lời** trên web: dán link TikTok / YouTube / mp3 (lưu vào `BGM_LINKS`) hoặc
   tải file lên (mp3, m4a, wav…, tối đa 40 bài, 15MB/bài). Dựng trên Kaggle mà chưa đặt `PUBLIC_URL` thì chỉ dùng nhạc
   dạng link.
@@ -496,7 +503,7 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
 - `BGM_ORIG`: **off** (mặc định) chỉ nhạc mới; **low** giữ tiếng gốc nhỏ dưới nhạc (video ASMR tiếng xèo, tiếng dao);
   **keep** giữ tiếng gốc to, nhạc nằm dưới.
 - Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
-- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài trong thư viện này, lót
+- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài (kho Lyria hoặc thư viện), lót
   thật nhỏ dưới giọng (quãng lặng ~13 dB dưới lời, tự hạ thêm khi đang đọc, bỏ bass), video gốc đã có nhạc rõ thì
   không lót. Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
 
