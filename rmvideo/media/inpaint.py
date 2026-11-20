@@ -330,7 +330,7 @@ class _Band:
                 out = _steady(out, src, m, self.prev, self.H)
             self.prev = (src, out, m)
             crops[j] = out
-            area += m.sum() / self.rect.sum()
+            area += float(m.sum()) / float(self.rect.sum())
         keep = base + len(frames) - HOLD - 1
         for d in (self.dets, self.px):
             for i in [i for i in d if i < keep]:
