@@ -202,7 +202,7 @@ def look_name() -> str:
 
 
 def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain: bool = True,
-               zoom: float = 1.0, part: str = "all") -> str:
+               zoom: float = 1.0, part: str = "all", anchor_y: float = 0.5) -> str:
     """Hình đẹp hơn bản gốc (dùng chung cho video và ảnh bìa): cắt 4% viền -> khử nhiễu nén (hqdn3d) + tương
     phản/sáng nhẹ + vibrance (tăng màu nhạt, không làm cháy màu da) + ấm nhẹ cho món ăn, và scale lanczos (thứ tự
     tuỳ nguồn nhỏ hay lớn) -> làm nét (cas khi QUALITY=high, không thì unsharp)."""
@@ -230,6 +230,8 @@ def look_chain(mode: str, W: int, H: int, src_w: int = 0, src_h: int = 0, grain:
     # cas: làm nét thích ứng, đẹp nhất, tốn ~2.7x unsharp; unsharp kênh sáng: SSIM 0.984-0.988 so với bản cas
     tail = ("," + GRAIN) if grain and config.BRAND_GRAIN == "1" and H >= 1900 else ""
     crop = "crop=in_w*0.96:in_h*0.96," if abs(zoom - 1.0) < 1e-6 else f"crop=in_w*{keep:.4f}:in_h*{keep:.4f},"
+    if anchor_y != 0.5 and abs(zoom - 1.0) >= 1e-6:     # cận neo đáy (cảnh người gốc nói vào máy): cắt mất miệng, giữ tay
+        crop = f"crop=in_w*{keep:.4f}:in_h*{keep:.4f}:(in_w-out_w)/2:(in_h-out_h)*{anchor_y:.3f},"
     if part == "geo":                          # chỉ cắt khung + đổi cỡ (màu chạy chung sau khi ghép khúc: shared_look)
         return (pre + crop + size).rstrip(",")
     if part == "color":                        # khử nhiễu + màu + làm nét, trên hình đã đúng cỡ
@@ -294,10 +296,11 @@ def subtitle_texts(segs: list, teaser: dict | None = None, title_shown: bool = F
 
 def _plan_video(plan, mode: str, W: int, H: int, src_w: int, src_h: int, fps: float, side_inputs, lead) -> str:
     if shared_look(plan, W, H, src_w, src_h):
-        return (edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z, part="geo"), fps, W, H,
+        return (edl.video_graph(plan, lambda z, ay=0.5: look_chain(mode, W, H, src_w, src_h, zoom=z, part="geo",
+                                                                   anchor_y=ay), fps, W, H,
                                 side_inputs=side_inputs, lead=lead)
                 + "," + look_chain(mode, W, H, src_w, src_h, part="color"))
-    return edl.video_graph(plan, lambda z: look_chain(mode, W, H, src_w, src_h, zoom=z), fps, W, H,
+    return edl.video_graph(plan, lambda z, ay=0.5: look_chain(mode, W, H, src_w, src_h, zoom=z, anchor_y=ay), fps, W, H,
                            side_inputs=side_inputs, lead=lead)
 
 
@@ -350,7 +353,7 @@ def build_filter(mode: str, out_dur: float, ambient: bool, ass_path: str | None,
             pre_audio += edl.audio_graph(plan, ambient_src, "[ambE]", side_audio=side_audio, tag="b")
             ambient_src = "[ambE]"
         if cover_bands:
-            cover_bands = edl.zoomed_bands(list(cover_bands), {p.zoom for p in plan.pieces})
+            cover_bands = edl.zoomed_bands(list(cover_bands), {(p.zoom, p.ay) for p in plan.pieces})
     if slow:
         ambient_src += f"atempo={1 / stretch:.4f},"          # tiếng nền chậm theo hình (tiếng gốc hoặc đã tách giọng)
         orig_src += f"atempo={1 / stretch:.4f},"

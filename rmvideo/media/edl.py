@@ -33,6 +33,7 @@ class Piece:
     fx: str = ""                  # "" | "flash"
     role: str = "main"            # main | side
     tag: str = ""                 # skip (tua nhanh) | montage | recap | moved | ...
+    ay: float = 0.5               # neo dọc của khung cận (0 đỉnh, 0,5 giữa, 1 đáy): cảnh người gốc nói vào máy cận neo đáy
 
     @property
     def length(self) -> float:    # giây ra (chưa nhân stretch)
@@ -58,7 +59,8 @@ class EditPlan:
 
     # ---------- (de)serialize ----------
     def to_dict(self) -> dict:
-        return {"v": 1, "pieces": [asdict(p) for p in self.pieces], "overlays": [asdict(o) for o in self.overlays],
+        return {"v": 1, "pieces": [{k: v for k, v in asdict(p).items() if not (k == "ay" and v == 0.5)} for p in self.pieces],
+                "overlays": [asdict(o) for o in self.overlays],
                 "stretch": self.stretch, "level": self.level, "summary": self.summary, "texts": list(self.texts)}
 
     @staticmethod
@@ -165,14 +167,18 @@ class EditPlan:
 
 # ---------------- FFmpeg ----------------
 
-def zoomed_bands(bands: list, zooms: Iterable[float]) -> list:
+def zoomed_bands(bands: list, zooms: Iterable) -> list:
     """Dải chữ in cứng (tỉ lệ trên khung gốc) phủ đủ mọi cỡ khung đã dùng: cận 12% thì dải dịch xa tâm và dày thêm,
-    che chữ sau khi nối khúc nên lấy hợp của mọi cỡ."""
+    che chữ sau khi nối khúc nên lấy hợp của mọi cỡ. zooms: cỡ cận, hoặc (cỡ cận, neo dọc) với khúc cận neo đáy / đỉnh
+    (khung cận lệch: đỉnh khung = (1 - 0,96/z) * ay của khung gốc)."""
     out = []
-    zs = {1.0, *zooms}
+    zs = {(1.0, 0.5)} | {(z, 0.5) if not isinstance(z, tuple) else (float(z[0]), float(z[1])) for z in zooms}
+
+    def at(f: float, z: float, ay: float) -> float:
+        return 0.5 + (f - 0.5) * z if ay == 0.5 else 0.02 + z * (f - (1 - 0.96 / z) * ay)
     for top, bottom in bands:
-        tops = [0.5 + (top - 0.5) * z for z in zs]
-        bots = [0.5 + (bottom - 0.5) * z for z in zs]
+        tops = [at(top, z, ay) for z, ay in zs]
+        bots = [at(bottom, z, ay) for z, ay in zs]
         out.append((max(0.0, min(tops)), min(1.0, max(bots))))
     return out
 
@@ -200,10 +206,10 @@ def push_filter(W: int, H: int, push: float, length: float) -> str:
     return (f"scale=w='{sc}':h=-2:eval=frame,crop={W}:{H}:x='({sc}-{W})/2':y='({sh}-{H})/2',")
 
 
-def video_graph(plan: EditPlan, look: Callable[[float], str], fps: float, W: int, H: int,
+def video_graph(plan: EditPlan, look: Callable[..., str], fps: float, W: int, H: int,
                 side_inputs: dict | None = None, lead: list | None = None) -> str:
     """Chuỗi filter dựng hình theo kế hoạch: trả "<các nhánh>;[e0][e1]...concat=n=..:v=1:a=0" (chưa gắn nhãn ra, caller
-    nối tiếp ",<che chữ>,subtitles..."). look(zoom): chuỗi màu + cỡ khung của khúc. side_inputs: {chỉ số dãy side: số
+    nối tiếp ",<che chữ>,subtitles..."). look(zoom[, neo dọc]): chuỗi màu + cỡ khung của khúc. side_inputs: {chỉ số dãy side: số
     đầu vào clip phụ}. lead: nhãn đứng trước (đoạn mở đầu "[tzv]")."""
     side_inputs = side_inputs or {}
     runs = plan.side_runs()
@@ -218,7 +224,8 @@ def video_graph(plan: EditPlan, look: Callable[[float], str], fps: float, W: int
     for k, p in enumerate(plan.pieces):
         if p.role == "main":
             chain = (f"[s{k}]trim=start={p.a:.3f}:end={p.b:.3f},"
-                     f"setpts=(PTS-STARTPTS)*{plan.stretch / p.speed:.5f},fps={fps:g},{look(p.zoom)}")
+                     f"setpts=(PTS-STARTPTS)*{plan.stretch / p.speed:.5f},fps={fps:g},"
+                     + (look(p.zoom, p.ay) if p.ay != 0.5 else look(p.zoom)))
             if p.push > 0:
                 chain += "," + push_filter(W, H, p.push, p.length * plan.stretch).rstrip(",")
             if p.fx == "flash":

@@ -263,6 +263,12 @@ SCHEMA: tuple[Setting, ...] = (
       help="Nguồn có dải đen thì bỏ dải đen; nguồn ngang (16:9) thì cắt khung 9:16 theo vùng có tay / chảo, hoạt động rải "
            "khắp khung thì đặt nguyên khung lên nền mờ thay vì cắt mất 2/3 hình. Nguồn dọc bình thường: cắt giữa như cũ.",
       options=(("1", "Bật (mặc định, 1.1.2)"), ("0", "Tắt: luôn phóng to rồi cắt giữa như trước")), choices=("0", "1")),
+    S("TALK_ZOOM", "0", "video", "Cảnh người gốc nói vào máy",
+      help="Bật: kế hoạch dựng (REMAKE_STYLE) đẩy cận neo đáy ở các khúc người gốc đang nói mà mặt to ở phần trên khung (dò "
+           "mặt YuNet trên ảnh thu nhỏ), để lời Việt không chạy trên môi người khác. Hợp nguồn «vừa nói vừa làm món» (tay, "
+           "thớt ở dưới). Tắt mặc định: đo 20/11 trên video hai người dẫn đứng nói, cận neo đáy chỉ còn thân người cụt đầu, "
+           "và chưa có tín hiệu rẻ nào phân biệt «tay đang làm» với «đứng nói, vung tay».",
+      options=(("0", "Tắt (mặc định)"), ("1", "Bật: cận xuống tay / món khi người gốc nói vào máy")), choices=("0", "1")),
     S("SCENE_ANALYSIS", "light", "video", "Mức phân tích hình", help="light nhanh nhất; full kỹ nhất (chậm trên Botkeep).",
       options=(("light", "Nhẹ (mặc định): chỉ đọc khung chính — dò chữ in cứng, ảnh bìa, ảnh cho AI; không căn câu "
                          "theo chuyển cảnh. Video 220s trên Botkeep ~20 giây"),
@@ -539,7 +545,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
-    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO",
+    "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO", "TALK_ZOOM",
     "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",

@@ -48,7 +48,7 @@ from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, st
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
-from rmvideo.media import autolook, edl, ff, filtergraph, framing, renderer, tts_engine, voiceplan
+from rmvideo.media import autolook, edl, ff, filtergraph, framing, renderer, talking, tts_engine, voiceplan
 
 AUTO_MIN_FRESH = 0.7     # 🤖 tự đăng: lời mới phải khác lời gốc ít nhất 70% (không đăng bản gần như chép lời)
 SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (máy 1 lõi ~1 giây xử lý / giây audio)
@@ -497,6 +497,33 @@ class Remake:
                 and config.AUTO_SKIP_ADS == "1":
             raise RuntimeError(f"{recipe.NOT_RECIPE}: dừng sớm, tự đăng chọn video khác")   # khỏi tốn giọng + dựng
 
+    async def talking_zoom(self, plan, segs_src: list, end: float):
+        """Khúc người gốc nói vào máy (mặt to ở phần trên khung, đang có lời gốc) -> đẩy cận neo đáy: lời Việt không chạy
+        trên môi người khác (rmvideo/media/talking.py). Dò mặt trên ảnh thu nhỏ đã có, ≤ ~1 ảnh/giây."""
+        if config.TALK_ZOOM == "0" or plan is None:
+            return plan
+        th = talking.thumbs_of(scenes.analyzed(self.inp), scenes.THUMB_FPS)
+        if not th:
+            return plan
+        step = max(1, round(len(th) / max(1.0, end)))
+        th = [x for x in th[::step] if x[0] < end + 0.5]
+        fr = framing.current()
+        box = (fr["box"][1] / fr["src"][1], fr["box"][3] / fr["src"][1]) if fr else None
+        try:
+            wins = await asyncio.to_thread(talking.analyze, th, [(a, b) for a, b, _ in segs_src], box)
+        except Exception as e:                      # dò mặt hỏng không được làm hỏng job
+            logging.warning("Không dò được cảnh người gốc nói vào máy: %s", str(e)[:150])
+            return plan
+        new, n = talking.apply(plan, wins)
+        share = sum(w["b"] - w["a"] for w in wins) / max(1.0, end)
+        if n:
+            self.job.note(f"🗣️ {n} khúc người gốc nói vào máy ({share:.0%} thời lượng): đẩy cận xuống tay / món, lời Việt "
+                          "không chạy trên môi. ")
+        elif wins:
+            self.job.note(f"ℹ️ {share:.0%} thời lượng là cảnh người gốc nói vào máy nhưng mặt nằm giữa khung (cận "
+                          "cũng không cắt được miệng): giữ nguyên. ")
+        return new
+
     async def restyle(self):
         """Kế hoạch dựng (REMAKE_STYLE): khúc / tốc độ / cỡ khung trên video gốc, chốt TRƯỚC khi AI viết lời; lời gốc,
         điểm chuyển cảnh, quãng người gốc nói đổi sang trục mới. Bản đã duyệt dùng lại đúng kế hoạch đã lưu."""
@@ -522,6 +549,7 @@ class Remake:
                     job.note(f"ℹ️ Dựng mạnh: {why}. ")
             else:
                 plan = style.plan_light(end, segs_src, cuts_src, mot, self.stretch, config.TIME_SKIP_LABEL, lv)
+            plan = await self.talking_zoom(plan, segs_src, end)
             errs = plan.validate()
             if errs:
                 job.note(f"ℹ️ Không áp được kế hoạch dựng ({errs[0]}): dựng như bản gốc. ")
