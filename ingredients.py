@@ -1,0 +1,440 @@
+"""Kiểm tra lời mới giữ ĐỦ và ĐÚNG nguyên liệu của lời gốc.
+Mỗi nhóm là MỘT nguyên liệu với các tên gọi tương đương (Bắc/Nam). Đổi sang tên cùng nhóm thì được
+(mùi -> ngò, dứa -> khóm); bỏ mất nhóm, hoặc thêm nhóm không có trong gốc (gà -> vịt) là lỗi."""
+import re
+import unicodedata
+
+GROUPS = [
+    ["trứng gà", "hột gà", "trứng"], ["trứng vịt", "hột vịt"], ["trứng cút", "hột cút"], ["trứng muối", "hột vịt muối"],
+    ["thịt heo", "thịt lợn", "heo", "lợn"], ["thịt bò", "bò"], ["thịt gà", "gà"], ["thịt vịt", "vịt"], ["ba chỉ", "ba rọi"], ["nạc vai"], ["sườn"],
+    ["cánh gà"], ["đùi gà"], ["giò lụa", "chả lụa"], ["xúc xích"], ["lạp xưởng"],
+    ["tôm"], ["mực"], ["cua"], ["nghêu", "ngao"], ["sò"], ["ốc"], ["cá"],
+    ["đậu phụ", "đậu hũ", "tàu hũ"], ["đậu phộng", "lạc"], ["đậu xanh"], ["đậu đen"], ["đậu bắp"],
+    ["dứa", "khóm", "trái thơm", "quả thơm", "thơm"], ["ngô", "bắp"], ["bắp cải"], ["cải thảo"], ["cải"], ["súp lơ", "bông cải"],
+    ["rau muống"], ["mồng tơi"], ["rau ngót"], ["giá đỗ", "giá sống", "rau giá", "giá hột", "giá trụng", "đậu giá", "giá"], ["su hào"], ["bí đỏ", "bí rợ"], ["bí xanh", "bí đao"],
+    ["mướp"], ["cà tím"], ["cà chua"], ["cà rốt"], ["khoai tây"], ["khoai lang"], ["khoai môn"],
+    ["hành tây"], ["hành tím", "hành khô"], ["hành lá", "hành"], ["tỏi"], ["gừng"], ["sả"], ["riềng"], ["nghệ"],
+    ["ớt chuông"], ["ớt"], ["tiêu", "hạt tiêu"], ["mùi", "ngò", "rau mùi"], ["rau răm"], ["húng quế", "rau quế"],
+    ["tía tô"], ["thì là"], ["lá chanh"], ["chanh"], ["me"], ["dừa"], ["nước cốt dừa"],
+    ["mộc nhĩ", "nấm mèo"], ["nấm hương", "nấm đông cô"], ["nấm"],
+    ["miến"], ["bún"], ["phở"], ["mì"], ["nui"], ["bánh mì"], ["bột mì"], ["bột năng"], ["bột chiên"],
+    ["dầu ăn"], ["dầu hào"], ["dầu mè"], ["nước mắm"], ["xì dầu", "nước tương"], ["muối"], ["đường"],
+    ["hạt nêm"], ["bột ngọt", "mì chính"], ["giấm"], ["mật ong"], ["sữa"], ["bơ"], ["phô mai"],
+    # --- mở rộng ---
+    ["thịt dê"], ["thịt cừu"], ["thịt ếch", "ếch"], ["lươn"], ["cá lóc", "cá quả"], ["cá basa"], ["cá hồi"], ["cá ngừ"],
+    ["cá thu"], ["cá diêu hồng"], ["cá rô"], ["cá trê"], ["cá kèo"], ["tôm khô"], ["tép riu", "tép khô", "con tép", "tép đồng", "tép rang"], ["ghẹ"], ["hàu"], ["bạch tuộc"],
+    ["chả cá"], ["nem chua"], ["chả giò", "nem rán"], ["thịt xay", "thịt băm"], ["sườn non"], ["chân giò", "giò heo"],
+    ["lòng heo", "lòng lợn"], ["gan heo", "gan gà", "gan bò", "gan lợn", "gan ngỗng"], ["tim heo", "tim gà", "tim lợn"], ["bao tử", "dạ dày"], ["da heo", "bì heo", "bì lợn"], ["mỡ heo", "mỡ lợn"], ["tóp mỡ"],
+    ["xương ống"], ["xương gà"], ["ức gà"], ["lòng gà"], ["trứng bắc thảo"],
+    ["đậu đỏ"], ["đậu nành"], ["đậu que", "đậu cô ve"], ["đậu hà lan"], ["đậu lăng"], ["hạt sen"], ["hạt điều"],
+    ["mè", "vừng"], ["hạt dẻ"], ["óc chó"], ["hạnh nhân"],
+    ["rau cải ngọt", "cải ngọt"], ["cải bẹ xanh", "cải xanh"], ["cải thìa"], ["cải xoong"], ["xà lách"], ["rau dền"],
+    ["rau lang"], ["rau má"], ["rau đay"], ["rau cần"], ["rau tần ô", "cải cúc"], ["ngò gai", "mùi tàu"], ["ngò om", "rau ngổ"],
+    ["húng lủi", "húng bạc hà"], ["lá lốt"], ["lá nếp", "lá dứa"], ["hành phi"], ["tỏi phi"], ["bông bí"], ["bông thiên lý"],
+    ["măng"], ["măng tây"], ["ngó sen"], ["củ sen"], ["củ cải trắng", "cải trắng"], ["củ cải đỏ"], ["củ dền"], ["khoai mỡ"],
+    ["sắn", "khoai mì"], ["bí ngòi"], ["dưa leo", "dưa chuột"], ["dưa cải", "dưa chua"], ["kim chi"], ["cà pháo"],
+    ["ớt hiểm", "ớt chỉ thiên"], ["ớt bột"], ["ớt sừng"], ["sa tế"], ["tương ớt"], ["tương cà"], ["mayonnaise", "sốt mayonnaise"],
+    ["tương đen", "tương hột"], ["mắm tôm"], ["mắm ruốc"], ["mắm nêm"], ["mắm cá"], ["nước cốt chanh"], ["nước dừa"],
+    ["dầu điều"], ["dầu ô liu"], ["dầu dừa"], ["mỡ hành"], ["bơ lạt"], ["bơ đậu phộng"], ["sữa đặc"], ["sữa tươi"], ["whipping cream", "kem tươi"],
+    ["kem"], ["sữa chua"], ["phô mai mozzarella", "mozzarella"], ["trứng cá"], ["rong biển"], ["tảo"],
+    ["bánh tráng"], ["bánh phở"], ["bánh canh"], ["hủ tiếu"], ["mì gói", "mì tôm"], ["mì udon", "udon"], ["mì ý", "spaghetti", "mì spaghetti"],
+    ["bột gạo"], ["bột nếp"], ["bột bắp", "bột ngô"], ["bột nở"], ["bột baking soda", "baking soda"], ["men nở"], ["bột cà ri"], ["ngũ vị hương"],
+    ["quế"], ["hoa hồi", "đại hồi", "hồi khô", "hồi"], ["thảo quả"], ["đinh hương"], ["hạt mùi", "hạt ngò"], ["nghệ tươi"], ["lá chanh thái"], ["cà ri"],
+    ["đường phèn"], ["đường thốt nốt"], ["đường nâu"], ["mạch nha"], ["siro"], ["cacao", "ca cao"], ["cà phê"], ["trà"], ["matcha"],
+    ["gạo"], ["gạo nếp", "nếp"], ["cơm"], ["xôi"], ["bánh mì sandwich", "sandwich"], ["bột chiên giòn"], ["bột chiên xù"], ["bột bánh xèo"],
+    ["chuối"], ["xoài"], ["táo"], ["quả lê", "trái lê"], ["nho khô", "quả nho", "trái nho", "chùm nho"], ["quả cam", "trái cam", "nước cam", "vỏ cam", "cam vắt", "cam"], ["quýt"], ["bưởi"], ["dâu tây", "quả dâu", "trái dâu"], ["sầu riêng"], ["mít"], ["ổi"],
+    ["đu đủ"], ["thanh long"], ["dưa hấu"], ["dừa non"], ["bơ trái", "quả bơ", "trái bơ"], ["kiwi"], ["việt quất"], ["nhãn"], ["vải thiều", "quả vải", "trái vải"], ["chôm chôm"],
+]
+
+_ALIASES = sorted(((a, gi) for gi, g in enumerate(GROUPS) for a in g), key=lambda x: -len(x[0].split()))
+_ALIAS_SYL = [a.split() for a, _ in _ALIASES]
+
+
+def _syllables(text: str) -> list:
+    return re.sub(r"[^\w\s]", " ", (text or "").lower()).split()
+
+
+# Từ đa nghĩa: KHÔNG tính là nguyên liệu khi từ đứng TRƯỚC / SAU thuộc các tập này
+_CTX = {
+    # log 15/11: "cho nó thơm lên", "rất là thơm luôn", "sau khi nó thơm" bị tính là dứa -> 2 lượt AI viết lại thừa.
+    # Không thêm "kho"/"xào" vì "cá kho thơm", "bò xào thơm" là món có dứa thật.
+    "thơm": ({"mùi", "rất", "thật", "nghe", "dậy", "bay", "cho", "càng", "hơi", "đã", "vừa", "sẽ", "để", "lên", "ra",
+              "nó", "là", "thơm", "phi", "rang"},
+             {"ngon", "phức", "lừng", "nức", "quá", "lắm", "ghê", "nồng", "dịu", "béo", "giòn", "ngát", "thơm", "hơn",
+              "rồi", "mùi", "nhẹ", "đậm", "mát", "và", "nữa", "hết", "cả", "dễ", "ngất", "điếc", "luôn", "nha", "nè",
+              "dữ", "thiệt", "vậy"}),
+    "giá": ({"mức", "cái", "đơn", "có", "tăng", "giảm", "rẻ", "hỏi", "về", "bảng", "trả", "ra"},
+            {"đang", "rất", "tốt", "rẻ", "chỉ", "cả", "tiền", "bán", "là", "khoảng", "hời", "hợp", "siêu", "cực", "ưu",
+             "sốc", "trị", "thành", "cao", "thấp", "mềm", "bình", "như", "nào", "bao", "mà", "có", "trên", "từ"}),
+    "hồi": ({"lúc", "từ", "vào", "những", "cái", "thuở"},
+            {"nãy", "xưa", "đó", "trước", "nhỏ", "sáng", "chiều", "tối", "hôm", "còn", "ấy", "này", "đầu", "sau", "giờ",
+             "lâu", "tưởng", "trưa", "nào", "tết", "mới", "đấy", "phục"}),
+    "cam": ({"màu", "vàng", "đỏ", "cam"}, {"kết", "chịu", "đoan", "go", "lòng", "tâm", "phận"}),
+    "hành": ({"tiến", "thực", "thi", "ban", "vận", "lưu", "phát"},
+             {"động", "trình", "khách", "lang", "lý", "chính", "quân", "xử", "nghề", "tinh", "tây", "công"}),
+    "cá": (set(), {"nhân", "biệt", "tính", "thể", "cược", "độ", "mập"}),
+    "cơm": ({"với", "kèm", "cùng", "ăn", "bữa"}, set()),
+    "mùi": ({"có", "bay", "át", "khử", "hết", "bớt", "đủ", "cái", "nặng", "đậm", "dậy", "toàn", "ra", "thơm"},
+            {"thơm", "hôi", "vị", "tanh", "khét", "gì", "rất", "của", "đặc", "hấp", "lạ", "nồng", "hăng", "khó", "quá",
+             "lắm", "ghê", "này", "đó", "bay", "dầu", "khói", "nhẹ"}),
+}
+
+
+def _ctx_skip(alias: str, syl: list, i: int) -> bool:
+    ex = _CTX.get(alias)
+    if not ex:
+        return False
+    prev = syl[i - 1] if i > 0 else ""
+    nxt = syl[i + 1] if i + 1 < len(syl) else ""
+    if prev in ex[0] or nxt in ex[1] or any(ch.isdigit() for ch in nxt):
+        return True
+    # "mùi gừng", "mùi tỏi phi", "mùi nước mắm": mùi = hương của nguyên liệu đứng sau, không phải rau mùi (bản 50: AI
+    # viết "Mùi gừng bốc lên thơm lừng" bị coi là BỊA nguyên liệu "mùi", bản viết lại tốt hơn bị bỏ)
+    return alias == "mùi" and any(syl[i + 1:i + 1 + len(a)] == a for a in _ALIAS_SYL if a != ["mùi"])
+
+
+def counts(text: str) -> dict:
+    """{chỉ số nhóm nguyên liệu: số lần nhắc} (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+    syl = _syllables(text)
+    used = [False] * len(syl)
+    found: dict = {}
+    for alias, gi in _ALIASES:
+        a = alias.split()
+        n = len(a)
+        for i in range(len(syl) - n + 1):
+            if syl[i:i + n] == a and not any(used[i:i + n]) and not (n == 1 and _ctx_skip(alias, syl, i)):
+                found[gi] = found.get(gi, 0) + 1
+                for j in range(i, i + n):
+                    used[j] = True
+    return found
+
+
+def find(text: str) -> set:
+    """Tập chỉ số nhóm nguyên liệu xuất hiện (khớp nguyên âm tiết, cụm dài ưu tiên trước)."""
+    return set(counts(text))
+
+
+def _loose(text: str) -> str:
+    """Bỏ dấu + gộp phụ âm hay bị máy nghe nhầm (s/x, d/gi/r, ch/tr) -> so khớp lỏng."""
+    t = unicodedata.normalize("NFD", (text or "").lower().replace("đ", "d"))
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    t = re.sub(r"\bgi", "d", t)
+    t = re.sub(r"\b[sx]", "x", t)
+    t = re.sub(r"\b[dr]", "d", t)
+    t = re.sub(r"\b(ch|tr)", "ch", t)
+    return " " + " ".join(t.split()) + " "
+
+
+def check(orig: str, new: str) -> tuple:
+    """Trả về (thiếu, bịa): tên nguyên liệu gốc bị mất, và nguyên liệu mới không có trong gốc.
+    "Bịa" có dung sai lỗi chính tả của máy nghe: gốc "xả", "la lốt" thì viết "sả", "lá lốt" là đúng."""
+    a, b = find(orig), find(new)
+    missing = [GROUPS[i][0] for i in sorted(a - b)]
+    lo = _loose(orig)
+    added = [GROUPS[i][0] for i in sorted(b - a)
+             if not any(_loose(al) in lo for al in GROUPS[i])]
+    return missing, added
+
+
+_FORMS = ("dầu", "nước cốt", "nước")   # máy nghe hay làm mất chữ đầu: "dầu mè" -> "dòng mè" (chỉ còn "mè")
+
+
+def _lev(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+# phụ âm đầu máy nghe hay đổi cho nhau (sau khi _loose đã gộp s/x, d/gi/r, ch/tr): "hột ngọt" = "bột ngọt", "điêu" = "tiêu"
+_SWAP = {frozenset("bh"), frozenset("dt"), frozenset("ln"), frozenset("dv"), frozenset("gk"), frozenset("ct")}
+
+
+def _syl_near(heard: str, want: str, first_must_match: bool) -> bool:
+    """Hai âm tiết dạng lỏng gần nhau: lệch tối đa 1 chữ (âm tiết ≥ 3 chữ) hoặc 2 chữ (≥ 5 chữ)."""
+    if heard == want:
+        return True
+    if len(want) < 3 or _lev(heard, want) > (2 if len(want) >= 5 else 1):
+        return False
+    return not first_must_match or heard[:1] == want[:1] or frozenset(heard[:1] + want[:1]) in _SWAP
+
+
+def _near(alias: str, orig: str) -> bool:
+    """Tên nguyên liệu trong lời mới GẦN GIỐNG một cụm trong lời gốc (máy nghe sai một chữ cái: "rau găm" = "rau răm",
+    "hột ngọt" = "bột ngọt", "muối điêu" = "muối tiêu"): AI đang SỬA lỗi bóc lời, không phải bịa. So ở dạng lỏng (bỏ
+    dấu, gộp phụ âm hay nhầm); cụm ≥ 2 âm tiết phải có ít nhất một âm tiết đúng hẳn, và được chen một âm tiết ở giữa
+    ("hành tím phi" có "hành phi"); tên một âm tiết phải ≥ 4 chữ (không coi "cua" là "cá", "tỏi" là "tôm")."""
+    cand = alias.split()
+    if len(cand) == 1 and len(alias) < 4:
+        return False
+    want = _loose(alias).split()
+    orig_l = _loose(orig).split()
+    n = len(want)
+    for i in range(len(orig_l) - n + 1):
+        win = orig_l[i:i + n]
+        if win != want and all(_syl_near(h, w, n == 1) for h, w in zip(win, want)) \
+                and (n == 1 or any(h == w for h, w in zip(win, want))):
+            return True
+    if n == 2:
+        return any(orig_l[i] == want[0] and orig_l[i + 2] == want[1] for i in range(len(orig_l) - 2))
+    return False
+
+
+def check_rewrite(orig: str, new: str) -> tuple:
+    """Như check(), dùng để QUYẾT ĐỊNH bắt AI viết lại, bỏ hai kiểu báo động giả lần nào cũng gặp trong log thật
+    (mỗi lần tốn 2 lượt AI và có nguy cơ AI nhét nguyên liệu lạ vào món):
+    - gốc "mè" (máy nghe "dòng mè"), mới "dầu mè": cùng nguyên liệu khác dạng (dầu/nước/nước cốt) -> coi là một;
+    - nguyên liệu chỉ nhắc ĐÚNG MỘT LẦN trong lời gốc hay là chữ máy nghe nhầm ("Các c. cua, cá kèo" trong món cá kèo,
+      "ớt" của "ướp", "giá" của "giá đầm mì") -> không bắt phải có."""
+    a, b = counts(orig), find(new)
+    lo = _loose(orig)
+    missing = [i for i in sorted(a) if i not in b]
+    added = [i for i in sorted(b - set(a)) if not any(_loose(al) in lo or _near(al, orig) for al in GROUPS[i])]
+
+    def form_of(x, y):          # y là x ở dạng khác: "mè" -> "dầu mè" (KHÔNG dùng "nằm trong": gà ⊂ trứng gà,
+        return any(y == f"{f} {x}" for f in _FORMS)      # hồi ⊂ cá hồi, bắp ⊂ bắp cải là các thứ khác hẳn)
+    for m in list(missing):
+        for d in list(added):
+            if any(form_of(p, q) or form_of(q, p) for p in GROUPS[m] for q in GROUPS[d]):
+                missing.remove(m)
+                added.remove(d)
+                break
+    return [GROUPS[i][0] for i in missing if a[i] >= 2], [GROUPS[i][0] for i in added]
+
+
+def mask(text: str) -> list:
+    """Âm tiết của câu, trong đó tên nguyên liệu và con số được thay bằng '§'
+    (không tính vào đo mức chép lời, vì bắt buộc phải giữ nguyên)."""
+    syl = _syllables(text)
+    used = [False] * len(syl)
+    for alias, gi in _ALIASES:
+        a = alias.split()
+        n = len(a)
+        for k in range(len(syl) - n + 1):
+            if syl[k:k + n] == a and not any(used[k:k + n]) and not (n == 1 and _ctx_skip(alias, syl, k)):
+                for j in range(k, k + n):
+                    used[j] = True
+    return ["§" if (u or s.isdigit()) else s for s, u in zip(syl, used)]
+
+
+# ---------- Kiểm CON SỐ (chỉ số có đơn vị đo: định lượng, thời gian, nhiệt độ, giá) ----------
+_UNITS = ("g", "gam", "gram", "gr", "kg", "ký", "cân", "lạng", "ml", "lít", "l", "muỗng", "thìa", "muỗng canh",
+          "giọt", "nhúm", "muỗng cà phê", "thìa canh", "thìa cà phê", "chén", "bát", "ly", "cốc", "tô", "quả", "trái", "củ", "tép",
+          "nhánh", "cây", "lá", "miếng", "lát", "con", "cái", "gói", "hộp", "lon", "chai", "phút", "giây", "tiếng",
+          "giờ", "ngày", "độ", "%", "phần", "k", "nghìn", "ngàn", "triệu", "đồng", "đ", "tuổi", "người", "cm", "mm", "m")
+_NUM_RE = re.compile(r"(\d+/\d+|\d+(?:[.,]\d+)?-\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)\s*(" + "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
+                     + r")(?![\w])", re.IGNORECASE)
+
+
+_WORDNUM = {"một": "1", "hai": "2", "ba": "3", "bốn": "4", "tư": "4", "năm": "5", "sáu": "6", "bảy": "7",
+            "tám": "8", "chín": "9", "mười": "10", "nửa": "0.5", "rưỡi": "0.5"}
+_WORDNUM_RE = re.compile(r"\b(" + "|".join(_WORDNUM) + r")\s+(?=(" +
+                         "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")\b)")
+_RANGE_SEP = r"\s*(?:-|–|đến|tới|hoặc)\s*"
+# "ba tới bốn giọt": số chữ đứng trước "tới / đến / -" của một khoảng
+_WORDNUM_LO_RE = re.compile(r"\b(" + "|".join(k for k in _WORDNUM if k not in ("nửa", "rưỡi")) + r")(?=" + _RANGE_SEP
+                            + r"\d)")
+# khoảng "3-4 giọt" / "3 đến 4 giọt" giữ NGUYÊN khoảng (bản 47: lấy mỗi số sau -> thẻ "4 giọt dầu mè", gốc 3-4 giọt)
+_RANGE_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)" + _RANGE_SEP + r"(\d+(?:[.,]\d+)?)(?=\s*(?:" +
+                       "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w]))")
+
+
+def _clean_num(n: str) -> str:
+    n = n.replace(",", ".")
+    f = re.fullmatch(r"(\d+)/([24])", n)          # "1/2 muỗng" = "nửa muỗng" = 0.5 (bản 49: thẻ điểm danh ghi 1/2,
+    if f:                                          # AI đọc "nửa" -> bị coi là đổi số, bỏ mất định lượng)
+        n = str(int(f.group(1)) / int(f.group(2)))
+    return n.rstrip("0").rstrip(".") if "." in n else n
+
+
+# ---------- số đọc bằng chữ ("một trăm bảy mươi độ") ----------
+# Máy nghe hay để nguyên chữ số ghép; trước đây chỉ hiểu MỘT chữ số đứng ngay trước đơn vị ("hai muỗng"), nên gốc «dầu
+# nóng khoảng một trăm bảy mươi độ» coi như không có số, AI viết đúng «170 độ» lại bị coi là BỊA và bị xoá (bản 50).
+# rmvideo/domain/recipe.py có bộ đọc riêng cho thẻ điểm danh (recipe nhập module này nên không dùng chung ngược lại).
+_VI_DIGIT = {"không": 0, "một": 1, "mốt": 1, "hai": 2, "ba": 3, "bốn": 4, "tư": 4, "năm": 5, "lăm": 5, "nhăm": 5,
+             "sáu": 6, "bảy": 7, "bẩy": 7, "tám": 8, "chín": 9}
+# "nghìn / ngàn" là ĐƠN VỊ giá ("năm mươi nghìn" = 50 nghìn, như AI viết "50 nghìn"), không ghép vào số
+_VI_WORDS = set(_VI_DIGIT) | {"mười", "mươi", "chục", "trăm", "linh", "lẻ", "rưỡi"}
+_VI_W = "|".join(sorted(_VI_WORDS, key=len, reverse=True))
+_UNIT_ALT = "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True))
+_VI_RUN_RE = re.compile(r"(?<![\w])((?:(?:" + _VI_W + r")\s+)+)(?=(?:" + _UNIT_ALT + r")(?![\w]))")
+_VI_LO_RE = re.compile(r"(?<![\w])((?:(?:" + _VI_W + r")\s+)*(?:" + _VI_W + r"))(?=" + _RANGE_SEP + r"\d)")
+
+
+def _vi_below_1000(ws: list) -> int | None:
+    """Phần dưới 1000: "một trăm bảy mươi" 170, "mười lăm" 15, "hai mươi mốt" 21, "hai lăm" 25, "một trăm linh năm" 105,
+    "một trăm hai" 120 (nói tắt), "trăm rưỡi" 150. Không hợp lệ -> None."""
+    hundreds, rest, after_hundred = 0, ws, False
+    if "trăm" in ws:
+        k = ws.index("trăm")
+        if len(ws[:k]) > 1 or (ws[:k] and ws[0] not in _VI_DIGIT):
+            return None
+        hundreds = _VI_DIGIT[ws[0]] * 100 if k else 100
+        rest, after_hundred = ws[k + 1:], True
+    if not rest:
+        return hundreds or None
+    if rest == ["rưỡi"]:
+        return hundreds + 50 if after_hundred else None
+    if rest[0] in ("linh", "lẻ"):
+        return hundreds + _VI_DIGIT[rest[1]] if len(rest) == 2 and rest[1] in _VI_DIGIT and after_hundred else None
+    if rest[0] == "mười":
+        if len(rest) == 1:
+            return hundreds + 10
+        return hundreds + 10 + _VI_DIGIT[rest[1]] if len(rest) == 2 and rest[1] in _VI_DIGIT else None
+    if rest[0] not in _VI_DIGIT or (rest[0] in ("mốt", "lăm", "nhăm", "tư") and not after_hundred):
+        return None                                                      # "mốt / lăm" chỉ đứng sau hàng chục
+    d = _VI_DIGIT[rest[0]]
+    if len(rest) == 1:
+        return hundreds + d * (10 if after_hundred else 1)               # "một trăm hai" = 120
+    if rest[1] in ("mươi", "chục"):
+        if len(rest) == 2:
+            return hundreds + d * 10
+        return hundreds + d * 10 + _VI_DIGIT[rest[2]] if len(rest) == 3 and rest[2] in _VI_DIGIT else None
+    if len(rest) == 2 and rest[1] in ("lăm", "nhăm", "mốt", "tư") and d > 1:   # "hai lăm" = 25, "ba mốt" = 31
+        return hundreds + d * 10 + _VI_DIGIT[rest[1]]
+    return None
+
+
+def spoken_number(words: list) -> int | None:
+    """Dãy chữ số đọc bằng chữ (chữ thường) -> số nguyên dương; không phải số hợp lệ -> None."""
+    if not words or any(w not in _VI_WORDS for w in words):
+        return None
+    v = _vi_below_1000(list(words))
+    return v if v else None
+
+
+def _spell_digits(m: re.Match) -> str:
+    """Thay dãy chữ số bằng chữ số; chữ đầu dãy không thuộc số ("luộc chín năm phút") thì giữ chữ đó."""
+    ws = m.group(1).split()
+    for s in range(len(ws)):
+        v = spoken_number(ws[s:])
+        if v is not None:
+            keep = " ".join(ws[:s])
+            return (keep + " " if keep else "") + str(v) + (" " if m.group(1).endswith(tuple(" \t\n")) else "")
+    return m.group(0)
+
+
+def numbers(text: str) -> list:
+    """Danh sách số có đơn vị: ['2 quả', '1 muỗng', '200 g', '15 phút'] (chuẩn hóa số).
+    Số viết bằng chữ ("hai muỗng") cũng tính. Bỏ "1 cái/1 chiếc" vì đó là mạo từ ("cho vào 1 cái tô")."""
+    t = _VI_RUN_RE.sub(_spell_digits, (text or "").lower())                # "một trăm bảy mươi độ" = "170 độ"
+    t = _VI_LO_RE.sub(_spell_digits, t)                                   # "một trăm năm mươi tới 200 gam"
+    t = _WORDNUM_RE.sub(lambda m: _WORDNUM[m.group(1)] + " ", t)
+    t = _WORDNUM_LO_RE.sub(lambda m: _WORDNUM[m.group(1)], t)
+    t = _RANGE_RE.sub(lambda m: f"{m.group(1)}-{m.group(2)}", t)
+    t = re.sub(r"\b(\d+)\s+phần\s+(\d+)\b", r"\1/\2", t)                 # "1 phần 3 muỗng" = "1/3 muỗng"
+    # "đợi một lát", "cắn một miếng", "thử một xíu": không phải định lượng (trước đây báo bịa "1 lát")
+    t = re.sub(r"\b(đợi|chờ|cắn|ăn|thử|nếm|nghỉ)\s+(thêm\s+)?1\s+(lát|miếng|chút|xíu|tí)\b", r"\1 ", t)
+    t = re.sub(r"\b1\s+(lát|chút|xíu|tí|hồi)\s+(là|sau|nữa|thôi|rồi|cho)\b", r"\2 ", t)     # "một lát là cá tự bung"
+    out = []
+    for n, u in _NUM_RE.findall(t):
+        if n == "1" and u in ("cái", "chiếc", "con"):
+            continue
+        n = "-".join(_clean_num(x) for x in n.split("-"))
+        out.append(f"{n} {u}")
+    return out
+
+
+# chữ ước lượng đứng trước con số ("độ chừng 3-4 muỗng"): bỏ số thì bỏ luôn, không để câu treo "rưới dầu mè, độ chừng cho
+# dậy mùi" (bản 48, job 6)
+_APPROX = r"(?:(?:khoảng chừng|khoảng tầm|tầm khoảng|độ chừng|chừng độ|khoảng|chừng|tầm|cỡ|độ)\s+)?"
+# "độ" / "cỡ" đứng sau các chữ này là một phần của từ ghép ("nhiệt độ 170 độ", "kích cỡ 2 cm"), không phải chữ ước lượng:
+# bỏ số thì giữ lại (soát độc lập PR #8: trước đây ra "chiên mực ở nhiệt cho tới khi...")
+_APPROX_COMPOUND = {"nhiệt", "mức", "tốc", "nồng", "cấp", "góc", "chế", "kích", "trình", "thái"}
+# "1/2 muỗng" là MỘT số (trước đây khớp "2 muỗng" bên trong -> bỏ số thành "Thêm 1/ đường")
+# số bằng chữ (cả số ghép "một trăm bảy mươi") cũng bỏ được trọn cụm
+_WORDS_ALL = "|".join(sorted(_VI_WORDS | set(_WORDNUM), key=len, reverse=True))
+_WORD_RUN = r"(?:(?:" + _WORDS_ALL + r")\s+)*(?:" + _WORDS_ALL + r")"
+_QTY_RE = re.compile(r"(?<![\w/])" + _APPROX + r"((?:(?:\d+(?:[.,]\d+)?|" + _WORD_RUN + r")" + _RANGE_SEP + r")?(?:\d+/\d+|\d+(?:[.,]\d+)?|"
+                     + _WORD_RUN + r"))\s+(" +
+                     "|".join(sorted(map(re.escape, _UNITS), key=len, reverse=True)) + r")(?![\w])", re.IGNORECASE)
+
+
+def _qty_value(x: str) -> str | None:
+    """Một vế số trong cụm định lượng -> chuỗi số ("2", "0.5", "1/2", "170"); chữ không phải số hợp lệ -> None."""
+    if x in _WORDNUM:
+        return _WORDNUM[x]
+    if re.fullmatch(r"[\d.,/]+", x):
+        return x
+    v = spoken_number(x.split())
+    return None if v is None else str(v)
+
+
+def drop_numbers(text: str, bad: set) -> str:
+    """Bỏ các cụm "số + đơn vị" AI tự điền / tự đổi (lời gốc không có). Phần tử của `bad`: CON SỐ ("1": bỏ mọi "1 +
+    đơn vị") hoặc "số đơn vị" ("4 muỗng": chỉ bỏ cụm đó, giữ "4 phút"). "Nêm một muỗng bột ngọt, một muỗng đường" với
+    bad={"1"} -> "Nêm bột ngọt, đường". Khoảng "3-4 muỗng" bỏ trọn. Giữ nguyên tên nguyên liệu và mọi chữ khác."""
+    def one(m):
+        parts = [x for x in re.split(r"\s*(?:-|–|\bđến\b|\btới\b|\bhoặc\b)\s*", m.group(1).lower()) if x]
+        keep = ""
+        vals = [_qty_value(x) for x in parts]
+        if len(parts) == 1 and vals[0] is None:          # "luộc chín năm phút": chữ đầu không thuộc số -> giữ chữ đó
+            ws = parts[0].split()
+            s = next((s for s in range(1, len(ws)) if _qty_value(" ".join(ws[s:])) is not None), None)
+            if s is None:
+                return m.group(0)
+            keep, vals = " ".join(m.group(1).split()[:s]) + " ", [_qty_value(" ".join(ws[s:]))]
+        if None in vals:
+            return m.group(0)
+        n = "-".join(_clean_num(v) for v in vals if v is not None)
+        u = _norm_num(f"{n} {m.group(2).lower()}").split(" ", 1)[1]
+        if not (n in bad or f"{n} {_family(u)}" in {_family_key(x) for x in bad}):
+            return m.group(0)
+        if keep:
+            return m.group(0)[:m.start(1) - m.start(0)] + keep
+        pre = m.group(0)[:m.start(1) - m.start(0)]           # chữ ước lượng đứng trước số (có thể rỗng)
+        prev = m.string[:m.start()].split()[-1:]
+        if pre.strip().lower() in ("độ", "cỡ") and prev and prev[0].lower().strip(",.;:") in _APPROX_COMPOUND:
+            return pre
+        return ""
+    out = _QTY_RE.sub(one, text or "")
+    out = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"\s{2,}", " ", out)).strip()
+    return out[:1].upper() + out[1:] if out and (text or "")[:1].isupper() else out
+
+
+_UNIT_EQ = {"thìa": "muỗng", "thìa canh": "muỗng canh", "thìa cà phê": "muỗng cà phê", "bát": "chén", "quả": "trái",
+            "gam": "g", "gram": "g", "gr": "g", "ký": "kg", "cân": "kg", "lít": "l", "cốc": "ly", "ngàn": "nghìn", "k": "nghìn",
+            "đ": "đồng", "tiếng": "giờ"}
+
+
+def _norm_num(s: str) -> str:
+    n, u = s.split(" ", 1)
+    u = _UNIT_EQ.get(u, u)
+    if u == "giờ" and "." in n:                 # "nửa tiếng" = "30 phút" (trước đây báo thiếu "0.5 giờ")
+        return f"{int(round(float(n) * 60))} phút"
+    return f"{n} {u}"
+
+
+# đơn vị ĐO: cùng con số mà đổi đơn vị là đổi định lượng (bản 47: gốc "dầu mè khoảng 3-4 giọt", AI viết "3-4 muỗng
+# dầu mè" mà vẫn qua vì trước đây chỉ so CON SỐ). Đơn vị đếm (cái / quả / con / miếng...) đổi qua lại được.
+_MEASURE = {"g", "kg", "lạng", "ml", "l", "muỗng", "chén", "ly", "tô", "giọt", "nhúm", "chai", "lon", "gói", "hộp",
+            "phút", "giây", "giờ", "ngày", "độ", "%"}
+
+
+def _family(u: str) -> str:
+    return "muỗng" if u.startswith("muỗng") else u          # muỗng canh / muỗng cà phê / muỗng: cùng một loại
+
+
+def _family_key(x: str) -> str:
+    n, _, u = x.partition(" ")
+    return f"{n} {_family(u)}" if u else n
+
+
+def check_numbers(orig: str, new: str) -> tuple:
+    """(số bị mất, số bị bịa/đổi). So theo CON SỐ; đơn vị tương đương Bắc/Nam coi như nhau; với đơn vị ĐO thì đổi
+    đơn vị (giọt -> muỗng, phút -> giờ) cũng tính là đổi định lượng."""
+    a = {_norm_num(x) for x in numbers(orig)}
+    b = {_norm_num(x) for x in numbers(new)}
+    an, bn = {x.split(" ")[0] for x in a}, {x.split(" ")[0] for x in b}
+    ak, bk = {_family_key(x) for x in a}, {_family_key(x) for x in b}
+
+    def lost(x: str, have_n: set, have_k: set) -> bool:
+        n, u = x.split(" ", 1)
+        return n not in have_n or (_family(u) in _MEASURE and _family_key(x) not in have_k)
+    missing = sorted(x for x in a if lost(x, bn, bk))
+    added = sorted(x for x in b if lost(x, an, ak))
+    return missing, added

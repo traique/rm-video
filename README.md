@@ -1,0 +1,783 @@
+# Video Bot — Botkeep.cloud: Telegram + Web Panel
+
+Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gemini viết hook + kịch bản khớp thời lượng → edge-tts giọng Việt → FFmpeg render 720x1280 (ducking + loudnorm, nhìn/nghe như video thật). Điều khiển qua Telegram **hoặc** link web Botkeep cấp.
+
+## Triển khai trên Botkeep
+
+1. Upload toàn bộ thư mục này (Python Runtime **3.13**, bản CI kiểm; 3.11–3.12 vẫn chạy được nhưng không còn được
+   kiểm mỗi lần sửa), lệnh chạy: `python main.py`.
+   **Cập nhật trên Botkeep:** dùng nhánh **`botkeep`** — CI tự đồng bộ sau mỗi lần gộp vào nhánh chính, chỉ có mã chạy
+   bot + `rm-video-botkeep.zip`. Tải file zip đó, Botkeep → Files → tải lên → Extract archive vào `/` → khởi động lại.
+   Zip không có thư mục bọc ngoài nên file vào thẳng chỗ bot chạy; dữ liệu (settings.json, jobs.db, outputs/...) không
+   nằm trong zip nên giải nén đè không mất gì. Đừng dùng «Download ZIP» của nhánh chính: trình giải nén của Botkeep
+   chỉ nhận ≤ 250 mục / 20 MB / 4 MB mỗi file, zip đó có cả test và tài liệu (~270 mục). Tự đóng gói:
+   `python scripts/botkeep_zip.py`.
+   `pip install -r requirements.txt` cài đúng các phiên bản đã kiểm (~350MB). **YouTube** cần thêm bộ giải JavaScript:
+   gõ `setup_youtube` vào console (cài deno ~100MB vào `tools/`, gỡ bằng `remove_youtube`); TikTok/Facebook không cần.
+   File `.config/pip/pip.conf` tắt bộ nhớ đệm của pip (Botkeep chạy với HOME = thư mục bot, nên bộ nhớ đệm ~150–250MB
+   tính vào ổ 2GB).
+2. Biến môi trường: đặt trong panel Botkeep (Startup) **hoặc** chép `.env.example` thành `.env` cạnh `main.py` rồi điền
+   (mẫu có đủ mọi biến, chia mục bắt buộc / tài khoản / tự động đăng / tuỳ chỉnh). **Bắt buộc cho bảo mật**:
+   - `WEB_PASSWORD` — **bắt buộc**. Thiếu thì web panel KHOÁ mọi chức năng (link web Botkeep là công khai).
+   - `BOT_TOKEN` — token @BotFather (bỏ trống = chạy chỉ-web).
+   - `ALLOWED_USERS` — chat_id Telegram được dùng bot, cách nhau dấu phẩy (đặt được cả trong Cài đặt web).
+     Chưa đặt thì bot từ chối mọi người; nhắn bot một tin là nó báo chat id của bạn.
+   - `ADMIN_CHAT_ID` — nơi nhận cảnh báo dịch vụ ngoài hỏng (trống = người đầu tiên trong `ALLOWED_USERS`).
+3. Biến môi trường khác (key AI nhập sau từ web cũng được):
+   - `GEMINI_API_KEY` — viết kịch bản (thiếu thì dùng kịch bản mẫu)
+   - `GROQ_API_KEY` — Whisper bóc lời thoại gốc. Không có thì bóc bằng Gemini `gemini-3.5-transcribe` (dùng chung
+     `GEMINI_API_KEY`, mốc từng từ, ~1.5s cho 11s audio), cuối cùng mới tới STT CapCut. Thứ tự đổi bằng `ASR_ORDER`.
+   - `OPENROUTER_API_KEY` — provider AI thứ 2, tự dùng khi Gemini thiếu key hoặc lỗi; `OPENROUTER_MODEL` (mặc định auto)
+   - `OPENROUTER_BASE_URL`, `POT_SERVER` — **chỉ đặt qua biến môi trường** (web không sửa được: lộ mật khẩu web
+     không kéo theo lộ key bằng cách trỏ base URL sang máy lạ)
+   - `YTDLP_COOKIES`, `YTDLP_PROXY` — vượt chặn YouTube (xem dưới)
+   - `ALLOWED_DOMAINS` — thêm tên miền được phép gửi link (mặc định: TikTok, Douyin, YouTube, Facebook, Instagram, SoundCloud)
+   - `FFMPEG_THREADS` (0 = theo số lõi container), `CACHE_MAX_MB` (mặc định 500), `HEALTH_CHECK_HOURS` (mặc định 6, 0 = tắt)
+   - `PORT` — Botkeep thường tự cấp; mặc định 8080
+4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần).
+
+### Lỗi `No space left on device` khi cài thư viện
+
+Ổ Botkeep 2GB đầy nên pip không cài được và bot không khởi động (lệnh console chưa dùng được). Dọn bằng **File
+Manager** của Botkeep, theo thứ tự (an toàn trước):
+1. `.cache/` — bộ nhớ đệm pip, xoá thoải mái (thường 150–300MB).
+2. `cache/`, `work/` — tạo lại được.
+3. `outputs/` — video kết quả cũ (tải về trước nếu cần).
+4. Gói tuỳ chọn không dùng tới: `models/` (gói offline ~185MB, cài lại bằng `setup_offline`), `tools/` (Node + PO token
+   ~300MB và deno ~100MB, cài lại bằng `setup_potoken` / `setup_youtube`), `potoken/`.
+Đừng xoá `jobs.db` (kèm `jobs.db-wal`, `jobs.db-shm` từ bản 41), `settings.json`, `.session_key`, `assets/logo.png`. Bot chạy lại được thì gõ `status` xem thư mục
+nào chiếm chỗ, `clean` để xoá bộ nhớ đệm pip + cache; lúc khởi động bot tự cảnh báo khi ổ còn < 400MB.
+
+## Gói offline (tuỳ chọn)
+
+Gõ `setup_offline` vào console (~185MB, kiểm SHA-256; gỡ bằng `remove_offline`), khởi động lại bot:
+- **Tách giọng nhanh Spleeter**: tự dùng khi người gốc nói > 45s (trước đây phải tắt tiếng nền lúc người gốc nói).
+  Nhanh hơn Kim_Vocal_2 ~30 lần trên 1 lõi; tiếng nền kém tự nhiên hơn chút nên video ngắn vẫn dùng Kim.
+- **Dò chữ in cứng bằng OCR** (`TEXT_DETECT=ocr`): bắt cả chữ màu không viền; ~8s cho 60s video.
+- **Xoá chữ in cứng bằng AI** (`TEXT_INPAINT=1`, mặc định bật; cần `KAGGLE_ANALYZE`): khi phân tích trên Kaggle, LaMa
+  (`big-lama.pt`, TorchScript, tải một lần về cache phiên hoặc gắn sẵn trong dataset) vẽ lại nền ở các dải chữ gốc trên mọi
+  khung rồi gửi video sạch về; phụ đề mới đặt lên nền thật thay vì ô mờ. Cần `PUBLIC_URL` để phiên dựng trên Kaggle lấy được
+  video sạch (không có thì Kaggle tự tải bản gốc và che mờ như cũ); dựng trên Botkeep thì dùng video sạch trực tiếp. LaMa lỗi
+  → che mờ như cũ, job không hỏng. Dải OCR tìm thêm sau đó (ngoài dải Kaggle đã xoá) vẫn được che mờ. Đo T4 19/11: dải
+  1080×320 chạy nửa cỡ 0,11 giây/khung, chỉ khung có chữ mới vẽ lại → video 90 giây phụ đề suốt ≈ 5 phút GPU (tính vào
+  phiên phân tích, mỗi video một lần, có cache).
+- **Giọng offline Piper** (`TTS_OFFLINE=1`, mặc định tắt): tầng cuối khi CapCut và edge-tts đều lỗi. Giọng được tinh
+  chỉnh từ dữ liệu chỉ cho nghiên cứu: cân nhắc trước khi dùng cho video kiếm tiền.
+
+## Bảo mật
+
+- **Telegram**: chỉ người trong `ALLOWED_USERS` tạo được job; người lạ nhận câu từ chối kèm chat id của họ.
+- **Web**: đăng nhập một lần bằng mật khẩu → cookie phiên ký HMAC (HttpOnly, SameSite=Strict, 30 ngày, sống qua
+  restart; đổi `WEB_PASSWORD` là mọi phiên cũ hết hiệu lực). Sai 5 lần/phút bị khoá tạm. POST từ trang khác bị chặn
+  (CSRF). Không còn nhận mật khẩu qua `?auth=` hay lưu trong trình duyệt. Script/curl dùng header `X-Auth`.
+- **Link**: chỉ nhận link của các nền tảng trên; link trỏ vào IP nội bộ (127.0.0.1, 10.x, 169.254.169.254...) bị chặn;
+  yt-dlp tắt extractor "generic" (tải được mọi URL bất kỳ).
+- **Model và mã tải về**: model tách giọng kiểm SHA-256; server PO token build đúng tag phiên bản plugin, `npm ci`.
+- `settings.json` (chứa key) ghi quyền 600; `/health` công khai chỉ trả `ok` và số job chờ.
+- **Đổi cài đặt nhạy cảm phải nhập lại mật khẩu web** (từ bản 41): `YTDLP_PROXY`, `PUBLIC_URL`, tên/token Kaggle,
+  ID/token Fanpage, `ALLOWED_USERS`, `ADMIN_CHAT_ID` — những khoá đổi được nơi dữ liệu và quyền đi tới. Lộ cookie phiên
+  đăng nhập không đủ để chuyển cookies YouTube qua proxy lạ hay đẩy video lên tài khoản Kaggle của người khác. Trang
+  cài đặt tự hiện hộp thoại nhập mật khẩu (mục có 🔒); script dùng header `X-Auth` (đã là mật khẩu) thì không hỏi.
+
+## Web panel (link web của Botkeep)
+
+Có trang đăng nhập riêng (`/login`): chưa đăng nhập thì mọi đường dẫn của bảng điều khiển chuyển về đó; đăng nhập xong
+mới thấy bảng điều khiển; "Đăng xuất" quay về trang đăng nhập. Phiên giữ 30 ngày (cookie HttpOnly, SameSite=Strict).
+
+- Đăng nhập, rồi dán link video **hoặc tải file video lên trực tiếp** để remake, chọn chế độ / thời lượng / giọng.
+- **⚙️ Cài đặt ngay trên web**: key, model, cookies YouTube, giọng đọc, `ALLOWED_USERS`, `ALLOWED_SOURCES`... lưu vào
+  `settings.json`, áp dụng ngay. Bỏ trống = không đổi, nhập `-` = xóa về biến môi trường. Key hiển thị dạng che bớt.
+  Cài đặt ảnh hưởng tới cách dựng (chất lượng, giọng, phụ đề, đoạn mở đầu...) lưu trong lúc một job đang chạy thì áp
+  dụng từ job kế tiếp (ô cài đặt ghi «áp dụng khi job đang chạy xong»): một video không bị đổi cấu hình giữa chừng.
+- Theo dõi hàng đợi theo thời gian thực (Server-Sent Events `/api/events`, mất kết nối thì tự quay về hỏi lại);
+  tải video kết quả, phụ đề `.srt` và `timeline.json` (từng đoạn: thời điểm, cờ tiếng gốc, lời gốc, lời mới, chỗ
+  giọng thật sự nằm) để dựng tay trong CapCut/Premiere.
+- `/health` cho uptime-check.
+
+## Telegram
+
+`/start` → gửi link **hoặc gửi thẳng file video đính kèm (≤ 20MB, giới hạn Bot API)** → chọn chế độ (🍲/📦) → chọn thời lượng → nhận output.mp4, caption là content đăng luôn.
+
+**Thông báo (bản 1.0.0):** job làm trên web / tự đăng cũng được báo (xong kèm link tải, lỗi, chờ duyệt) về chat
+quản trị (`ADMIN_CHAT_ID`, trống = người đầu tiên trong `ALLOWED_USERS`; tắt bằng `NOTIFY_JOBS=0`). Không nhận được
+tin: Cài đặt → **🔔 Gửi thử thông báo**, bot nói rõ lý do (chưa đặt token / chat id, chưa bấm /start, bot bị chặn...).
+
+## Zoom Team Chat (bản 1.0.0)
+
+Ngang hàng Telegram nhưng chỉ chữ: nhắn link cho chatbot Zoom → bot làm video → nhắn lại link tải (Zoom không nhận
+file video qua bot). Thêm chữ sau link để đổi: `review`, `30`/`60`/`90`, `full`/`split60`/`split90`/`highlight`,
+`tải` (chỉ tải về), `duyệt` (duyệt kịch bản trên web). Lệnh khác: `trạng thái`, `huỷ`, `id`, `help`.
+
+Cài một lần ở Zoom App Marketplace → Develop → Build App → **General App**:
+1. App Credentials: Client ID, Client Secret. Features → Access: Secret Token.
+2. Features → Surface → Team Chat → Chatbot: Bot endpoint URL = `<PUBLIC_URL>/zoom/events`; ghi lại Bot JID.
+3. Điền 4 khoá ở Cài đặt → 🔑 Tài khoản & API (nhập lại mật khẩu web).
+4. Cài app vào tài khoản (Local Test → Add App), nhắn bot `id` → điền JID vào Cài đặt → 🎥 Zoom.
+
+Thông báo chung (job web / tự đăng, cảnh báo, phiên bản mới) đi tới `ZOOM_ADMIN` (trống = người đầu tiên được phép);
+người đó phải nhắn bot ít nhất một lần để bot biết nơi gửi. Phiên bản mới (số `MAJOR.MINOR.PATCH`, xem CHANGELOG) được
+báo một lần qua cả Telegram và Zoom.
+
+## 🎙 Giọng miền Nam VieNeu + phần nặng chạy trên Kaggle (mặc định)
+
+`TTS_PROVIDER=vieneu`: giọng nữ **Mỹ Duyên**, nam **Adam** (VieNeu-TTS v3 Turbo, Apache-2.0, giọng có sẵn dùng được
+cho nội dung kiếm tiền). Model này cần GPU nên chạy trên **Kaggle** (miễn phí ~30 giờ GPU/tuần). Mỗi video remake
+dùng HAI notebook riêng tư, không chứa key API nào:
+
+1. **`rmvideo-analyze` — bóc lời + phân tích hình** (`KAGGLE_ANALYZE=1`, mặc định; `KAGGLE_ASR`: large-v3 mặc định,
+   `phowhisper` = PhoWhisper-large của VinAI — đo trên video cá kèo thì kém large-v3, bỏ sót 25s lời; chỉ nên thử với
+   kênh khác, cần notebook `rmvideo-phowhisper` giữ model): Kaggle tự tải video, tách giọng
+   gốc khỏi nhạc trên GPU (Kim_Vocal_2), cho **Whisper large-v3 nghe giọng đã tách** (faster-whisper, MIT; lọc quãng
+   không người nói, không nối ngữ cảnh câu trước), song song dò điểm chuyển cảnh + chữ in cứng + ảnh thu nhỏ ở mức Kỹ.
+   Botkeep chỉ lọc câu bịa/lặp, chia đoạn theo câu của Whisper.
+2. Botkeep nhờ AI viết lời (key nằm ở Botkeep), làm ảnh bìa.
+3. **`rmvideo-worker` — đọc giọng + dựng**: gắn đầu ra của notebook phân tích làm dữ liệu vào nên DÙNG LẠI tiếng nền đã
+   tách (khớp mã job; không khớp thì tự tách lại), đọc giọng VieNeu, dựng, rồi Botkeep tải video về.
+
+Đo thật (Kaggle T4, video cá kèo 220s, 13/11/2026): phiên phân tích 3.6-3.9 phút (tách giọng GPU 34s, Whisper 55s
+gồm tải model, dò cảnh 59s song song); phiên dựng 6.4 phút (đọc 45 câu 16s, dựng 245s, không tách giọng lại). Bóc
+được cả 0-29s và 52-83s mà Groq Whisper (nghe thẳng âm thanh có nhạc) bỏ sót. Botkeep trước đây mất ~400 giây cho
+bóc lời + phân tích hình của video này. Phân tích Kaggle lỗi / hết giờ GPU -> bóc lời bằng Groq/Gemini + phân tích
+nhẹ trên Botkeep như cũ (có ghi chú). Kết quả phân tích được cache theo video (dựng lại bản đã duyệt không chạy lại).
+
+Cài: tạo tài khoản kaggle.com, xác minh số điện thoại (Settings -> Account), tạo token (Settings -> API Tokens ->
+Generate New Token), điền `KAGGLE_API_TOKEN` trong Cài đặt (tên tài khoản bot tự lấy theo token; `KAGGLE_USERNAME` chỉ dự phòng), gõ `kaggle_test` vào console.
+
+- Đo thật (Kaggle T4): đọc 21 câu ~3-8 giây, dựng 60 giây 1080p ~2 phút (Botkeep ~19 phút), tách giọng gốc 60 giây
+  ~1 phút; mỗi lần chạy thêm ~2 phút khởi động (cài thư viện, nạp model).
+- Hết giờ GPU tuần đó thì tự chạy CPU trên Kaggle (giọng đọc ~1x thời gian thực, không tốn giờ GPU).
+- Kaggle lỗi / chưa cài / video tải lên từ máy (Kaggle cần link để tự tải) -> làm trên Botkeep bằng giọng edge đúng
+  giới tính (Hoài My / Nam Minh), có ghi chú trong kết quả.
+- Số được đọc kiểu miền Nam ("100g" -> "một trăm gam", "1/3" -> "một phần ba", "1500" -> "một ngàn năm trăm").
+- Mỹ Duyên đọc ~3.1 chữ/giây (Adam 4.15): AI tự viết lời ngắn hơn cho vừa khung hình.
+- Giọng nhân bản: tải đoạn giọng mẫu 3-15 giây trong Cài đặt rồi chọn `clone` ở `VIENEU_VOICE_FEMALE/MALE`. Chỉ dùng
+  giọng của bạn hoặc người đã đồng ý (điều khoản của model cấm nhân bản giọng người khác khi chưa được phép).
+- **Mọi chế độ dựng trên Kaggle** (`KAGGLE_USE=1`): remake với mọi giọng (VieNeu trên GPU; edge / CapCut đọc ngay trên
+  Kaggle, chạy CPU không tốn giờ GPU), 🎵 nhạc/nhảy, 📸 ảnh + nhạc, video dài cắt nhiều phần / đoạn hay (mọi phần chạy
+  chung MỘT phiên: tải nguồn + nạp model một lần). Phần nào Kaggle lỗi thì làm lại phần đó trên Botkeep.
+- **File trên Botkeep** (video tải lên, nhạc, ảnh, các phần đã cắt): Kaggle tải qua link tạm của web panel
+  (`/kin/<mã>`, mã ngẫu nhiên, hết hạn sau 4 giờ, huỷ ngay khi Kaggle xong) -> cần đặt **`PUBLIC_URL`** (link web
+  panel). Không có PUBLIC_URL: job từ link nền tảng vẫn chạy Kaggle (Kaggle tự tải, video dài tự cắt), file tải lên thì
+  làm trên Botkeep như cũ. Có link tạm thì Kaggle ưu tiên tải bản Botkeep (đúng file đã bóc lời / đo beat).
+- Kaggle là nền tảng cho khoa học dữ liệu; dùng làm máy chạy cho kênh nội dung có thể bị xem là lạm dụng -> bot luôn
+  có đường lùi về Botkeep. Chi tiết, số đo: `docs/KAGGLE_PLAN.md`.
+
+## Giọng đọc edge-tts / CapCut
+
+24 giọng Việt của CapCut (Ban Mai, Review Phim, Giọng Nữ Phổ Thông, Nam Trầm...) qua gói `capcut_tts_api` (MIT, đóng kèm trong thư mục `capcut_tts_api/`, không cần đăng nhập). Giọng CapCut không trả mốc từng từ: phụ đề rải chữ theo các khoảng có tiếng của chính giọng đã tạo (lệch ~70ms, không gọi mạng); `SUB_TIMING=stt` để nghe lại track bằng STT CapCut như bản cũ (lệch ~85ms, chậm hơn). Giọng edge-tts có mốc từng từ thật. Đây là API không chính thức, có thể đổi bất cứ lúc nào: lỗi gì cũng tự rơi về edge-tts, job không hỏng. Chọn giọng cụ thể trong dropdown web; giọng mặc định nam/nữ và provider (`TTS_PROVIDER=capcut|edge`) sửa được trong Cài đặt.
+
+Mặc định `TTS_PROVIDER=edge`, giọng Hoài My (`vi-VN-HoaiMyNeural`) cho mọi chế độ. edge-tts lỗi (thử 6 lần) thì
+riêng đoạn đó đọc bằng giọng nữ CapCut trong Cài đặt (`CAPCUT_VOICE_FEMALE`, mặc định Ban Mai). CapCut có liệt kê
+"Hoai My" / "Nam Minh" nhưng gọi thì lỗi `TTSInvalidSpeaker` (thử 11/2026) nên không dùng được làm dự phòng.
+Cả video đọc cùng một tốc độ (tối đa 1.12x), từng đoạn chỉ lệch ≤5%; lời gốc bị máy nghe cắt vụn được gộp thành câu
+trọn trước khi AI viết lại.
+
+## 🤖 Tự động đăng Fanpage (kênh nguồn → làm lại → giờ vàng)
+
+Bật trong Cài đặt → 🤖 Tự động đăng: `AUTO_POST=1`; token ở Cài đặt → 🔑 Tài khoản & API: `FB_PAGE_ID`, `FB_PAGE_TOKEN`;
+tuỳ chọn `AUTO_PER_DAY` (1-4, mặc định 2), `AUTO_TIMES` (trống = tự chọn giờ vàng), `AUTO_MODE` (cook | review).
+**Kênh nguồn** thêm/bỏ ngay trong ô **🤖 Tự động đăng** trên web: dán link kênh Facebook (`facebook.com/<tên>`) hoặc
+TikTok (`tiktok.com/@<tên>`), bao nhiêu kênh cũng được, bot tự nhận ra nền tảng (lưu vào `AUTO_SOURCES` /
+`AUTO_TIKTOK_SOURCES`). **Link dán tay**: dán link MỘT video (TikTok / Facebook / YouTube) vào ô «Xếp vào lượt kế
+tiếp» — bot xem thử (tiêu đề, độ dài, không trùng video đã làm) rồi xếp vào hàng chờ riêng; lượt lấy video kế tiếp
+làm video đó trước video chọn ngẫu nhiên, xong thì hẹn đăng vào khung giờ vàng còn trống (hết khung thì đăng ngay);
+bấm «Lấy video ngay» để làm luôn. Có link dán thì không cần kênh nguồn. Theo dõi ở ô đó hoặc lệnh console `auto`.
+
+- **Chọn nguồn**: trong ô 🤖 Tự động đăng tick ☑ Facebook / ☑ TikTok (`AUTO_PLATFORMS`). Tick cả hai thì lấy xen kẽ
+  hai nền tảng (bên nào được lấy ít hơn trong 6 video gần nhất đi trước; bên nào hết video mới thì lấy bên kia).
+- Mỗi lần lấy NGẪU NHIÊN một video mới của kênh nguồn (Facebook: đọc tab Reels + Video của kênh, không cần đăng nhập,
+  ~10 video mới nhất mỗi tab; TikTok: yt-dlp đọc ~30 video mới nhất). Video đã dùng không bao giờ dùng lại; video quá
+  5 phút / không phải của chủ kênh bị bỏ qua.
+- **Không làm trùng giữa hai nền tảng**: cùng một video người gốc đăng ở cả Facebook lẫn TikTok (độ dài lệch ≤ 1.5s,
+  chú thích giống ≥ 60% sau khi bỏ hashtag) chỉ làm một lần.
+- Chỉ thêm job khi hàng đợi trống (video bạn gửi luôn làm trước), làm sẵn cho các khung giờ trong 36 giờ tới rồi
+  **hẹn giờ đăng phía Facebook**, nên máy chậm hay bot khởi động lại không làm lỡ giờ.
+- ≤ 90 giây đăng thành Reels, dài hơn đăng thành video. Nội dung bài = phần «▶ Facebook» của gói nội dung (caption +
+  3 hashtag; có dòng ghi nguồn nếu bật `SOURCE_CREDIT`).
+- Giờ vàng: ban đầu 11:30 và 20:30 (giờ Việt Nam). Mỗi bài sau 24 giờ được đọc lượt xem; khung nào trung bình cao hơn
+  được chọn nhiều hơn, thỉnh thoảng thử khung khác. Hai khung trong ngày cách nhau ≥ 3 giờ.
+- Không bao giờ đăng trùng: mỗi lượt chạy giữ khoá, ghi dấu "đang đăng" trước khi tải lên; bot dừng đúng lúc đang tải
+  thì KHÔNG tự đăng lại mà báo bạn kiểm tra Fanpage.
+- Không đăng video kém: AI lỗi (dùng kịch bản mẫu) hoặc lời mới khác lời gốc < 70% thì bỏ, chọn video khác.
+- Lỗi tạm (mạng, hết hạn mức AI, Facebook giới hạn) thì nghỉ rồi thử lại (video nguồn 6 giờ, đăng bài 5 → 60 phút);
+  một video lỗi 2 lần thì bỏ hẳn; 3 video liên tiếp không đăng được, lỗi token / sai id Page / bị chặn thì dừng hẳn và
+  báo Telegram admin; sửa xong gõ `auto_resume` (hoặc bấm nút trên web). File trạng thái hỏng thì giữ bản cũ
+  (`autopost.json.bad`) và dừng chờ bạn.
+
+Lấy `FB_PAGE_TOKEN` (token Page không hết hạn):
+1. developers.facebook.com → My Apps → tạo app (loại Business).
+2. Tools → Graph API Explorer: chọn app, **Get User Access Token** với quyền `pages_show_list`,
+   `pages_read_engagement`, `pages_manage_posts` → Generate.
+3. Tools → Access Token Debugger: dán token → **Extend Access Token** (token người dùng 60 ngày).
+4. Trong Graph API Explorer dùng token 60 ngày đó gọi `me/accounts`: lấy `id` (= `FB_PAGE_ID`) và `access_token`
+   (= `FB_PAGE_TOKEN`) của Fanpage. Token Page lấy từ token người dùng dài hạn không hết hạn.
+5. Dán vào Cài đặt, bấm **🔑 Thử token Fanpage** (hoặc gõ `fb_test`).
+
+Lưu ý: Facebook giảm hiển thị (và có thể tắt kiếm tiền) với nội dung đăng lại không phải của mình. Chỉ dùng kênh nguồn
+bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đổi hình nhưng không thay được quyền tác giả.
+
+## ▶️ Đăng YouTube Shorts (1.2.0)
+
+Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn (tải lên riêng tư + giờ công khai, YouTube tự mở đúng giờ;
+giờ sắp tới / đã qua thì công khai ngay). Kênh bếp và kênh truyện bé là **hai kênh YouTube riêng** (giống hai Fanpage).
+Tiêu đề, mô tả lấy phần «▶ YouTube Shorts» của gói nội dung. Video dọc ≤ 3 phút YouTube tự xếp vào Shorts. Kênh bé khai
+«dành cho trẻ em» (bắt buộc với nội dung cho trẻ: tắt bình luận, không quảng cáo cá nhân hoá).
+
+Một tài khoản Google quản lý được nhiều kênh (kênh thương hiệu): youtube.com → ảnh đại diện → Cài đặt → **Thêm hoặc
+quản lý kênh** → Tạo kênh. Lúc kết nối Google hỏi chọn kênh nào.
+
+Cài đặt một lần:
+1. console.cloud.google.com: tạo dự án → **APIs & Services → Library** → bật **YouTube Data API v3**.
+2. **OAuth consent screen**: loại External, điền tên app + email; **Publish app** (chuyển sang *In production*). Để
+   *Testing* thì Google thu hồi quyền sau 7 ngày, phải kết nối lại.
+3. **Credentials → Create credentials → OAuth client ID**, loại **Web application**, *Authorized redirect URIs* =
+   `PUBLIC_URL` + `/youtube/callback` (vd `https://rmvideo.bot-keep.xyz/youtube/callback`).
+4. Cài đặt → 🔑 Tài khoản & API: dán `YT_CLIENT_ID`, `YT_CLIENT_SECRET` (cần `PUBLIC_URL`).
+5. Mục 🤖 Tự động đăng bấm **▶️ Kết nối YouTube kênh bếp**, mục 🧸 Truyện bé bấm **▶️ Kết nối YouTube kênh bé** (nhập lại
+   mật khẩu web) → Google chọn tài khoản / kênh → Cho phép. Google báo «ứng dụng chưa được xác minh» thì bấm *Nâng cao →
+   Đi tới …* (ứng dụng của chính bạn). Bot lưu `YT_REFRESH_TOKEN` / `KIDS_YT_REFRESH_TOKEN`.
+
+Hạn mức: từ 1/6/2026 việc tải lên có hạn mức riêng 100 lần / ngày / dự án; từ 2/11/2026 dự án chưa qua kiểm duyệt
+không còn bị ép video riêng tư. Lỗi tạm thì thử lại sau 5 → 40 phút (5 lần), hết hạn mức thử lại sau 6 giờ, token bị
+thu hồi thì dừng kênh đó và báo admin (bấm kết nối lại là chạy tiếp). Lỗi YouTube không ảnh hưởng bài Facebook.
+
+Lưu ý kênh bếp: YouTube xét «nội dung dùng lại» khắt khe khi duyệt bật kiếm tiền; bot đã đổi lời, giọng, nhạc, cách dựng
+nhưng không thay được quyền tác giả của video nguồn.
+
+## 🎵 Gói đăng TikTok (1.2.0, bán tự động)
+
+TikTok không cho bot đăng thẳng lên tài khoản của chính mình: API chỉ đăng video «chỉ mình tôi» khi ứng dụng chưa được
+kiểm duyệt, và hướng dẫn kiểm duyệt ghi rõ không chấp nhận công cụ đăng cho tài khoản của mình / nhóm mình và ứng
+dụng chép nội dung từ nền tảng khác. Nên bot làm phần còn lại cho bạn:
+
+- 10 phút trước giờ vàng (giờ hẹn Fanpage), Telegram nhận **file video** + một **tin riêng chỉ có chữ đăng TikTok**
+  (caption + hashtag + ghi nguồn). Trên điện thoại: lưu video → TikTok → **+** → Tải lên → nhấn giữ tin chữ → Sao chép →
+  dán → Đăng (~30 giây). Zoom nhận chữ + link tải.
+- `TIKTOK_KIT` (mục 🤖 Tự động đăng) / `KIDS_TIKTOK_KIT` (mục 🧸 Truyện bé): `slot` (mặc định) | `ready` (gửi ngay khi
+  video xong, bạn tự hẹn giờ trong TikTok Studio trên web) | `off`.
+- Cần kênh thông báo quản trị: Telegram (`BOT_TOKEN` + `ADMIN_CHAT_ID` / `ALLOWED_USERS`) và/hoặc Zoom (`ZOOM_ADMIN`).
+
+Lưu ý kênh bếp: nhiều video nguồn lấy từ TikTok; đăng bản làm lại ngược lên TikTok dễ bị coi là «nội dung không nguyên
+bản» và bị hạn chế phân phối. Kênh bé là nội dung tự tạo nên hợp TikTok hơn.
+
+## 🎚️ Tách âm, phóng nét, nội suy khung (1.3.0)
+
+- **Bỏ nhạc gốc, giữ tiếng động** (`SFX_SEP`, kênh bếp, Kaggle GPU): sau khi bỏ giọng người gốc, model Bandit tách tiếng
+  nền thành nhạc / tiếng động và chỉ giữ tiếng động; bot tự lót nhạc Lyria thay nhạc gốc. Trọng số Bandit giấy phép
+  **CC BY-NC 4.0 (phi thương mại)** — bật kiếm tiền cho kênh thì đặt `SFX_SEP=0`.
+- **Phóng nét ảnh truyện bé** (Real-ESRGAN, BSD-3): tự chạy trên Kaggle GPU, lỗi thì phóng thường như cũ.
+- **Nội suy khung** (`INTERP`, RIFE 4.25, MIT): video gốc bị kéo chậm cho đủ thời lượng thì chèn khung giữa trước khi dựng
+  trên Kaggle, chuyển động không giật.
+
+Thành phần bên thứ ba: `rmvideo/media/bandit/` (mã Apache-2.0, trọng số CC BY-NC 4.0 — Watcharasupat và cộng sự),
+`rmvideo/media/rife.py` (MIT, hzwer — `rmvideo/media/RIFE-LICENSE-MIT.txt`), Real-ESRGAN (BSD-3-Clause, Xintao Wang); mã
+suy luận Bandit / RIFE lấy từ FreeVideo (Apache-2.0, FlashML-org).
+
+## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
+
+Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),
+một bài học, 3–5 từ tiếng Anh, giọng kể miền Nam. Toàn bộ chạy trên **Kaggle** (GPU): model chữ Qwen3.6-35B-A3B (llama.cpp) viết
+truyện theo đề, FLUX.1-schnell 4-bit vẽ 8 cảnh, VieNeu đọc, FFmpeg dựng; Botkeep chỉ chọn đề, kiểm, giao và đăng. Kế hoạch và lý do
+từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
+
+Cài một lần:
+1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`); Cài đặt → 🔑 Tài khoản & API: Fanpage
+   riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`)
+   và `GEMINI_API_KEY`. Nhạc nền: mặc định (`KIDS_BGM=auto`) bot tự tạo kho bằng **Lyria RealTime** (xem dưới); muốn dùng nhạc của
+   mình thì chép vào `assets/kids_bgm/` (cần `PUBLIC_URL` để Kaggle tải) hoặc dán link `KIDS_BGM_LINKS`.
+2. Gõ `kids_setup` (console hoặc nút trên web): notebook `rmvideo-kids-models` biên dịch llama.cpp cho T4 và lượng tử FLUX.1-schnell
+   4-bit, lưu làm đầu vào cho mọi phiên sau (~45–60 phút GPU, một lần). Đã có sẵn bản llama-server biên dịch (vd dataset của bài đo
+   Qwen) thì điền `KIDS_KAGGLE_SOURCES=dataset:user/slug` thay vì chạy `kids_setup`. Model chữ GGUF (~21GB) tải từ Hugging Face mỗi
+   phiên (~3 phút) vì vượt giới hạn 20GB đầu ra notebook.
+3. Bấm **🧸 Làm 1 truyện ngay** (hoặc `kids_now`): job vào hàng đợi như job thường, xong thì tải về soát (video, phụ đề `.srt`, ảnh
+   bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
+   (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+
+Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep**, hai model theo vai (`rmvideo/kids/writer.py`):
+bản nháp = `KIDS_GEMINI_MODEL` (mặc định **gemini-4-hydrogen**, free tier, mức suy nghĩ `KIDS_GEMINI_THINKING=low`; đo 19/11: đạt
+bộ kiểm ngay lượt đầu, 10–20 giây, truyện có hài, có hỏi bé, điệp khúc đảo đúng chỗ — hơn hẳn flash-lite), viết lại theo lỗi và
+lượt tự soát = `KIDS_GEMINI_REVISE_MODEL` (mặc định gemini-3.5-flash-lite, hạn mức free rộng). Hạn mức free mỗi ngày của model lớn
+nhỏ (Google không công bố) nên Hydrogen chỉ dùng 1 lượt/truyện; model của vai quá tải / hết lượt thì model kia làm thay, cả hai
+lỗi thì Qwen trên Kaggle viết. Viết lại theo lỗi là **sửa bản nháp trước** (lời nhắc kèm bản nháp + lỗi), nên cái hay của
+Hydrogen giữ nguyên; truyện tối đa 200 chữ (trên 215 là lỗi chặn vì video không vừa 88 giây). Truyện đi theo việc sang Kaggle nên Kaggle bỏ hẳn bước tải và chạy Qwen (nhanh hơn ~5 phút).
+`gemini` = bắt buộc Gemini; `qwen` = chỉ Qwen trên Kaggle. Gemma 4 trên Gemini API đã thử (19/11): 31B báo quá tải liên tục, không
+dùng.
+
+Kiểm ảnh (19/11, `rmvideo/kids/imgcheck.py`): FLUX với khung dọc 9:16 thỉnh thoảng vẽ nhân vật hai đầu / nhân đôi dù prompt ghi
+«đúng một nhân vật». Sau khi vẽ, OWLv2 (bộ dò vật thể mở, ~600MB, chạy trên Kaggle sau FLUX) đếm đầu thỏ / mèo / gấu / sóc,
+gộp khung lồng nhau và bỏ khung thân áo dưới đầu (đo thật 16 ảnh: 0 báo nhầm); thừa đầu so với số bạn có mặt thì vẽ lại cảnh
+với seed khác (tối đa 2 lần, ~35 giây mỗi lần). Từ 20/11 (ảnh LoRA chấm điểm thấp hơn): ngưỡng 0,18, khung bao nhiều đầu không
+nuốt các đầu bên trong, đầu lệch sang bên không bị coi là thân áo, thêm phép đếm theo loài — đo trên 85 khung hình video
+job 1: bắt 13/13 khung nhân đôi (Gấu ôm hai Thỏ, thêm gấu con), 0 báo nhầm. Từ tiếng Anh đọc bằng giọng bản xứ
+(`KIDS_EN_VOICE`, edge-tts en-US) thay vì VieNeu («sun» -> «súng»). Cùng lượt dò, màu áo cũng được soát (áo lạ màu hay hai áo cùng màu khi hai
+bạn khác màu, vd Mèo Cam mặc áo đỏ của Thỏ, đo thật mẫu 26 và 29) và vẽ lại. `KIDS_IMAGE_CHECK=0` để tắt. Giọng: mỗi đoạn giọng được kéo về cùng mức RMS
+trước khi nối, người kể và các bạn nghe đều nhau; câu dạy từ dạng đố hỏi rồi mới đáp và không chen sau câu hỏi cho bé.
+
+Hình theo lời kể (20/11, xem mẫu 32 với mắt đạo diễn): model ghi thêm **đồ vật chính** của truyện (`prop_vi` / `prop_en`, vd
+«túi kẹo» / «candy bag», phải có trong lời cảnh 1–2) và prompt ảnh ép nó «clearly visible» ở cảnh 1 và mọi cảnh lời nhắc tới
+(mẫu 32: cốt chuyện là túi kẹo mà cảnh 1–2 không thấy); sau khi vẽ, OWLv2 dò thêm câu hỏi «a {prop_en}» (ngưỡng 0,15), không
+thấy thì vẽ lại (mẫu 33: prompt ghi «beside a toy box» mà 3 trong 5 cảnh không có hộp). Cảnh mà lời nói đồ vật đang mất / đang
+tìm / bị quên (`prompts.PROP_LOST_RE`) thì không ép (mẫu 34, truyện tìm đồ: «cây dù mất tiêu!» mà prompt đòi dù, OWLv2 bắt vẽ lại). Từ đang dạy là hành động / cảm xúc (`pose` trong `data.json`: hug, jump,
+sad…) thì prompt thêm tư thế rõ; từ cần hai bạn chạm nhau (hug, help, share: `contact`) thì OWLv2 soát thêm hai áo có tách rời
+nhau không, tách rời thì vẽ lại (mẫu 32 cảnh 7: «Gấu ôm Thỏ» mà Gấu bưng bánh). Ánh sáng theo lời («trời sắp tối» → hoàng hôn,
+«trăng» → đêm, «sáng sớm», «mưa») và cảm xúc theo cụm xuất hiện sau cùng trong lời cảnh (buồn thiu / giật mình / vấp té / giận
+/ cười) được ghép vào prompt; dài quá ngân sách 165 từ (T5 cắt ở 256 token) thì bỏ cảm xúc rồi ánh sáng. Ảnh câu móc không cố
+định cảnh 3 nữa: `story.hook_scene` chọn trong cảnh 2–5 cảnh có nhiều dấu hiệu rắc rối nhất (buồn, rớt, mất, giật mình…), hoà thì
+cảnh sau; clip móc zoom chặt hơn cảnh thường 0,22 để không thấy y hệt khung đó lúc cảnh chiếu.
+
+LoRA nhân vật (20/11, `KIDS_LORA=dcn_lora_v1` mặc định): FLUX vẽ mỗi cảnh từ chữ nên gương mặt các bạn lệch nhau giữa các cảnh.
+LoRA dạy model nhớ đúng bốn bạn: train trên Kaggle T4 bằng ai-toolkit (nền FLUX.1-schnell + adapter huấn luyện, Apache-2.0) với
+144 ảnh do chính pipeline vẽ; file nằm ở dataset riêng tư `rmvideo-kids-lora`, phiên dựng tự gắn và nạp, prompt thêm từ khoá
+`thotrang`, `gaunau`, `meocam`, `socnho`. Muốn train lại (đổi kiểu dáng): vẽ bộ ảnh mới rồi chạy lại notebook train, chép file
+vào dataset. `KIDS_LORA=off` để tắt. Bản lưu trữ: `lora/dcn_lora_v1.safetensors` trong repo qua **Git LFS** (164 MB, quá
+giới hạn 100 MB/file thường của GitHub; không nằm trong gói Botkeep). Đổi tài khoản Kaggle hay lỡ xoá dataset thì
+`git lfs pull --include "lora/*"` rồi `python scripts/push_kids_lora.py` (có `KAGGLE_USERNAME` / `KAGGLE_API_TOKEN`)
+để tạo lại dataset `rmvideo-kids-lora`.
+
+Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
+lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
+tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100
+giây tạo theo thời gian thật), kho lưu `assets/kids_bgm/lyria/` + `library.json`, rồi đẩy lên Kaggle thành dataset riêng tư
+`rmvideo-kids-bgm` (`kaggle_api.dataset_push`: tải blob + tạo dataset / phiên bản mới, chờ READY); phiên Kaggle gắn dataset vào
+`/kaggle/input` nên không cần `PUBLIC_URL`, key Gemini không rời Botkeep. Lệnh console `kids_bgm` làm đủ kho một lần (9 bài,
+~15 phút). `KIDS_BGM`: auto (nhạc của mình nếu có, không thì Lyria) / lyria / files / off. Lyria hay Kaggle lỗi thì video không nhạc
+như trước. Giọng Google TTS (`gemini-3.8-flash-tts`, free, 30 giọng, đa người nói) đã thử tiếng Việt, chờ nghe mẫu rồi mới quyết.
+
+Khung cốt truyện (19/11): `rmvideo/kids/data.json` có 10 **khung** rút từ truyện mầm non, sách tranh và podcast kể chuyện cho bé
+(tìm đồ bị mất, làm hỏng rồi nhận lỗi, sợ rồi dám thử, giữ riêng rồi chia sẻ, chờ tới lượt, quên lời hứa rồi sửa, giúp người thì
+được giúp lại, làm hoài không được rồi đổi cách, nói dối rồi nói thật, làm quà tặng bạn). Mỗi đề chọn khung hợp bài học + chuyện
+xảy ra, luân phiên; 8 nhịp của khung (đã điền tên nhân vật chính / bạn giúp) thay cho vai cảnh chung, kèm quy tắc «sợi chỉ xuyên
+suốt»: vật hay việc ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6, 8. Lời thoại: «nha/hen» tối đa 3 lần, câu móc không kết bằng
+«nha», ngoài điệp khúc không câu nào lặp (bộ kiểm bắt, Gemini viết lại).
+
+Kể cho cuốn (19/11, học từ sách tranh — The Gruffalo, We're Going on a Bear Hunt, truyện mầm non): lời nhắc có khối «bí kíp»:
+**hỏi bé** 1–2 lần giữa truyện ở cuối cảnh rồi cảnh sau trả lời (lật trang sách), điệp khúc có **nhịp** hát theo được và ở cảnh 6
+**đảo** theo gợi ý riêng của khung (`plots[].twist`: «Chơi một mình chán ghê!» → «Chơi chung vui ghê!»), thất bại phải **hài** kèm
+tiếng động, cảm xúc tả qua **hành động** (tai cụp, đuôi rũ), mỗi bạn có **nét riêng** / câu cửa miệng (`characters[].quirk_vi`:
+Thỏ Trắng «Ôi chao!», Gấu Nâu «Ừm…», Mèo Cam «meo», Sóc Nhỏ «Hả? Sao vậy?»), cảnh 1 có chi tiết giác quan, câu cuối **vòng lại**
+hình ảnh mở đầu; cảnh 8 KHÔNG nói với «các bé» hay dặn dò lần nữa (bài học đã ở cảnh 7, nói thêm nghe giảng), màn kết chỉ ôn
+từ rồi «Hẹn gặp lại bé ở chuyện sau!». Bộ kiểm thêm: thiếu câu hỏi cho bé (cảnh 2–6), cảnh 8 nói với «các bé», lời kể gọi «các bạn / cả nhóm» khi hình chỉ có 2 bạn, tiêu đề
+nhắc thứ không có trong truyện; checklist soát của Gemini thêm mục «cuốn chưa?» và yêu cầu nâng bản nháp, không chỉ sửa lỗi.
+Mỗi truyện 3 từ tiếng Anh; câu dạy từ không chen vào cảnh kết, không dồn quá 2 câu một cảnh.
+
+3 giây đầu (19/11): video mở bằng **câu móc** do model viết (`hook`, câu hỏi/câu cảm 4–14 chữ về chuyện sắp xảy ra, đọc ngay
+giây 0,25) trên ảnh cảnh biến cố zoom nhanh, chữ to `hook_text` (2–5 chữ in hoa), whoosh + nảy; thẻ tiêu đề lùi ra sau và chỉ
+còn 2,2 giây, lời kể vào sớm hơn. Gemini còn tự **soát lại** bản nháp một lượt theo checklist (móc có gây tò mò, cảnh sau xảy ra
+vì cảnh trước, ba lần thử khác nhau và leo thang, bài học rút từ chính chuyện đó, câu ngắn, giọng miền Nam); bản sửa chỉ được
+nhận khi qua bộ kiểm và không tệ hơn bản nháp (+1 lượt gọi, ~3 giây; Qwen trên Kaggle không soát).
+
+Giọng (19/11): lời kể là `KIDS_VOICE` (Thục Đoan); lời thoại trong «…» đọc bằng giọng VieNeu riêng của từng nhân vật
+(`KIDS_MULTI_VOICE=1`; `data.json` → Thỏ Trắng Kim Thanh, Gấu Nâu Thái Sơn, Mèo Cam Thùy Dung, Sóc Nhỏ Mỹ Duyên). Người nói
+nhận theo tên ngay trước ngoặc («Gấu Nâu nói: «…»») hoặc tên + động từ nói ngay sau («…» Sóc Nhỏ reo); không rõ thì người kể
+đọc (`rmvideo/kids/dialogue.py`). Các đoạn của một cảnh nối lại thành một clip nên phần dựng không đổi. Lời kể được dặn trôi
+chảy: câu 5–14 chữ, có từ nối, câu đầu mỗi cảnh nối với cảnh trước; câu dạy từ có từ dẫn («À, cái ly tiếng Anh là cup…»).
+
+Khung hình (19/11): không mờ từ đen hay về đen; khung đầu là cảnh móc, khung cuối là bảng «Hôm nay bé học» trắng bo góc trên nền
+sáng (Reels lặp lại không lộ màn đen); thẻ tiêu đề cùng kiểu bảng trắng (`rmvideo/kids/cards.py`, PIL + font Be Vietnam Pro).
+
+Hiệu ứng động (`KIDS_FX`, mặc định `full`, FFmpeg thuần): Ken Burns mạnh hơn có nhịp "thở", nảy zoom + rung máy đúng lúc lời có
+tiếng động (Bịch! Rầm! Ối!), hạt bokeh bay nhẹ, vignette, phụ đề bật lên, tiếng whoosh khi chuyển cảnh và "ting" khi dạy từ (tiếng
+động tự tạo, không cần file bản quyền). `motion` = chỉ chuyển động + chữ bật; `off` = Ken Burns nhẹ như 1.1.0.
+
+Cách kể (19/11, học theo truyện kể cho bé 3–5 tuổi và kênh dạy tiếng Anh cho bé): model viết truyện **thuần tiếng Việt** theo 8 nhịp
+(chào các bé → chuyện nhỏ → có tiếng động, có vấn đề → thử lần 1, 2 với một câu điệp khúc → bạn giúp, lần 3 được → bài học nói
+nhẹ qua lời nhân vật → kết vui, nhắn nhủ các bé), câu ngắn, có truyện mẫu trong lời nhắc để học giọng kể (chép lại ≥ 2 câu là
+lỗi). Từ tiếng Anh là **đồ vật / màu / con vật / lời chào** có mặt trong truyện: model nhận kho gợi ý (đồ vật của bối cảnh + từ theo bài
+học), lồng ít nhất 3 thứ tự nhiên; truyện viết xong, mã chọn 3 từ hôm nay từ chính những thứ đã xuất hiện (`story.choose_words`,
+phản hồi 19/11: từ chọn trước bị ép vào như «xe hơi bóp còi»), rồi chèn câu dạy từ ngay cảnh đó (tránh cảnh biến cố và cao trào) («Trái banh, tiếng Anh là ball. Bé nói theo nha:
+ball!»), thẻ nghĩa hiện lúc đó, cuối truyện ôn lại. Chống trùng: đề = bài học × bối cảnh × xung đột chưa dùng trong 30 ngày, bài học
+chia đều, nhân vật chính luân phiên, từ lâu chưa dùng (`kids_auto.json`). Kịch bản kiểm bằng mã (130–200 chữ, 8 cảnh 10–36 chữ, nhắc
+đủ đồ vật của hôm nay, không chen tiếng Anh, có nhân vật chính + bạn, có bài học, kết vui, không từ cấm, `action_en` bằng tiếng Anh,
+không hỏi dồn dập, không chép mẫu); chưa đạt thì model viết lại tối đa 3 lần kèm lý do, hết lượt thì lấy bản ít lỗi nhất. Model chữ
+suy nghĩ trước khi viết tối đa `KIDS_LLM_THINK` token (mặc định 1200, 0 = tắt). Video kiểm bằng mã (60–88 giây, 1080×1920, có
+tiếng) cả trên Kaggle lẫn khi tải về; lời dài thì phần dựng tự co đệm rồi đọc nhanh hơn (≤ ×1,15) để không quá 87 giây. Thêm bài
+học / bối cảnh / từ mới: sửa `rmvideo/kids/data.json` (từ: `en`, `vi`, `group`, `match` = các cách viết tiếng Việt tính là có nhắc tới;
+bối cảnh: `words` = đồ vật có mặt ở đó).
+
+Chưa có đường lùi về Botkeep (model không chạy được trên máy 1,5 vCPU): hết giờ GPU tuần hay Kaggle lỗi thì job lỗi, lượt sau thử
+khung giờ khác. Đo thật 18/11/2026: một truyện ~20 phút GPU (tải GGUF 20GB 1,5 phút, nạp model chữ 1,5 phút, viết 15 giây/lượt,
+nạp FLUX từ ổ Kaggle 7–8 phút — giờ chép về đĩa cục bộ song song lúc viết truyện, vẽ 31 giây/ảnh, đọc 0,5 phút, dựng 1,5 phút)
+cộng chờ máy 0–60 phút; 2 truyện/ngày ≈ 4–5 giờ GPU/tuần. Bảng đo trong `docs/KE_HOACH_KIDS_STORY.md` mục 7.
+
+## Chuẩn kỹ thuật đầu ra (TVC / nền tảng)
+
+H.264 High 4.1, yuv420p, bt709, 30 fps CFR, GOP 2s, faststart; AAC 192 kbps **48 kHz**; loudness **−14 LUFS, true peak −1 dBTP** (alimiter); fade in 0.3s / out 0.4s hình + tiếng; phụ đề trong vùng an toàn (cách đáy ~26%, không bị thanh công cụ TikTok/Reels che). `QUALITY` trong Cài đặt: `fast` (superfast, crf 23), `balanced` (mặc định: veryfast, crf 20, 1080p ~9 Mbps), `high` (chuẩn TVC: medium, crf 18, làm nét thích ứng `cas`, chậm ~2x). Âm lượng ra đúng −14 LUFS, đỉnh ≤ −1 dBFS ngay từ render (alimiter `level=false`; có test chặn tái phát).
+
+**Hiệu năng** (video 87s 1080p 50fps, 1 lõi CPU, AI giả lập): 512s → 334s. Bộ lọc chạy sau `fps=30` (nguồn TikTok 50-60fps); giữ NGUYÊN công thức màu đã duyệt (eq + vibrance + colortemperature: vibrance chừa vùng đã đậm, hợp món chiên), chỉ thay `cas` bằng `unsharp` ở balanced/fast (SSIM 0.984-0.988 so với bản cũ, nhanh hơn bản cũ 24-28%); dò cảnh + ảnh cho AI + dò chữ gộp một lượt giải mã; các lô AI chạy song song. Đã thử và LOẠI: màu tính trên YUV (eq saturation 1.2, làm món chiên cam loang) và LUT 3D (chậm hơn bản gốc).
+
+## Trình tải video (kiểu vidssave)
+
+Card "⬇️ Trình tải video" trên web: dán link YouTube/TikTok/Facebook → **Xem định dạng** hiện ảnh bìa, tiêu đề, thời lượng và các nút MP4 2160p→360p kèm dung lượng ước tính + MP3; bấm là tải vào hàng đợi, xong hiện link. Telegram: gửi link → "⬇️ Chỉ tải về" → bàn phím chọn chất lượng/MP3; file ≤48MB gửi thẳng (MP3 gửi dạng audio), lớn hơn gửi link. Giới hạn 60 phút / 450MB; % tải hiện trong bước của job. Nhãn theo cạnh ngắn (video dọc 1080×1920 = 1080p). **Lệnh console Botkeep**: gõ thẳng vào ô console của server (bot đọc stdin): `help`, `status` (kèm tỉ lệ rơi dự phòng 24 giờ), `health` (kiểm tra dịch vụ ngoài ngay), `update_ytdlp` (cập nhật yt-dlp, thử YouTube trong tiến trình riêng, hỏng thì tự quay về bản cũ; xong thì khởi động lại bot), `setup_potoken`, `remove_potoken`, `yt_test <link>` (xem + tải thật), `cancel <số job>`.
+
+**YouTube bị chặn (403 / đòi đăng nhập)?** Ba cách theo thứ tự nên thử: (1) **không cần cookies**: gõ `setup_potoken` vào console Botkeep — bot tự tải Node qua pip nếu máy không có, cài bộ sinh PO token bgutil (~270MB, ~1 phút), dùng ngay không cần restart; rồi `yt_test <link>` để thử tải thật. Không ăn thì `remove_potoken` để lấy lại đĩa; (2) điền `YTDLP_PROXY` (proxy dân dụng, `http://user:pass@ip:port` hoặc `socks5://...`) trong Cài đặt, hoặc `POT_SERVER` trỏ tới server token chạy ở máy khác; (3) dán cookies YouTube vào `YTDLP_COOKIES`. Nếu IP máy chủ bị YouTube gắn cờ quá nặng thì PO token cũng không đủ, khi đó chỉ còn cookies. TikTok dùng tikwm nên không bị ảnh hưởng.
+
+## Vận hành
+
+- **Cắt quảng cáo của người gốc** (`CUT_PROMO=1`): đoạn cuối video giới thiệu sản phẩm / giỏ hàng / kêu gọi mua (dò trên lời gốc, chịu lỗi máy nghe như "chào hàng"=giỏ hàng) bị cắt bỏ cả hình lẫn tiếng. Chỉ cắt khi đoạn đó nằm ở nửa sau và kéo tới hết video, ≥40% câu có dấu hiệu bán hàng.
+- **Tốc độ khung**: nguồn ≤30fps giữ nguyên; >30 chia đều (50→25, 60→30) — ép 50→30 hoặc 25→30 gây giật.
+- **Nguồn nhỏ** (vd 360×640): khử nhiễu + chỉnh màu ở kích thước gốc rồi mới phóng to (render nhanh ~1.7x).
+- **Bóc lời bỏ sót**: Whisper hay bịa một câu chào kết ("Đừng quên đăng ký kênh...") hoặc chép lại tiêu đề VIẾT HOA ở
+  quãng nhạc rồi nhảy qua cả khung 30 giây lời thật, hoặc lặp đi lặp lại một câu. Bot bỏ các câu đó và nghe lại riêng
+  từng quãng ≥ 8 giây không có chữ nào (tối đa 4 quãng / 180 giây): Groq `whisper-large-v3` bản đầy đủ, khoá ngôn ngữ,
+  không kèm prompt; vẫn ra < 0.4 chữ/giây thì nhờ Gemini (`GEMINI_ASR_MODEL`) nghe quãng đó, lấy bản nhiều lời hơn.
+  Tiêu đề VIẾT HOA được đổi thành chữ thường trước khi làm prompt. Lời gốc bắt đầu sau giây thứ 3 thì AI viết thêm câu
+  mở đầu ở giây 0.
+- **Gộp lời gốc thành câu**: mẩu cụt ("sau", "Sau khi mình") dời tới đọc liền với câu sau; mẩu 1-2 chữ kết câu
+  ("cái thìa.", "xuống.") về với câu trước; câu bị cắt ngang gộp tới 9 giây; khe < 3 giây mà người gốc nói liền thì
+  gộp với câu sau (câu gộp ≤ 6 giây). AI được giao KHOẢNG số chữ cho mỗi đoạn ("10-13 từ") để giọng phủ kín khe.
+- **Câu hook + không kêu gọi đăng ký**: câu đầu video luôn là câu hook (món thành phẩm, mẹo, câu hỏi gây tò mò; không
+  chào hỏi — AI chào hỏi thì bị bắt viết lại); lời gốc bắt đầu sau giây thứ 2 thì có câu hook riêng ở giây 0. AI trả
+  thêm 3-7 chữ IN HOA in lên màn hình 3 giây đầu và ảnh bìa (thay cho tiêu đề bài đăng dài). Không có lời kêu gọi đăng
+  ký / theo dõi / like / share kênh ở bất kỳ đâu: câu gốc chỉ là lời kêu gọi thì bỏ trước khi đưa AI, AI viết thì bị bắt
+  viết lại, còn sót thì lọc từng vế trước khi đọc giọng; màn kết (`BRAND_NAME`) chỉ còn tên kênh.
+- **Phân tích hình trên Botkeep** (`SCENE_ANALYSIS`, khi không phân tích trên Kaggle; chạy cùng lúc bóc lời): dò chữ in cứng (che phụ đề gốc, đặt phụ
+  đề mới đúng chỗ), ảnh bìa, ảnh cho AI nhìn khi viết lời, và (mức Vừa/Kỹ) điểm chuyển cảnh để câu mới bắt đầu đúng
+  lúc đổi cảnh. **Nhẹ** (mặc định): chỉ đọc khung chính (~1 khung / 2-5 giây), video 220s ~20 giây trên Botkeep;
+  **Vừa**: thêm dò chuyển cảnh, giải mã bỏ khung phụ (~200 giây); **Kỹ**: mọi khung như bản cũ (~380 giây). Video không
+  lời, chế độ cắt phần và đoạn hay luôn dò chuyển cảnh (mức Vừa).
+- **Tiếng nền** khi không tách giọng AI: tắt/bật dần 0.15s, gộp các lần người gốc nói cách nhau <0.8s (hết chập chờn); không giữ lớp nền lúc người gốc nói vì đo được vẫn lọt lời.
+- Gemini dùng chế độ JSON; JSON hỏng vẫn cứu từng đoạn thay vì bỏ cả lượt viết lại.
+
+- **Dung lượng**: khi khởi động và lệnh `status` in ổ bot + `/tmp` còn trống và thư mục nào chiếm chỗ. Mỗi job ước lượng chỗ cần (file nguồn ×3 + 300MB), tự chọn `/tmp` hay `work/` trong ổ bot (chỗ nào đủ), thiếu thì xóa video kết quả cũ nhất vừa đủ; không đủ thì báo lỗi kèm số liệu. `OUT_MAX_MB` mặc định 400.
+
+- **Tắt/khởi động lại bot giữa chừng** (Botkeep dừng server, cập nhật mã): job đang làm dừng ngay (giết FFmpeg),
+  giữ trạng thái "đang chạy" và file đầu vào, lần khởi động sau tự chạy lại (tối đa 2 lần); bot thoát trong < 1 giây.
+- **Timeout toàn cục**: 25 phút/job thường, 3 giờ/video dài; quá hạn tự hủy, giết FFmpeg, chạy job kế. **Hủy** bằng nút trên web hoặc `/cancel` Telegram.
+- **Lịch sử job lưu SQLite** (`jobs.db`), sống qua restart; link tải vẫn tra được. Job đang chờ lúc restart được chạy tiếp; job đang chạy dở được chạy lại một lần (chết lần nữa thì dừng, tránh vòng lặp). Job chờ duyệt vẫn duyệt được sau restart, hết hạn sau 24 giờ.
+- **Đo đạc**: bảng `steps` (thời gian từng bước mỗi job), `events` (dịch vụ nào được dùng, có rơi về dự phòng không), `sources` (link nguồn ↔ video ra, để xử lý khiếu nại).
+- **Kiểm tra định kỳ** (mỗi `HEALTH_CHECK_HOURS` giờ): ffmpeg, ổ đĩa, YouTube, Gemini, Groq, CapCut TTS, edge-tts; khâu nào hỏng, hoặc tỉ lệ rơi dự phòng 24 giờ > 20%, thì nhắn `ADMIN_CHAT_ID` (chỉ khi trạng thái đổi).
+- **Cache theo bước** (`cache/`, trần `CACHE_MAX_MB`): đoạn giọng, kết quả dò cảnh/dải chữ, tiếng nền đã tách giọng. Duyệt kịch bản xong render lại không tải lại video, không gọi AI, chỉ đọc lại đoạn đã sửa.
+- **Ước tính thời gian** hiện trên web, tự học tốc độ máy sau mỗi job (`speed.json`).
+- **Duyệt kịch bản**: tick "📝 Duyệt/sửa kịch bản trước khi render" (web) hoặc nút 📝 (Telegram): bot viết lời xong thì dừng, hiện từng đoạn cạnh lời gốc để sửa, bấm Render. Telegram: trả lời "ok" hoặc "số: lời mới". `REVIEW_SCRIPT=1` để luôn duyệt. Mỗi đoạn chọn được **lời mới / giữ tiếng gốc (không đọc) / đọc lời mới lót tiếng gốc** (web: ô chọn dưới mỗi đoạn; Telegram: "số: gốc", "số: lót gốc", "số: mới"); `OST_AUTO=1` cho AI tự đề xuất (tối đa 1/5 số đoạn, chỉ đoạn không có bước/nguyên liệu/con số). Hàng đợi đầy vẫn duyệt được (job đã duyệt được vượt giới hạn); đoạn quảng cáo cuối đã cắt lúc viết kịch bản vẫn được cắt khi render bản duyệt.
+- **Ghi nguồn** (`SOURCE_CREDIT=1`, mặc định TẮT): bật thì nội dung đăng có dòng "🎬 Nguồn: <kênh gốc> · 🔊 Giọng đọc AI". `ALLOWED_SOURCES`: chỉ remake video của các kênh trong danh sách (kênh của bạn / đã được cấp phép).
+- **Nhiều link một lúc**: mỗi link một dòng (web) hoặc nhiều link trong một tin (Telegram), tối đa 10.
+- **Kiểm con số bằng máy**: số có đơn vị (2 quả, 200g, 15 phút, 35k) phải khớp lời gốc, như kiểm nguyên liệu (~270 nhóm). Vi phạm → AI viết lại.
+- **Thương hiệu** (Cài đặt): `BRAND_NAME` màn kết 2.2s cuối, logo PNG upload trong Cài đặt (góc phải trên), `BRAND_INTRO` tiêu đề 3s đầu. `SUB_STYLE`: karaoke | box | outline | plain.
+- **Caption 3 nền tảng** (TikTok / Facebook / YouTube Shorts) trong nội dung đăng.
+- Tốc độ: bóc lời, dò chữ, tách cảnh chạy song song; tách giọng AI chỉ chạy các khúc có lời gốc (bật khi tổng thời gian có lời ≤ 45s và video ≤ 2 phút) và chạy song song với tạo giọng; cache nghe lời gốc (`stt_cache.json`). Kéo dài video (chọn thời lượng dài hơn gốc) làm ngay trong lần render cuối, không mã hoá trung gian. Số luồng FFmpeg/x264 theo số lõi container.
+- CI: `.github/workflows/test.yml` chạy ruff + mypy + pytest song song trên Python 3.13 (bản Botkeep và Kaggle đang
+  chạy) cho mỗi PR và mỗi lần đẩy lên nhánh chính; đẩy commit mới thì huỷ lượt cũ.
+
+## Video dài
+
+- **🎞 Remake nguyên (≤5 phút):** AI viết lời theo lô ~28 đoạn, lô sau nối mạch lô trước (không mở hook lại). Video >100s tự xuất 720p và bỏ tách giọng AI (quá chậm trên Botkeep), dùng cổng tắt tiếng nền lúc người gốc nói.
+- **✂️ Cắt phần 60s/90s (nguồn ≤10 phút):** chọn điểm cắt ưu tiên chỗ vừa ngưng nói vừa chuyển cảnh → chỗ ngưng nói → chuyển cảnh; phần cuối <20s gộp vào phần trước. Điểm cắt dời về khung khoá gần nhất (≤ 0.4s) để chép luồng, không mã hoá lại (đoạn 70s 1080p: 0.4s thay vì 17.7s). Mỗi phần remake riêng, xong phần nào gửi phần đó (Telegram + nút tải riêng trên web); bot khởi động lại giữa chừng thì không giao lại phần đã giao. Chế độ "Chỉ tải về" + cắt phần = chỉ cắt, không remake.
+- **✨ Đoạn hay nhất (nguồn ≤10 phút):** bot bóc lời cả video, AI đọc lời (kèm ~1 ảnh/10 giây nếu có key Gemini) và chấm điểm, chọn tối đa 3 đoạn 30–90s: trọn một ý, có điểm nhấn (món chín, cắt ra, nếm thử, mẹo hay), mở đầu cuốn, không phải quảng cáo/chào hỏi. Ranh giới dời về chuyển cảnh trong khoảng lặng → giữa khoảng lặng → chuyển cảnh (±3s) để không cắt ngang câu. Đoạn điểm cao giao trước, caption có "⭐ điểm · tiêu đề — lý do". Video ít lời hoặc AI lỗi thì tự cắt đều 60s như ✂️.
+- Tải/upload tới 300MB cho chế độ video dài (video thường vẫn 90s/50MB). Web giữ ~700MB video gần nhất.
+- File >48MB không gửi được qua Telegram: bot gửi link tải nếu đã đặt `PUBLIC_URL` trong Cài đặt.
+- Thời gian ước tính trên Botkeep: ~15–20 lần thời lượng video (video 5 phút ≈ 1–1.5 giờ); cắt phần nhận được phần đầu sau ~10–15 phút.
+
+## Chế độ 📸 Ảnh + nhạc (1–4 ảnh)
+
+Gửi 1–4 ảnh + một bản nhạc (link TikTok/YouTube hoặc file), bot dựng video dọc theo nhịp, kiểu mẫu "beat sync" của
+CapCut/TikTok. Web: chọn chế độ 📸, chọn ảnh (có xem trước), thời lượng *Tự động theo nhạc* (~12–16s) / 10 / 15 / 30 /
+60 giây, chú thích tuỳ chọn (để AI viết caption). Telegram: gửi ảnh (một album hoặc từng ảnh), gửi nhạc, chọn độ dài.
+
+1. **Phân tích nhạc** (numpy, ~1 giây cho bài 3 phút): tempo, lưới beat, phách mạnh đầu ô nhịp, năng lượng từng beat,
+   mật độ nhịp, điểm **drop** (nhạc bật lên). Đo trên 8 bản nhạc có BPM công bố (70–155 BPM): 8/8 đúng.
+2. **Chọn đoạn nhạc**: đoạn năng lượng cao nhất (thường là điệp khúc/hook), bắt đầu ở phách mạnh; có drop ngay đầu
+   đoạn thì lùi 2 ô nhịp để video có đà rồi bùng đúng drop.
+3. **Chọn hiệu ứng theo kiểu nhạc**:
+
+   | Kiểu | Khi nào | Mỗi ảnh | Chuyển động | Chuyển cảnh |
+   | --- | --- | --- | --- | --- |
+   | Êm | < 92 BPM hoặc thưa nhịp | 2 ô nhịp (tối đa ~5s) | Ken Burns chậm, có làm mềm | Hoà/dissolve/lướt mềm, căn giữa beat |
+   | Nhún | Vừa | 1 ô nhịp | Lia, zoom vào/ra, nảy nhẹ ở phách mạnh | Trượt, quét, mở tròn... kết thúc đúng beat |
+   | Sôi | ≥ 125 BPM và dày nhịp | 2 phách (trước drop 4) | Nảy zoom mỗi beat, rung + loé ở phách mạnh sau drop | Zoom, loé trắng, lia nhoè, ép... ¼–½ phách |
+
+   Đúng điểm drop luôn là chuyển cảnh "hit" (zoom hoặc loé trắng). Ảnh lặp vòng để đủ độ dài, mỗi lần một chuyển
+   động khác. Một ảnh thì không dùng kiểu hoà (nhìn như bóng đôi) và chuyển động mạnh hơn.
+   **Công thức hiệu ứng trend** (`trendfx.py`), mỗi lần tạo một công thức khác, hợp kiểu nhạc, tránh các công thức
+   vừa dùng (`recent_looks.json`), thứ tự chuyển cảnh/chuyển động ngẫu nhiên thật — làm lại cùng ảnh + nhạc vẫn ra
+   video khác: Flash Pop (loé trắng + nảy zoom), Glitch RGB (lệch kênh màu theo beat), Strobe (nháy đen nửa phách),
+   Đen trắng bật màu (bật màu ở phách mạnh), Lật gương theo ô nhịp, Y2K Neon (rực màu, trôi sắc, phát sáng), Dreamy
+   Glow (phát sáng mềm), Film Vintage (màu phim + hạt + viền tối), Cinematic (khung điện ảnh + màu teal/cam), Pastel Soft.
+   Tất cả chỉ dùng bộ lọc có trong ffmpeg 5.1 (Botkeep) và nằm trong bài tự kiểm tra lúc khởi động.
+4. **Ảnh**: khác tỉ lệ 9:16 (ảnh ngang, vuông, 3:4) thì lót nền mờ của chính ảnh; ảnh điện thoại có cờ xoay EXIF
+   được xoay đúng; nguồn đủ lớn (≥1600px) ra 1080x1920, không thì 720x1280. Âm lượng chuẩn hoá hai lượt về -14 LUFS.
+5. **Tốc độ và RAM**: mã hoá x264 chiếm ~75% thời gian (đo: khúc 4.6s 1080p, lọc 2.0s / mã hoá 6.2s). Máy ≥ 1.4 lõi
+   dựng 2 khúc song song (dùng hết lõi rảnh, nếu RAM đủ); log ghi "Dựng hình …: dùng X lõi (máy cho Y lõi)" — X thấp
+   hơn hẳn Y là CPU bị máy chủ bóp. `QUALITY=fast` thì ra 720p, nhanh ~2 lần (đo 16.2s → 8.3s cho 14s video). Dựng theo khúc ≤ 8
+   cảnh rồi ghép bằng chép luồng (không mã hoá lại), nên RAM không tăng theo độ dài: đo ~300MB ở 720p, ~550–600MB
+   ở 1080p (trước khi chia khúc: video 60s nhạc nhanh ăn 2GB ở 1080p). Chỗ nối hai khúc: nhạc êm tối dần rồi sáng
+   lại, nhạc nhún/sôi cắt thẳng đúng beat kèm loé. Tối đa 20 cảnh/video (video dài thì mỗi cảnh dài hơn). Video
+   không dài quá phần nhạc còn lại (nhạc ngắn hơn độ dài đã chọn thì bot báo).
+
+Cơ sở kỹ thuật (đã tìm hiểu trước khi làm): mẫu beat-sync của CapCut (cắt cảnh rơi đúng beat, chuyển "hit" ở drop);
+nối ảnh tĩnh bằng `xfade` (bài của advancedweb.hu); Ken Burns bằng `zoompan` trên ảnh phóng to trước cho mượt (như
+still-motion, kburns-slideshow — `zoompan` để nguyên thì rung, ticket FFmpeg #4298). editly / gl-transitions có
+chuyển cảnh đẹp hơn nhưng cần headless-GL hoặc bản FFmpeg tự build, quá nặng cho máy 1 lõi, nên chỉ dùng bộ `xfade`
+có sẵn (bản FFmpeg thiếu kiểu nào thì tự thay bằng `fade`).
+
+## Chế độ ⬇️ Chỉ tải về
+
+Dán link → nhận file gốc, không chỉnh sửa, tối đa 10 phút / 50MB (giới hạn gửi Telegram). TikTok: bản HD không logo qua tikwm. Facebook Reels và YouTube qua yt-dlp; **YouTube từ IP máy chủ đòi đăng nhập** → dán cookies YouTube vào `YTDLP_COOKIES` trong Cài đặt là tải được.
+
+## Chế độ 🎵 Nhảy/Nhạc — thay nhạc mới KHỚP BEAT
+
+Dành cho video nhảy/trend: không voiceover, không phụ đề. Gửi video + link nhạc mới (hoặc file mp3/m4a), bot sẽ:
+1. Dò BPM + pha beat của điệu nhảy gốc và của nhạc mới (numpy thuần, autocorrelation + nội suy parabol, tự sửa lỗi bắt nhầm bội số BPM).
+2. Chỉnh tốc độ video theo tỉ lệ BPM (kẹp 0.8–1.25 cho tự nhiên, tự thử x2/÷2).
+3. Cắt/đẩy nhạc để beat đầu tiên rơi đúng nhịp chân, loudnorm -14 LUFS, fade out cuối.
+Kết quả: bước nhảy rơi đúng beat nhạc mới. Telegram: chọn 🎵 → bot hỏi nhạc → gửi link hoặc file nhạc. Web: chọn chế độ 🎵 là hiện ô nhạc.
+
+
+**Nguồn nhạc:** link (TikTok, YouTube...) hoặc file tải lên (web ≤ 30MB, Telegram ≤ 20MB). Link **video TikTok**: bot lấy
+bản nhạc gốc (sound) mà video dùng qua tikwm — là file nhạc sạch, không lẫn giọng người quay; lỗi thì lấy tiếng của
+video bằng yt-dlp. Link trang nhạc `tiktok.com/music/...` bị Cloudflare chặn: gửi link một video có dùng nhạc đó.
+
+**Cách dùng nhạc** (web: ô "Cách dùng nhạc"; Telegram: hỏi sau khi gửi nhạc):
+- 🎯 Thay hẳn nhạc + khớp beat điệu nhảy (như trước).
+- 🎶 Làm nhạc nền: giữ tiếng gốc, nhạc nằm dưới (~-10 dB) và tự nhỏ lại khi tiếng gốc to; video không đổi tốc độ;
+  lấy đoạn hay nhất (điệp khúc) của bài; nhạc ngắn hơn video thì lặp.
+## Giọng KHỚP hình (mặc định)
+
+1. **Bóc lời gốc kèm mốc từng từ** (Groq Whisper → Gemini gemini-3.5-transcribe → STT CapCut, theo `ASR_ORDER`) và chia đoạn theo **thao tác**: ngắt trước các từ mở đầu việc mới ("cho", "lật", "đảo", "sau đó"…).
+2. **Tách cảnh** (bộ dò scene của FFmpeg) và dời đầu mỗi đoạn về đúng điểm chuyển cảnh gần nhất: câu mới vang lên ngay khi cảnh mới xuất hiện, khớp hơn cả người nói gốc (thường lệch cảnh 0.4–0.9s).
+3. **AI xem ảnh từng đoạn** (Gemini) khi viết lời, để nói đúng thứ đang thấy; người gốc đọc lệch hình thì AI chuyển bước đó về đúng cảnh nhưng vẫn giữ đủ bước và số liệu. Model không nhận ảnh thì tự viết không kèm ảnh.
+4. **Xếp lịch giọng không bao giờ cắt cụt chữ**: đoạn dài thì lần lượt mượn khoảng lặng phía trước (≤0.5s), nói nhanh (≤1.25x), lấn sang sau (≤0.35s); vẫn dài thì AI viết ngắn lại rồi đọc lại.
+5. Video không có lời gốc (bóc lời ra dưới 6 chữ hoặc chỉ một câu): **chèn nhạc nền, không thêm lời** (xem mục Nhạc nền cho video
+   không lời). `NO_SPEECH=narrate` để quay về cách cũ: mỗi cảnh là một đoạn, AI nhìn ảnh cảnh để viết lời.
+6. Chọn thời lượng dài hơn video gốc: làm chậm hình + tiếng nền tối đa 1.4x.
+
+## 🖼️ Khung dọc theo nội dung (1.1.2)
+
+- `FRAMING_AUTO=1` (mặc định): trước khi dựng, bot đo 8 cặp khung của video gốc. Dải đen có sẵn (video ngang đặt trong khung
+  dọc) bị bỏ. Nguồn ngang 16:9: tay / chảo dồn một chỗ thì cắt khung 9:16 đúng chỗ đó; hoạt động rải khắp khung thì đặt
+  nguyên khung lên nền mờ của chính nó (không mất 2/3 hình như cắt giữa). Nguồn dọc bình thường: cắt giữa như cũ. Chữ gốc
+  cần che và vị trí phụ đề mới đổi theo khung. `0` = luôn cắt giữa như trước.
+- `TALK_ZOOM=1` (tắt mặc định): khúc người gốc nói vào máy (mặt to ở phần trên khung, đang có lời gốc) được đẩy cận neo đáy
+  xuống tay / món để lời Việt không chạy trên môi người khác. Hợp nguồn «vừa nói vừa làm món»; với người dẫn đứng nói thì
+  ra cảnh cụt đầu, nên để tắt.
+
+## 🎵 Nhạc nền cho video không lời
+
+Video không ai nói thì bot KHÔNG để AI xem hình rồi bịa lời (dễ đoán sai món, nguyên liệu, bước làm) mà chèn nhạc nền.
+Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu, logo, che chữ gốc, ảnh bìa; bài đăng chỉ viết từ tiêu đề
++ mô tả gốc.
+
+- **Kho nhạc tự tạo bằng Lyria** (`BGM_SOURCE=lyria`, mặc định từ 1.1.2, làm giống truyện bé): bot tự tạo nhạc không lời
+  bằng Lyria RealTime (key Gemini, free) theo «màu» món: chiên xào / đường phố / review → **sôi động**, đồ uống / healthy →
+  **thư giãn**, canh cháo kho bánh → **ấm cúng** (`bgm.mood_for`, đoán từ tên món + tiêu đề + mô tả). Mỗi màu 3 bài
+  150 giây; bài thiếu được tạo dần trong nền (job không phải chờ), xong đẩy lên Kaggle thành dataset riêng tư
+  `rmvideo-cook-bgm` (Kaggle không cần `PUBLIC_URL`). Gõ `cook_bgm` ở console hoặc bấm **Tạo đủ kho Lyria** trên web để
+  tạo đủ 9 bài ngay (~25 phút, chạy nền). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
+  bài thì dùng thư viện của bạn (dưới); `BGM_SOURCE=files` để chỉ dùng thư viện của bạn như trước.
+- Thêm nhạc ở ô **🎵 Nhạc nền cho video không lời** trên web: dán link TikTok / YouTube / mp3 (lưu vào `BGM_LINKS`) hoặc
+  tải file lên (mp3, m4a, wav…, tối đa 40 bài, 15MB/bài). Dựng trên Kaggle mà chưa đặt `PUBLIC_URL` thì chỉ dùng nhạc
+  dạng link.
+- Mỗi video chọn ngẫu nhiên một bài (không lặp 3 bài vừa dùng), lấy đoạn hay nhất của bài; bài tải lỗi thì lấy bài khác.
+- `BGM_ORIG`: **off** (mặc định) chỉ nhạc mới; **low** giữ tiếng gốc nhỏ dưới nhạc (video ASMR tiếng xèo, tiếng dao);
+  **keep** giữ tiếng gốc to, nhạc nằm dưới.
+- Thư viện trống: giữ nguyên tiếng gốc, không thêm lời; Tự động đăng không đăng video đó.
+- **Nhạc lót dưới lời đọc** (`VOICE_BED=on`, bản 1.0.0): video CÓ lời đọc cũng lấy một bài (kho Lyria hoặc thư viện), lót
+  thật nhỏ dưới giọng (quãng lặng ~13 dB dưới lời, tự hạ thêm khi đang đọc, bỏ bass), video gốc đã có nhạc rõ thì
+  không lót. Chỉ dùng nhạc miễn phí bản quyền: nhạc có bản quyền bị YouTube nhận diện, TikTok / Facebook tắt tiếng.
+
+## Giọng văn miền Nam + giọng bớt chất AI
+
+- `SPEECH_STYLE` (Cài đặt): `mien_nam` (mặc định từ bản 42: xưng mình, gọi mọi người / cả nhà, từ miền Nam chén/muỗng/heo/trái, tiếng đệm nha/nè/á vừa phải, không dùng giọng miền Tây đậm), `mien_tay` (xưng tui, gọi bà con, nè/nghen), `pho_thong`. Đổi từ địa phương không bao giờ đổi số liệu. Đã đặt `mien_tay` trên web trước đây thì vẫn giữ: đổi ở nhóm 🗣️ Giọng đọc.
+- `VOICE_HUMANIZE=1` (mặc định): xử lý giọng TTS cho giống thu micro thật trong bếp: ấm hơn, bớt chói, khử xì, nén nhẹ, phản xạ phòng ngắn.
+- Chất giọng vùng miền phụ thuộc giọng CapCut bạn chọn; nghe thử rồi đặt `CAPCUT_VOICE_FEMALE`/`MALE` trong Cài đặt.
+
+## Bỏ hẳn giọng người nói gốc (chế độ nấu ăn)
+
+Tiếng xèo xèo được giữ, giọng người gốc bị **tách bỏ bằng AI**: model MDX-Net Kim_Vocal_2 (của dự án UVR) chạy ONNX trên CPU, không cần PyTorch. Model ~66MB tự tải lần đầu vào `models/` và được kiểm SHA-256. Chỉ các khúc ~5.7 giây có lời gốc mới chạy qua model. Chạy trong tiến trình riêng (~1.3GB RAM đỉnh, trả lại ngay khi xong), mất ~30–60s mỗi video. Kiểm thử: giọng gốc giảm ~21 dB, máy nhận dạng không còn nghe ra chữ nào.
+Sau khi tách, tiếng nền được **lọc giọng sót bằng mặt nạ phổ** dựa trên chính giọng đã tách (ô tần số nào giọng trội hơn nền thì hạ nền ở ô đó; ô không có giọng giữ nguyên): giọng gốc còn trong nền từ ~-25 dB xuống ~-52 dB, tiếng xèo lúc người gốc nói chỉ giảm ~2.5 dB (đo trên video cá kèo). Trên Kaggle tách thêm lượt 2 (`SEP_PASSES=2`). Tắt mặt nạ: biến môi trường `SEP_MASK=0`.
+Dự phòng khi RAM trống < 1.45GB hoặc lỗi: tắt hẳn tiếng nền đúng những lúc người gốc nói (theo mốc từng từ), giữ tiếng xèo ở khoảng nghỉ. Tắt tách AI bằng `VOICE_SEPARATION=0` trong Cài đặt.
+
+## Hình đẹp hơn bản gốc
+
+**Tông màu** (`BRAND_LOOK`, mặc định **auto** từ bản 1.0.0): bot đo 8 khung video gốc rồi tự chọn — ánh sáng lạnh / ám
+xanh → Ấm mộc; tối, màu nhạt hoặc đã ám vàng → Tươi sáng; còn lại → Gốc. Ảnh bìa cùng tông; chọn tay vẫn được.
+
+Khử nhiễu nén (hqdn3d) → scale lanczos → tương phản/sáng nhẹ → vibrance (tăng màu nhạt, không cháy màu da) → ấm nhẹ cho món ăn → làm nét thích ứng (CAS). Nguồn ≥1600px (ví dụ TikTok HD qua tikwm) xuất **1080x1920**, còn lại 720x1280; `OUTPUT_HD=0` để luôn 720p nếu thiếu RAM (1080p dùng ~370MB RAM, render lâu gấp đôi).
+
+## Phụ đề kiểu CapCut
+
+Font **Be Vietnam Pro ExtraBold** (OFL, thiết kế cho tiếng Việt, đóng kèm assets/), chữ đang đọc sáng dần sang vàng đúng nhịp giọng (karaoke `\kf`), dòng chia cân đối không trơ một chữ, chữ luôn đúng nguyên văn kịch bản.
+
+Giọng CapCut không trả mốc từng từ: bot đo các khoảng **có tiếng** trong chính giọng đã tạo, mỗi cụm chữ giữa hai dấu câu vào đúng khúc giọng giữa hai chỗ ngắt hơi, âm cuối cụm được dành thêm thời gian. Đo trên 105 từ có mốc thật: chữ sáng lệch giọng trung bình 61–69ms (cách rải đều cũ 271ms; nghe lại bằng STT CapCut 85ms và mất 7–11 giây). Không gọi mạng.
+
+## Ảnh bìa tự động
+
+Mỗi video có thêm **ảnh bìa** (`COVER=1`): bot chấm điểm khung hình (độ nét, độ rực màu, độ sáng, vị trí — nấu ăn ưu tiên món đã xong ở cuối video; bỏ khung sát chuyển cảnh, khung tối, màn kết, đoạn quảng cáo đã cắt), có key Gemini thì AI chọn trong 6 ứng viên. Ảnh chỉnh màu y như video, che dải chữ gốc, tiêu đề vàng viền đen, logo kênh. Telegram: video có ảnh xem trước + ảnh bìa gửi riêng để đăng; web: link "Ảnh bìa". Chạy song song với render (~1 giây CPU).
+
+Tự động đăng: video > 90 giây gửi ảnh bìa cùng lúc đăng; Reels (≤ 90 giây) thì API đăng Reels không có chỗ gửi ảnh bìa
+nên bot thử gắn ảnh bìa sau khi đăng (Facebook không nhận thì bỏ qua, bài vẫn giữ — video nấu ăn có đoạn mở đầu thì khung
+đầu đã là cảnh món đẹp nhất).
+
+## 🎬 Mở đầu bằng món thành phẩm (video nấu ăn có lời)
+
+`TEASER=1` (mặc định, cần key Gemini): video mở đầu bằng **2 giây cảnh thành phẩm hấp dẫn nhất** kèm **câu hook có
+giọng ngay giây 0** và chữ hook to giữa màn hình, rồi mới vào video từ đầu (1.4.0; trước đó 3 giây cảnh ảnh bìa).
+
+- Cùng lượt chọn ảnh bìa, AI xếp hạng riêng các khung MÓN ĐÃ XONG để mở đầu, ưu tiên khoảnh khắc có hành động (cắn thử,
+  gắp / kéo sợi, cắt đôi, rưới sốt, bẻ lớp giòn, khói bốc); bot gửi thêm 4 khung có chuyển động ở nửa sau video để AI
+  không chỉ thấy dĩa món đứng yên. Ảnh bìa vẫn là khung đẹp nhất AI chọn riêng.
+- Đoạn mở đầu nằm trong cùng một cảnh (không vắt qua chuyển cảnh), bắt đầu trước khung AI chọn 0,5 giây để thấy trọn
+  động tác; cảnh ngắn hơn 2 giây thì đứng hình. Dưới giọng hook là tiếng xèo/giòn của chính cảnh đó (khi đã tách giọng).
+- Câu hook viết riêng cho cảnh món (AI nhìn ảnh), được đọc lấn sang video chính tối đa 1,5 giây nếu người gốc chưa nói;
+  không hiện phụ đề trùng với chữ hook.
+- Chỉ bỏ đoạn mở đầu khi: video gốc mở NGAY bằng món (khung giây 0,5 đã là món), AI không thấy cảnh món đã xong, mọi
+  cảnh thành phẩm đều là đúng cảnh phần mở đầu gốc đã chiếu (bot thử 3 cảnh xếp hạng đầu), video không lời, chế độ
+  review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do.
+- Video ≤ 90 giây thì thêm 2 giây cũng không vượt 90 giây (bớt phần cuối) để vẫn đăng được Reels; chọn 30/60/90 giây
+  thì giữ đúng độ dài đó. Duyệt kịch bản rồi render lại: dùng đúng đoạn mở đầu đã chọn.
+
+## 🪝 Chọn câu hook mạnh nhất (1.4.0)
+
+`HOOK_PICK=1` (mặc định, cần key Gemini; thêm 2 lượt Gemini mỗi video): sau khi AI viết kịch bản, một lượt AI riêng viết
+thêm ~8 câu mở đầu theo nhiều kiểu — **vấn đề** («bò lúc lắc hay bị dai là do bước này»), **mẹo bất ngờ**, **kết quả**
+cụ thể, **tò mò**, **con số** có thật — rồi một lượt AI khác chấm 1-10 và chọn câu mạnh nhất (câu cũ cũng được chấm
+cùng, nên không bao giờ kém hơn).
+
+- Bot tự loại câu: dài quá khe đoạn mở đầu, chào hỏi / kêu gọi, «mình thử…» (người đọc không phải người nấu), «triệu
+  view» bịa, nguyên liệu hay con số không có trong lời gốc; người gốc nói ngay giây đầu thì câu hook phải giữ đủ nguyên
+  liệu / số của câu đó.
+- Ghi chú job cho biết câu đã chọn, kiểu, điểm. Kiểu hook lưu vào `hooks.json`; khi YouTube đã đếm lượt xem sau 24h,
+  trạng thái 🤖 tự động đăng có dòng «Hook theo lượt xem YouTube 24h: vấn đề 2.000 (5 video) · …» để biết kênh hợp kiểu
+  nào.
+- Mở đầu 2 giây nên câu hook thường chỉ 6-10 chữ (người gốc nói ngay từ đầu thì ngắn hơn).
+
+## Từ điển bóc lời
+
+`ASR_VOCAB` (Cài đặt): tên món, nguyên liệu, tên riêng của kênh, cách nhau dấu phẩy. Bot gửi kèm tiêu đề video + từ điển + nguyên liệu thấy trong tiêu đề/mô tả cho Groq Whisper (tham số `prompt`, ≤224 token) để viết đúng chính tả; sau khi nghe, cụm nghe gần đúng (sai dấu, nhầm s/x, d/gi/r, ch/tr) được sửa theo từ điển (chỉ cụm ≥2 âm tiết, khác không quá nửa số âm tiết). Từ điển cũng được đưa vào lời nhắc AI viết kịch bản. (Gemini transcribe chưa nhận từ điển cùng lúc với mốc từng từ.)
+
+## AI viết kịch bản
+
+Gemini (mặc định `gemini-3.5-flash-lite`, trả JSON theo schema cố định; quá tải 503 hoặc hết hạn mức 429 thì chờ theo `retryDelay` rồi thử lại tới 3 lần; video dài chạy tối đa 2 lô song song, lô lỗi được gọi lại riêng) → OpenRouter (`OPENROUTER_MODEL=auto`: tự liệt kê model free đang có, thử lần lượt 4 model lớn nhất, mỗi model timeout 45s để không treo) → kịch bản mẫu.
+
+## Che phụ đề in cứng của video gốc
+
+Bật mặc định (tắt được bằng checkbox trên web). Bot lấy 16 khung hình, tìm dải ngang có "pixel sáng kề pixel tối" xuất hiện ở ≥50% khung (đặc trưng của chữ phụ đề có viền/bóng, cố định vị trí), rồi làm mờ + phủ tối dải đó và đặt phụ đề mới đè lên. Chữ chỉ hiện vài giây (tiêu đề mở đầu) không bị coi là phụ đề nên vẫn còn.
+
+## Chất lượng video
+
+- 720x1280, fps 30, crf 23, unsharp nhẹ cho nét, `+faststart` xem ngay trên web.
+- Âm thanh: **chuẩn hoá hai lượt** về đúng -14 LUFS (lượt 1 đo độ to cả bản trộn, lượt 2 nhân một hệ số cố định + chặn đỉnh -1.4 dBFS; `LOUDNESS_2PASS=0` để về cách cũ). Khác loudnorm một lượt: tiếng nền không bị kéo lên lúc không có giọng (đo: nền giữa hai câu -17.9 / cuối video -24 dB → -21.0 / -20.7), cả bài đúng -14.0–14.1 LUFS; chế độ Nấu ăn giữ tiếng xèo xèo (highpass 3kHz) và **tự hạ tiếng nền khi giọng đọc vang lên** (sidechain ducking) như video dựng tay.
+- Kịch bản AI diễn đạt lại bằng lời riêng (không chép câu gốc), giọng nói chuyện câu ngắn có ngắt hơi, nhưng giữ đủ bước, đúng thứ tự, nguyên văn định lượng. Số từ bám theo thời lượng thật (~2.8 từ/giây).
+- Hạt phim rất nhẹ: bật bằng `BRAND_GRAIN=1` (bản 42, chỉ áp ở 1080p); mặc định tắt.
+- **Phụ đề tự động burn-in**: khớp chính xác từng từ theo mốc thời gian edge-tts trả về, chữ to đậm viền đen kiểu video ngắn, font DejaVu đóng kèm (assets/) nên không cần font hệ thống. Tắt được bằng checkbox trên web.
+- **Content đăng luôn**: AI trả trọn gói tiêu đề + caption + hashtag; Telegram gắn thẳng vào caption video, web có nút "Copy content".
+- **Luật cứng trong prompt**: định lượng công thức, giá, địa chỉ, tên quán/thương hiệu trong lời thoại gốc phải giữ nguyên văn, cấm bịa/làm tròn.
+
+## ✨ Phong cách remake + công thức trong bài + nhận diện kênh (bản 42, mặc định từ bản 43)
+
+Kế hoạch đầy đủ, luật và lý do: `docs/KE_HOACH_REMAKE_STYLE.md`. Từ bản 43 mặc định là bộ nhận diện **«Bếp Đong Đủ»**
+(`brand/bep_dong_du/`): tên kênh, câu dưới tên, câu chốt, màu cam #F28C28, tông tươi sáng, ảnh bìa theo kênh + tên loạt
+«Hôm nay nấu gì», logo + âm hiệu (dùng khi chưa tải file riêng), dựng mạnh, công thức + mẹo trong bài, thẻ mẹo trên
+video, bản ngắn. Lần khởi động đầu sau khi cập nhật, các ô bạn chưa đổi khỏi mặc định cũ tự chuyển sang bộ này (ô đã
+chọn khác giữ nguyên). Tắt chữ của kênh: nhập `0` (tên kênh, câu dưới tên, câu chốt, tên loạt, màu).
+
+- **Đối chiếu định lượng** (`POST_RECIPE=1` hoặc `TIPS`): một lượt Gemini đọc lời gốc + ảnh ra nguyên liệu, định lượng
+  kèm chỗ nghe thấy, các bước có nhãn, mẹo. MÃ kiểm từng con số: phải có trong lời gốc đúng đoạn đó (± 1 đoạn) cùng
+  tên nguyên liệu, hoặc trong mô tả bài gốc. Đơn vị quy về chuẩn Việt Nam, mã tính lại số (nửa ký → 500 g, 3 lạng →
+  300 g, 1500 gam → 1,5 kg, thìa → muỗng, quả → trái); cùng nguyên liệu ở nhiều bước thì cộng dồn ở phần nguyên liệu.
+  Không đối chiếu được: `QTY_CHECK=strict` (mặc định) ghi "vừa đủ", `soft` ghi "(ước lượng)". Lời gốc và mô tả cho
+  hai số khác nhau: không in số, không tự đăng. Bảng đối chiếu hiện ở màn duyệt (web + Telegram).
+- **Bài đăng**: phần Facebook / YouTube có 🧾 NGUYÊN LIỆU, 👩‍🍳 CÁCH LÀM (câu AI viết; số không có trong lời gốc bị thay
+  "vừa đủ" / "một lúc", câu có nguyên liệu lạ bị bỏ), 💡 MẸO (ưu tiên mẹo người gốc nói; tối đa 1 mẹo AI viết, cấm
+  chuyện sức khoẻ / chữa bệnh). TikTok thêm một dòng nguyên liệu. `TIPS=video`: thẻ «MẸO» 3 giây trên video.
+- **Nhịp dựng** (`REMAKE_STYLE`): kế hoạch dựng chốt TRƯỚC khi AI viết lời, lời viết theo trục thời gian mới.
+  - `light`: đổi cỡ khung 1.0 / 1.12 / 1.18 ở chỗ chuyển cảnh / ngắt câu (máy quay đứng yên trông như quay nhiều máy),
+    bỏ khoảng chết, tua 2-4 lần đoạn chờ không lời + chớp sáng + thẻ "»» 30 PHÚT SAU" (chỉ khi lời gốc có nói thời
+    gian, `TIME_SKIP_LABEL`), đẩy cận chậm cảnh cuối. Không cắt giữa câu, không mất lời gốc nào.
+  - `strong` (video nấu ăn, cần AI đọc công thức): thêm điểm danh nguyên liệu kèm thẻ số đã đối chiếu, bỏ phần chào
+    hỏi, dời một đoạn cảm thán về cuối, tóm tắt các bước trước cảnh cuối, đổi chỗ tối đa một cặp bước sơ chế độc lập,
+    bỏ lời tán gẫu lúc chờ. Luật cứng R1-R7 (các bước nấu luôn đúng thứ tự, không mất câu có số liệu...) do mã kiểm;
+    vi phạm thì tự lùi về `light` và ghi lý do. Chế độ review: `strong` = `light`.
+  - Thử trên video thật của nguồn (cánh gà chiên nước mắm, 277 giây, đầu bếp nói liên tục): 42 khúc, đổi cỡ khung 38
+    lần, tua 2 đoạn chờ, 277s → 266s; đo chuyển động ~8 giây (4 lõi).
+- **Bản ngắn ≤ 90 giây cho Reels** (`SHORT_VERSION=on`, video nấu ăn dài hơn 100 giây): sau khi giao bản đầy đủ, bot
+  ra thêm «Bản ngắn» từ cùng video: mỗi bước sơ chế / nấu / bày giữ ít nhất một câu (ưu tiên câu có nguyên liệu,
+  con số), đúng thứ tự gốc, điểm danh nguyên liệu kèm thẻ số đã đối chiếu nếu đủ chỗ, kết bằng cảnh món đẩy cận;
+  không lấy câu tán gẫu; quá dài thì bỏ bớt câu của bước sơ chế trước. AI viết lời riêng cho bản ngắn; công thức đầy
+  đủ vẫn nằm trong bài đăng. Tự động đăng: `AUTO_POST_VERSION=short` (mặc định khi có bản ngắn) đăng bản ngắn dạng
+  Reels, `full` đăng bản đầy đủ.
+  - Tốc độ: dựng trên Kaggle thì AI viết lời bản ngắn TRƯỚC, hai bản dựng chung MỘT phiên (một lần chờ máy GPU, một
+    lần nạp giọng, tách giọng một lần); bản đầy đủ ra 720p (đăng video thường), bản ngắn 1080p (Reels). Phiên GPU có
+    h264_nvenc thì mã hoá bằng GPU (ghi chú «Mã hoá video bằng GPU»), không thì x264 như cũ (`RM_NVENC=0` để tắt).
+- **Màn kết nối thêm** (bản 43): có tên kênh và video giữ độ dài tự nhiên thì màn kết 2,2 giây được NỐI SAU video
+  (giữ khung cuối, tối đi, tên kênh + câu dưới tên), không đè lên cảnh món thành phẩm; âm hiệu vang sau câu đọc cuối.
+  Video ≤ 90 giây không bị đẩy quá 90 giây (khi đó màn kết đè như cũ); bản ngắn chừa sẵn chỗ cho màn kết.
+- **Chữ vừa khung** (bản 43): chữ hook, thẻ chữ, màn kết, tiêu đề ảnh bìa đo theo bề rộng thật của font (không đếm ký
+  tự): tự xuống dòng (tối đa 3), vẫn dài thì thu chữ; luôn chừa 5% mỗi mép. AI viết hook chữ thường, máy tự in hoa và
+  sửa chữ rơi dấu mũ / trăng / móc theo tiêu đề + lời ("GÙNG" → "GỪNG").
+- **Nhận diện kênh** (nhóm 🎨): `BRAND_COLOR` (chữ đang đọc của phụ đề, khung chữ hook, thẻ, ảnh bìa), `BRAND_LOOK`
+  (ấm mộc / tươi sáng / điện ảnh; `goc` = công thức màu cũ), `BRAND_GRAIN`, `BRAND_TAGLINE` (dưới tên kênh ở màn kết),
+  `BRAND_CLOSE` (câu chốt đọc cuối video; bỏ nếu là kêu gọi đăng ký), âm hiệu màn kết (tải ở cuối trang cài đặt,
+  tự cắt 1,5 giây), `COVER_TEMPLATE=kenh` + `BRAND_SERIES` (ảnh bìa có vạch màu kênh + tên loạt + số tập theo video
+  nguồn).
+- **Nguồn** (tự động đăng): bỏ video quảng cáo của nguồn (`AUTO_SKIP_ADS`: tiêu đề khóa học / tiệc / tuyển dụng, video
+  ngắn không tiêu đề, AI thấy không phải công thức — dừng sớm, không tính lỗi liên tiếp), lọc nguồn dưới
+  `AUTO_MIN_HEIGHT`, chống trùng bằng dấu vân hình (cùng video đăng lại ở trang khác / cả Facebook lẫn TikTok, kể cả
+  lật ngang). Video bạn tự gửi trùng thì chỉ ghi chú. Thêm cụm "khóa học / học viên / đặt tiệc / zalo" vào dấu hiệu
+  cắt quảng cáo cuối video.
+
+## Bộ video mẫu (kiểm tra chất lượng sau mỗi lần sửa)
+
+Chép 5–10 video thật vào `golden/videos/` rồi `python golden.py run` (hoặc gõ `golden` vào console Botkeep). Bot làm lại từng video và đo: lỗi chạy, thời gian từng bước, âm lượng, độ nét/màu, nguyên liệu và con số bị mất/bịa, mức chép lời gốc, tốc độ đọc, phụ đề. `golden.py baseline` lấy lần chạy ưng ý làm chuẩn; các lần sau `golden/report.md` đánh ❌/⚠️ chỉ số tụt. Xem `golden/README.md`.
+
+## Thời gian từng bước
+
+Mỗi job trên web có thanh thời gian theo giai đoạn (tải, bóc lời + phân tích hình, AI viết, đọc giọng, chờ tách giọng, render, ảnh bìa, gửi), giai đoạn lâu nhất in đậm: biết ngay video nào chậm và chậm ở đâu.
+
+## Test không cần token
+
+```
+pip install pytest ruff
+ruff check .
+pytest -q            # ~160 test: đơn vị, bảo mật, hàng đợi, Telegram (phiên mạng giả), pipeline với provider giả, render thật
+LIVE_GEMINI=1 GEMINI_API_KEY=... pytest -q tests/test_live_gemini.py   # thử với Gemini thật (tốn vài token)
+```
+
+## Cấu trúc mã
+
+| Tệp | Vai trò |
+| --- | --- |
+| `main.py` | Điểm chạy: nối worker, web, Telegram, console; Telegram lỗi mạng thì thử lại, web vẫn chạy |
+| `state.py` | Hàng đợi, bot, job đang chạy; gửi tin không bao giờ ném lỗi |
+| `tg_bot.py` | Handler Telegram (`setup(bot)`), chặn người ngoài `ALLOWED_USERS` |
+| `web_panel.py`, `static/index.html` | Web: đăng nhập cookie, CSRF, SSE, duyệt kịch bản, cài đặt |
+| `jobs.py` | Worker, hạn giờ, huỷ, dọn file đầu vào |
+| `pipeline.py` | Xử lý một job từ tải tới giao; cắt phần / đoạn hay của video dài |
+| `highlights.py`, `cover.py`, `vocab.py` | AI chọn đoạn hay, ảnh bìa tự động, từ điển bóc lời |
+| `bgm.py` | Thư viện nhạc nền cho video không lời (link + file tải lên, chọn không lặp) |
+| `autopost.py` | 🤖 Tự động đăng: kênh nguồn Facebook / TikTok, chống trùng, giờ vàng, đăng qua Graph API |
+| `kids_auto.py`, `rmvideo/kids/` | 🧸 Truyện bé: chọn đề + kho từ (`story.py`), lời nhắc + prompt ảnh (`prompts.py`), phần chạy trên Kaggle (`llm.py`, `images.py`, `render.py`, `job.py`), lịch + đăng Fanpage riêng |
+| `slideshow.py` | 📸 Ảnh + nhạc: phân tích nhạc, chọn hiệu ứng/chuyển cảnh theo nhịp, dựng FFmpeg |
+| `golden.py`, `golden/` | Bộ video mẫu: chạy lại và so chất lượng với lần chuẩn |
+| `review.py` | Duyệt kịch bản, cờ tiếng gốc, cú pháp trả lời Telegram |
+| `core_video.py`, `scenes.py`, `textzone.py`, `beat.py`, `vocal_sep.py`, `subs.py`, `align.py` | FFmpeg, dò cảnh/chữ/beat, tách giọng, phụ đề, căn chữ |
+| `transcribe.py`, `prompt_engine.py`, `tts_capcut.py` | Bóc lời, viết kịch bản (Gemini/OpenRouter), giọng CapCut |
+| `queue_manager.py`, `metrics.py`, `cache.py`, `storage.py` | SQLite (jobs, steps, events, sources), cache theo bước, ổ đĩa |
+| `healthcheck.py`, `admin.py`, `ytdlp_update.py`, `potoken_setup.py` | Kiểm tra định kỳ, console, cập nhật yt-dlp, PO token |
+| `offline.py`, `ocr_text.py` | Gói offline: tách giọng Spleeter, giọng Piper, dò chữ OCR |
+| `url_guard.py`, `config.py` | Chặn link lạ/IP nội bộ, cài đặt |
+
+## Lưu ý
+
+- Có ffmpeg trên máy thì bot dùng luôn; static-ffmpeg chỉ tải khi thiếu (tải lỗi bot vẫn khởi động, báo lỗi rõ khi cần).
+- YouTube trên IP datacenter có thể đòi cookies; TikTok thường ổn. Cần thì thêm `cookiefile` vào ydl_opts trong core_video.py.
+- Video nguồn không có tiếng: chế độ Nấu ăn tự bỏ lớp tiếng nền, vẫn chạy bình thường.
+- Hàng đợi tối đa 5 video (chống tràn RAM/disk), 1 worker duy nhất.
+
+## Kiến trúc mã (bản 41)
+
+Một tiến trình asyncio (`main.py`): web panel, bot Telegram, console, một worker chạy hàng đợi, tự động đăng. Mã tách
+theo tầng trong gói `rmvideo/` (phụ thuộc một chiều: giao diện → điều phối → media / dịch vụ ngoài → kiểu dữ liệu):
+
+| Thư mục | Nội dung |
+| --- | --- |
+| `rmvideo/domain/` | từ vựng job (chế độ, trạng thái), giọng VieNeu, chuẩn hoá link kênh — thuần, không I/O |
+| `rmvideo/app/` | schema cài đặt (`settings.py`), một chỗ dựng Job (`job_factory.py`), bus sự kiện, dữ liệu theo job, SQLite WAL, hàm dựng chung Botkeep/Kaggle (`assemble.py`) |
+| `rmvideo/app/flow/` | bộ điều phối: `dispatch` → `remake` (video có lời, các bước có tên) / `music` / `photo` / `long_video`, giao ở `delivery` |
+| `rmvideo/media/` | `proc` (tiến trình con theo job, giết cả nhóm), `ff`, `fetch`, `tts_engine`, `voiceplan`, `filtergraph`, `renderer` |
+| `rmvideo/services/` | định tuyến AI (`llm.py`), bộ mã gửi Kaggle tự tính (`kaggle_bundle.py`) |
+| `rmvideo/interfaces/` | web (`auth`, `http`, `routes_*`, `app`), Telegram (`access`, `keyboards`, `handlers`, `bot`) |
+
+`pipeline.py`, `core_video.py`, `web_panel.py`, `tg_bot.py` ở gốc còn là mặt tiền tương thích (tên cũ vẫn dùng được, kể
+cả trong notebook Kaggle). Lưới an toàn khi sửa: `tests/test_snapshot_pipeline.py` (25 kịch bản pipeline),
+`tests/test_snapshot_prompts.py` (prompt AI giống từng byte), `tests/test_kaggle_bundle.py` (mã gửi Kaggle tự đủ, chạy
+được trên Python 3.10). Kế hoạch và trạng thái: `docs/KE_HOACH_REFACTOR.md`.

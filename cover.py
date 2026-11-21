@@ -1,0 +1,429 @@
+"""Ảnh bìa tự động: chọn khung đẹp nhất của video, chỉnh màu như video, đặt tiêu đề lên trên.
+
+1. Chấm điểm khung hình (ảnh thu nhỏ 2 khung/giây đã có sẵn từ bước phân tích cảnh; không có thì giải mã riêng
+   các khung khoá): độ nét (phương sai Laplacian), độ rực màu (Hasler-Süsstrunk), phơi sáng (không tối/cháy),
+   vị trí trong video (nấu ăn: món hoàn thành thường ở 55-95% cuối). Loại khung sát điểm chuyển cảnh (nhoè),
+   1 giây đầu, màn kết cuối và đoạn quảng cáo đã cắt.
+2. Có key Gemini: AI nhìn 6 ứng viên tốt nhất (khác cảnh nhau) và chọn ảnh hấp dẫn nhất (món rõ, không bị tay
+   che...). Không có key / AI lỗi: lấy ứng viên điểm cao nhất.
+3. Dựng ảnh: đúng chuỗi màu của video (core_video.look_chain), che dải chữ gốc, nền tối dần phía trên cho chữ
+   nổi, tiêu đề vàng viền đen, logo kênh. Kèm ảnh nhỏ 180x320 làm thumbnail Telegram (≤ 320px, < 200KB).
+Mọi lỗi đều chỉ ghi log: không có ảnh bìa không được làm hỏng video.
+"""
+import asyncio
+import logging
+import os
+import re
+
+import numpy as np
+
+import config
+import core_video
+import scenes
+from rmvideo.media import proc, textfit
+
+SW, SH = 144, 256          # cỡ chấm điểm
+N_CAND = 6
+COVER_NAME, THUMB_NAME = "cover.jpg", "thumb.jpg"
+
+
+# ---------- 1. lấy khung + chấm điểm ----------
+
+def _raw_frames(args: list, pre_vf: str = "") -> np.ndarray:
+    """Khung RGB SHxSW từ ffmpeg. pre_vf: bộ lọc chạy TRƯỚC bước thu nhỏ (vd fps=...) — chỉ được có một -vf."""
+    raw = proc.run_sync(["ffmpeg", "-v", "error", *args, "-vf",
+                          (pre_vf + "," if pre_vf else "")
+                          + f"scale={SW}:{SH}:force_original_aspect_ratio=increase,crop={SW}:{SH}",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, timeout=180).stdout
+    n = len(raw) // (SW * SH * 3)
+    return np.frombuffer(raw[: n * SW * SH * 3], np.uint8).reshape(n, SH, SW, 3)
+
+
+def frames_sync(src: str, thumbs_dir: str | None, thumb_times: list | None = None) -> tuple:
+    """(thời điểm trên video gốc, khung SHxSWx3). Ưu tiên ảnh thu nhỏ có sẵn (2 khung/giây, hoặc ảnh khung chính kèm
+    mốc thời gian ở mức phân tích nhẹ); không có thì giải mã khung khoá."""
+    if thumbs_dir and os.path.isdir(thumbs_dir) and os.listdir(thumbs_dir):
+        fr = _raw_frames(["-framerate", str(scenes.THUMB_FPS), "-i", os.path.join(thumbs_dir, "%05d.jpg")])
+        if thumb_times:
+            k = min(len(fr), len(thumb_times))
+            return np.array(thumb_times[:k], dtype=float), fr[:k]
+        return np.arange(len(fr)) / scenes.THUMB_FPS, fr
+    err = proc.run_sync(["ffmpeg", "-hide_banner", "-skip_frame", "nokey", "-i", src, "-an", "-vf", "showinfo",
+                          "-fps_mode", "passthrough", "-f", "null", "-"], capture_output=True, text=True, timeout=180).stderr
+    times = [float(x) for x in re.findall(r"pts_time:([0-9.]+)", err)]
+    fr = _raw_frames(["-skip_frame", "nokey", "-i", src, "-an", "-fps_mode", "passthrough"])
+    k = min(len(times), len(fr))
+    return np.array(times[:k]), fr[:k]
+
+
+def _z(v: np.ndarray) -> np.ndarray:
+    sd = float(np.std(v))
+    return (v - float(np.median(v))) / (sd if sd > 1e-9 else 1.0)
+
+
+def frame_metrics(frames: np.ndarray) -> dict:
+    """Số đo từng khung RGB uint8 (N x H x W x 3): sharp = log phương sai Laplacian (độ nét), color = độ rực màu
+    Hasler-Süsstrunk, mean = độ sáng trung bình 0..1, expo = điểm phơi sáng (0 là đẹp nhất, âm là tối/cháy)."""
+    if len(frames) > 64:                     # từng khối 64 khung: video 5 phút có ~600 khung, float32 cả loạt ~1GB RAM
+        parts = [frame_metrics(frames[i:i + 64]) for i in range(0, len(frames), 64)]
+        return {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
+    f = frames.astype(np.float32) / 255.0
+    n = len(f)
+    r, g, b = f[..., 0], f[..., 1], f[..., 2]
+    y = 0.299 * r + 0.587 * g + 0.114 * b
+    lap = 4 * y[:, 1:-1, 1:-1] - y[:, :-2, 1:-1] - y[:, 2:, 1:-1] - y[:, 1:-1, :-2] - y[:, 1:-1, 2:]
+    rg, yb = (r - g).reshape(n, -1), (0.5 * (r + g) - b).reshape(n, -1)
+    m = y.reshape(n, -1).mean(axis=1)
+    clipped = (y > 0.97).reshape(n, -1).mean(axis=1) + (y < 0.03).reshape(n, -1).mean(axis=1)
+    return {"sharp": np.log(lap.reshape(n, -1).var(axis=1) + 1e-6),
+            "color": (np.sqrt(rg.std(axis=1) ** 2 + yb.std(axis=1) ** 2)
+                      + 0.3 * np.sqrt(rg.mean(axis=1) ** 2 + yb.mean(axis=1) ** 2)),
+            "mean": m, "expo": -(np.abs(m - 0.5) * 2 + clipped * 3)}
+
+
+def score_frames(frames: np.ndarray, times: np.ndarray, dur: float, mode: str = "cook",
+                 cuts: list | None = None, end: float | None = None) -> np.ndarray:
+    """Điểm từng khung (càng cao càng hợp làm ảnh bìa); khung bị loại có điểm -inf.
+    times, cuts, end: cùng trục thời gian (giây)."""
+    if len(frames) == 0:
+        return np.zeros(0)
+    fm = frame_metrics(frames)
+    sharp, color, m, expo = fm["sharp"], fm["color"], fm["mean"], fm["expo"]
+    x = times / max(dur, 1e-6)
+    prior = np.exp(-((x - 0.78) / 0.22) ** 2) if mode == "cook" else np.exp(-((x - 0.5) / 0.35) ** 2)
+    score = 1.0 * _z(sharp) + 0.8 * _z(color) + 0.6 * _z(expo) + 1.0 * prior
+    end = dur if end is None else min(end, dur)
+    bad = (times < min(0.8, dur * 0.1)) | (times > end - 1.5)
+    for c in cuts or []:
+        bad |= np.abs(times - c) < 0.35
+    bad |= m < 0.08                                       # khung đen (chuyển cảnh, mở đầu)
+    if bad.all():                                         # video quá ngắn: bỏ ràng buộc vị trí
+        bad = m < 0.08
+    return np.where(bad, -np.inf, score)
+
+
+def pick_candidates(times: np.ndarray, scores: np.ndarray, k: int = N_CAND, min_gap: float = 1.5) -> list:
+    """Chỉ số k khung điểm cao nhất, cách nhau ≥ min_gap giây (ứng viên khác cảnh nhau)."""
+    out = []
+    for i in np.argsort(-scores):
+        if not np.isfinite(scores[i]):
+            break
+        if all(abs(times[i] - times[j]) >= min_gap for j in out):
+            out.append(int(i))
+            if len(out) >= k:
+                break
+    return out
+
+
+N_ACTION = 4               # đoạn mở đầu: thêm chừng này khung «có hành động» (cắn, kéo sợi, rưới sốt...) cho AI xếp hạng
+
+
+def action_candidates(frames: np.ndarray, times: np.ndarray, scores: np.ndarray, taken: list, k: int = N_ACTION,
+                      min_gap: float = 1.5) -> list:
+    """Khung CÓ CHUYỂN ĐỘNG ở nửa sau video (thường là cắn thử, gắp, cắt đôi, rưới sốt lên món đã xong) để AI chọn cảnh
+    mở đầu: ảnh bìa chọn khung đứng yên đẹp nhất nên hay bỏ sót các khoảnh khắc này. Chuyển động = độ lệch trung bình
+    với khung liền trước / sau; khung bị loại khi chấm ảnh bìa (sát chuyển cảnh, tối, màn kết) vẫn bị loại."""
+    n = len(frames)
+    if n < 3:
+        return []
+    g = frames.astype(np.float32).mean(axis=3)
+    d = np.abs(np.diff(g, axis=0)).mean(axis=(1, 2))
+    motion = np.zeros(n)
+    motion[1:] += d
+    motion[:-1] += d
+    motion[1:-1] /= 2
+    fm = frame_metrics(frames)
+    late = times >= float(times[-1]) * 0.5
+    sc = _z(motion) + 0.5 * _z(fm["sharp"]) + 0.5 * _z(fm["color"])
+    sc = np.where(np.isfinite(scores) & late, sc, -np.inf)
+    out: list = []
+    for i in np.argsort(-sc):
+        if not np.isfinite(sc[i]) or len(out) >= k:
+            break
+        if all(abs(times[i] - times[j]) >= min_gap for j in taken + out):
+            out.append(int(i))
+    return out
+
+
+# ---------- 2. AI chọn ----------
+
+COVER_PROMPT = """Dưới đây là {n} ảnh (Ảnh 0 đến Ảnh {last}) cắt từ một {kind} có tiêu đề «{title}». Chọn MỘT ảnh làm ẢNH BÌA hấp dẫn nhất để người lướt mạng dừng lại xem: món ăn/sản phẩm chính rõ nét, đầy đủ, màu đẹp, trông ngon; không bị tay, dụng cụ hay hơi nước che; không mờ nhoè vì chuyển động; không phải cảnh chuyển tiếp hay khung tối. Với video nấu ăn, ưu tiên món đã hoàn thành.
+Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn"}}"""
+
+# Đoạn mở đầu (bản 29): cùng lượt AI chọn ảnh bìa hỏi thêm ảnh đó có phải MÓN ĐÃ XONG không, và video gốc đã tự mở
+# đầu bằng món xong chưa — chưa thì chiếu trước cảnh món xong. Bản 1.4.0: AI xếp hạng riêng các khung THÀNH PHẨM để mở
+# đầu (ưu tiên khoảnh khắc có hành động: cắn, kéo sợi, cắt đôi, rưới sốt) và cho biết khung đầu nào của video gốc đã
+# có món (chỉ khi video gốc mở ngay bằng món mới bỏ đoạn mở đầu). Bản 30: gửi NHIỀU khung trải trên các giây đầu
+# (video cá kèo 13/11/2026: giây 0.5 đang chiên, nhưng giây 3-6 đã chiếu trước dĩa cá thành phẩm -> một khung là thiếu,
+# đoạn mở đầu bị lặp đúng cảnh đầu video).
+TEASER_ASK = """
+Ảnh {first} đến Ảnh {last} (các ảnh cuối) là các khung trong {secs:.0f} giây ĐẦU của video gốc, theo thứ tự thời gian, chỉ để bạn so sánh — KHÔNG được chọn các ảnh này làm ảnh bìa.
+Video mới sẽ MỞ ĐẦU bằng 2 giây cảnh THÀNH PHẨM hấp dẫn nhất (người đang lướt phải thấy ngay phần thưởng nếu xem tiếp). Trả lời thêm:
+- "finished": ảnh bạn chọn làm ảnh bìa có phải MÓN ĐÃ HOÀN THÀNH không (đã nấu xong: bày ra dĩa/tô/nồi, đang gắp hoặc cắn thử) — true/false. Nguyên liệu sống, đang sơ chế, đang nấu dở trên bếp là false.
+- "teaser": các số ảnh (chỉ trong Ảnh 0 đến Ảnh {cand_last}) là MÓN ĐÃ HOÀN THÀNH, xếp từ hấp dẫn nhất để mở đầu video. Ưu tiên khoảnh khắc CÓ HÀNH ĐỘNG làm người xem thèm: cắn thử, gắp / kéo sợi, cắt đôi thấy bên trong, rưới / chan nước sốt, bẻ lớp da giòn, khói bốc; rồi mới tới dĩa món đứng yên. Không có ảnh nào là món đã xong thì [].
+- "opens_at": số ảnh ĐẦU TIÊN trong Ảnh {first} đến Ảnh {last} đã cho thấy món hoàn thành (video gốc tự chiếu trước món đã xong, kể cả thoáng qua hay khác góc máy); không có thì -1.
+Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn", "finished": true/false, "teaser": [số ảnh, ...], "opens_at": số ảnh hoặc -1}}"""
+
+OPENING_MAX = 12.0         # "phần mở đầu" của video gốc: tối đa 12 giây đầu (video cá kèo: xem trước 0-10s)
+REPEAT_SIM = 0.9           # khung đầu video giống cảnh mở đầu chừng này trở lên = video gốc dùng lại đúng cảnh đó
+
+
+def opening_window(src_dur: float) -> float:
+    """Số giây đầu video gốc coi là phần mở đầu: 15% độ dài, trong khoảng 3-12 giây."""
+    return round(min(OPENING_MAX, max(3.0, 0.15 * src_dur)), 2)
+
+
+def opening_times(window: float, n: int = 4) -> list:
+    """Các mốc lấy khung trải đều phần mở đầu (giây 0.5 ... gần hết cửa sổ) để AI xem video gốc mở đầu ra sao."""
+    if window <= 1.0:
+        return [0.0]
+    return [round(0.5 + (window - 1.0) * k / (n - 1), 2) for k in range(n)]
+
+
+def _small_frames(src: str, t0: float, dur: float, fps: float = 2.0, w: int = 24, h: int = 42) -> np.ndarray:
+    """Khung màu thu nhỏ (h x w x 3, float) trong [t0, t0 + dur] — chỉ giải mã đúng khúc đó."""
+    raw = proc.run_sync(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, t0):.2f}", "-t", f"{dur:.2f}", "-i", src, "-an",
+                          "-vf", f"fps={fps},scale={w}:{h}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True, timeout=120).stdout
+    n = len(raw) // (w * h * 3)
+    return np.frombuffer(raw[: n * w * h * 3], np.uint8).reshape(n, h, w, 3).astype(np.float32)
+
+
+def opening_repeat_sync(src: str, a: float, dur: float, window: float) -> tuple:
+    """(độ giống lớn nhất, giây) giữa các khung trong `window` giây đầu video gốc và cảnh [a, a + dur]
+    (tương quan chuẩn hoá trên ảnh màu nhỏ: cùng một cảnh quay ~0.95+, cảnh khác nhau thường < 0.5). Cao = video
+    gốc đã tự chiếu trước đúng cảnh đó ở phần mở đầu, chiếu thêm đoạn mở đầu sẽ lặp."""
+    # đúng khúc sẽ chiếu [a, a+dur], không nới biên: nới 1s lấn sang cảnh kế (cũng có trong phần mở đầu) thì báo trùng
+    # nhầm; phần mở đầu chỉ so tới trước a (cảnh sát phần mở đầu không so với chính nó)
+    if min(window, a) < 0.5:
+        return 0.0, 0.0
+    head = _small_frames(src, 0.0, min(window, a))
+    shot = _small_frames(src, a, dur)
+    if not len(head) or not len(shot):
+        return 0.0, 0.0
+
+    def unit(x):
+        x = x.reshape(len(x), -1)
+        x = x - x.mean(axis=1, keepdims=True)
+        return x / np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-6)
+    sim = unit(head) @ unit(shot).T
+    i = int(sim.max(axis=1).argmax())
+    return round(float(sim.max()), 3), round(i / 2.0, 1)
+
+try:
+    from pydantic import BaseModel
+
+    class CoverOut(BaseModel):
+        best: int
+        reason: str
+        finished: bool = False
+        teaser: list[int] = []
+        opens_at: int = -1
+except Exception:
+    CoverOut = None
+
+
+async def ai_judge(images: list, title: str, mode: str, opening=None, opening_secs: float = 0.0) -> dict | None:
+    """Gemini chọn ảnh bìa trong các ứng viên. opening: các khung đầu video gốc (để AI cho biết ảnh chọn có phải món
+    đã xong và video gốc đã mở đầu bằng món chưa). Trả {"best", "finished", "teaser": [số ứng viên thành phẩm, hấp dẫn
+    nhất trước], "opens_at": số khung đầu đầu tiên có món (-1 = không), "opens_with_dish"} hoặc None."""
+    if not config.GEMINI_API_KEY or len(images) < 2:
+        return None
+    import prompt_engine
+    if prompt_engine.genai is None:
+        return None
+    opening = [opening] if isinstance(opening, bytes) else [x for x in (opening or []) if x]
+    kind = {"cook": "video nấu ăn", "review": "video review"}.get(mode, "video ngắn")
+    prompt = COVER_PROMPT.format(n=len(images), last=len(images) - 1, kind=kind, title=title or "(không có)")
+    if opening:
+        prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(
+            first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX,
+            cand_last=len(images) - 1)
+    try:
+        raw = await prompt_engine.call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
+        d = prompt_engine.loads_lenient(raw)
+        best = int(d.get("best"))
+        if 0 <= best < len(images):
+            teaser: list[int] = []
+            for x in (d.get("teaser") or []) if opening else []:
+                try:
+                    i = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= i < len(images) and i not in teaser:
+                    teaser.append(i)
+            try:
+                at = int(d.get("opens_at", -1)) - len(images)
+            except (TypeError, ValueError):
+                at = -1
+            at = at if opening and 0 <= at < len(opening) else -1
+            logging.info("AI chọn ảnh bìa %d/%d%s: %s", best, len(images),
+                         f" (món xong: {d.get('finished')}, mở đầu bằng: {teaser}, gốc có món từ khung đầu số {at})"
+                         if opening else "", str(d.get("reason", ""))[:120])
+            return {"best": best, "finished": d.get("finished") is True, "teaser": teaser, "opens_at": at,
+                    "opens_with_dish": at >= 0}
+        logging.warning("AI chọn ảnh bìa số %s ngoài danh sách 0-%d, lấy ảnh điểm cao nhất", best, len(images) - 1)
+    except Exception as e:
+        logging.warning("AI chọn ảnh bìa lỗi (%s), lấy ảnh điểm cao nhất", str(e)[:100])
+    return None
+
+
+async def ai_pick(images: list, title: str, mode: str) -> int | None:
+    """Gemini chọn ảnh bìa trong các ứng viên; lỗi/không có key -> None."""
+    d = await ai_judge(images, title, mode)
+    return d["best"] if d else None
+
+
+# ---------- 3. dựng ảnh ----------
+
+def cover_title(text: str) -> str:
+    """Tiêu đề cho ảnh bìa: bỏ emoji/hashtag (font không có), tối đa ~3 dòng."""
+    t = re.sub(r"#\S+|https?://\S+", " ", text or "")
+    t = "".join(ch for ch in t if ch.isalnum() or ch in " ,.!?-:'&%/()")
+    return " ".join(t.split())[:70].strip(" -:,")
+
+
+COVER_FS = (0.068, 0.046)      # cỡ chữ tiêu đề ảnh bìa theo chiều cao khung: lớn nhất / nhỏ nhất còn đọc rõ
+
+
+def layout_title(text: str) -> tuple:
+    """(chữ đã xuống dòng, cỡ chữ theo tỉ lệ chiều cao khung). Ngắn: chữ to; dài: xuống dòng (tối đa 3), chữ nhỏ dần;
+    dài quá cỡ nhỏ nhất thì bớt chữ cuối, thêm «…». Đo theo font thật (textfit): chữ in hoa rộng hơn nhiều so với
+    đếm ký tự, trước đây tiêu đề 12 ký tự in hoa đã chạm hai mép ảnh bìa (bản 43)."""
+    W, H = 720, 1280                                     # ảnh bìa luôn khung 9:16; tỉ lệ cỡ chữ không đổi theo độ nét
+    avail = W * 0.9 - 2 * max(3, int(H * 0.0065))        # lề 5% mỗi bên + viền chữ
+    big, small = int(H * COVER_FS[0]), int(H * COVER_FS[1])
+    words = text.split()
+    lines, fs = textfit.fit(text, avail, big, max_lines=3)
+    while fs < small and len(words) > 1:
+        words = words[:-1]
+        lines, fs = textfit.fit(" ".join(words).rstrip(" ,.:-") + "…", avail, big, max_lines=3)
+    return "\n".join(lines), (COVER_FS[0] if fs >= big else round(fs / H, 4))
+
+
+def _brand_rgb() -> str:
+    c = config.brand_text("BRAND_COLOR").lstrip("#")
+    return f"0x{c.upper()}" if len(c) == 6 else ""
+
+
+def cover_filter(mode: str, W: int, H: int, src_w: int, src_h: int, bands, title_files: list | None,
+                 title_size: float, logo: bool, series_file: str | None = None) -> str:
+    """filter_complex cho MỘT khung: màu như video -> che dải chữ gốc -> tối dần phía trên -> tiêu đề -> logo,
+    ra 2 nhãn [big] (ảnh bìa) và [small] (thumbnail Telegram 180x320)."""
+    from rmvideo.media import framing
+    v = ("[0:v]" + core_video.look_chain(mode, W, H, src_w, src_h, grain=False)
+         + core_video._cover_filter(framing.map_bands(list(bands or []), framing.current(src_w, src_h)), W, H))
+    color = _brand_rgb()
+    kenh = config.COVER_TEMPLATE == "kenh"
+    if title_files:
+        fs = int(H * title_size)
+        v += (",format=yuv420p,geq=lum='lum(X,Y)*(0.58+0.42*min(1,Y/(H*0.46)))':cb='cb(X,Y)':cr='cr(X,Y)'"
+              + core_video.drawtext_lines(
+                  title_files, fs, "h*0.085", int(fs * 1.18 + H * 0.012),
+                  f"fontcolor={color or '0xFFE100'}:borderw={max(3, int(H * 0.0065))}:bordercolor=black:shadowcolor=black@0.6:"
+                  f"shadowx={int(H * 0.003)}:shadowy={int(H * 0.004)}"))
+    if kenh:
+        # mẫu kênh: vạch màu kênh ở đáy + tên loạt và số tập (cùng một khuôn cho mọi video -> nhận ra kênh)
+        bar = int(H * 0.085)
+        v += f",drawbox=x=0:y=ih-{bar}:w=iw:h={bar}:color={color or '0xFFE100'}@0.92:t=fill"
+        if series_file:
+            v += (f",drawtext=fontfile={core_video.FONT_PATH}:textfile={series_file}:expansion=none:"
+                  f"fontsize={int(bar * 0.5)}:fontcolor=white:borderw=2:bordercolor=black@0.7:x={int(W * 0.05)}:"
+                  f"y=h-{bar}+({bar}-text_h)/2")
+    if logo:
+        k = H / 1280
+        y = f"H-h-{int(H * 0.085) + int(16 * k)}" if kenh else f"H-h-{int(40 * k)}"
+        v += (f"[vb];[1:v]scale={int(W * 0.16)}:-1,format=rgba,colorchannelmixer=aa=0.85[lg];"
+              f"[vb][lg]overlay=W-w-{int(24 * k)}:{y}")
+    return v + ",split=2[big][s0];[s0]scale=-2:320:flags=lanczos[small]"
+
+
+async def render_cover(src: str, t_src: float, out_dir: str, mode: str, title: str, bands=None,
+                       series: str = "") -> str | None:
+    """Dựng cover.jpg + thumb.jpg trong out_dir từ khung tại t_src (giây trên video gốc). Trả đường dẫn ảnh bìa."""
+    src_w, src_h, _ = await core_video.source_info(src)
+    W, H = (1080, 1920) if (config.OUTPUT_HD and src_h >= 1600) else (720, 1280)
+    title_files, size = [], 0.0
+    text = cover_title(title)
+    if text:
+        wrapped, size = layout_title(text)
+        title_files = core_video.write_lines(wrapped, out_dir, "cover_title")
+    logo_file = core_video.ff.logo_path()
+    logo = config.BRAND_LOGO != "0" and bool(logo_file)
+    big, small = os.path.join(out_dir, COVER_NAME), os.path.join(out_dir, THUMB_NAME)
+    series_file = core_video.write_lines(series, out_dir, "cover_series")[0] if series else None
+    fc = cover_filter(mode, W, H, src_w, src_h, bands, title_files, size, logo, series_file)
+    await core_video._run_ffmpeg("-y", "-ss", f"{max(0.0, t_src):.3f}", "-i", src,
+                                 *(["-i", logo_file] if logo else []),
+                                 "-filter_complex", fc,
+                                 "-map", "[big]", "-frames:v", "1", "-q:v", "2", big,
+                                 "-map", "[small]", "-frames:v", "1", "-q:v", "4", small)
+    return big if os.path.exists(big) else None
+
+
+async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
+                      end: float | None = None, thumbs_dir: str | None = None, thumb_times: list | None = None,
+                      opening: bool = False) -> dict | None:
+    """Khung đẹp nhất của video (thời gian theo video GỐC): chấm điểm rồi AI chọn trong 6 ứng viên. opening=True: gửi
+    kèm khung mở đầu để AI cho biết ảnh chọn có phải món đã xong không và video gốc đã mở đầu bằng món chưa (đoạn mở
+    đầu, bản 29; bản 1.4.0 thêm khung có hành động). Trả {"t", "score", "n", "ai", "finished", "opens_with_dish",
+    "teaser_ts": [giây các khung thành phẩm, hấp dẫn nhất trước], "opens_at": giây khung đầu video gốc đầu tiên đã có món
+    (-1 = không)} hoặc None. Không ném lỗi."""
+    teaser_ts: list = []
+    opens_at = -1.0
+    try:
+        times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
+        if not len(frames):
+            return None
+        sc = await asyncio.to_thread(score_frames, frames, times, src_dur, mode, cuts, end)   # numpy: không chặn vòng lặp
+        cand = pick_candidates(times, sc)
+        if not cand:
+            return None
+        best, got = cand[0], None
+        if opening:                                   # đoạn mở đầu: thêm khung có hành động cho AI xếp hạng
+            cand = cand + action_candidates(frames, times, sc, cand)
+        if len(cand) >= 2 and config.GEMINI_API_KEY:
+            images = []
+            for i in cand:
+                p = os.path.join(thumbs_dir or "", f"{i + 1:05d}.jpg")
+                images.append(open(p, "rb").read() if thumbs_dir and os.path.exists(p)
+                              else await asyncio.to_thread(scenes._keyframe_sync, src, float(times[i])))
+            heads, win = [], opening_window(src_dur)
+            if opening:                                   # các khung trải trên phần mở đầu video gốc
+                for t in opening_times(win):
+                    heads.append(await asyncio.to_thread(scenes._keyframe_sync, src, min(t, max(0.0, src_dur - 0.2))))
+            heads_t = [t for t, h in zip(opening_times(win), heads) if h] if opening else []
+            got = await ai_judge(images, title, mode, [h for h in heads if h], win)
+            if got is not None:
+                best = cand[got["best"]]
+                teaser_ts = [round(float(times[cand[i]]), 3) for i in got.get("teaser") or []]
+                k = int(got.get("opens_at", -1))
+                opens_at = float(heads_t[k]) if 0 <= k < len(heads_t) else -1.0
+        logging.info("Khung đẹp nhất: %.1fs (điểm %.2f, %d ứng viên%s)", float(times[best]), float(sc[best]),
+                     len(cand), ", AI chọn" if got else "")
+        return {"t": float(times[best]), "score": float(sc[best]), "n": len(cand), "ai": got is not None,
+                "finished": bool(got and got["finished"]), "opens_with_dish": bool(got and got["opens_with_dish"]),
+                "teaser_ts": teaser_ts, "opens_at": opens_at}
+    except Exception as e:
+        logging.warning("Không chọn được khung đẹp nhất: %s", str(e)[:200])
+        return None
+
+
+async def make_cover(src: str, out_dir: str, mode: str, title: str, src_dur: float, cuts: list | None = None,
+                     end: float | None = None, bands=None, thumbs_dir: str | None = None,
+                     thumb_times: list | None = None, at: float | None = None, series: str = "") -> str | None:
+    """Toàn bộ quy trình (thời gian theo video GỐC). at: khung đã chọn sẵn (cùng khoảnh khắc với đoạn mở đầu) thì
+    dựng luôn, khỏi chấm điểm + hỏi AI lần nữa. Không bao giờ ném lỗi: trả None nếu không làm được."""
+    if config.COVER == "0":
+        return None
+    try:
+        if at is None:
+            m = await best_moment(src, mode, title, src_dur, cuts, end, thumbs_dir, thumb_times)
+            if not m:
+                return None
+            at = m["t"]
+        logging.info("Ảnh bìa: khung %.1fs", at)
+        return await render_cover(src, at, out_dir, mode, title, bands, series)
+    except Exception as e:
+        logging.warning("Không tạo được ảnh bìa: %s", str(e)[:200])
+        return None
