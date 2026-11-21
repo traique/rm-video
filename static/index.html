@@ -268,6 +268,7 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 </section>
 <section class="card" aria-labelledby="h-queue">
   <h2 id="h-queue">Hàng đợi &amp; kết quả <span class="mut" id="qinfo" role="status" aria-live="polite"></span></h2>
+  <p class="mut" id="kaggle_quota" hidden></p>
   <table>
     <caption class="sr-only">Danh sách job: số thứ tự, trạng thái, chi tiết và file kết quả</caption>
     <thead><tr><th scope="col">#</th><th scope="col">Trạng thái</th><th scope="col">Chi tiết</th><th scope="col">Kết quả</th></tr></thead>
@@ -538,6 +539,15 @@ function loadVoices(){fetch('/api/voices').then(r=>r.json()).then(vs=>{
   $('voice').innerHTML=vs.map(v=>'<option value="'+esc(v.id)+'">'+esc(v.name)+'</option>').join('');
   if([...$('voice').options].some(o=>o.value===cur))$('voice').value=cur;
 }).catch(e=>{$('msg').textContent='⚠️ Không tải được danh sách giọng: '+e.message});}
+// ☁️ giờ GPU Kaggle còn lại trong tuần (server nhớ 5 phút)
+async function kaggleQuota(){
+  try{
+    const r=await fetch('/api/kaggle/quota',{headers:hdr()});if(!r.ok)return;
+    const d=await r.json();const el=$('kaggle_quota');
+    el.hidden=!d.configured;el.textContent='☁️ Kaggle: '+(d.text||'');
+  }catch(e){}
+}
+kaggleQuota();setInterval(kaggleQuota,300000);
 async function refresh(){
   try{
     const r=await fetch('/api/jobs',{headers:hdr()});

@@ -1,5 +1,6 @@
 """Điểm chạy: python main.py. Nối các phần: hàng đợi + worker (jobs), web panel, bot Telegram, console quản trị."""
 import asyncio
+import time
 import logging
 import shutil
 import signal
@@ -17,9 +18,22 @@ from state import queue, spawn
 from storage import disk_report, sweep_tmp, warn_low_disk
 from web_panel import build_app
 
+# giờ trong log: giờ Việt Nam (UTC+7) bất kể múi giờ máy chủ Botkeep (thường là UTC)
+logging.Formatter.converter = staticmethod(lambda secs=None: time.gmtime((time.time() if secs is None else secs) + 7 * 3600))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%d/%m %H:%M:%S")
 for _noisy in ("google_genai", "google_genai.models", "httpx", "aiogram.event"):
     logging.getLogger(_noisy).setLevel(logging.WARNING)      # bỏ dòng "AFC is enabled..." và log mỗi request
+
+
+async def _kaggle_quota_log():
+    import kaggle_api
+    if not kaggle_api.configured():
+        return
+    try:
+        q = await asyncio.to_thread(kaggle_api.quota_cached, 0)
+        logging.info("Kaggle: %s", kaggle_api.quota_text(q))
+    except Exception as e:
+        logging.info("Kaggle: không đọc được giờ GPU còn lại (%s)", str(e)[:120])
 
 
 async def main():
@@ -60,6 +74,7 @@ async def main():
     logging.info("Dung lượng: %s", disk_report())
     warn_low_disk()
     spawn(_ffmpeg_selftest())
+    spawn(_kaggle_quota_log())                     # giờ GPU Kaggle còn lại trong tuần (có token mới đọc)
     spawn(release.announce())                      # bản 1.0.0: lên phiên bản -> báo Telegram + Zoom (một lần / phiên bản)
     import autopost
     spawn(autopost.run_forever())                  # 🤖 tự động đăng Facebook (AUTO_POST=1 mới chạy)

@@ -13,6 +13,18 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.3.1 — log Botkeep theo giờ Việt Nam, xem giờ GPU Kaggle còn lại (21/11/2026)
+
+- Giờ trong log Botkeep (và log notebook Kaggle) là giờ Việt Nam (UTC+7), bất kể máy chủ đặt múi giờ nào.
+- Web: dòng «☁️ Kaggle: còn 21,5 / 30 giờ GPU tuần này, làm mới 07:00 22/11» dưới tiêu đề Hàng đợi (tự cập nhật mỗi 5
+  phút). Log Botkeep ghi số giờ GPU còn lại lúc khởi động và sau mỗi phiên Kaggle.
+
+### Chi tiết
+- `logging.Formatter.converter` = gmtime(giây + 7 giờ) trong `main.py` / `kaggle_job.py`.
+- `kaggle_api.quota_cached` (nhớ 5 phút; sau phiên Kaggle đọc mới), `quota_text`, `vn_time` (giờ làm mới đổi sang UTC+7);
+  `kaggle_worker.log_quota` sau mỗi phiên phân tích / dựng / lô (chưa có token thì không gọi); web `/api/kaggle/quota`;
+  lệnh console `kaggle_test` dùng cùng câu chữ. Test: `tests/test_kaggle_quota.py`.
+
 ## 1.3.0 — bỏ nhạc gốc giữ tiếng động, ảnh truyện bé nét hơn, đoạn kéo chậm hết giật, lời vào đúng nhịp (21/11/2026)
 
 - Kênh bếp: sau khi bỏ giọng người gốc, tiếng nền được tách tiếp thành nhạc / tiếng động; chỉ giữ tiếng động (xèo xèo,

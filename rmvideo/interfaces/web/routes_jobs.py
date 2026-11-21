@@ -340,7 +340,21 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
             raise web.HTTPBadRequest(text=str(e)) from None
         return web.json_response({"id": new.id})
 
+    async def kaggle_quota(request):
+        """Giờ GPU Kaggle còn lại trong tuần (nhớ 5 phút, đọc lỗi thì báo chữ)."""
+        _check(request)
+        import kaggle_api
+        if not kaggle_api.configured():
+            return web.json_response({"text": "", "configured": False})
+        try:
+            q = await asyncio.to_thread(kaggle_api.quota_cached)
+            return web.json_response({"text": kaggle_api.quota_text(q), "configured": True,
+                                      "left_h": round(max(0.0, q["gpu_left"]) / 3600, 2)})
+        except Exception as e:
+            return web.json_response({"text": f"không đọc được giờ GPU ({str(e)[:80]})", "configured": True})
+
     app.router.add_get("/api/jobs", list_jobs)
+    app.router.add_get("/api/kaggle/quota", kaggle_quota)
     app.router.add_get("/api/events", events_stream)
     app.router.add_get("/api/jobs/{id}/timeline.json", timeline_json)
     app.router.add_get("/api/jobs/{id}/subs.srt", subs_srt)

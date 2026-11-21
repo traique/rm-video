@@ -700,6 +700,20 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     return res
 
 
+def _log_quota_sync():
+    if not kaggle_api.configured():
+        return
+    try:
+        logging.info("Kaggle: %s", kaggle_api.quota_text(kaggle_api.quota_cached(0)))
+    except Exception as e:                          # đọc hạn mức lỗi không được làm hỏng việc vừa xong
+        logging.info("Kaggle: không đọc được giờ GPU còn lại (%s)", str(e)[:120])
+
+
+async def log_quota():
+    """Sau mỗi phiên Kaggle: ghi log số giờ GPU còn lại trong tuần (đọc mới, không dùng bộ nhớ đệm)."""
+    await asyncio.to_thread(_log_quota_sync)
+
+
 async def analyze(spec: dict, tmp: str, on_step=None) -> dict:
     """Bóc lời + phân tích hình trên Kaggle. Trả kết quả thô (whisper, cuts, bands, ...) hoặc ném KaggleError."""
     on_step = on_step or (lambda s: None)
@@ -708,6 +722,7 @@ async def analyze(spec: dict, tmp: str, on_step=None) -> dict:
             res = await asyncio.to_thread(_run_analysis_sync, spec, tmp, on_step)
     finally:
         release(spec)
+        await log_quota()
     logging.info("Kaggle phân tích xong: %s", res.get("timings"))
     return res
 
@@ -720,6 +735,7 @@ async def produce(spec: dict, tmp: str, on_step=None) -> dict:
             res = (await asyncio.to_thread(_run_sync, spec, tmp, on_step))[0]
     finally:
         release(spec)
+        await log_quota()
     if isinstance(res, Exception):
         raise res
     logging.info("Kaggle xong: %s", res.get("timings"))
@@ -742,6 +758,7 @@ async def produce_batch(specs: list, tmp: str, on_step=None) -> list:
         return [e if isinstance(e, KaggleError) else KaggleError(str(e)[:300])] * len(specs)
     finally:
         release(spec)
+        await log_quota()
 
 
 # ---------------- gom lô (video dài cắt nhiều phần) ----------------
