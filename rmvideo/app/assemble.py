@@ -10,6 +10,7 @@ phụ đề khớp từng từ -> chờ tiếng nền (tách giọng / dùng l�
 """
 from __future__ import annotations
 
+import config
 import asyncio
 import os
 import time
@@ -75,7 +76,11 @@ async def _durations(clips: Sequence[dict]) -> list[float]:
         if not c.get("path"):
             return 0.0
         async with sem:
-            return await voiceplan.speech_duration(c["path"], c.get("words"))
+            if config.VOICE_LEAD_TRIM != "1":   # 1.3.5: mặc định TẮT (phản hồi 21/11: «tiếng bị sớm»)
+                return await voiceplan.speech_duration(c["path"], c.get("words"))
+            lead, dur = await voiceplan.speech_span(c["path"], c.get("words"))
+        c["lead"] = lead                    # compose_voice cắt khoảng lặng đầu mẩu (1.3.0)
+        return dur
     return list(await asyncio.gather(*[one(c) for c in clips]))
 
 

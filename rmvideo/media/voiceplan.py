@@ -134,8 +134,10 @@ async def compose_voice(clips: list, plan: list, out_wav: str, total_dur: float)
     for i, (cl, p) in enumerate(pairs):
         inputs += ["-i", cl["path"]]
         trim = max(0.3, total_dur - p["start"])
+        lead = float(cl.get("lead") or 0.0)      # khoảng lặng đầu mẩu đã đo (speech_span): cắt, lời vào đúng nhịp
+        cut = f"atrim=start={lead:.3f},asetpts=PTS-STARTPTS," if lead >= 0.01 else ""
         filters.append(
-            f"[{i}:a]aformat=sample_rates=44100:channel_layouts=mono,atempo={p['factor']:.4f},"
+            f"[{i}:a]aformat=sample_rates=44100:channel_layouts=mono,{cut}atempo={p['factor']:.4f},"
             f"atrim=0:{trim:.2f},adelay={int(p['start'] * 1000)}[c{i}]")
         labels.append(f"[c{i}]")
     fc = ";".join(filters) + ";" + "".join(labels) + \
@@ -184,7 +186,9 @@ async def words_for_track(clips: list, plan: list, track_path: str, texts: list)
     per_clip = [[] for _ in clips]
     for i, (cl, p) in enumerate(zip(clips, plan)):
         if cl.get("words"):
-            per_clip[i] = [(p["start"] + a / p["factor"], p["start"] + b / p["factor"], w) for a, b, w in cl["words"]]
+            ld = float(cl.get("lead") or 0.0)
+            per_clip[i] = [(p["start"] + max(0.0, a - ld) / p["factor"], p["start"] + max(0.0, b - ld) / p["factor"], w)
+                           for a, b, w in cl["words"]]
     missing = {i for i, cl in enumerate(clips) if cl.get("words") is None}
     if missing and config.SUB_TIMING == "stt":
         try:
@@ -212,6 +216,31 @@ async def words_for_track(clips: list, plan: list, track_path: str, texts: list)
 
 
 SPEECH_TAIL = 0.15
+# 1.2.0 (cách FreeVideo khớp lời lồng tiếng, dubbing/align.py): bỏ khoảng lặng ĐẦU mẩu TTS, chừa LEAD_KEEP giây cho phụ âm
+# nhẹ. Mẩu VieNeu đo 21/11 mở đầu bằng ~0,09-0,11s im lặng: lời vào trễ nhịp hình và bị tính vào độ dài -> nói nhanh hơn
+# cần. Không cắt quá LEAD_MAX (mẩu mở bằng tiếng thở dài / nhạc hiệu thì đo sai, thà giữ nguyên).
+LEAD_KEEP = 0.05
+LEAD_MAX = 0.5
+
+
+async def speech_span(path: str, words=None) -> tuple[float, float]:
+    """(lead, độ dài) của một đoạn giọng TTS: lead = khoảng lặng đầu cắt được (giữ LEAD_KEEP), độ dài = từ sau lead tới hết
+    tiếng nói + SPEECH_TAIL. compose_voice cắt đúng `lead` (clip["lead"]) trước khi co giãn."""
+    if words:
+        first = min(float(w[0]) for w in words)
+        lead = min(LEAD_MAX, max(0.0, first - LEAD_KEEP))
+        return round(lead, 3), max(0.0, await speech_duration(path, words) - lead)
+    try:
+        ivs, decoded = await asyncio.to_thread(_voiced_and_total_sync, path)
+    except Exception as e:
+        logging.warning("Không đo được khoảng có tiếng của giọng (%s)", str(e)[:100])
+        return 0.0, await speech_duration(path, words)
+    if not ivs:
+        return 0.0, await speech_duration(path, words)
+    lead = min(LEAD_MAX, max(0.0, ivs[0][0] - LEAD_KEEP))
+    end = ivs[-1][1]
+    dur = end + SPEECH_TAIL if end + SPEECH_TAIL <= decoded else min(await ff.probe_duration(path), end + SPEECH_TAIL)
+    return round(lead, 3), max(0.0, dur - lead)
 
 
 async def speech_duration(path: str, words=None) -> float:
