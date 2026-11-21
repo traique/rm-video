@@ -299,7 +299,8 @@ async def analyze(spec: dict, tmp: str) -> dict:
         t1 = time.time()
         vocals, amb = os.path.join(tmp, "vocals16k.wav"), os.path.join(tmp, "ambient.wav")
         os.environ.setdefault("SEP_DEVICE", "cuda")
-        sep_ok = await vocal_sep.remove_voice(inp, amb, windows=None, vocals_wav=vocals) and os.path.exists(vocals)
+        sep_ok = await vocal_sep.remove_voice(inp, amb, windows=None, vocals_wav=vocals,
+                                              strip=bool(spec.get("keep_ambient"))) and os.path.exists(vocals)
         t["sep"] = round(time.time() - t1, 1)
         if not sep_ok:                                  # không tách được: Whisper nghe thẳng âm thanh gốc
             vocals = os.path.join(tmp, "audio16k.wav")

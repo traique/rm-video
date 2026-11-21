@@ -390,10 +390,13 @@ async def _child(args: list, timeout: float) -> tuple:
     return p.returncode, err.decode(errors="ignore").strip().splitlines()
 
 
-async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None, vocals_wav: str = "") -> bool:
+async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None, vocals_wav: str = "",
+                       strip: bool = True) -> bool:
     """Ghi tiếng nền ĐÃ BỎ GIỌNG NGƯỜI ra ambient_wav. Chạy trong TIẾN TRÌNH RIÊNG để ~1.3GB RAM
     của model được trả lại ngay khi xong. False nếu thiếu RAM/lỗi -> caller dùng cách dự phòng.
-    Kaggle GPU + VOICE_SEP_MODEL=auto: thử RoFormer trước, lỗi / quá ROF_TIMEOUT thì tách lại bằng Kim_Vocal_2."""
+    Kaggle GPU + VOICE_SEP_MODEL=auto: thử RoFormer trước, lỗi / quá ROF_TIMEOUT thì tách lại bằng Kim_Vocal_2.
+    strip: bỏ nhạc gốc sau đó (strip_music); False khi tiếng nền không được dùng (phân tích video review chỉ cần giọng
+    sạch cho bóc lời — góp ý Codex PR #17)."""
     free = free_mb()
     if free < NEED_MB:
         logging.warning("RAM trống %dMB < %dMB, bỏ qua tách giọng AI", free, NEED_MB)
@@ -405,7 +408,8 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
                 code, log = await _child(args + ["roformer"], ROF_TIMEOUT)
                 if code == 0 and os.path.exists(ambient_wav):
                     logging.info("Tách giọng AI (RoFormer): %s", log[-1] if log else "xong")
-                    await strip_music(ambient_wav)
+                    if strip:
+                        await strip_music(ambient_wav)
                     return True
                 why = f"mã {code}: {(log[-1] if log else '')[-200:]}"
             except asyncio.TimeoutError:
@@ -422,7 +426,8 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
         if code == 0 and os.path.exists(ambient_wav):
             gpu = [x for x in log if x.startswith("GPU")]
             logging.info("Tách giọng AI: %s%s", log[-1] if log else "xong", f" ({gpu[-1]})" if gpu else "")
-            await strip_music(ambient_wav)
+            if strip:
+                await strip_music(ambient_wav)
             return True
         logging.warning("Tách giọng bỏ qua (mã %s): %s", code, (log[-1] if log else "")[-200:])
         return False

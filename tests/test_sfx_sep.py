@@ -71,6 +71,8 @@ def test_remove_voice_then_strip_music(monkeypatch, tmp_path):
     monkeypatch.setattr(vocal_sep, "_child", child)
     monkeypatch.setattr(vocal_sep, "strip_music", strip)
     assert asyncio.run(vocal_sep.remove_voice("src.mp4", amb)) and order == ["voice", "music"]
+    order.clear()                                                   # phân tích video review: tiếng nền bỏ đi, khỏi bỏ nhạc
+    assert asyncio.run(vocal_sep.remove_voice("src.mp4", amb, strip=False)) and order == ["voice"]
 
 
 def test_overlap_add_rebuilds_input_and_quiet_lift():
