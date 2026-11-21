@@ -13,6 +13,16 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.3.3 — giọng dự phòng đọc đúng đơn vị, «1/2 kg» thành «nửa ký» (21/11/2026)
+
+- Kaggle lỗi phải đọc giọng trên Botkeep (edge-tts / CapCut) thì số và đơn vị cũng được đổi sang chữ trước như giọng
+  VieNeu: «50g» đọc «năm mươi gam» thay vì «năm mươi g» (phản hồi 21/11 về video bản 1.3.0).
+- «1/2 kg» đọc «nửa ký» (trước đây «nửa kg»: đơn vị đứng sau phân số không được đọc thành chữ).
+
+### Chi tiết
+- `tts_engine.synth_clip_ex` gọi `vi_text.normalize`; phụ đề vẫn lấy nguyên văn kịch bản (align.map_script khớp phần lệch).
+- `vi_text.normalize`: phân số kèm đơn vị đọc một lượt. Test: `tests/test_tts_units.py`.
+
 ## 1.3.2 — gỡ các phần của 1.3.0, quay về cách làm video của 1.2.0 (21/11/2026)
 
 - Gỡ bỏ nhạc gốc / giữ tiếng động (Bandit), phóng nét Real-ESRGAN cho truyện bé, nội suy khung RIFE và cắt khoảng lặng

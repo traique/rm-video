@@ -84,8 +84,11 @@ def normalize(text: str) -> str:
                lambda m: f"{m.group(1)} {number_words(int(m.group(2)))} tháng {number_words(int(m.group(3)))}", t)
     t = re.sub(r"\b(\d{1,2}):(\d{2})\b", lambda m: f"{number_words(int(m.group(1)))} giờ"
                + (f" {number_words(int(m.group(2)))}" if int(m.group(2)) else ""), t)
-    t = re.sub(r"(?<![\d/])(\d+)\s*/\s*(\d+)(?![\d/])", lambda m: "nửa" if m.group(0).replace(" ", "") == "1/2" else
-               f"{number_words(int(m.group(1)))} phần {number_words(int(m.group(2)))}", t)
+    # phân số, kèm đơn vị nếu có: "1/2 kg" -> "nửa ký" (trước đây "nửa kg": đơn vị sau phân số không được đọc)
+    t = re.sub(rf"(?<![\d/])(\d+)\s*/\s*(\d+)(?![\d/])(?:\s*({_UNIT_RX})(?![\wÀ-ỹ]))?",
+               lambda m: ("nửa" if (m.group(1), m.group(2)) == ("1", "2") else
+                          f"{number_words(int(m.group(1)))} phần {number_words(int(m.group(2)))}")
+               + (f" {_UNITS[m.group(3).lower()]}" if m.group(3) else ""), t, flags=re.I)
     # khoảng + đơn vị/%: "5-7kg" -> "năm đến bảy ký", "50-60%" -> "năm mươi đến sáu mươi phần trăm"
     t = re.sub(rf"({_NUM})\s*[-–~]\s*({_NUM})\s*%", lambda m: f"{_num(m.group(1))} đến {_num(m.group(2))} phần trăm", t)
     t = re.sub(rf"({_NUM})\s*[-–~]\s*({_NUM})\s*({_UNIT_RX})(?![\wÀ-ỹ])",
