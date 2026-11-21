@@ -231,18 +231,6 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("kim", "Kim_Vocal_2 mọi nơi (mặc định, như cũ)"),
                ("auto", "Thử nghiệm: RoFormer trên Kaggle GPU, dự phòng Kim_Vocal_2")),
       choices=("kim", "auto")),
-    S("SFX_SEP", "1", "kaggle", "Bỏ nhạc gốc, giữ tiếng động (kênh bếp)",
-      help="Sau khi bỏ giọng người gốc, Kaggle GPU tách tiếng nền thành nhạc / tiếng động bằng model Bandit và chỉ giữ tiếng "
-           "động (xèo xèo, dao thớt, nước sôi); nhạc gốc bỏ hẳn nên bot tự lót nhạc Lyria dưới lời. Gốc không có nhạc thì "
-           "giữ nguyên. Trọng số model giấy phép CC BY-NC 4.0 (phi thương mại): KHI BẬT KIẾM TIỀN cho kênh thì chuyển về "
-           "0. Lỗi / không có GPU thì giữ tiếng nền như cũ.",
-      options=(("1", "Bật (kênh chưa kiếm tiền)"), ("0", "Tắt: giữ nhạc gốc trong tiếng nền như cũ")),
-      choices=("0", "1")),
-    S("INTERP", "1", "kaggle", "Nội suy khung khi kéo chậm video gốc",
-      help="Video gốc ngắn hơn thời lượng cần thì bị kéo chậm tới 1,4 lần: khung hình bị lặp, chuyển động giật. Dựng trên "
-           "Kaggle GPU thì RIFE 4.25 (MIT) chèn khung giữa mỗi cặp khung trước khi dựng (đo 21/11: khung đoán sát khung "
-           "thật hơn lặp khung 5-6 dB PSNR). Chỉ khi kéo chậm từ 1,1 lần; quá 5 phút hoặc lỗi thì dựng như cũ.",
-      options=(("1", "Bật"), ("0", "Tắt")), choices=("0", "1")),
     S("KAGGLE_USERNAME", "", "api", "Tên tài khoản Kaggle",
       help="Dán link kaggle.com/<tên> hoặc gõ tên. Dùng cùng token bên dưới.", link="https://www.kaggle.com/settings",
       need="should", validate=_kaggle_user, reauth=True, live=True),
@@ -601,7 +589,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
     "OST_AUTO", "CUT_PROMO", "REVIEW_SCRIPT", "NO_SPEECH", "BGM_ORIG", "BGM_SOURCE", "BGM_LINKS", "VOICE_BED", "SCENE_ANALYSIS", "TEXT_DETECT", "TEXT_INPAINT", "FRAMING_AUTO", "TALK_ZOOM",
-    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "VOICE_SEP_MODEL", "SFX_SEP", "INTERP", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
+    "SOURCE_CREDIT", "KAGGLE_USE", "KAGGLE_ANALYZE", "KAGGLE_ASR", "VOICE_SEP_MODEL", "AUTO_POST", "AUTO_MODE", "AUTO_PER_DAY", "AUTO_TIMES",
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT", "TIKTOK_KIT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
