@@ -1,7 +1,7 @@
 [tool.ruff]
 line-length = 130
 target-version = "py311"
-extend-exclude = ["static"]
+extend-exclude = ["static", "rmvideo/media/bandit"]   # mã Bandit chép nguyên văn (Apache-2.0)
 
 [tool.ruff.lint]
 # F: lỗi thật (biến/import thừa, tên chưa định nghĩa); E9: lỗi cú pháp; B: bẫy hay gặp (closure trong vòng lặp...)
@@ -45,6 +45,11 @@ disallow_untyped_defs = false
 
 # handler aiogram: kiểu tuỳ chọn của Message/CallbackQuery (cb.message, cb.data) đã được middleware bảo đảm
 # (StaleButtonMiddleware) và bộ lọc (F.text...), mypy không suy ra được
+# Mã Bandit / RIFE chép nguyên văn từ FreeVideo (rmvideo/media/bandit/, rmvideo/media/rife.py): không sửa cho hợp kiểu.
+[[tool.mypy.overrides]]
+module = ["rmvideo.media.bandit.*", "rmvideo.media.rife"]
+ignore_errors = true
+
 [[tool.mypy.overrides]]
 module = ["rmvideo.interfaces.telegram.handlers"]
 disable_error_code = ["union-attr"]

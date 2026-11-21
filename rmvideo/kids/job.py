@@ -152,7 +152,7 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
             logging.warning("Truyện bé: %s", notes[-1])
     t0 = time.time()
     out = os.path.join(tmp, "output.mp4")
-    res = await render.render(imgs, clips, texts, brief, out, tmp, music=music, title=st["title"],
+    res = await render.render(images_mod.for_render(imgs), clips, texts, brief, out, tmp, music=music, title=st["title"],
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
                               recap=(recap_clip, recap) if recap_clip.get("path") else None,
                               fx=str(spec.get("fx") or "full"),

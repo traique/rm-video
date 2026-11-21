@@ -13,6 +13,44 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.3.0 — bỏ nhạc gốc giữ tiếng động, ảnh truyện bé nét hơn, đoạn kéo chậm hết giật, lời vào đúng nhịp (21/11/2026)
+
+- Kênh bếp: sau khi bỏ giọng người gốc, tiếng nền được tách tiếp thành nhạc / tiếng động; chỉ giữ tiếng động (xèo xèo,
+  dao thớt, nước sôi), nhạc gốc bỏ hẳn nên bot tự lót nhạc Lyria dưới lời. Bật sẵn (`SFX_SEP=1`); model này chỉ dùng phi
+  thương mại: KHI BẬT KIẾM TIỀN cho kênh thì đặt `SFX_SEP=0`.
+- Truyện bé: ảnh phóng bằng Real-ESRGAN thay cho phóng thường: viền, mắt, áo nét hơn mà vẫn giữ lớp lông nỉ; Ken Burns
+  dùng bản 2160x3840 nên phóng / lia không mờ.
+- Kênh bếp: video gốc bị kéo chậm (tới 1,4 lần cho đủ thời lượng) không còn giật — RIFE chèn khung giữa mỗi cặp khung
+  trước khi dựng (`INTERP=1`).
+- Giọng đọc: bỏ khoảng lặng đầu mỗi mẩu giọng (VieNeu mở đầu bằng ~0,1 giây im): lời vào đúng nhịp hình, đỡ phải nói
+  nhanh cho vừa khe.
+
+### Chi tiết
+- `rmvideo/media/stems.py` + `rmvideo/media/bandit/` (mã Bandit, Apache-2.0, bản rút gọn của FreeVideo; phần biến đổi phổ
+  viết lại bằng torch.stft / torch.istft vì torchaudio không còn bản cho torch mới, cùng tên bộ đệm nên nạp được
+  checkpoint gốc). Trọng số Bandit Plus «cocktail» (Watcharasupat và cộng sự, Zenodo 10160698, CC BY-NC 4.0 — xem
+  `rmvideo/media/bandit/WEIGHTS-CC-BY-NC-4.0.txt`), tải từ bản FreeVideo đã chuyển state dict, ghim revision + SHA-256.
+  `vocal_sep.strip_music`: chạy sau khi tách giọng thành công (RoFormer hoặc Kim), tiến trình riêng, chỉ Kaggle GPU;
+  nhạc thấp hơn tiếng động 20 dB thì giữ nguyên; lỗi / quá 5 phút thì trả lại tiếng nền cũ. Renderer đo «điểm nhạc» trên
+  tiếng nền đã tách nên tự lót nhạc khi nhạc gốc đã bỏ. Đo 21/11 (CPU): video bếp có nhạc Lyria — điểm nhạc tiếng nền
+  0,258, phần tiếng động 0,0, phần nhạc 0,948; ba phần cộng lại khớp bản gốc -36 dB; 30 giây audio 96 giây CPU.
+- `rmvideo/kids/esrgan.py`: SRVGGNetCompact (Real-ESRGAN, BSD-3-Clause), trộn trọng số realesr-general-x4v3 (khử nhiễu
+  mạnh) 0,2 + wdn-x4v3 (nhẹ) 0,8 như tuỳ chọn «-dn» của Real-ESRGAN: bản mạnh làm lông nỉ thành da nhựa (đo trên ảnh
+  truyện bé), 0,2 giữ lông. `images.upscale` ghi `scene_XX.png` 1080x1920 (gửi về Botkeep như cũ) + `scene_XX_hd.png`
+  2160x3840 cho dựng (`images.for_render`); không GPU / lỗi thì lanczos như cũ. CPU 13,8 giây / ảnh (T4 nhanh hơn nhiều).
+- `rmvideo/media/interp.py` + `rmvideo/media/rife.py` (RIFE 4.25 IFNet, MIT, từ FreeVideo; model 22MB ghim SHA-256):
+  `kaggle_job.produce` gấp đôi khung video gốc khi kéo chậm ≥ 1,1 lần (ffmpeg giải mã -> khung giữa -> ffmpeg mã hoá, tiếng
+  chép nguyên, cùng thời lượng nên mọi mốc kế hoạch giữ nguyên; `out_fps` chia đều nên tốc độ khung đầu ra không đổi). Hai
+  khung khác hẳn nhau (chuyển cảnh) thì chép khung trước. Đo tốc độ trên 24 cặp đầu, dự tính quá 5 phút thì bỏ. Đo 21/11
+  trên 3 video bếp (đoán khung giữa từ khung trước/sau, so khung thật): PSNR 26,5-28,6 dB, lặp khung (cách cũ) 20,8-23,3,
+  trộn hai khung 23,7-26,7.
+- `voiceplan.speech_span` + `compose_voice`: cắt khoảng lặng đầu mẩu (giữ 0,05s, tối đa 0,5s), mốc từ edge-tts dời theo.
+  Đã xem cách FreeVideo khớp lời (đọc lại 2-3 lượt bằng tham số tốc độ của TTS rồi mới kéo nhẹ ≤ 1,25 lần): VieNeu
+  (vieneu 3.8.5, TTS kiểu mô hình ngôn ngữ) không có tham số tốc độ nên chưa áp được phần đó; bot vẫn giữ một tốc độ
+  chung ≤ 1,12 lần như trước.
+- Cài đặt mới (nhóm ☁️ Kaggle): `SFX_SEP`, `INTERP`. Test: `tests/test_sfx_sep.py`, `test_kids_esrgan.py`,
+  `test_interp.py`, `test_voice_lead.py` (phần cần torch chạy khi máy có torch).
+
 ## 1.2.0 — đăng YouTube Shorts + gói đăng TikTok cho kênh bếp và kênh truyện bé (20/11/2026)
 
 - Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn: kênh bếp và kênh truyện bé là hai kênh YouTube riêng.
