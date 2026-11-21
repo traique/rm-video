@@ -57,13 +57,16 @@ EMOTION_VI = (
     (r"giận|bực|cau mày|hừ|phụng phịu|dỗi", "angry pout, furrowed brows, puffed cheeks"),
     (r"cười|reo|vui|nhảy tưng tưng|hí hửng|khoái chí|thích thú", "happy laughing face"),
 )
+# góc máy đổi theo cảnh (phản hồi 21/11: 8 ảnh đều nhân vật đứng giữa nhìn thẳng, xem chán): cụm phụ, thiếu chỗ thì bỏ trước
+SHOTS_EN = ("dynamic low angle shot", "medium shot", "close-up on the faces", "wide shot", "medium shot from the side",
+            "close-up on the faces", "medium shot", "wide shot")
 PROMPT_WORDS_MAX = 165      # T5 của FLUX cắt ở 256 token (~1,4 token/từ): quá thì bỏ bớt cụm phụ (cảm xúc trước, rồi ánh sáng)
 EXAMPLE = [
     # truyện mẫu (viết tay theo sách tranh hay: câu ngắn có từ nối, tiếng động, điệp khúc có nhịp, thất bại hài, hỏi bé giữa
     # truyện, cảm xúc qua hành động, nét riêng nhân vật, kết vòng lại mở đầu; «nha» chỉ 2 lần); CHỈ để model học giọng kể
     # — bộ kiểm chặn khi chép lại ≥ 2 câu
-    ("Hôm nay trời xanh ngắt, gió thổi mát rượi. Sóc Nhỏ ôm con diều màu đỏ chạy ra công viên, đuôi vẫy tít. «Hả? Gió to "
-     "thế này thì diều bay cao phải biết!»",
+    ("Bịch! Con diều đỏ lại rớt xuống cỏ, lần thứ ba rồi. Gió thổi mát rượi mà diều cứ nằm im. Sóc Nhỏ nhặt lên, đuôi "
+     "vẫy tít: «Hả? Gió to thế này thì diều phải bay cao chứ!»",
      ["little_squirrel"], "Little Squirrel running on green grass holding a red kite, happy"),
     ("Thế là Sóc Nhỏ giơ diều lên thật cao. «Diều ơi, bay lên đi!» Sóc Nhỏ reo to rồi chạy một hơi.",
      ["little_squirrel"], "Little Squirrel holding a red kite up high, looking at the sky"),
@@ -163,13 +166,24 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "không kết bằng «nha». Câu kết bình thường bằng dấu chấm / chấm than.\n"
             "- LIỀN MẠCH: cảnh sau xảy ra VÌ cảnh trước (nhân quả), ba lần thử khác nhau và leo thang, lần ba thành công nhờ "
             "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
+            "- MỞ THẲNG VÀO CHUYỆN (người xem lướt đi ngay nếu 3 giây đầu chưa có gì xảy ra): câu ĐẦU TIÊN của cảnh 1 đã là "
+            "điều lạ / rắc rối / tiếng động bất ngờ của truyện hôm nay (kiểu «Ối! Hộp bánh trên bàn trống trơn!»); giới thiệu "
+            "nhân vật, bối cảnh lồng vào câu sau. KHÔNG mở bằng tả thời tiết, «Hôm nay…», «Ngày xửa ngày xưa», «Một buổi "
+            "sáng…».\n"
+            "- GIỮ BÉ Ở LẠI: cảnh 2-6 mỗi cảnh kết bằng một câu MÓC (câu hỏi bé, «Bỗng…», tiếng động lạ, chuyện sắp hỏng) để bé "
+            "muốn nghe cảnh sau; cảnh sau mở bằng lời đáp.\n"
+            "- Cảnh 6 có MỘT BẤT NGỜ thật mà bé không đoán trước (không chỉ là «bạn tới giúp»): thủ phạm là ai đó không ngờ, "
+            "cách giải quyết từ chỗ lạ, sự thật ngược với điều nhân vật tưởng.\n"
+            "- Cảnh 8 kết bằng một chi tiết HÀI hay bất ngờ nhỏ khiến bé bật cười (không chỉ «hai bạn cười vui»).\n"
             "- Cảnh 7: bạn kia nói bài học bằng MỘT câu ngắn như bạn bè nói với nhau, có ít nhất một chữ trong: "
             + ", ".join(lesson.get("keywords", [])) + " (đừng gom hết các chữ vào một câu, đừng giảng)"
             + ". Cảnh 8 kết vui bằng HÌNH ẢNH vòng lại cảnh 1 (các bạn chơi / cười / cùng ngắm), câu cuối ngắn và ấm; KHÔNG "
             "«các bé ơi», không dặn dò lần nữa (bài học đã nói ở cảnh 7, nói thêm nghe giảng).\n"
             f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
             f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
-            "kể trước cách giải quyết. `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, hiện to trên màn hình.\n"
+            "kể trước cách giải quyết; nêu điều lạ / rắc rối CỤ THỂ (đồ gì, của ai, chuyện gì) như «Ai đã ăn sạch hộp bánh "
+            "của Gấu Nâu?», KHÔNG chung chung kiểu «Mất đồ rồi!». `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, có tên đồ vật "
+            "/ chuyện cụ thể, hiện to trên màn hình.\n"
             "- Viết THUẦN tiếng Việt, không chữ tiếng Anh, không giải nghĩa từ (phần dạy tiếng Anh mã sẽ tự thêm).\n"
             "BÍ KÍP KỂ CHO CUỐN (học từ sách tranh hay như The Gruffalo, We're Going on a Bear Hunt, Chú Dê Đen):\n"
             "- HỎI BÉ giữa truyện 1-2 lần (cảnh 2-6), ngắn, có chữ «bé», đặt ở CUỐI cảnh như lật trang sách: «Bé đoán xem Thỏ "
@@ -184,7 +198,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "- KẾT VÒNG LẠI: câu cuối gọi lại hình ảnh hay câu của cảnh 1, nghe ấm và trọn.\n"
             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
-            "đồ vật trong hình, thì hiện tại; không tả ngoại hình hay quần áo (đã có sẵn), không chữ.\n"
+            "đồ vật trong hình, thì hiện tại; tư thế ĐANG LÀM rõ ràng (tiptoeing, crouching to look at footprints, jumping "
+            "back in surprise, hugging tightly…), KHÔNG đứng yên nhìn thẳng; không tả ngoại hình hay quần áo (đã có sẵn), "
+            "không chữ.\n"
             "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «cái thang gỗ» / «wooden ladder»): tiếng Việt "
             "1-3 chữ, tên tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi "
             "cảnh nó xuất hiện (bé phải THẤY nó trong hình).\n"
@@ -226,6 +242,8 @@ REVISE_CHECK = (
     "11. CUỐN chưa? Có câu hỏi cho bé giữa truyện (cảnh 2-6)? Thất bại có chi tiết hài + tiếng động? Cảm xúc tả qua hành động "
     "(tai cụp, đuôi rũ) thay vì gọi tên — một cảnh không gọi tên cảm xúc hai lần («buồn thiu… buồn rầu»)? Bạn chính có dùng nét "
     "riêng / câu cửa miệng? Kết có vòng lại hình ảnh cảnh 1?\n"
+    "12. Câu ĐẦU của cảnh 1 đã có chuyện xảy ra chưa (không mở bằng thời tiết / «Hôm nay…»)? Cảnh 2-6 có kết bằng câu móc? "
+    "Cảnh 6 có bất ngờ thật? Cảnh 8 có chi tiết hài? Câu `hook` có nêu đồ vật / chuyện CỤ THỂ không?\n"
     "Không chỉ sửa lỗi: hãy NÂNG bản nháp lên mức một cuốn sách tranh hay — thêm chi tiết ngộ nghĩnh, bớt câu nhạt, giữ cốt truyện.")
 
 
@@ -344,9 +362,13 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
         if w.get("group") in SHOW_GROUPS and not w.get("pose") and en and en.lower() not in shown:
             must.append(f"the {en} clearly visible" + (" in the sky" if en.lower() in SKY_WORDS else ""))
     light = lighting_en(text)
+    shot = SHOTS_EN[idx % len(SHOTS_EN)]
+    if "close-up" in shot and (prop_required(idx, scene, prop) or poses):
+        shot = "medium shot"                   # đồ vật chính / tư thế đang dạy phải thấy trọn trong hình
     emo = "" if poses else emotion_en(text)    # nhắc lại dù action_en đã tả (mẫu 33: «falling down… then running» -> vẽ chạy)
     if emo:
         soft.append(emo)
+    soft.append(shot)                          # cuối danh sách: prompt dài quá thì bỏ góc máy trước
     descs = ". ".join(((chars[k].get("lora_token", "") + " ") if use_lora and chars[k].get("lora_token") else "")
                       + chars[k]["prompt_en"] for k in keys)       # use_lora: từ khoá LoRA («thotrang») đứng trước mô tả
     setting = story_mod.by_id(data["settings"], brief["setting"]).get("en", "")

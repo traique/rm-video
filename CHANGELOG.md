@@ -13,6 +13,20 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.1 — câu hook bếp trọn ý, đoạn mở đầu dài vừa câu hook; truyện bé gây cấn hơn (21/11/2026)
+
+- Bếp, phản hồi job 6 («câu mở không ăn nhập»): bản 1.4.0 chọn câu hook SAU khi viết kịch bản và ép vào đoạn mở đầu 2 giây
+  nên câu hook chỉ còn tối đa 5 chữ («Đồ chua bị hăng?»: cụt, không hứa gì, lạc với câu «Chuẩn bị 1 kg cà rốt…» ngay sau).
+  Giờ câu hook được chọn TRƯỚC, đoạn mở đầu dài vừa đọc hết câu (2-4 giây, 7-11 chữ). Câu hook phải nêu tên món, là câu trọn
+  ý có lời hứa (câu hỏi phải kèm lời hứa), đúng ý lời gốc; AI chấm điểm biết câu ngay sau hook, câu cụt / không nêu món tối
+  đa 4 điểm; «best» lệch điểm chấm thì theo điểm.
+- Truyện bé, phản hồi job 7 («chưa gây cấn, na ná nhau»): thêm 5 khung truyện có hồi hộp — lần theo dấu vết bí ẩn, giải
+  cứu bạn nhỏ, chạy đua với thời gian, hiểu lầm rồi hoá ra bất ngờ, khoe tài rồi bị lật ngược (khung mới được chọn trước vì
+  chưa dùng). Luật kể mới cho mọi truyện: câu đầu cảnh 1 đã có chuyện xảy ra (không mở bằng thời tiết / «Hôm nay…»), cảnh
+  2-6 kết bằng câu móc, cảnh 6 có bất ngờ thật, cảnh 8 kết bằng chi tiết hài; câu móc 3 giây đầu phải nêu đồ vật / chuyện cụ
+  thể. Ba khung cũ (tìm đồ, làm hỏng, làm quà) mở thẳng vào lúc xảy ra chuyện. Ảnh đổi góc máy theo cảnh (thấp, cận mặt,
+  toàn cảnh) và tả tư thế đang làm thay vì đứng nhìn thẳng.
+
 ## 1.4.0 — luôn mở đầu bằng thành phẩm hấp dẫn nhất; viết nhiều câu hook rồi chọn câu mạnh nhất (21/11/2026)
 
 - Đoạn mở đầu (`TEASER`) rút còn **2 giây** và chọn theo khoảnh khắc **thành phẩm hấp dẫn nhất**: AI xếp hạng riêng các

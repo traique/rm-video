@@ -1,14 +1,16 @@
 """Câu hook (1.4.0): viết NHIỀU câu mở đầu theo nhiều kiểu, AI chấm điểm, chọn câu mạnh nhất; ghi kiểu hook đã dùng để
 so với lượt xem về sau.
 
-Kịch bản (prompt_engine.generate_timed) đã có một câu hook viết cùng lúc với cả bài; video 10 nghìn view và 1 triệu view
-nhiều khi khác nhau chỉ ở câu đầu, nên câu đó đáng một lượt riêng:
+Video 10 nghìn view và 1 triệu view nhiều khi khác nhau chỉ ở câu đầu, nên câu đó đáng một lượt riêng:
   1. Một lượt AI viết N_HOOKS câu theo các kiểu trong KINDS (vấn đề / mẹo bất ngờ / kết quả / tò mò / con số), mỗi câu
-     kèm chữ in màn hình. Câu hook cũ vào cùng danh sách (kiểu «goc»): bản chọn không bao giờ kém hơn bản cũ.
-  2. MÃ loại câu sai luật: quá dài so với khe đoạn 0, chào hỏi / kêu gọi, «mình thử» (người đọc không phải người nấu),
-     nguyên liệu hay con số không có trong lời gốc; đoạn 0 có lời gốc thì phải giữ đủ nguyên liệu / số của đoạn đó.
-  3. Một lượt AI khác chấm 1-10 từng câu (dừng lướt, lời hứa có thật trong video, ngắn tự nhiên, khớp hình) và chọn.
-Lỗi gì (không key, AI lỗi, không câu nào hợp lệ) cũng giữ nguyên câu hook cũ.
+     kèm chữ in màn hình.
+  2. MÃ loại câu sai luật: cụt (< MIN_WORDS chữ) hay dài quá, không nêu tên món, chào hỏi / kêu gọi, «mình thử» (người
+     đọc không phải người nấu), nguyên liệu hay con số không có trong lời gốc.
+  3. Một lượt AI khác chấm 1-10 từng câu (hiểu ngay món gì và được gì, lời hứa có thật, đúng ý lời gốc, nối trơn sang
+     câu sau) và chọn.
+1.4.1: có đoạn mở đầu thì câu hook chọn TRƯỚC (choose) và đoạn mở đầu dài vừa đọc hết câu (2-4 giây). Bản 1.4.0 chọn sau
+khi viết kịch bản, ép câu vào 2 giây -> tối đa 5 chữ, job 6 ra «Đồ chua bị hăng?»: cụt, không hứa gì, lạc với câu sau.
+Không có đoạn mở đầu: chọn sau kịch bản như cũ (improve, câu cũ chấm cùng). Lỗi gì cũng giữ câu cũ.
 
 Kiểu hook ghi vào job.hook_kind và hooks.json (HOOK_STATE); status_lines ghép với lượt xem YouTube sau 24h
 (rmvideo/app/youtube.py) để thấy kênh hợp kiểu nào."""
@@ -29,6 +31,8 @@ from rmvideo.domain import dialect
 KINDS = {"van_de": "vấn đề", "meo": "mẹo bất ngờ", "ket_qua": "kết quả", "to_mo": "tò mò", "con_so": "con số",
          "goc": "viết cùng kịch bản"}
 N_HOOKS = 8
+MIN_WORDS = 7                   # câu hook ngắn hơn là câu cụt («Đồ chua bị hăng?» — job 6, 21/11)
+TEASER_MAX = 4.0                # giây: đoạn mở đầu dài tối đa chừng này để đọc hết câu hook
 TIMEOUT = 45.0
 KEEP = 400                      # số job gần nhất giữ trong hooks.json
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -38,23 +42,35 @@ _FAKE_RE = re.compile(r"\b(mình|tui|tôi|tụi mình|em)\s+(đã\s+|vừa\s+|m�
                       r"lần đầu (mình |tui |tôi )?(làm|nấu)|triệu (view|lượt)|nghìn (view|lượt)|ngàn (view|lượt)",
                       re.IGNORECASE)
 
-GEN_PROMPT = """Bạn là biên kịch video nấu ăn ngắn (Reels / Shorts / TikTok) tiếng Việt, giọng miền Nam. Viết {n} CÂU HOOK khác nhau cho ĐOẠN 0: câu đọc lên trong 2-3 giây đầu, lúc màn hình đang chiếu {scene}. Câu hook quyết định người đang lướt có dừng lại không: kéo người xem vào một VẤN ĐỀ hay LỜI HỨA cụ thể trước khi thấy công thức.
+GEN_PROMPT = """Bạn là biên kịch video nấu ăn ngắn (Reels / Shorts / TikTok) tiếng Việt, giọng miền Nam. Viết {n} CÂU HOOK khác nhau: câu đọc lên ngay giây 0, lúc màn hình đang chiếu {scene}. Câu hook quyết định người đang lướt có dừng lại không.
+Món: {dish}
 Tiêu đề video gốc: «{title}»
 Mẹo chính người làm video nói (đã kiểm trong lời gốc): {tip}
 Lời gốc cả video (để biết video thật sự có gì): «{orig}»
+Câu ngay SAU câu hook (phần làm món bắt đầu): «{after}»
 {seg0}
+Người lướt CHƯA biết video về món gì và chưa nghe gì trước đó, nên MỖI câu hook phải:
+- NÊU TÊN MÓN (hoặc nguyên liệu chính) để người xem biết ngay đây là món gì;
+- là MỘT câu trọn ý {mn}-{mx} chữ khi đọc ra: nêu một vấn đề / mẹo / kết quả CỤ THỂ kèm LỜI HỨA video sẽ chỉ. Câu hỏi thì phải kèm lời hứa ngay trong câu, KHÔNG hỏi trống không;
+- nói ĐÚNG ý lời gốc, không đảo nghĩa (gốc nói «không cần thêm nước» thì không được viết «thêm nước»).
+Ví dụ TỐT (món khác, chỉ để học cách viết): «Bò lúc lắc hay bị dai là do bỏ qua bước ướp này nè.» · «Cá kho tộ hổng tanh mà thơm lừng nhờ mẹo nhỏ này.» · «Trứng chiên kiểu này phồng gấp đôi, giòn rụm luôn.»
+Ví dụ DỞ: «Cá bị tanh?» (cụt, chưa hứa gì) · «Dùng một trăm gam muối.» (kể bước, không gây tò mò) · «Ngon lắm luôn nè!» (không nêu món, chung chung).
 Viết đủ các kiểu, mỗi kiểu 1-2 câu, ghi kiểu vào "kind":
-- "van_de": nêu lỗi / nỗi khổ hay gặp mà video giải quyết (vd «Bò lúc lắc hay bị dai là do bước này nè»). CHỈ viết khi mẹo chính hay lời gốc thật sự có cách khắc phục đó.
-- "meo": mẹo bất ngờ, ngược thói quen (vd «Thịt mềm mà hổng cần ướp lâu luôn»).
-- "ket_qua": kết quả CỤ THỂ người xem sẽ có (giòn rụm, mềm tan, nước trong veo...), không khen chung chung kiểu «thơm ngon khó cưỡng».
-- "to_mo": câu hỏi hay câu bỏ lửng gây tò mò.
-- "con_so": dựa trên con số CÓ THẬT trong lời gốc (số phút, số bước, định lượng); lời gốc không có số thì bỏ kiểu này.
-Luật: mỗi câu tối đa {mx} từ khi đọc ra (ngắn hơn càng tốt), nói chuyện tự nhiên, có dấu câu; KHÔNG chào hỏi, không giới thiệu kênh, không kêu gọi like / đăng ký / theo dõi; KHÔNG nói «mình thử», «mình làm thử», «lần đầu mình nấu» (người đọc không phải người nấu); KHÔNG bịa nguyên liệu, con số, lượt xem hay lời khen của người khác; không emoji.
-Mỗi câu kèm "screen": 3-7 chữ in lên màn hình cùng lúc, viết chữ thường có dấu đầy đủ, không dấu chấm.
+- "van_de": lỗi / nỗi khổ hay gặp mà video giải quyết. CHỈ viết khi mẹo chính hay lời gốc thật sự có cách khắc phục đó.
+- "meo": mẹo bất ngờ, ngược thói quen.
+- "ket_qua": kết quả CỤ THỂ người xem sẽ có (giòn rụm, mềm tan, để được cả tháng...), không khen chung chung.
+- "to_mo": gợi tò mò về cách làm (kèm lời hứa).
+- "con_so": dựa trên con số CÓ THẬT trong lời gốc (số phút, số ngày giữ được, định lượng); không có số thì bỏ kiểu này.
+Luật: nói chuyện tự nhiên, có dấu câu; KHÔNG chào hỏi, không giới thiệu kênh, không kêu gọi like / đăng ký / theo dõi; KHÔNG nói «mình thử», «mình làm thử», «lần đầu mình nấu» (người đọc không phải người nấu); KHÔNG bịa nguyên liệu, con số, lượt xem hay lời khen của người khác; không emoji.
+Mỗi câu kèm "screen": 3-7 chữ in lên màn hình cùng lúc (có tên món), viết chữ thường có dấu đầy đủ, không dấu chấm.
 Trả về DUY NHẤT JSON: {{"hooks": [{{"kind": "van_de", "text": "...", "screen": "..."}}]}}"""
 
-JUDGE_PROMPT = """Bạn là biên tập viên một kênh nấu ăn video ngắn hàng triệu lượt xem. Dưới đây là các câu hook ứng viên cho 2-3 giây đầu video «{title}» (màn hình lúc đó đang chiếu {scene}). Mẹo chính của video: {tip}.
-Chấm mỗi câu 1-10 theo: (1) người đang lướt có DỪNG LẠI không — nêu vấn đề, lời hứa hay điều bất ngờ CỤ THỂ, không chung chung; (2) lời hứa có thật trong video; (3) ngắn, dễ nghe, tự nhiên như người miền Nam nói; (4) khớp với hình đang chiếu.
+JUDGE_PROMPT = """Bạn là biên tập viên một kênh nấu ăn video ngắn hàng triệu lượt xem. Dưới đây là các câu hook ứng viên đọc ngay giây 0 của video «{title}» (món: {dish}; màn hình lúc đó đang chiếu {scene}). Mẹo chính của video: {tip}. Câu ngay sau hook: «{after}».
+Chấm mỗi câu 1-10 theo, quan trọng nhất trước:
+(1) người đang lướt nghe xong có hiểu ngay video về MÓN GÌ và sẽ được gì không — câu cụt, hỏi trống không, không nêu món: tối đa 4 điểm;
+(2) có vấn đề / lời hứa / điều bất ngờ CỤ THỂ khiến muốn xem tiếp, không khen chung chung;
+(3) đúng với lời gốc, lời hứa có thật trong video (đảo nghĩa lời gốc: 1 điểm);
+(4) tự nhiên như người miền Nam nói, nối trơn sang câu ngay sau, khớp với hình đang chiếu.
 {items}
 Trả về DUY NHẤT JSON: {{"scores": [{{"i": số câu, "score": điểm}}], "best": số câu tốt nhất}}"""
 
@@ -94,16 +110,46 @@ def budget(seg0: dict) -> int:
     return max(3, int(slot * rate * 0.92))
 
 
-def problems(text: str, mx: int, orig_all: str, orig0: str) -> list[str]:
+def teaser_words(rate: float) -> int:
+    """Số chữ tối đa của câu hook đọc trên đoạn mở đầu dài nhất (TEASER_MAX giây)."""
+    return max(MIN_WORDS + 2, int(TEASER_MAX * rate * 0.92))
+
+
+def teaser_secs(text: str, rate: float) -> float:
+    """Độ dài đoạn mở đầu cho vừa câu hook: đọc hết câu (+ chút thở), trong khoảng TEASER_DUR..TEASER_MAX giây."""
+    from rmvideo.media import filtergraph
+    need = prompt_engine.spoken_words(text) / max(rate, 1.0) + 0.35
+    return round(min(TEASER_MAX, max(filtergraph.TEASER_DUR, need)), 1)
+
+
+def _norm(s: str) -> str:
+    return " " + re.sub(r"[^\w]+", " ", (s or "").lower()).strip() + " "
+
+
+def names_dish(text: str, dish: str, title: str = "") -> bool:
+    """Câu hook có nêu tên món (hoặc nguyên liệu chính của món / tiêu đề) không. Không biết món: coi như có."""
+    t = _norm(text)
+    if dish and _norm(dish) in t:
+        return True
+    want = ingredients.find(f"{dish} {title}")
+    if not want and not dish:
+        return True
+    return bool(want & ingredients.find(text))
+
+
+def problems(text: str, mx: int, orig_all: str, orig0: str, dish: str = "", title: str = "",
+             mn: int = 2) -> list[str]:
     """Lý do câu hook không dùng được (rỗng = dùng được)."""
     why = []
     n = prompt_engine.spoken_words(text)
-    if n < 2 or n > mx + 1:
-        why.append(f"{n} từ (tối đa {mx})")
+    if n < mn or n > mx + 1:
+        why.append(f"{n} từ (cần {mn}-{mx})")
     if prompt_engine._GREET_RE.search(text) or prompt_engine._CTA_RE.search(text) or prompt_engine.has_sub_cta(text):
         why.append("chào hỏi / kêu gọi")
     if _FAKE_RE.search(text):
         why.append("nói như người nấu / lượt xem bịa")
+    if (dish or title) and not names_dish(text, dish, title):
+        why.append("không nêu tên món")
     added_n = ingredients.check_numbers(orig_all, text)[1]
     added_i = prompt_engine._not_in_glossary(ingredients.check_rewrite(orig_all, text)[1])
     if added_n or added_i:
@@ -131,9 +177,103 @@ def _parse_hooks(raw: str) -> list[dict]:
     return out
 
 
-async def improve(timed: dict, title: str, tip: str = "", teaser: bool = False) -> dict | None:
-    """Thay câu hook (đoạn 0) của kịch bản bằng câu mạnh nhất trong N_HOOKS câu AI viết thêm. Sửa tại chỗ `timed`
-    (segments[0].text, script, hook). Trả {"kind", "text", "screen", "score", "n"} hoặc None (giữ nguyên)."""
+async def _pick(*, title: str, tip: str, dish: str, orig_all: str, after: str, teaser: bool, mx: int, mn: int,
+                orig0: str = "", old: dict | None = None) -> dict | None:
+    """Một lượt viết N_HOOKS câu + mã loại câu sai luật + một lượt chấm điểm. Trả câu thắng {"kind", "text", "screen",
+    "score", "n"} hoặc None (AI lỗi / không đủ câu hợp lệ)."""
+    scene = "cảnh món thành phẩm hấp dẫn nhất (chiếu trước, rồi video mới làm từ đầu)" if teaser else "cảnh đầu video"
+    tip_txt = f"«{tip.strip().rstrip('.')}»" if tip.strip() else "(không có mẹo rõ ràng: đừng viết kiểu vấn đề)"
+    dish_txt = dish or "(xem tiêu đề)"
+    seg0_rule = (f"Đoạn 0 có lời gốc «{orig0}»: câu hook phải nhắc ĐỦ và ĐÚNG mọi nguyên liệu, con số trong câu đó, "
+                 "bằng từ ngữ khác." if orig0 else "")
+    try:
+        raw = await prompt_engine.call_gemini(
+            GEN_PROMPT.format(n=N_HOOKS, scene=scene, title=title or "(không có)", tip=tip_txt, dish=dish_txt,
+                              orig=orig_all[:1500], after=after[:200] or "(không có)", seg0=seg0_rule, mx=mx, mn=mn),
+            schema=HooksOut, timeout=TIMEOUT)
+        pool = _parse_hooks(raw)
+    except Exception as e:
+        logging.warning("Hook: AI viết câu lỗi (%s)", str(e)[:120])
+        return None
+    if old and old.get("text"):
+        pool.insert(0, old)
+    ok, seen = [], set()
+    for h in pool:
+        key = re.sub(r"\W+", " ", h["text"].lower()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        # câu viết cùng kịch bản đã qua bộ kiểm của kịch bản, vừa khe của chính nó: không loại, chỉ chấm cùng
+        why = [] if h["kind"] == "goc" else problems(h["text"], mx, orig_all, orig0, dish, title, mn)
+        logging.info("Hook ứng viên (%s)%s: %s", KINDS[h["kind"]], f" LOẠI: {'; '.join(why)}" if why else "", h["text"])
+        if not why:
+            ok.append(h)
+    if not ok:
+        return None
+    scores: dict[int, float] = {}
+    best = 0
+    if len(ok) >= 2:
+        items = "\n".join(f"{k} | {KINDS[h['kind']]} | {h['text']}" for k, h in enumerate(ok))
+        try:
+            raw = await prompt_engine.call_gemini(
+                JUDGE_PROMPT.format(title=title or "(không có)", dish=dish_txt, scene=scene, tip=tip_txt,
+                                    after=after[:200] or "(không có)", items=items), schema=JudgeOut, timeout=TIMEOUT)
+            d = prompt_engine.loads_lenient(raw)
+        except Exception as e:
+            logging.warning("Hook: AI chấm điểm lỗi (%s)", str(e)[:120])
+            return None
+        for x in d.get("scores") or []:
+            try:
+                scores[int(x["i"])] = float(x["score"])
+            except (TypeError, ValueError, KeyError):
+                continue
+        try:
+            best = int(d.get("best", -1))
+        except (TypeError, ValueError):
+            best = -1
+        if scores and 0 <= best < len(ok) and scores.get(best, 0) < max(scores.values()):
+            best = max(scores, key=lambda k: scores[k])     # «best» lệch điểm chấm: theo điểm
+        if not 0 <= best < len(ok):
+            best = max(scores, key=lambda k: scores[k], default=-1) if scores else -1
+            if not 0 <= best < len(ok):
+                return None
+    h = ok[best]
+    logging.info("Hook chọn %d/%d (%s, %s điểm): %s", best, len(ok), KINDS[h["kind"]], scores.get(best, "?"), h["text"])
+    ref = " ".join([title, dish, orig_all])
+    return {"kind": h["kind"], "text": h["text"],
+            "screen": prompt_engine.clean_hook(h["screen"], ref) if h.get("screen") else "",
+            "score": scores.get(best), "n": len(ok)}
+
+
+async def choose(title: str, tip: str, dish: str, orig_all: str, after: str, rate: float) -> dict | None:
+    """Chọn câu hook TRƯỚC khi quyết đoạn mở đầu (1.4.1): đoạn mở đầu dài theo câu hook (teaser_secs), không ép câu hook
+    vào 2 giây (1.4.0 job 6: ép còn 5 chữ -> «Đồ chua bị hăng?», cụt và lạc). Trả thêm "secs" (độ dài đoạn mở đầu)."""
+    if not wanted():
+        return None
+    got = await _pick(title=title, tip=tip, dish=dish, orig_all=orig_all, after=after, teaser=True,
+                      mx=teaser_words(rate), mn=MIN_WORDS)
+    if got:
+        got["secs"] = teaser_secs(got["text"], rate)
+    return got
+
+
+def apply(timed: dict, hook: dict) -> bool:
+    """Đặt câu hook đã chọn vào đoạn 0 (khe trống của đoạn mở đầu) của kịch bản. False: đoạn 0 không phải khe hook."""
+    segs = timed.get("segments") or []
+    if not segs or int(segs[0].get("i", 0)) != 0 or (segs[0].get("orig") or "").strip() or segs[0].get("ost") == "orig":
+        return False
+    segs[0]["text"] = hook["text"]
+    segs[0]["copy"] = 0.0
+    timed["script"] = " ".join(s["text"] for s in segs if s.get("text"))
+    if hook.get("screen"):
+        timed["hook"] = hook["screen"]
+    return True
+
+
+async def improve(timed: dict, title: str, tip: str = "", teaser: bool = False, dish: str = "") -> dict | None:
+    """Không có đoạn mở đầu: thay câu hook (đoạn 0) của kịch bản bằng câu mạnh nhất trong N_HOOKS câu AI viết thêm
+    (câu cũ chấm cùng). Sửa tại chỗ `timed` (segments[0].text, script, hook). Trả {"kind", "text", "screen", "score",
+    "n"} hoặc None (giữ nguyên)."""
     segs = timed.get("segments") or []
     if not segs or not wanted():
         return None
@@ -143,68 +283,21 @@ async def improve(timed: dict, title: str, tip: str = "", teaser: bool = False) 
     old = (seg0.get("text") or "").strip()
     orig0 = (seg0.get("orig") or "").strip()
     orig_all = " ".join((s.get("orig") or "") for s in segs)
+    after = next(((s.get("orig") or s.get("text") or "") for s in segs[1:] if (s.get("orig") or s.get("text"))), "")
     mx = budget(seg0)
-    scene = "cảnh món thành phẩm hấp dẫn nhất (chiếu trước, rồi video mới làm từ đầu)" if teaser else "cảnh đầu video"
-    tip_txt = f"«{tip.strip().rstrip('.')}»" if tip.strip() else "(không có mẹo rõ ràng: đừng viết kiểu vấn đề)"
-    seg0_rule = (f"Đoạn 0 có lời gốc «{orig0}»: câu hook phải nhắc ĐỦ và ĐÚNG mọi nguyên liệu, con số trong câu đó, "
-                 "bằng từ ngữ khác." if orig0 else "Đoạn 0 chưa có lời gốc: chỉ dựa vào tiêu đề, mẹo chính và lời gốc.")
-    try:
-        raw = await prompt_engine.call_gemini(
-            GEN_PROMPT.format(n=N_HOOKS, scene=scene, title=title or "(không có)", tip=tip_txt,
-                              orig=orig_all[:1500], seg0=seg0_rule, mx=mx),
-            schema=HooksOut, timeout=TIMEOUT)
-        pool = _parse_hooks(raw)
-    except Exception as e:
-        logging.warning("Hook: AI viết thêm câu lỗi (%s), giữ câu cũ", str(e)[:120])
+    got = await _pick(title=title, tip=tip, dish=dish, orig_all=orig_all, after=after, teaser=teaser, mx=mx,
+                      mn=min(MIN_WORDS, max(2, mx - 2)), orig0=orig0,
+                      old={"kind": "goc", "text": old, "screen": timed.get("hook") or ""} if old else None)
+    if not got:
         return None
-    if old:
-        pool.insert(0, {"kind": "goc", "text": old, "screen": timed.get("hook") or ""})
-    ok, seen = [], set()
-    for h in pool:
-        key = re.sub(r"\W+", " ", h["text"].lower()).strip()
-        if key in seen:
-            continue
-        seen.add(key)
-        why = [] if h["kind"] == "goc" else problems(h["text"], mx, orig_all, orig0)
-        logging.info("Hook ứng viên (%s)%s: %s", KINDS[h["kind"]], f" LOẠI: {'; '.join(why)}" if why else "", h["text"])
-        if not why:
-            ok.append(h)
-    if len(ok) < 2:
-        return None
-    items = "\n".join(f"{k} | {KINDS[h['kind']]} | {h['text']}" for k, h in enumerate(ok))
-    try:
-        raw = await prompt_engine.call_gemini(JUDGE_PROMPT.format(title=title or "(không có)", scene=scene, tip=tip_txt,
-                                                                  items=items), schema=JudgeOut, timeout=TIMEOUT)
-        d = prompt_engine.loads_lenient(raw)
-    except Exception as e:
-        logging.warning("Hook: AI chấm điểm lỗi (%s), giữ câu cũ", str(e)[:120])
-        return None
-    scores: dict[int, float] = {}
-    for x in d.get("scores") or []:
-        try:
-            scores[int(x["i"])] = float(x["score"])
-        except (TypeError, ValueError, KeyError):
-            continue
-    try:
-        best = int(d.get("best", -1))
-    except (TypeError, ValueError):
-        best = -1
-    if not 0 <= best < len(ok):
-        best = max(scores, key=lambda k: scores[k], default=-1) if scores else -1
-        if not 0 <= best < len(ok):
-            return None
-    h = ok[best]
-    logging.info("Hook chọn %d/%d (%s, %s điểm): %s", best, len(ok), KINDS[h["kind"]], scores.get(best, "?"), h["text"])
-    if h["kind"] != "goc":
-        seg0["text"] = h["text"]
-        seg0["copy"] = round(prompt_engine.copy_ratio(h["text"], orig0), 2) if orig0 else 0.0
+    if got["kind"] != "goc":
+        seg0["text"] = got["text"]
+        seg0["copy"] = round(prompt_engine.copy_ratio(got["text"], orig0), 2) if orig0 else 0.0
         timed["script"] = " ".join(s["text"] for s in segs if s.get("text"))
-        ref = " ".join([title, timed["script"], orig_all])
-        screen = prompt_engine.clean_hook(h["screen"], ref) if h["screen"] else ""
-        if screen:
-            timed["hook"] = screen
-    return {"kind": h["kind"], "text": h["text"], "screen": timed.get("hook") or "", "score": scores.get(best),
-            "n": len(ok)}
+        if got["screen"]:
+            timed["hook"] = got["screen"]
+    got["screen"] = timed.get("hook") or ""
+    return got
 
 
 # ---------------- ghi lại để so với lượt xem ----------------

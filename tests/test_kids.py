@@ -819,7 +819,8 @@ def test_prompts_and_schema():
     assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 60    # grammar ép độ dài cảnh
     assert len(prompts.example_sentences()) >= 10 and len(prompts.EXAMPLE) == 8
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
-    assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle. Orange Cat,")
+    assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle, dynamic low angle shot. "
+                        "Orange Cat,")
     assert "The character is toddler-sized" in p and "All friends" not in p      # 1 bạn: không gợi ý «các bạn» (20/11)
     assert "green t-shirt" in p and p.endswith("no other animals")
     assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5

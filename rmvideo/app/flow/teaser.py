@@ -15,12 +15,13 @@ OPENS_NOW = 1.0         # khung đầu video gốc có món từ giây này tr�
 TRY_PICKS = 3           # thử tối đa chừng này khung thành phẩm (theo thứ hạng AI) tới khi có cảnh không lặp phần mở đầu
 
 
-async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: list, end: float) -> tuple:
+async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: list, end: float,
+                      dur: float | None = None) -> tuple:
     """Đoạn mở đầu (bản 29; 1.4.0: luôn mở bằng thành phẩm): AI chọn ảnh bìa và trong cùng lượt xếp hạng các khung MÓN
     ĐÃ XONG để mở đầu (ưu tiên cắn thử / kéo sợi / cắt đôi / rưới sốt). Chiếu trước 2 giây cảnh xếp cao nhất (cùng cảnh,
     không vắt qua chuyển cảnh; cảnh quá ngắn thì đứng hình), trừ khi video gốc đã mở NGAY bằng món (≤ OPENS_NOW giây) hay
     mọi cảnh thành phẩm đều là đúng cảnh phần mở đầu gốc đã chiếu. Thời gian theo video gốc; end: hết phần sẽ render (đã
-    bỏ đoạn quảng cáo cuối). Trả (đoạn mở đầu {"a", "dur", "still", "t", "cover"} | None, khung đẹp nhất | None, lý do
+    bỏ đoạn quảng cáo cuối); dur: độ dài đoạn mở đầu (1.4.1: vừa câu hook đã chọn trước, mặc định TEASER_DUR). Trả (đoạn mở đầu {"a", "dur", "still", "t", "cover"} | None, khung đẹp nhất | None, lý do
     không làm)."""
     a = scenes.analyzed(inp)
     m = await cover_mod.best_moment(inp, mode, title, src_dur, cuts, end, a["dir"] if a else None,
@@ -39,7 +40,7 @@ async def plan_teaser(inp: str, mode: str, title: str, src_dur: float, cuts: lis
     picks = [t for t in ranked if t >= win]             # khung nằm ngay phần mở đầu gốc: chiếu trước là lặp
     if not picks:
         return None, m, "cảnh món đã xong chỉ có ở phần mở đầu video gốc"
-    T, lead = filtergraph.TEASER_DUR, filtergraph.TEASER_LEAD
+    T, lead = float(dur or filtergraph.TEASER_DUR), filtergraph.TEASER_LEAD
     seen = (0.0, 0.0)
     for t in picks[:TRY_PICKS]:
         near = await scenes.cuts_near(inp, t - T - lead - 0.5, min(end, t + T + 0.5))

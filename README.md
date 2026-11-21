@@ -609,7 +609,7 @@ nên bot thử gắn ảnh bìa sau khi đăng (Facebook không nhận thì bỏ
 
 ## 🎬 Mở đầu bằng món thành phẩm (video nấu ăn có lời)
 
-`TEASER=1` (mặc định, cần key Gemini): video mở đầu bằng **2 giây cảnh thành phẩm hấp dẫn nhất** kèm **câu hook có
+`TEASER=1` (mặc định, cần key Gemini): video mở đầu bằng **2-4 giây cảnh thành phẩm hấp dẫn nhất** (dài vừa câu hook) kèm **câu hook có
 giọng ngay giây 0** và chữ hook to giữa màn hình, rồi mới vào video từ đầu (1.4.0; trước đó 3 giây cảnh ảnh bìa).
 
 - Cùng lượt chọn ảnh bìa, AI xếp hạng riêng các khung MÓN ĐÃ XONG để mở đầu, ưu tiên khoảnh khắc có hành động (cắn thử,
@@ -638,7 +638,8 @@ cùng, nên không bao giờ kém hơn).
 - Ghi chú job cho biết câu đã chọn, kiểu, điểm. Kiểu hook lưu vào `hooks.json`; khi YouTube đã đếm lượt xem sau 24h,
   trạng thái 🤖 tự động đăng có dòng «Hook theo lượt xem YouTube 24h: vấn đề 2.000 (5 video) · …» để biết kênh hợp kiểu
   nào.
-- Mở đầu 2 giây nên câu hook thường chỉ 6-10 chữ (người gốc nói ngay từ đầu thì ngắn hơn).
+- Có đoạn mở đầu thì câu hook được chọn TRƯỚC (1.4.1) và đoạn mở đầu dài vừa đọc hết câu (2-4 giây, 7-11 chữ); câu hook
+  phải nêu tên món và là câu trọn ý có lời hứa (không hỏi trống không kiểu «Đồ chua bị hăng?»).
 
 ## Từ điển bóc lời
 

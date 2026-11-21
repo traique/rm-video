@@ -141,7 +141,7 @@ def test_pipeline_notes_and_records_hook(fakes, monkeypatch, tmp_path):  # noqa:
     monkeypatch.setattr(hooks, "wanted", lambda: True)
     seen = {}
 
-    async def improve(timed, title, tip="", teaser=False):
+    async def improve(timed, title, tip="", teaser=False, dish=""):
         seen.update(title=title, teaser=teaser)
         timed["segments"][0]["text"] = "Thịt kho hay bị khô là do bước này nè!"
         return {"kind": "van_de", "text": timed["segments"][0]["text"], "screen": "", "score": 8.5, "n": 6}
@@ -154,3 +154,97 @@ def test_pipeline_notes_and_records_hook(fakes, monkeypatch, tmp_path):  # noqa:
     assert seen["teaser"] is False and job.hook_kind == "van_de"
     assert "Câu hook (vấn đề, 8.5/10, chọn trong 6 câu): «Thịt kho hay bị khô là do bước này nè!»" in job.error
     assert hooks.load_state()["items"][-1]["job"] == job.id and hooks.load_state()["items"][-1]["kind"] == "van_de"
+
+
+# ---------------- 1.4.1: câu hook chọn trước, đoạn mở đầu dài vừa câu ----------------
+
+def test_short_or_nameless_hooks_are_rejected():
+    """Job 6 (21/11): «Đồ chua bị hăng?» — cụt, không hứa gì; câu không nêu món thì người lướt không biết video về gì."""
+    orig = "Nguyên liệu gồm 1 kg cà rốt, 1 kg củ cải trắng, 100 g muối hột. Trộn với muối không cần bỏ nước."
+    assert "4 từ (cần 7-11)" in hooks.problems("Đồ chua bị hăng?", 11, orig, "", "đồ chua", "", 7)
+    assert "không nêu tên món" in hooks.problems("Ngon lắm luôn nè, ai ăn cũng mê hết trơn luôn", 11, orig, "",
+                                                  "đồ chua", "", 7)
+    assert hooks.problems("Đồ chua giòn sần sật để cả tháng nhờ bước trộn muối này nè.", 13, orig, "", "đồ chua",
+                          "", 7) == []
+    assert hooks.names_dish("Cà rốt củ cải ngâm giòn rụm luôn nè", "", "Đồ chua cà rốt củ cải")     # nguyên liệu chính
+    assert hooks.names_dish("Câu gì cũng được", "", "")                                           # không biết món: bỏ qua
+
+
+def test_teaser_secs_fit_the_hook():
+    assert hooks.teaser_secs("Đồ chua giòn sần sật để cả tháng nhờ bước trộn muối này nè.", 3.1) == 4.0
+    assert hooks.teaser_secs("Đồ chua giòn rụm nhờ mẹo này nè.", 3.1) == 2.9
+    assert hooks.teaser_secs("Đồ chua nè.", 3.1) == 2.0                                           # không dưới 2 giây
+    assert hooks.teaser_words(3.1) == 11
+
+
+def test_choose_then_apply_into_teaser_slot(on, monkeypatch):
+    calls = []
+
+    async def fake(prompt, images=None, schema=None, label="", timeout=60):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return json.dumps({"hooks": [
+                {"kind": "van_de", "text": "Đồ chua bị hăng?", "screen": "x"},                       # cụt: loại
+                {"kind": "ket_qua", "text": "Đồ chua giòn sần sật cả tháng nhờ bước trộn muối.",
+                 "screen": "đồ chua giòn cả tháng"},
+                {"kind": "meo", "text": "Làm đồ chua mà hổng cần thêm nước, giòn rụm luôn nè.", "screen": "đồ chua"}]})
+        return json.dumps({"scores": [{"i": 0, "score": 9}, {"i": 1, "score": 7}], "best": 1})   # «best» lệch điểm
+    monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
+    got = asyncio.run(hooks.choose("ĐỒ CHUA GIÒN SẦN SẬT", "trộn muối không cần bỏ nước", "đồ chua",
+                                   "Nguyên liệu gồm 1 kg cà rốt. Trộn với muối không cần bỏ nước.",
+                                   "Nguyên liệu gồm 1 kg cà rốt.", 3.1))
+    assert got["kind"] == "ket_qua" and got["secs"] == 3.9 and got["screen"] == "ĐỒ CHUA GIÒN CẢ THÁNG"
+    assert "Món: đồ chua" in calls[0] and "Câu ngay SAU câu hook" in calls[0] and "7-11 chữ" in calls[0]
+    assert "Đồ chua bị hăng?" not in calls[1] and "tối đa 4 điểm" in calls[1]
+    timed = _timed()
+    assert hooks.apply(timed, got) and timed["segments"][0]["text"] == got["text"]
+    assert timed["hook"] == "ĐỒ CHUA GIÒN CẢ THÁNG" and timed["script"].startswith("Đồ chua giòn")
+    assert not hooks.apply(_timed(ORIG), got)                                     # đoạn 0 có lời gốc: không phải khe hook
+
+
+def test_pipeline_teaser_length_follows_chosen_hook(fakes, monkeypatch, tmp_path):  # noqa: F811
+    import cover as cover_mod
+    import scenes
+    monkeypatch.setattr(config, "CUT_PROMO", "0")
+    monkeypatch.setattr(config, "TEASER", "1")
+    monkeypatch.setattr(hooks, "STATE_FILE", str(tmp_path / "hooks.json"))
+    monkeypatch.setattr(hooks, "wanted", lambda: True)
+
+    async def best(*a, **k):
+        return {"t": 4.5, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False,
+                "teaser_ts": [4.5], "opens_at": -1.0}
+    monkeypatch.setattr(cover_mod, "best_moment", best)
+
+    async def near(*a):
+        return []
+    monkeypatch.setattr(scenes, "cuts_near", near)
+    monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda *a: (0.1, 0.0))
+    hook = {"kind": "ket_qua", "text": "Thịt kho mềm rục, thấm màu đẹp nhờ mẹo thắng đường này nè.",
+            "screen": "THỊT KHO MỀM RỤC", "score": 9.0, "n": 5, "secs": 3.2}
+
+    async def choose(title, tip, dish, orig_all, after, rate):
+        return dict(hook)
+    monkeypatch.setattr(hooks, "choose", choose)
+
+    async def improve(*a, **k):
+        raise AssertionError("đã có câu hook chọn trước: không viết lại")
+    monkeypatch.setattr(hooks, "improve", improve)
+    seen = {}
+
+    async def timed(title, desc, mode, segs, out_dur, images_for=None, teaser=0.0):
+        seen["teaser"] = teaser
+        out = [{"i": 0, "start": 0.0, "slot": segs[0][0], "span": segs[0][0], "text": "Câu AI viết cùng kịch bản.",
+                "orig": ""}]
+        out += [{"i": k + 1, "start": a, "slot": max(1.0, b - a), "span": b - a, "text": f"Lời mới đoạn {k} nè",
+                 "orig": t} for k, (a, b, t) in enumerate(segs)]
+        return {"segments": out, "script": " ".join(x["text"] for x in out), "fresh": 1.0,
+                "title": "Thịt kho", "caption": "Ngon", "hashtags": "#a", "hook": "CHỮ CŨ"}
+    monkeypatch.setattr(prompt_engine, "generate_timed_any", timed)
+    src = str(tmp_path / "up" / "in.mp4")
+    _video(src)
+    job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src)
+    (tmp_path / "w").mkdir()
+    asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert job.teaser["dur"] == 3.2 and seen["teaser"] == 3.2                    # đoạn mở đầu dài vừa câu hook
+    assert job.final_segments[0]["text"] == hook["text"] and job.hook == "THỊT KHO MỀM RỤC"
+    assert job.hook_kind == "ket_qua" and "Câu hook (kết quả, 9/10, chọn trong 5 câu)" in job.error
