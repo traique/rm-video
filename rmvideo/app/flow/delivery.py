@@ -1,4 +1,6 @@
 """Giao kết quả: giữ file cho web tải (outputs/), gửi Telegram (≤48MB gửi thẳng, lớn hơn gửi link), ảnh bìa kèm theo.
+1.4.0: nội dung đăng (tiêu đề, caption, hashtag từng nền tảng) luôn gửi kèm qua Telegram và Zoom — trước đây job web /
+tự đăng chỉ báo link, còn video gửi thẳng Telegram thì caption bị cắt ở 1024 ký tự (giới hạn chú thích video).
 
 Tách từ pipeline.py (Phase 4); pipeline.py còn là mặt tiền tương thích."""
 import asyncio
@@ -13,6 +15,33 @@ from queue_manager import Job
 from rmvideo.app import notifier
 from state import OUT_DIR, notify, queue
 from storage import _cleanup_outputs
+
+CAPTION_MAX = 1024          # chú thích video / ảnh của Telegram
+CHUNK = 3500                # một tin nhắn (Telegram tối đa 4096, Zoom bot cắt ở 3800)
+
+
+def chunks(text: str, n: int = CHUNK) -> list[str]:
+    """Cắt nội dung dài thành các tin ≤ n ký tự, ưu tiên cắt ở chỗ xuống dòng (không cắt đôi hashtag / câu)."""
+    text = (text or "").strip()
+    out: list[str] = []
+    while len(text) > n:
+        cut = text.rfind("\n", 0, n)
+        if cut < n // 2:
+            cut = text.rfind(" ", 0, n)
+        if cut <= 0:
+            cut = n
+        out.append(text[:cut].rstrip())
+        text = text[cut:].lstrip()
+    return out + ([text] if text else [])
+
+
+def content_messages(job: Job, label: str, caption: str) -> list[str]:
+    """Các tin «📝 Nội dung đăng» (đánh số khi phải chia nhiều tin). Chế độ ⬇️ chỉ tải về: không có bài đăng."""
+    if job.mode == "download":
+        return []
+    parts = chunks(caption)
+    head = f"📝 Nội dung đăng {'' if label == 'Video' else label + ' '}(job #{job.id})"
+    return [f"{head}{f' ({k + 1}/{len(parts)})' if len(parts) > 1 else ''}:\n{p}" for k, p in enumerate(parts)]
 
 
 async def deliver(job: Job, path: str, label: str, caption: str):
@@ -45,28 +74,36 @@ async def deliver(job: Job, path: str, label: str, caption: str):
         # job Zoom / web / tự đăng (bản 1.0.0): báo xong + link tải (không gửi file). Trước đây im lặng hoàn toàn.
         cover_link = notifier.part_link(job, cover_part) if cover_part else ""
         await notifier.job_event(job, f"✅ {label} job #{job.id} xong ({size / 1048576:.0f}MB).\n{where}"
-                                      + (f"\nẢnh bìa: {cover_link}" if cover_link else "")
-                                      + (f"\n\n{caption[:1500]}" if job.source == "zoom" else ""))
+                                      + (f"\nẢnh bìa: {cover_link}" if cover_link else ""))
+        for msg in content_messages(job, label, caption):      # nội dung đăng: tin riêng, đủ chữ, dễ chép
+            await notifier.job_event(job, msg)
         return
     if not state.bot:
         return
     job.step = f"Gửi {label} qua Telegram"
     from aiogram.types import FSInputFile
+    caption = (caption or "").strip()
+    # vừa chú thích video thì để nguyên; dài hơn (bài có công thức thường 1.500-2.500 ký tự) thì gửi đủ ở tin riêng
+    fits = len(caption) <= CAPTION_MAX
+    rest = [] if fits else content_messages(job, label, caption)
     if size <= config.TG_LIMIT:
         try:
+            short = caption if fits else f"🎬 {label} job #{job.id} — nội dung đăng ở tin bên dưới"
             if ext == ".mp3":
-                await state.bot.send_audio(job.chat_id, FSInputFile(keep), caption=caption[:1024], request_timeout=600)
+                await state.bot.send_audio(job.chat_id, FSInputFile(keep), caption=short, request_timeout=600)
             else:
                 thumb = FSInputFile(thumb_src) if thumb_src and os.path.exists(thumb_src) else None
-                await state.bot.send_video(job.chat_id, FSInputFile(keep), caption=caption[:1024], thumbnail=thumb,
+                await state.bot.send_video(job.chat_id, FSInputFile(keep), caption=short, thumbnail=thumb,
                                            supports_streaming=True, request_timeout=600)
         except Exception as e:                  # video đã làm xong: lỗi gửi không được biến job thành lỗi
             logging.warning("Gửi file qua Telegram lỗi: %s", e)
-            await notify(job.chat_id, f"🎬 {label} xong nhưng gửi qua Telegram lỗi ({str(e)[:80]}).\n{where}"
-                                      f"\n\n{caption[:800]}")
+            await notify(job.chat_id, f"🎬 {label} xong nhưng gửi qua Telegram lỗi ({str(e)[:80]}).\n{where}")
+            rest = content_messages(job, label, caption)
     else:
-        await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}"
-                                  f"\n\n{caption[:800]}")
+        await notify(job.chat_id, f"🎬 {label}: file {size / 1048576:.0f}MB vượt giới hạn 50MB của Telegram.\n{where}")
+        rest = content_messages(job, label, caption)
+    for msg in rest:
+        await notify(job.chat_id, msg)
     if cover_part:
         try:
             await state.bot.send_photo(job.chat_id, FSInputFile(cover_part["path"]),

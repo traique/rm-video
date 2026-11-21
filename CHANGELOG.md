@@ -25,6 +25,14 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   loại câu sai luật (dài quá, chào hỏi, «mình thử», «triệu view», nguyên liệu / số bịa), AI chấm điểm chọn câu mạnh nhất
   (câu cũ chấm cùng). Kiểu hook lưu `hooks.json`, trạng thái tự động đăng ghép với lượt xem YouTube sau 24h.
 - Câu hook của đoạn mở đầu được đọc lấn sang video chính tối đa 1,5 giây (trước 0,4) khi người gốc chưa nói.
+- **Sửa lỗi video bếp không dựng được trên Kaggle**: bot gửi tiêu đề video («ĐỒ CHUA GIÒN SẦN SẬT») làm tiêu đề notebook
+  dựng, Kaggle đổi slug notebook theo tiêu đề (`rmvideo-worker` -> `chua-gi-n-s-n-s-t`), bot hỏi trạng thái bằng slug cũ
+  bị 404 nên bỏ Kaggle và dựng trên Botkeep bằng giọng edge-tts, trong khi phiên Kaggle vẫn chạy xong (tốn giờ GPU). Đây
+  mới là nguyên nhân thật của lỗi 404 ở job 3 (1.3.4 chỉ chờ thêm 3 phút nên chưa sửa được). Giờ tiêu đề notebook luôn
+  theo slug, và bot hỏi trạng thái theo slug Kaggle trả về sau khi lưu.
+- Nội dung đăng luôn gửi kèm: job web / tự đăng / truyện bé báo về Telegram và Zoom kèm tin «📝 Nội dung đăng» đầy đủ
+  (trước đây chỉ có link); video gửi thẳng Telegram có bài dài hơn 1.024 ký tự (giới hạn chú thích) thì gửi đủ ở tin riêng
+  thay vì bị cắt.
 
 ## 1.3.5 — khôi phục các phần của 1.3.0 (bỏ nhạc gốc, nội suy khung) kèm các bản sửa 1.3.3-1.3.4 (21/11/2026)
 
