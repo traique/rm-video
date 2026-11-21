@@ -42,6 +42,14 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   phút) | ready (gửi ngay, tự hẹn giờ trong TikTok Studio) | off. Caption = phần «▶ TikTok» của gói nội dung.
   Không kênh nào nhận được thì thử lại 10 phút / lần (3 lần); quá giờ vàng 6 giờ (bot tắt lâu) thì bỏ, không
   gửi gói cũ. Hàng chờ `tiktok_kit.json` (`TIKTOK_STATE`). `tests/test_tiktok_kit.py`.
+- Soát lại trước khi gộp: video còn chờ gửi gói TikTok / tải lên YouTube không bị `storage` dọn (OUT_MAX_MB chỉ giữ
+  ~10 video mà gói TikTok có thể chờ hơn một ngày), ổ đầy thật thì vẫn xoá sau cùng để job mới có chỗ; video YouTube chờ
+  quá 3 ngày thì bỏ. Giới hạn theo phút / HTTP 429 thử lại sau 10, 20, 40… phút (trước đây chờ 6 giờ như hết hạn mức
+  ngày, lỡ giờ hẹn); HTTP 401 không còn dừng kênh mà xin access token mới (token có thể hết hạn giữa lượt tải 30 phút; xin
+  token mới nếu còn dưới 30 phút); dấu khoá lấy trước khi tải và gồm cả client id/secret (kết nối lại giữa lúc tải không
+  bị dừng nhầm; sửa secret là chạy lại; «Thử YouTube» được cũng bỏ dừng); giờ thử lại tính từ lúc lỗi; YouTube để video
+  khác chế độ yêu cầu / từ chối video thì báo admin; nút «Ngắt YouTube» báo rõ khi token đặt bằng biến môi trường (trước
+  đây báo «đã ngắt» mà token môi trường vẫn chạy); gói TikTok lỗi ở tin chữ thì lượt sau không gửi lại video.
 - Test: `tests/test_youtube.py` (máy chủ Google giả: đổi mã, refresh token, tải lên, hạn mức, token bị thu hồi, bot dừng
   giữa lúc tải, web).
 

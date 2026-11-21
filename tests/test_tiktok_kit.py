@@ -195,3 +195,50 @@ def test_storage_keeps_files_waiting_for_tiktok_or_youtube(monkeypatch, kit, tmp
     youtube.save_state(st)
     storage._cleanup_outputs({files[3]})
     assert [os.path.exists(f) for f in files] == [True, True, False, True]
+
+
+
+def test_caption_failure_does_not_resend_video(kit, monkeypatch):
+    bot, Job, vid = kit
+    n = {"text": 0}
+    orig = bot.send_message
+
+    async def flaky(cid, text, **kw):
+        n["text"] += 1
+        if n["text"] == 1:
+            raise RuntimeError("Telegram server says - Bad Gateway")
+        return await orig(cid, text, **kw)
+    monkeypatch.setattr(bot, "send_message", flaky)
+    assert tiktok_kit.after_facebook("cook", Job, vid, "d", None, now=NOW)
+    asyncio.run(tiktok_kit.tick(now=NOW))
+    assert tiktok_kit.load_state()["items"][0]["status"] == "pending"
+    asyncio.run(tiktok_kit.tick(now=NOW + tiktok_kit.RETRY))
+    assert [c[0] for c in bot.calls] == ["video", "text"]              # video gửi đúng một lần
+    assert tiktok_kit.load_state()["items"][0]["status"] == "sent"
+
+
+def test_make_room_deletes_waiting_files_last(monkeypatch, kit, tmp_path):
+    import os
+    import time
+
+    import storage
+    bot, Job, vid = kit
+    out = tmp_path / "out2"
+    out.mkdir()
+    monkeypatch.setattr(storage, "OUT_DIR", str(out))
+    up = tmp_path / "up"
+    up.mkdir()
+    monkeypatch.setattr(config, "UPLOAD_DIR", str(up))
+    monkeypatch.setattr(storage.cache, "prune", lambda max_mb=0: None)
+    files = []
+    for k in range(3):
+        f = out / f"o{k}.mp4"
+        f.write_bytes(b"x")
+        os.utime(f, (time.time() - 100 + k, time.time() - 100 + k))
+        files.append(str(f))
+    monkeypatch.setattr(storage, "_free_mb", lambda p: 100 * (3 - sum(os.path.exists(f) for f in files)))
+    monkeypatch.setattr(storage, "_awaiting_post", lambda: {os.path.abspath(files[0])})
+    assert storage.make_room(200) == 200                    # đủ chỗ khi xoá 2 file không chờ: file chờ (cũ nhất) còn
+    assert [os.path.exists(f) for f in files] == [True, False, False]
+    assert storage.make_room(300) == 300                    # ổ đầy thật: xoá luôn file chờ để job mới có chỗ
+    assert not os.path.exists(files[0])

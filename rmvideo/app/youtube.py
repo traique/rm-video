@@ -60,21 +60,25 @@ UPLOAD_TIMEOUT = 1800
 VIEWS_AFTER, VIEWS_RETRY, VIEWS_GIVEUP = 24 * 3600, 6 * 3600, 7 * 86400
 KEEP_ITEMS = 300
 PENDING_MAX_AGE = 3 * 86400    # chờ quá 3 ngày (kênh dừng mà chưa kết nối lại): bỏ, để storage được dọn file
-FATAL = {"invalid_grant", "invalid_client", "unauthorized_client", "authError", "forbidden", "insufficientPermissions",
+# 401 / authError KHÔNG nằm đây: access token hết hạn giữa lúc tải (PUT tới 30 phút) cũng trả 401 -> bỏ token trong bộ
+# nhớ, thử lại như lỗi thường; refresh token bị thu hồi thì máy chủ OAuth trả invalid_grant -> dừng kênh.
+FATAL = {"invalid_grant", "invalid_client", "unauthorized_client", "forbidden", "insufficientPermissions",
          "youtubeSignupRequired", "accessNotConfigured", "SERVICE_DISABLED"}
-LATER_REASONS = {"quotaExceeded", "uploadLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded",
-                 "dailyLimitExceeded", "RESOURCE_EXHAUSTED"}
+LATER_REASONS = {"quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded"}      # hạn mức ngày: 6 giờ sau
+SOON_REASONS = {"rateLimitExceeded", "userRateLimitExceeded", "RESOURCE_EXHAUSTED"}  # theo phút: 10, 20, 40… phút
 _LOCK = asyncio.Lock()
 _ACCESS: dict[str, tuple[str, float, str]] = {}      # kênh -> (access token, hết hạn, dấu refresh token)
 _PENDING: dict[str, tuple[str, float]] = {}          # state OAuth -> (kênh, hết hạn)
 
 
 class YTError(RuntimeError):
-    """fatal: phải kết nối lại / sửa cài đặt (thử lại vô ích); later: hết hạn mức, thử lại sau LATER giây."""
+    """fatal: phải kết nối lại / sửa cài đặt (thử lại vô ích); later: hết hạn mức ngày, thử lại sau LATER giây; soon:
+    giới hạn theo phút, thử lại sớm (không tính là lần lỗi)."""
 
-    def __init__(self, msg: str, reason: str = "", status: int = 0, fatal: bool = False, later: bool = False):
+    def __init__(self, msg: str, reason: str = "", status: int = 0, fatal: bool = False, later: bool = False,
+                 soon: bool = False):
         super().__init__(msg)
-        self.reason, self.status, self.fatal, self.later = reason, status, fatal, later
+        self.reason, self.status, self.fatal, self.later, self.soon = reason, status, fatal, later, soon
 
 
 # ---------------- cài đặt / trạng thái ----------------
@@ -89,6 +93,14 @@ def client() -> tuple[str, str]:
 
 def refresh_token(ch: str) -> str:
     return str(getattr(config, CHANNELS[ch]["key"], "") or "").strip()
+
+
+def key_fp(ch: str) -> str:
+    """Dấu của bộ khoá đang dùng cho kênh (refresh token + client): đổi bất kỳ khoá nào (kết nối lại, sửa secret) thì
+    kênh đang dừng tự chạy lại."""
+    cid, sec = client()
+    rt = refresh_token(ch)
+    return _fp(f"{rt}|{cid}|{sec}") if rt else ""
 
 
 def missing(ch: str) -> str:
@@ -217,9 +229,10 @@ def _error(status: int, d: Any) -> YTError:
         msg = str(e.get("message") or reason)
     else:
         reason, msg = "", f"HTTP {status}"
-    later = reason in LATER_REASONS or status == 429
-    fatal = not later and (reason in FATAL or status == 401)
-    return YTError(f"YouTube: {msg[:200]} ({reason or status})", reason, status, fatal, later)
+    later = reason in LATER_REASONS
+    soon = not later and (reason in SOON_REASONS or status == 429)
+    fatal = not (later or soon) and reason in FATAL
+    return YTError(f"YouTube: {msg[:200]} ({reason or status})", reason, status, fatal, later, soon)
 
 
 async def _json(resp: aiohttp.ClientResponse) -> dict:
@@ -240,11 +253,11 @@ def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def access_token(ch: str, session: aiohttp.ClientSession) -> str:
-    """Access token (1 giờ) từ refresh token của kênh, giữ trong bộ nhớ tới gần hết hạn."""
+async def access_token(ch: str, session: aiohttp.ClientSession, margin: float = 60) -> str:
+    """Access token (1 giờ) từ refresh token của kênh, giữ trong bộ nhớ tới khi còn dưới `margin` giây."""
     rt = refresh_token(ch)
     hit = _ACCESS.get(ch)
-    if hit and hit[2] == _fp(rt) and hit[1] > time.time() + 60:
+    if hit and hit[2] == key_fp(ch) and hit[1] > time.time() + margin:
         return hit[0]
     why = missing(ch)
     if why:
@@ -256,7 +269,7 @@ async def access_token(ch: str, session: aiohttp.ClientSession) -> str:
     tok = str(d.get("access_token") or "")
     if not tok:
         raise YTError("YouTube: máy chủ Google không trả access token")
-    _ACCESS[ch] = (tok, time.time() + float(d.get("expires_in") or 3600), _fp(rt))
+    _ACCESS[ch] = (tok, time.time() + float(d.get("expires_in") or 3600), key_fp(ch))
     return tok
 
 
@@ -271,15 +284,17 @@ async def channel_info(token: str, session: aiohttp.ClientSession) -> tuple[str,
 
 
 async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
-                 session: aiohttp.ClientSession | None = None, now: float | None = None) -> str:
-    """Tải video lên kênh `ch` (resumable: POST metadata -> địa chỉ phiên tải -> PUT file). Trả id video YouTube."""
+                 session: aiohttp.ClientSession | None = None, now: float | None = None,
+                 info: dict | None = None) -> str:
+    """Tải video lên kênh `ch` (resumable: POST metadata -> địa chỉ phiên tải -> PUT file). Trả id video YouTube; info:
+    nhận phần status YouTube trả về (privacyStatus, uploadStatus…) để soát."""
     now = time.time() if now is None else now
     body = video_body(ch, title, desc, when, now)
     size = os.path.getsize(path)
     own = session is None
     s = session or _session()
     try:
-        tok = await access_token(ch, s)
+        tok = await access_token(ch, s, margin=UPLOAD_TIMEOUT)      # không để token hết hạn giữa lúc tải
         async with s.post(UPLOAD, params={"uploadType": "resumable", "part": "snippet,status"}, json=body,
                           headers={**_auth(tok), "X-Upload-Content-Type": "video/mp4",
                                    "X-Upload-Content-Length": str(size)}) as r:
@@ -294,6 +309,8 @@ async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
         vid = str(d.get("id") or "")
         if not vid:
             raise YTError("YouTube không trả id video")
+        if info is not None:
+            info.update(d.get("status") or {})
         return vid
     finally:
         if own:
@@ -374,7 +391,7 @@ async def finish(state: str, code: str, session: aiohttp.ClientSession | None = 
         if own:
             await s.close()
     config.save_settings({CHANNELS[ch]["key"]: rt})
-    _ACCESS[ch] = (at, now + float(d.get("expires_in") or 3600), _fp(rt))
+    _ACCESS[ch] = (at, now + float(d.get("expires_in") or 3600), key_fp(ch))
     st = load_state()
     st["channels"][ch] = {"id": yt_id, "title": title, "at": now}
     st["paused"].pop(ch, None)
@@ -402,14 +419,19 @@ async def check(ch: str, session: aiohttp.ClientSession | None = None) -> str:
             await s.close()
     st = load_state()
     st["channels"][ch] = {**(st["channels"].get(ch) or {}), "id": yt_id, "title": title}
+    st["paused"].pop(ch, None)                      # «Thử YouTube» được: chạy tiếp (vd vừa bật API trên Google Cloud)
     save_state(st)
     return title
 
 
 async def disconnect(ch: str, session: aiohttp.ClientSession | None = None) -> None:
     """Xoá refresh token của kênh (và thu hồi phía Google, lỗi thì thôi). Video đang chờ giữ lại tới khi kết nối lại."""
+    key = CHANNELS[ch]["key"]
+    if str(getattr(config, "_ENV", {}).get(key) or "").strip():
+        raise YTError(f"{key} đang đặt bằng biến môi trường trên Botkeep: xoá biến đó trên Botkeep rồi khởi động lại bot "
+                      "(nút Ngắt chỉ gỡ được token lưu từ web)")
     rt = refresh_token(ch)
-    config.save_settings({CHANNELS[ch]["key"]: "-"})
+    config.save_settings({key: "-"})
     _ACCESS.pop(ch, None)
     st = load_state()
     st["channels"].pop(ch, None)
@@ -479,10 +501,9 @@ async def _tick(now: float, session: aiohttp.ClientSession | None) -> str:
         await notify_admin(f"⚠️ Bot dừng đúng lúc đang tải video #{it['job']} lên YouTube ({CHANNELS[it['ch']]['vi']}). "
                            "Mở YouTube Studio kiểm tra; bot KHÔNG tự tải lại để tránh trùng.")
     st = load_state()
-    if any(ch not in CHANNELS or p.get("fp") != _fp(refresh_token(ch)) for ch, p in st["paused"].items()):
-        st["paused"] = {ch: p for ch, p in st["paused"].items()
-                        if ch in CHANNELS and p.get("fp") == _fp(refresh_token(ch))}
-        save_state(st)                              # token đã đổi (kết nối lại / dán tay): chạy tiếp
+    if any(ch not in CHANNELS or p.get("fp") != key_fp(ch) for ch, p in st["paused"].items()):
+        st["paused"] = {ch: p for ch, p in st["paused"].items() if ch in CHANNELS and p.get("fp") == key_fp(ch)}
+        save_state(st)                              # khoá đã đổi (kết nối lại / dán tay / sửa secret): chạy tiếp
     old = [i for i in st["items"] if i.get("status") == "pending" and float(i.get("created") or now) < now - PENDING_MAX_AGE]
     for i in old:
         _patch(i["key"], status="failed", why=f"chờ quá {PENDING_MAX_AGE // 86400} ngày chưa tải lên được, bỏ")
@@ -516,43 +537,63 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
         await notify_admin(f"⚠️ YouTube ({vi}): video #{it['job']} không còn file trên máy, bỏ qua.")
         return f"{vi}: video #{it['job']} không còn file"
     _patch(key, status="uploading", started=now)
+    fp = key_fp(ch)                                 # trước khi await: kết nối lại giữa lúc tải không bị dừng nhầm
+    info: dict = {}
     try:
-        vid = await upload(ch, it["path"], it["title"], it.get("desc") or "", it.get("when"), s, now)
+        vid = await upload(ch, it["path"], it["title"], it.get("desc") or "", it.get("when"), s, now, info)
     except Exception as e:
+        t = max(now, time.time())                   # lùi giờ thử lại tính từ lúc lỗi (một lượt tải có thể mất 30 phút)
         why = (str(e) or type(e).__name__)[:200]
         err = e if isinstance(e, YTError) else None
+        if err is not None and err.status == 401:
+            _ACCESS.pop(ch, None)                   # access token hết hạn / bị thu hồi: lượt sau xin token mới
         if err is not None and err.fatal:
             _patch(key, status="pending", why=why)
             st = load_state()
-            st["paused"][ch] = {"why": why, "fp": _fp(refresh_token(ch)), "at": now}
+            st["paused"][ch] = {"why": why, "fp": fp, "at": t}
             save_state(st)
-            await notify_admin(f"⛔ YouTube ({vi}) đã dừng: {why}. Bấm «▶️ Kết nối YouTube» trên web để kết nối lại "
-                               f"(video #{it['job']} vẫn giữ để đăng).")
+            await notify_admin(f"⛔ YouTube ({vi}) đã dừng: {why}. Bấm «▶️ Kết nối YouTube» trên web để kết nối lại, hoặc "
+                               f"sửa xong cài đặt thì bấm «Thử YouTube» (video #{it['job']} vẫn giữ để đăng).")
             return f"{vi}: dừng ({why})"
         if err is not None and err.later:
-            _patch(key, status="pending", why=why, next_try=now + LATER)
-            return f"{vi}: video #{it['job']} hết hạn mức, thử lại lúc {_at(now + LATER)}"
+            _patch(key, status="pending", why=why, next_try=t + LATER)
+            return f"{vi}: video #{it['job']} hết hạn mức, thử lại lúc {_at(t + LATER)}"
+        if err is not None and err.soon:
+            n = int(it.get("soon") or 0) + 1
+            nxt = t + min(LATER, 600 * 2 ** (n - 1))
+            _patch(key, status="pending", why=why, soon=n, next_try=nxt)
+            return f"{vi}: video #{it['job']} bị giới hạn tốc độ, thử lại lúc {_at(nxt)}"
         tries = int(it.get("tries") or 0) + 1
         if tries >= MAX_TRIES:
             _patch(key, status="failed", why=why, tries=tries)
             await notify_admin(f"⚠️ YouTube ({vi}): tải video #{it['job']} lỗi {tries} lần, bỏ qua: {why}")
             return f"{vi}: video #{it['job']} bỏ sau {tries} lần lỗi"
-        nxt = now + min(3600, 300 * 2 ** (tries - 1))
+        nxt = t + min(3600, 300 * 2 ** (tries - 1))
         _patch(key, status="pending", why=why, tries=tries, next_try=nxt)
         return f"{vi}: video #{it['job']} lỗi ({why}), thử lại lúc {_at(nxt)}"
     sched = scheduled(it.get("when"), now)
-    publish = float(it["when"]) if sched else now
-    _patch(key, status="done", yt_id=vid, at=now, publish=publish, why="", desc="")
+    publish = float(it["when"]) if sched else max(now, time.time())
+    _patch(key, status="done", yt_id=vid, at=now, publish=publish, why="", desc="", yt_status=info)
+    want = "private" if sched else "public"
+    warn = ""
+    if info.get("uploadStatus") in ("rejected", "failed"):
+        warn = (f"\n⚠️ YouTube báo video {info.get('uploadStatus')} "
+                f"({info.get('rejectionReason') or info.get('failureReason') or '?'}): mở YouTube Studio kiểm tra.")
+    elif info.get("privacyStatus") and info["privacyStatus"] != want:
+        warn = (f"\n⚠️ YouTube để video ở chế độ «{info['privacyStatus']}» (bot yêu cầu «{want}»): mở YouTube Studio "
+                "kiểm tra (dự án Google Cloud có thể đang bị giới hạn).")
     at = _at(publish)
     await notify_admin(f"▶️ Đã {'hẹn đăng' if sched else 'đăng'} video #{it['job']} lên YouTube ({vi}) lúc {at}: "
-                       f"{it['title'][:80]}\nhttps://youtube.com/shorts/{vid}")
-    return f"{vi}: {'hẹn' if sched else 'đăng'} {vid} lúc {at}"
+                       f"{it['title'][:80]}\nhttps://youtube.com/shorts/{vid}{warn}")
+    return f"{vi}: {'hẹn' if sched else 'đăng'} {vid} lúc {at}" + (" (cần kiểm tra)" if warn else "")
 
 
 async def _update_views(it: dict, now: float, s: aiohttp.ClientSession) -> None:
     try:
         v = await views(it["ch"], it["yt_id"], s)
     except Exception as e:
+        if isinstance(e, YTError) and e.status == 401:
+            _ACCESS.pop(it["ch"], None)
         logging.info("YouTube: đọc lượt xem %s lỗi (%s)", it.get("yt_id"), str(e)[:100])
         v = None
     _patch(it["key"], **({"views": v} if v is not None else {"views_next": now + VIEWS_RETRY}))

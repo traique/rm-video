@@ -87,8 +87,10 @@ def _awaiting_post() -> set:
 
 
 def make_room(need_mb: int, keep: set = frozenset()) -> int:
-    """Xóa video kết quả cũ nhất (và file tải lên mồ côi) tới khi ổ bot trống ≥ need_mb. Trả về MB trống."""
-    keep = {os.path.abspath(p) for p in keep} | _awaiting_post()
+    """Xóa video kết quả cũ nhất (và file tải lên mồ côi) tới khi ổ bot trống ≥ need_mb. Trả về MB trống. Video còn chờ
+    đăng YouTube / gửi gói TikTok xoá sau cùng: ổ đầy thật thì job mới vẫn có chỗ chạy."""
+    keep = {os.path.abspath(p) for p in keep}
+    waiting = _awaiting_post() - keep
     busy = {p for j in queue.jobs.values() if j.status in ("queued", "processing", "review")
             for p in (j.local, j.music_local, *j.images) if p}       # cả ảnh + nhạc tải lên của job 📸/🎵 đang chờ
     for f in sorted((os.path.join(config.UPLOAD_DIR, x) for x in os.listdir(config.UPLOAD_DIR)), key=os.path.getmtime):
@@ -96,12 +98,14 @@ def make_room(need_mb: int, keep: set = frozenset()) -> int:
             os.remove(f)
     if _free_mb(BASE_DIR) < need_mb:
         cache.prune(max_mb=0)              # cache tạo lại được, video kết quả thì không: bỏ cache trước
-    for f in sorted((os.path.join(OUT_DIR, x) for x in os.listdir(OUT_DIR)), key=os.path.getmtime):
-        if _free_mb(BASE_DIR) >= need_mb:
-            break
-        if os.path.abspath(f) not in keep:
-            logging.info("Dọn chỗ: xóa %s (%dMB)", os.path.basename(f), _size_mb(f))
-            os.remove(f)
+    for skip in (keep | waiting, keep):
+        for f in sorted((os.path.join(OUT_DIR, x) for x in os.listdir(OUT_DIR)), key=os.path.getmtime):
+            if _free_mb(BASE_DIR) >= need_mb:
+                break
+            if os.path.abspath(f) not in skip:
+                logging.info("Dọn chỗ: xóa %s (%dMB)%s", os.path.basename(f), _size_mb(f),
+                             " — video đang chờ đăng YouTube / TikTok" if os.path.abspath(f) in waiting else "")
+                os.remove(f)
     return _free_mb(BASE_DIR)
 
 

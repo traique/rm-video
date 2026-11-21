@@ -140,12 +140,16 @@ async def _telegram(it: dict) -> str:
         return "chưa đặt ADMIN_CHAT_ID / ALLOWED_USERS"
     head = _head(it)
     try:
-        if os.path.getsize(it["path"]) <= config.TG_LIMIT:
-            from aiogram.types import FSInputFile
-            await state.bot.send_video(cid, FSInputFile(it["path"]), caption=head[:1024], supports_streaming=True,
-                                       request_timeout=600)
-        else:
-            await state.bot.send_message(cid, f"{head}\nFile lớn quá giới hạn Telegram, tải tại: {it.get('link') or 'web panel'}")
+        if not it.get("tg_video"):                  # đã gửi video ở lượt trước (chỉ tin chữ lỗi): không gửi lại 48MB
+            if os.path.getsize(it["path"]) <= config.TG_LIMIT:
+                from aiogram.types import FSInputFile
+                await state.bot.send_video(cid, FSInputFile(it["path"]), caption=head[:1024], supports_streaming=True,
+                                           request_timeout=600)
+            else:
+                await state.bot.send_message(cid, f"{head}\nFile lớn quá giới hạn Telegram, tải tại: "
+                                                  f"{it.get('link') or 'web panel'}")
+            it["tg_video"] = True
+            _patch(it["key"], tg_video=True)
         await state.bot.send_message(cid, it["caption"][:4000] or "(không có chữ đăng)")
         return "ok"
     except Exception as e:

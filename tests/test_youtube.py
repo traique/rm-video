@@ -60,6 +60,12 @@ def _fake_google(calls: list, flags: dict) -> web.Application:
         if flags.get("quota"):
             return web.json_response({"error": {"code": 403, "message": "quota", "errors": [{"reason": "quotaExceeded"}]}},
                                      status=403)
+        if flags.get("slow"):
+            return web.json_response({"error": {"code": 429, "message": "slow down",
+                                                "errors": [{"reason": "rateLimitExceeded"}]}}, status=429)
+        if flags.get("expired"):
+            return web.json_response({"error": {"code": 401, "message": "Invalid Credentials",
+                                                "errors": [{"reason": "authError"}]}}, status=401)
         if flags.get("down"):
             return web.json_response({"error": {"code": 503, "message": "backend", "errors": [{"reason": "backendError"}]}},
                                      status=503)
@@ -68,7 +74,12 @@ def _fake_google(calls: list, flags: dict) -> web.Application:
     async def put(req):
         data = await req.read()
         calls.append(("put", req.headers["Authorization"], req.headers["Content-Type"], len(data)))
-        return web.json_response({"id": "VID1", "status": {"uploadStatus": "uploaded"}})
+        st = {"uploadStatus": "uploaded", "privacyStatus": flags.get("forced") or (await _req_privacy())}
+        return web.json_response({"id": "VID1", "status": st})
+
+    async def _req_privacy():
+        inits = [c for c in calls if c[0] == "init"]
+        return inits[-1][4]["status"]["privacyStatus"] if inits else "public"
 
     async def videos(req):
         calls.append(("views", req.query["id"], req.query["part"]))
@@ -337,3 +348,57 @@ def test_pending_too_long_is_dropped(monkeypatch, yt, tmp_path):
     asyncio.run(youtube.tick(now=NOW))
     it = youtube.load_state()["items"][0]
     assert it["status"] == "failed" and "3 ngày" in it["why"] and youtube.pending_paths() == set()
+
+
+def test_review_fixes_rate_limit_401_reconnect_and_forced_private(monkeypatch, yt, tmp_path):
+    """Soát 1.2.0: giới hạn theo phút thử lại sớm (không 6 giờ); 401 không dừng kênh mà xin token mới; kết nối lại giữa
+    lúc tải không bị dừng nhầm; YouTube ép riêng tư thì báo admin."""
+    sent = yt
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"x" * 1000)
+    config.save_settings({"YT_REFRESH_TOKEN": "RT1"})
+    assert youtube.enqueue("cook", 1, str(vid), "A", "d", None, now=NOW)
+    asyncio.run(_with_google(monkeypatch, lambda: youtube.tick(now=NOW), {"slow": True}))
+    it = youtube.load_state()["items"][0]
+    assert (it["next_try"], it["tries"], it["soon"]) == (NOW + 600, 0, 1)
+    youtube._ACCESS["cook"] = ("old-token", NOW * 2, youtube.key_fp("cook"))
+    asyncio.run(_with_google(monkeypatch, lambda: youtube.tick(now=NOW + 600), {"expired": True}))
+    st = youtube.load_state()
+    assert st["paused"] == {} and st["items"][0]["tries"] == 1 and "cook" not in youtube._ACCESS
+    # YouTube để riêng tư dù bot yêu cầu công khai: vẫn ghi đã tải, báo admin kiểm tra
+    msg, _c = asyncio.run(_with_google(monkeypatch, lambda: youtube.tick(now=NOW + 2000), {"forced": "private"}))
+    assert "cần kiểm tra" in msg and any("chế độ «private»" in m for m in sent)
+    assert youtube.load_state()["items"][0]["yt_status"]["privacyStatus"] == "private"
+
+    # kết nối lại (token mới) trong lúc đang tải, rồi lượt tải cũ báo lỗi «phải kết nối lại»: không dừng nhầm token mới
+    assert youtube.enqueue("cook", 2, str(vid), "B", "d", None, now=NOW)
+
+    async def upload(ch, path, title, desc, when, s=None, now=None, info=None):
+        config.save_settings({"YT_REFRESH_TOKEN": "RT-moi"})
+        raise youtube.YTError("YouTube: revoked (invalid_grant)", "invalid_grant", 400, fatal=True)
+    real = youtube.upload
+    monkeypatch.setattr(youtube, "upload", upload)
+    asyncio.run(youtube.tick(now=NOW + 3000))
+    p = youtube.load_state()["paused"]["cook"]
+    assert p["fp"] != youtube.key_fp("cook")                        # dấu của khoá CŨ (lấy trước khi tải)
+    monkeypatch.setattr(youtube, "upload", real)
+    asyncio.run(_with_google(monkeypatch, lambda: youtube.tick(now=NOW + 3001)))
+    st = youtube.load_state()
+    assert st["paused"] == {} and st["items"][1]["status"] == "done"   # khoá mới: tự chạy lại, tải được
+
+
+def test_disconnect_refuses_env_token_and_secret_fix_resumes(monkeypatch, yt):
+    config.save_settings({"YT_REFRESH_TOKEN": "RT1"})
+    monkeypatch.setitem(config._ENV, "YT_REFRESH_TOKEN", "ENV-TOKEN")
+    with pytest.raises(youtube.YTError, match="biến môi trường"):
+        asyncio.run(youtube.disconnect("cook"))
+    assert config.YT_REFRESH_TOKEN == "RT1"                          # không gỡ gì, không báo «đã ngắt» giả
+    monkeypatch.setitem(config._ENV, "YT_REFRESH_TOKEN", "")
+    st = youtube.load_state()
+    st["paused"]["cook"] = {"why": "invalid_client", "fp": youtube.key_fp("cook"), "at": NOW}
+    youtube.save_state(st)
+    config.save_settings({"YT_CLIENT_SECRET": "sec-moi"})             # sửa client secret: dấu khoá đổi -> hết dừng
+    asyncio.run(youtube.tick(now=NOW))
+    assert youtube.load_state()["paused"] == {}
+    _r, calls = asyncio.run(_with_google(monkeypatch, lambda: youtube.disconnect("cook")))
+    assert config.YT_REFRESH_TOKEN == "" and ("revoke", "RT1") in calls
