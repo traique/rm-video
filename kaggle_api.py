@@ -287,6 +287,7 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31):
 
 
 WAIT_NET_RETRIES = 6       # ~2 phút mạng hỏng liên tục (every=20s) mới coi là lỗi
+NOT_FOUND_GRACE = 180      # vừa SaveKernel xong, GetKernelSessionStatus có thể 404 (phiên chưa tạo): coi là đang chờ
 REFRESH = 300              # giây: báo lại "đang chờ máy / đang làm (N phút)" dù trạng thái không đổi
 DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
@@ -308,6 +309,11 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
         except KaggleError as e:
             # mạng chập chờn lúc hỏi trạng thái (đo thật 13/11/2026: "Connection reset by peer" sau 4.7 phút) không
             # phải notebook lỗi: hỏi lại tối đa WAIT_NET_RETRIES lần rồi mới bỏ cuộc
+            # vừa gửi notebook: Kaggle chưa tạo phiên nên hỏi trạng thái trả 404 «Not found» trong ít giây (job 3 ngày
+            # 21/11: 404 ngay 4 giây sau khi gửi, bot bỏ Kaggle, đọc giọng edge-tts trên Botkeep -> «100 dê muối»)
+            if any(k in str(e) for k in ("404", "NOT_FOUND")) and time.time() - t0 < NOT_FOUND_GRACE:
+                sleep(min(every, 10))
+                continue
             net_fails += 1
             if "Không gọi được Kaggle" not in str(e) or net_fails > WAIT_NET_RETRIES:
                 raise

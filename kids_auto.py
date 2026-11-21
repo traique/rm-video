@@ -131,6 +131,7 @@ def remember_done(job, brief: dict, story: dict):
         st["stories"].append(hit)
     hit["title"] = story.get("title", "")
     hit["done_at"] = time.time()
+    hit["motifs"] = story_mod.motifs(story)         # chi tiết đã dùng: vài truyện sau tránh lặp (phản hồi 21/11)
     if brief.get("words"):                  # từ thật sự dạy (choose_words đổi theo truyện), để vòng 30 ngày xoay đúng từ
         hit["words"] = [w["en"] if isinstance(w, dict) else str(w) for w in brief["words"]]
     if brief.get("plot"):

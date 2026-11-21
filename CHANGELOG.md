@@ -13,6 +13,22 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.3.4 — Kaggle không bỏ cuộc vì 404 lúc mới gửi việc; truyện bé đỡ lặp tình tiết (21/11/2026)
+
+- Kaggle: vừa gửi notebook, Kaggle có thể trả 404 «Not found» khi hỏi trạng thái (phiên chưa kịp tạo). Trước đây bot coi là
+  lỗi và dựng trên Botkeep bằng giọng edge-tts (job 3 ngày 21/11: 404 sau 4 giây -> đọc «100 dê muối», giọng khác hẳn).
+  Giờ chờ tiếp tới 3 phút.
+- Truyện bé đỡ lặp «chạy rồi té», «đã hứa thì giữ lời»: bot nhớ chi tiết / đồ vật chính của 4 truyện gần nhất và dặn model
+  không dùng lại; khung truyện không còn viết sẵn «vấp té Bịch!», «Rầm!», «cả hai ngã» (model chép gần nguyên chữ); lời
+  dặn không còn gợi ý điệp khúc «Chạy, chạy, chạy nào!» và nói rõ rắc rối không phải lúc nào cũng là té ngã.
+
+### Chi tiết
+- `kaggle_api.wait`: 404 / NOT_FOUND trong `NOT_FOUND_GRACE` (180s) đầu coi là đang chờ.
+- `story.MOTIFS` / `motifs()` / `avoid_list()`: nhãn chi tiết (té ngã, chạy vội, đồ rơi, thả diều, trái banh, quên lời
+  hứa, làm vỡ đồ) + `prop_vi`, ghi ở `kids_auto.remember_done` (`motifs`), `pick()` trả `avoid`, `prompts.user_prompt`
+  đưa vào lời nhắc. Truyện cũ chưa có `motifs` thì chưa tránh được (bắt đầu từ truyện làm sau bản này).
+- Test: `tests/test_kids_variety.py`, `test_review31.py::test_kaggle_wait_tolerates_404_right_after_push`.
+
 ## 1.3.3 — giọng dự phòng đọc đúng đơn vị, «1/2 kg» thành «nửa ký» (21/11/2026)
 
 - Kaggle lỗi phải đọc giọng trên Botkeep (edge-tts / CapCut) thì số và đơn vị cũng được đổi sang chữ trước như giọng
