@@ -136,6 +136,9 @@ def remember_done(job, brief: dict, story: dict):
         hit["words"] = [w["en"] if isinstance(w, dict) else str(w) for w in brief["words"]]
     if brief.get("plot"):
         hit["plot"] = brief["plot"]
+    p = brief.get("pitch") or {}
+    if p.get("premise"):                    # ý truyện đã dùng: lượt nghĩ ý sau tránh lặp (pitch.recent_lines)
+        hit["premise"], hit["kind"] = str(p["premise"])[:300], str(p.get("kind") or "")
     save_state(st)
 
 

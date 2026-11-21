@@ -280,6 +280,13 @@ một bài học, 3–5 từ tiếng Anh, giọng kể miền Nam. Toàn bộ ch
 truyện theo đề, FLUX.1-schnell 4-bit vẽ 8 cảnh, VieNeu đọc, FFmpeg dựng; Botkeep chỉ chọn đề, kiểm, giao và đăng. Kế hoạch và lý do
 từng lựa chọn: `docs/KE_HOACH_KIDS_STORY.md`.
 
+**Ý truyện (1.4.1)**: trước khi viết, Gemini nghĩ 4 ý truyện khác kiểu nhau (bí ẩn, giải cứu, hài, đua giờ, hiểu lầm, phiêu lưu…),
+tránh ý của các truyện gần đây, rồi một lượt AI khác chọn ý mở đầu có chuyện ngay, hồi hộp, có bất ngờ bé không đoán được. Truyện
+viết theo ý đó; lời nhắc chỉ giữ bộ xương (cảnh 1 có chuyện ngay, leo thang, gần cuối xoay chiều, cảnh 8 kết) và giới hạn kỹ
+thuật (8 cảnh, 1-2 bạn mỗi hình, số chữ, đồ vật chính), không còn quy định từng cảnh làm gì (thử mấy lần, ai giúp, có điệp khúc
+hay không, bài học nói ra hay chỉ làm là tuỳ truyện). Khung truyện trong `data.json` chỉ còn là một ý gợi ý. Ghi chú job cho biết ý
+đã chọn; nhạc nền theo không khí của ý (vui nhộn / hồi hộp nhẹ / ấm áp).
+
 Cài một lần:
 1. Cài đặt → 🧸 Truyện bé: tên kênh / thế giới / tagline (có sẵn), giọng (`KIDS_VOICE`); Cài đặt → 🔑 Tài khoản & API: Fanpage
    riêng `KIDS_FB_PAGE_ID` + `KIDS_FB_PAGE_TOKEN` (lấy như `FB_PAGE_TOKEN`; `me/accounts` liệt kê cả hai Page). Cần Kaggle (`KAGGLE_API_TOKEN`)

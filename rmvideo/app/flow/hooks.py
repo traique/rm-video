@@ -224,7 +224,9 @@ async def _pick(*, title: str, tip: str, dish: str, orig_all: str, after: str, t
             return None
         for x in d.get("scores") or []:
             try:
-                scores[int(x["i"])] = float(x["score"])
+                i = int(x["i"])
+                if 0 <= i < len(ok):
+                    scores[i] = float(x["score"])
             except (TypeError, ValueError, KeyError):
                 continue
         try:

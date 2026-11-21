@@ -61,10 +61,10 @@ def test_gripping_frames_and_rules_21_11():
     assert story.pick_plot(DATA, "kindness", "lost_item", used, random.Random(1)) == "mystery_trail"
     brief = story.pick(DATA, [], random.Random(3))
     u = prompts.user_prompt(brief, DATA)
-    assert "MỞ THẲNG VÀO CHUYỆN" in u and "câu MÓC" in u and "MỘT BẤT NGỜ thật" in u and "chi tiết HÀI" in u
+    assert "câu ĐẦU TIÊN đã là điều lạ" in u and "câu móc" in u and "XOAY CHIỀU / BẤT NGỜ" in u and "chi tiết hài" in u
     assert "KHÔNG chung chung kiểu «Mất đồ rồi!»" in u and "KHÔNG đứng yên nhìn thẳng" in u
     assert not prompts.EXAMPLE[0][0].startswith("Hôm nay")                  # truyện mẫu cũng mở thẳng vào chuyện
-    assert "12. Câu ĐẦU của cảnh 1" in prompts.REVISE_CHECK
+    assert "2. Câu ĐẦU của cảnh 1" in prompts.REVISE_CHECK
     sc = {"characters": [brief["main"]], "action_en": "Little Squirrel crouches to look at tiny footprints", "text": "x"}
     shots = [prompts.image_prompt(sc, brief, DATA, i) for i in range(8)]
     assert "dynamic low angle shot" in shots[0] and "wide shot" in shots[3] and "close-up on the faces" in shots[2]

@@ -119,6 +119,10 @@ def system_prompt(channel: dict) -> str:
 
 
 def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, previous: dict | None = None) -> str:
+    """Lời nhắc viết truyện. 1.4.1 (phản hồi 21/11: «chưa gây cấn, na ná nhau», «ép khung có cứng nhắc không»): KHÔNG còn
+    quy định từng cảnh làm gì. Truyện viết theo Ý TRUYỆN đã chọn (rmvideo/kids/pitch.py; không có thì ý gợi ý một câu của
+    khung), chỉ giữ bộ xương (cảnh 1 có chuyện ngay, leo thang, gần cuối xoay chiều / bất ngờ, cảnh 8 kết) và các giới hạn
+    kỹ thuật (8 cảnh, 1-2 bạn mỗi hình, số chữ, thuần Việt, action_en tiếng Anh, đồ vật chính)."""
     chars = data["characters"]
     main = chars[brief["main"]]
     lesson = story_mod.by_id(data["lessons"], brief["lesson"])
@@ -126,98 +130,87 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
     conflict = story_mod.by_id(data["conflicts"], brief["conflict"])
     cast = "; ".join(f"{c['name_vi']} ({c['personality_vi']}; nét riêng: {c.get('quirk_vi', '')})" for c in chars.values())
     must = ", ".join(f"«{w['vi']}»" for w in story_mod.must_mention(brief, data))   # KHÔNG đưa tiếng Anh cho model
-    roles = "\n".join(f"  Cảnh {i}: {r}" for i, r in enumerate(story_mod.plot_beats(brief, data), 1))
     plot = story_mod.by_id(data.get("plots") or [], brief.get("plot") or "")
+    pitch = brief.get("pitch") or {}
     keys = ", ".join(chars)
     names_en = ", ".join(c["name_en"] for c in chars.values())
     text = (f"Viết một truyện kể cho bé 3-6 tuổi, xảy ra ở {data['world']['name']}, nơi bốn bạn nhỏ sống cùng nhau: {cast}.\n"
-            f"Nhân vật chính hôm nay: {main['name_vi']}. Bối cảnh: {setting['vi']}. Chuyện xảy ra: {main['name_vi']} "
-            f"{conflict['vi']}. Bài học: {lesson['vi']}.\n")
+            f"Nhân vật chính hôm nay: {main['name_vi']}. Bối cảnh: {setting['vi']}.\n")
+    if pitch.get("premise"):
+        text += (f"Ý TRUYỆN đã chọn (giữ đúng ý này; diễn biến từng cảnh do bạn quyết): «{pitch.get('title', '')}» — "
+                 f"{pitch['premise']}\n")
+    else:
+        idea = story_mod.plot_premise(brief, data)
+        text += (f"Chuyện xảy ra: {main['name_vi']} {conflict['vi']}."
+                 + (f" Ý gợi ý (có thể đổi cho hay hơn): {idea}" if idea else "") + "\n")
+    text += (f"Giá trị nhẹ nhàng truyện gửi gắm: {lesson['vi']} — thể hiện qua việc nhân vật LÀM; nếu nói ra thì chỉ MỘT câu "
+             f"ngắn tự nhiên như bạn bè nói với nhau (có một chữ trong: {', '.join(lesson.get('keywords', []))}), không giảng.\n")
     if must:
         text += (f"Đồ vật / con vật / việc có thể xuất hiện ở đây: {must}. Lồng ÍT NHẤT 3 thứ trong số đó vào truyện một cách tự "
                  "nhiên (là đồ bạn ấy cầm, thấy, dùng trong chuyện), KHÔNG ép thêm câu chỉ để nhắc tới; thứ nào không hợp thì bỏ.\n")
-    if plot:
-        refrain = (plot.get("refrain") or "").replace("{main}", main["name_vi"])
-        twist = (plot.get("twist") or "").replace("{main}", main["name_vi"])
-        text += (f"Khung truyện: {plot['vi']} (kiểu {plot.get('source', '')}). Các nhịp dưới đây là Ý, KHÔNG chép chữ của nhịp: "
-                 "mỗi cảnh kể bằng chi tiết riêng của truyện hôm nay (đồ vật, màu sắc, tiếng động, lời thoại của từng bạn); vật / "
-                 "việc nêu ở câu móc phải xuất hiện lại ở cảnh 2, 3, 6 và 8 (sợi chỉ xuyên suốt).\n"
-                 + (f"Điệp khúc gợi ý cho khung này: «{refrain}» (tiếng lòng / lời động viên hợp chuyện; có thể đổi chữ cho hợp, "
-                    "nhưng điệp khúc phải có nghĩa đúng với tình huống)"
-                    + (f"; ở cảnh 6 khi chuyện xoay chiều, đảo thành «{twist}» (hay câu tương tự)" if twist else "") + ".\n"
-                    if refrain else ""))
+    refrain = (plot.get("refrain") or "").replace("{main}", main["name_vi"]) if plot and not pitch.get("premise") else ""
+    if refrain:
+        text += f"Nếu hợp, có thể dùng một câu điệp khúc kiểu «{refrain}» (không bắt buộc).\n"
     avoid = [str(x) for x in brief.get("avoid") or [] if str(x).strip()]
     if avoid:       # phản hồi 21/11: «lúc nào cũng chạy rồi té» — nhớ chi tiết các truyện gần đây để đổi chuyện
         text += ("Mấy truyện gần đây ĐÃ CÓ những chi tiết sau: " + ", ".join(avoid) + ". Truyện hôm nay KHÔNG dùng lại các "
                  "chi tiết / đồ vật đó; rắc rối và cách giải quyết phải khác hẳn.\n")
-    text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
-            "Cách kể:\n"
-            f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
-            f"{story_mod.WORDS_MIN + 10}-{story_mod.WORDS_MAX - 15} chữ (video chỉ 60-88 giây, dài hơn là bị cắt). Một chuyện nhỏ kể "
-            "liền mạch từ đầu tới cuối; câu đầu mỗi "
-            "cảnh nối với cảnh trước (thế là / lúc đó / nhưng rồi).\n"
-            "- Có 1-2 tiếng động hợp chuyện (Cốc cốc! Vù vù! Lách cách! Ối!); rắc rối KHÔNG phải lúc nào cũng là té ngã / va "
-            "vấp — chọn chuyện hợp bối cảnh (quên, nhầm, kẹt, lạc, hiểu lầm…). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp 2-3 lần ở cảnh 4, 5 (và 6) "
-            "— chỉ đặt vào chỗ ĐÚNG NGHĨA với tình huống; ở cảnh 6 khi chuyện xoay chiều, có thể ĐẢO điệp khúc cho vui (theo gợi ý "
-            "ở trên, đúng với chuyện hôm nay). NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
-            "- Mỗi cảnh chỉ có 1-2 bạn trong hình: lời kể gọi TÊN bạn có mặt, KHÔNG «các bạn / cả nhóm / mấy bạn» khi chỉ có "
-            "một bạn khác; mỗi bạn được nhắc trong lời phải có trong `characters` của cảnh.\n"
-            f"- Tiểu từ «nha», «hen» ở cuối câu: cả truyện tối đa {story_mod.TAIL_MAX} lần (nhiều quá nghe ngang); câu móc "
-            "không kết bằng «nha». Câu kết bình thường bằng dấu chấm / chấm than.\n"
-            "- LIỀN MẠCH: cảnh sau xảy ra VÌ cảnh trước (nhân quả), ba lần thử khác nhau và leo thang, lần ba thành công nhờ "
-            "bạn giúp hoặc nghĩ ra cách khác; bài học rút ra từ chính chuyện đó, không giảng chung chung.\n"
-            "- MỞ THẲNG VÀO CHUYỆN (người xem lướt đi ngay nếu 3 giây đầu chưa có gì xảy ra): câu ĐẦU TIÊN của cảnh 1 đã là "
-            "điều lạ / rắc rối / tiếng động bất ngờ của truyện hôm nay (kiểu «Ối! Hộp bánh trên bàn trống trơn!»); giới thiệu "
-            "nhân vật, bối cảnh lồng vào câu sau. KHÔNG mở bằng tả thời tiết, «Hôm nay…», «Ngày xửa ngày xưa», «Một buổi "
-            "sáng…».\n"
-            "- GIỮ BÉ Ở LẠI: cảnh 2-6 mỗi cảnh kết bằng một câu MÓC (câu hỏi bé, «Bỗng…», tiếng động lạ, chuyện sắp hỏng) để bé "
-            "muốn nghe cảnh sau; cảnh sau mở bằng lời đáp.\n"
-            "- Cảnh 6 có MỘT BẤT NGỜ thật mà bé không đoán trước (không chỉ là «bạn tới giúp»): thủ phạm là ai đó không ngờ, "
-            "cách giải quyết từ chỗ lạ, sự thật ngược với điều nhân vật tưởng.\n"
-            "- Cảnh 8 kết bằng một chi tiết HÀI hay bất ngờ nhỏ khiến bé bật cười (không chỉ «hai bạn cười vui»).\n"
-            "- Cảnh 7: bạn kia nói bài học bằng MỘT câu ngắn như bạn bè nói với nhau, có ít nhất một chữ trong: "
-            + ", ".join(lesson.get("keywords", [])) + " (đừng gom hết các chữ vào một câu, đừng giảng)"
-            + ". Cảnh 8 kết vui bằng HÌNH ẢNH vòng lại cảnh 1 (các bạn chơi / cười / cùng ngắm), câu cuối ngắn và ấm; KHÔNG "
-            "«các bé ơi», không dặn dò lần nữa (bài học đã nói ở cảnh 7, nói thêm nghe giảng).\n"
-            f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
-            f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
-            "kể trước cách giải quyết; nêu điều lạ / rắc rối CỤ THỂ (đồ gì, của ai, chuyện gì) như «Ai đã ăn sạch hộp bánh "
-            "của Gấu Nâu?», KHÔNG chung chung kiểu «Mất đồ rồi!». `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, có tên đồ vật "
-            "/ chuyện cụ thể, hiện to trên màn hình.\n"
-            "- Viết THUẦN tiếng Việt, không chữ tiếng Anh, không giải nghĩa từ (phần dạy tiếng Anh mã sẽ tự thêm).\n"
-            "BÍ KÍP KỂ CHO CUỐN (học từ sách tranh hay như The Gruffalo, We're Going on a Bear Hunt, Chú Dê Đen):\n"
-            "- HỎI BÉ giữa truyện 1-2 lần (cảnh 2-6), ngắn, có chữ «bé», đặt ở CUỐI cảnh như lật trang sách: «Bé đoán xem Thỏ "
-            "Trắng giấu ở đâu?» — rồi cảnh sau mở đầu bằng câu trả lời («Hoá ra giấu sau gốc cây!»).\n"
-            "- Tiêu đề phải nói đúng đồ vật / chuyện CÓ trong truyện (truyện về trái táo thì không đặt «chiếc bánh»).\n"
-            "- Điệp khúc có NHỊP, hát theo được (3-6 chữ, lặp âm), ví dụ «Tìm nữa, tìm nữa nào!», «Thử lại, thử lại nha!».\n"
-            "- Thất bại phải HÀI: chi tiết ngộ nghĩnh + tiếng động (diều rớt lên bụng Gấu Nâu đang ngủ, bánh dính lên mũi).\n"
-            "- Cảm xúc qua HÀNH ĐỘNG, không gọi tên: «tai thỏ cụp xuống», «đuôi rũ xuống đất» thay cho «Thỏ buồn».\n"
-            "- Cảnh 1 có chi tiết giác quan (màu, mùi, âm thanh). Dùng NÉT RIÊNG của bạn chính ít nhất 2 lần (câu cửa miệng, "
-            "cử chỉ quen).\n"
-            "- Lần thử thứ ba có chút BẤT NGỜ (cách giải quyết đến từ chỗ không ngờ, hay từ bạn nhỏ nhất).\n"
-            "- KẾT VÒNG LẠI: câu cuối gọi lại hình ảnh hay câu của cảnh 1, nghe ấm và trọn.\n"
-            "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
-            f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
-            "đồ vật trong hình, thì hiện tại; tư thế ĐANG LÀM rõ ràng (tiptoeing, crouching to look at footprints, jumping "
-            "back in surprise, hugging tightly…), KHÔNG đứng yên nhìn thẳng; không tả ngoại hình hay quần áo (đã có sẵn), "
-            "không chữ.\n"
-            "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «cái thang gỗ» / «wooden ladder»): tiếng Việt "
-            "1-3 chữ, tên tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi "
-            "cảnh nó xuất hiện (bé phải THẤY nó trong hình).\n"
-            f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, đặt theo CHUYỆN XẢY RA để "
-            "gây tò mò (ví dụ «Thỏ Trắng và chiếc bình hoa vỡ»), KHÔNG lộ bài học hay kết («biết nhận lỗi», «học được…»), không "
-            "chữ tiếng Anh.\n"
-            "- `description`: 2-3 câu tiếng Việt cho ba mẹ: truyện dạy bé điều gì.\n"
-            "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n\n"
-            "Truyện MẪU để học cách kể (chỉ học giọng kể và nhịp; KHÔNG chép lại câu nào, truyện hôm nay khác nhân vật, bối "
-            "cảnh, chuyện xảy ra; KHÔNG mượn chuyện thả diều, chạy rồi rớt / té của truyện mẫu):\n" + _example_block() + "\n")
+    text += (f"\nĐúng {story_mod.N_SCENES} cảnh. Chỉ có BỘ XƯƠNG sau, còn lại tự do (thử mấy lần, ai giúp, có điệp khúc hay "
+             "không, bài học nói ra hay chỉ làm — tuỳ truyện; KHÔNG theo khuôn «thử ba lần, bạn tới giúp, nói bài học»):\n"
+             "  - Cảnh 1: câu ĐẦU TIÊN đã là điều lạ / rắc rối / tiếng động bất ngờ của truyện (người xem lướt đi ngay nếu 3 "
+             "giây đầu chưa có gì xảy ra); giới thiệu nhân vật, bối cảnh lồng vào câu sau. KHÔNG mở bằng tả thời tiết, «Hôm "
+             "nay…», «Ngày xửa ngày xưa», «Một buổi sáng…».\n"
+             "  - Giữa truyện: chuyện LEO THANG tới lúc căng nhất; nhiều cảnh kết bằng một câu móc («Bỗng…», tiếng động lạ, "
+             "chuyện sắp hỏng, hay một câu hỏi bé) để bé muốn nghe tiếp.\n"
+             "  - Gần cuối: một chỗ XOAY CHIỀU / BẤT NGỜ mà bé không đoán trước.\n"
+             "  - Cảnh 8: kết vui hoặc ấm, càng hay nếu có chi tiết hài khiến bé bật cười; KHÔNG «các bé ơi», không dặn dò.\n"
+             "Cách kể:\n"
+             f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
+             f"{story_mod.WORDS_MIN + 10}-{story_mod.WORDS_MAX - 15} chữ (video chỉ 60-88 giây, dài hơn là bị cắt). Một chuyện nhỏ kể "
+             "liền mạch từ đầu tới cuối, cảnh sau xảy ra VÌ cảnh trước (nhân quả); câu đầu mỗi cảnh nối với cảnh trước.\n"
+             "- Có 1-2 tiếng động hợp chuyện (Cốc cốc! Vù vù! Lách cách! Ối!); rắc rối KHÔNG phải lúc nào cũng là té ngã / va "
+             "vấp. Điệp khúc (nếu có) ngắn dưới 8 chữ, lặp tối đa 3 lần, đúng nghĩa với tình huống; ngoài điệp khúc, không câu "
+             "nào, cụm nào lặp lại.\n"
+             "- Mỗi cảnh chỉ có 1-2 bạn trong hình: lời kể gọi TÊN bạn có mặt, KHÔNG «các bạn / cả nhóm / mấy bạn» khi chỉ có "
+             "một bạn khác; mỗi bạn được nhắc trong lời phải có trong `characters` của cảnh.\n"
+             f"- Tiểu từ «nha», «hen» ở cuối câu: cả truyện tối đa {story_mod.TAIL_MAX} lần (nhiều quá nghe ngang); câu móc "
+             "không kết bằng «nha». Câu kết bình thường bằng dấu chấm / chấm than.\n"
+             f"- `hook`: câu nói ĐẦU video (3 giây đầu quyết định bé xem tiếp hay lướt): MỘT câu hỏi hoặc câu cảm "
+             f"{story_mod.HOOK_WORDS[0]}-{story_mod.HOOK_WORDS[1]} chữ, gợi ngay chuyện sắp xảy ra và nhân vật chính, không "
+             "kể trước cách giải quyết; nêu điều lạ / rắc rối CỤ THỂ (đồ gì, của ai, chuyện gì) như «Ai đã ăn sạch hộp bánh "
+             "của Gấu Nâu?», KHÔNG chung chung kiểu «Mất đồ rồi!». `hook_text`: 2-5 chữ IN HOA tóm cái móc đó, có tên đồ vật "
+             "/ chuyện cụ thể, hiện to trên màn hình.\n"
+             "- Viết THUẦN tiếng Việt, không chữ tiếng Anh, không giải nghĩa từ (phần dạy tiếng Anh mã sẽ tự thêm).\n"
+             "MẸO KỂ CHO CUỐN (dùng cái nào hợp truyện, không cần đủ):\n"
+             "- Thất bại / rắc rối có chi tiết HÀI + tiếng động (bánh dính lên mũi, nón bay lên đầu Gấu Nâu).\n"
+             "- Cảm xúc qua HÀNH ĐỘNG, không gọi tên: «tai thỏ cụp xuống», «đuôi rũ xuống đất» thay cho «Thỏ buồn».\n"
+             "- Dùng NÉT RIÊNG của bạn chính (câu cửa miệng, cử chỉ quen) một hai lần; nhiều lời thoại.\n"
+             "- Có thể hỏi bé một câu như lật trang sách («Bé đoán xem ai giấu?») rồi cảnh sau mở bằng lời đáp.\n"
+             "- Câu cuối có thể gọi lại hình ảnh / câu của cảnh 1 cho trọn.\n"
+             "- Tiêu đề phải nói đúng đồ vật / chuyện CÓ trong truyện.\n"
+             "- Mỗi cảnh ghi `characters`: 1-2 nhân vật CÓ MẶT trong hình (khoá: " + keys + "), và `action_en`: MỘT câu "
+             f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
+             "đồ vật trong hình, thì hiện tại; tư thế ĐANG LÀM rõ ràng (tiptoeing, crouching to look at footprints, jumping "
+             "back in surprise, hugging tightly…), KHÔNG đứng yên nhìn thẳng; không tả ngoại hình hay quần áo (đã có sẵn), "
+             "không chữ.\n"
+             "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «cái thang gỗ» / «wooden ladder»): tiếng Việt "
+             "1-3 chữ, tên tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi "
+             "cảnh nó xuất hiện (bé phải THẤY nó trong hình).\n"
+             f"- `title`: tiêu đề tiếng Việt 20-{story_mod.TITLE_MAX} ký tự, có tên {main['name_vi']}, đặt theo CHUYỆN XẢY RA để "
+             "gây tò mò (ví dụ «Thỏ Trắng và chiếc bình hoa vỡ»), KHÔNG lộ bài học hay kết («biết nhận lỗi», «học được…»), không "
+             "chữ tiếng Anh.\n"
+             "- `description`: 2-3 câu tiếng Việt cho ba mẹ: truyện kể chuyện gì và gửi gắm điều gì.\n"
+             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo nội dung (ví dụ: #giuloihua, #bengoan).\n\n"
+             "Truyện MẪU (CHỈ học giọng kể: câu ngắn, từ nối, tiếng động, lời thoại, nét riêng; KHÔNG học cốt truyện — cốt "
+             "truyện mẫu là khuôn «thử hoài, bạn giúp» mà truyện hôm nay KHÔNG đi theo; không chép câu nào, không mượn chuyện "
+             "thả diều, chạy rồi rớt / té):\n" + _example_block() + "\n")
     if feedback and previous:
         draft = (f"Tiêu đề: {previous.get('title', '')}\nCâu móc: {previous.get('hook', '')} | Chữ to: {previous.get('hook_text', '')}\n"
                  + "\n".join(f"Cảnh {i}: {sc.get('text', '')}" for i, sc in enumerate(previous.get("scenes") or [], 1)))
-        text += ("\nBẢN NHÁP TRƯỚC (giữ cốt truyện, lời thoại hay, điệp khúc, câu hỏi bé, nét riêng của bản này):\n" + draft
+        text += ("\nBẢN NHÁP TRƯỚC (giữ cốt truyện, lời thoại hay, chỗ bất ngờ, nét riêng của bản này):\n" + draft
                  + "\nBản nháp chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nSỬA đúng các lỗi trên, đổi càng ít càng tốt (dài quá thì cắt câu tả cảnh / câu đệm, không cắt lời thoại hay "
-                 "điệp khúc), rồi trả lại TOÀN BỘ JSON đủ 8 cảnh với characters và action_en của từng cảnh.")
+                 "chỗ bất ngờ), rồi trả lại TOÀN BỘ JSON đủ 8 cảnh với characters và action_en của từng cảnh.")
     elif feedback:
         text += ("\nBản trước chưa đạt vì:\n" + "\n".join(f"- {p}" for p in feedback)
                  + "\nViết lại TOÀN BỘ truyện, sửa đúng các lỗi trên và giữ ý hay. Kiểm lại trước khi trả: đủ 8 cảnh"
@@ -227,23 +220,23 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
 
 
 REVISE_CHECK = (
-    "1. Câu `hook` có khiến bé tò mò ngay giây đầu không (hỏi/cảm, nhắc nhân vật chính và chuyện sắp xảy ra, KHÔNG lộ cách giải quyết)?\n"
-    "2. Mỗi cảnh có xảy ra VÌ cảnh trước không (nhân quả rõ, không nhảy cóc, không lặp ý)?\n"
-    "3. Ba lần thử (cảnh 4, 5, 6) có KHÁC nhau, leo thang và lần ba thành công nhờ bạn giúp / cách khác không?\n"
-    "4. Bài học (cảnh 7) có rút ra từ chính chuyện vừa xảy ra không (không giảng chung chung)?\n"
-    "5. Câu ngắn (dưới 10 chữ), có tiếng động, điệp khúc đặt đúng chỗ có nghĩa (không dán máy móc), lời thoại tự nhiên như trẻ "
-    "con, giọng miền Nam? Lời kể có gọi «các bạn / cả nhóm» khi cảnh chỉ có 2 bạn không?\n"
+    "1. Câu `hook` có khiến bé tò mò ngay giây đầu không (hỏi/cảm, nhắc nhân vật chính và chuyện CỤ THỂ sắp xảy ra, KHÔNG lộ "
+    "cách giải quyết)?\n"
+    "2. Câu ĐẦU của cảnh 1 đã có chuyện xảy ra chưa (không mở bằng thời tiết / «Hôm nay…»)?\n"
+    "3. Mỗi cảnh có xảy ra VÌ cảnh trước không (nhân quả rõ, không nhảy cóc, không lặp ý)? Chuyện có LEO THANG, có lúc căng "
+    "nhất, gần cuối có BẤT NGỜ thật không? Có rơi vào khuôn «thử - hỏng - thử - bạn giúp - nói bài học» máy móc không — có "
+    "thì đổi cho bất ngờ hơn.\n"
+    "4. Giá trị gửi gắm có hiện ra qua việc nhân vật làm không; nếu nói ra thì có đúng MỘT câu tự nhiên, không giảng?\n"
+    "5. Câu ngắn (dưới 10 chữ), có tiếng động, lời thoại tự nhiên như trẻ con, giọng miền Nam? Lời kể có gọi «các bạn / cả "
+    "nhóm» khi cảnh chỉ có 2 bạn không?\n"
     "6. Có câu nào khó hiểu với bé 3-6 tuổi, chữ thừa, lỗi chính tả, hay nhân vật đổi tên không?\n"
     "7. «nha/hen» cuối câu có quá 3 lần không? Có câu/cụm nào lặp lại ngoài điệp khúc không? Câu móc có kết bằng «nha» không?\n"
     "8. Có câu nào lạc đề, chỉ để nhắc tới một đồ vật cho có (như «ngoài đường xe hơi chạy ngang») không? Bỏ hẳn câu đó.\n"
     "9. Tiêu đề có lộ bài học / kết không? Phải gợi tò mò theo chuyện xảy ra.\n"
     "10. Đọc to lên có trôi chảy không? Câu cụt lủn thì nối lại bằng từ nối; lời thoại đã trong «…» và có tên người nói ngay "
     "trước ngoặc chưa?\n"
-    "11. CUỐN chưa? Có câu hỏi cho bé giữa truyện (cảnh 2-6)? Thất bại có chi tiết hài + tiếng động? Cảm xúc tả qua hành động "
-    "(tai cụp, đuôi rũ) thay vì gọi tên — một cảnh không gọi tên cảm xúc hai lần («buồn thiu… buồn rầu»)? Bạn chính có dùng nét "
-    "riêng / câu cửa miệng? Kết có vòng lại hình ảnh cảnh 1?\n"
-    "12. Câu ĐẦU của cảnh 1 đã có chuyện xảy ra chưa (không mở bằng thời tiết / «Hôm nay…»)? Cảnh 2-6 có kết bằng câu móc? "
-    "Cảnh 6 có bất ngờ thật? Cảnh 8 có chi tiết hài? Câu `hook` có nêu đồ vật / chuyện CỤ THỂ không?\n"
+    "11. CUỐN chưa? Nhiều cảnh có kết bằng câu móc? Rắc rối có chi tiết hài + tiếng động? Cảm xúc tả qua hành động (tai cụp, "
+    "đuôi rũ) thay vì gọi tên? Bạn chính có dùng nét riêng / câu cửa miệng? Cảnh 8 có kết vui / ấm, có chi tiết hài?\n"
     "Không chỉ sửa lỗi: hãy NÂNG bản nháp lên mức một cuốn sách tranh hay — thêm chi tiết ngộ nghĩnh, bớt câu nhạt, giữ cốt truyện.")
 
 
