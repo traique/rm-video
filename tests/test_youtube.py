@@ -73,7 +73,18 @@ def _fake_google(calls: list, flags: dict) -> web.Application:
 
     async def put(req):
         data = await req.read()
-        calls.append(("put", req.headers["Authorization"], req.headers["Content-Type"], len(data)))
+        cr = req.headers.get("Content-Range", "")
+        if cr.startswith("bytes */"):                      # hỏi phiên đã nhận tới đâu
+            calls.append(("query", cr))
+            if flags.get("gone"):
+                return web.Response(status=404)
+            if flags.get("got") is not None:
+                return web.Response(status=308, headers={"Range": f"bytes=0-{flags['got'] - 1}"} if flags["got"] else {})
+            return web.json_response({"id": "VID0", "status": {"uploadStatus": "uploaded", "privacyStatus": "public"}})
+        calls.append(("put", req.headers["Authorization"], req.headers["Content-Type"], len(data)) + ((cr,) if cr else ()))
+        if flags.get("putfail"):
+            return web.json_response({"error": {"code": 503, "message": "backend", "errors": [{"reason": "backendError"}]}},
+                                     status=503)
         st = {"uploadStatus": "uploaded", "privacyStatus": flags.get("forced") or (await _req_privacy())}
         return web.json_response({"id": "VID1", "status": st})
 
@@ -257,16 +268,58 @@ def test_revoked_token_pauses_channel_until_reconnect(monkeypatch, yt, tmp_path)
     assert init[0][4]["status"]["privacyStatus"] == "public"
 
 
-def test_stale_upload_not_retried_and_missing_file(monkeypatch, yt, tmp_path):
+def test_stale_upload_resumes_without_duplicate_and_missing_file(monkeypatch, yt, tmp_path):
+    """Bot dừng ngay sau khi YouTube nhận đủ file: lượt sau hỏi phiên đã lưu -> lấy id, không tải lại thành video trùng."""
     sent = yt
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"x" * 1000)
     config.save_settings({"YT_REFRESH_TOKEN": "RT1"})
-    assert youtube.enqueue("cook", 3, str(tmp_path / "khong-co.mp4"), "A", "d", None, now=NOW)
-    youtube._patch("cook:3", status="uploading")                                     # bot bị dừng giữa lúc tải
+    assert youtube.enqueue("cook", 3, str(vid), "A", "d", None, now=NOW)
     assert youtube.enqueue("cook", 4, str(tmp_path / "khong-co.mp4"), "B", "d", None, now=NOW)
-    asyncio.run(youtube.tick(now=NOW))
+
+    async def go():
+        base = youtube.UPLOAD.rsplit("/up/videos", 1)[0]
+        youtube._patch("cook:3", status="uploading", session_url=base + "/up/session/1", session_at=NOW)
+        await youtube.tick(now=NOW)
+        return await youtube.tick(now=NOW + 1)
+    _m, calls = asyncio.run(_with_google(monkeypatch, go))
     st = {i["key"]: i for i in youtube.load_state()["items"]}
-    assert st["cook:3"]["status"] == "unknown" and st["cook:4"]["status"] == "failed"
-    assert any("KHÔNG tự tải lại" in m for m in sent) and any("không còn file" in m for m in sent)
+    assert st["cook:3"]["status"] == "done" and st["cook:3"]["yt_id"] == "VID0"
+    assert [c[0] for c in calls if c[0] in ("init", "put", "query")] == ["query"]      # không mở phiên mới, không gửi lại
+    assert st["cook:4"]["status"] == "failed" and any("không còn file" in m for m in sent)
+
+
+def test_upload_resumes_from_offset_and_reopens_expired_session(monkeypatch, yt, tmp_path):
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"x" * 1000)
+    config.save_settings({"YT_REFRESH_TOKEN": "RT1"})
+    assert youtube.enqueue("cook", 5, str(vid), "A", "d", None, now=NOW)
+    # lượt 1: mở phiên (lưu ngay) rồi gửi file lỗi -> phiên còn trong trạng thái để lượt sau tải tiếp
+    asyncio.run(_with_google(monkeypatch, lambda: youtube.tick(now=NOW), {"putfail": True}))
+    it = youtube.load_state()["items"][0]
+    assert it["status"] == "pending" and it["session_url"].endswith("/up/session/1") and it["tries"] == 1
+    # lượt 2: YouTube đã nhận 400 byte -> chỉ gửi 600 byte còn lại, không mở phiên mới
+    url = it["session_url"].rsplit("/up/", 1)[1]
+
+    async def go(flags_got):
+        base = youtube.UPLOAD.rsplit("/up/videos", 1)[0]
+        youtube._patch("cook:5", session_url=f"{base}/up/{url}")
+        return await youtube.tick(now=NOW + 400)
+    _m, calls = asyncio.run(_with_google(monkeypatch, lambda: go(400), {"got": 400}))
+    assert [c for c in calls if c[0] in ("init", "put", "query")] == [
+        ("query", "bytes */1000"), ("put", "Bearer AT-RT1", "video/mp4", 600, "bytes 400-999/1000")]
+    it = youtube.load_state()["items"][0]
+    assert it["status"] == "done" and it["session_url"] == ""
+    # phiên hết hạn (404): mở phiên mới, gửi cả file
+    assert youtube.enqueue("cook", 6, str(vid), "B", "d", None, now=NOW)
+
+    async def go2():
+        base = youtube.UPLOAD.rsplit("/up/videos", 1)[0]
+        youtube._patch("cook:6", session_url=base + "/up/session/1", session_at=NOW)
+        return await youtube.tick(now=NOW + 500)
+    _m, calls = asyncio.run(_with_google(monkeypatch, go2, {"gone": True}))
+    assert [c[0] for c in calls if c[0] in ("init", "put", "query")] == ["query", "init", "put"]
+    assert youtube.load_state()["items"][1]["status"] == "done"
 
 
 def test_settings_keys_secret_and_not_sent_to_kaggle():
@@ -373,7 +426,7 @@ def test_review_fixes_rate_limit_401_reconnect_and_forced_private(monkeypatch, y
     # kết nối lại (token mới) trong lúc đang tải, rồi lượt tải cũ báo lỗi «phải kết nối lại»: không dừng nhầm token mới
     assert youtube.enqueue("cook", 2, str(vid), "B", "d", None, now=NOW)
 
-    async def upload(ch, path, title, desc, when, s=None, now=None, info=None):
+    async def upload(ch, path, title, desc, when, s=None, now=None, info=None, **kw):
         config.save_settings({"YT_REFRESH_TOKEN": "RT-moi"})
         raise youtube.YTError("YouTube: revoked (invalid_grant)", "invalid_grant", 400, fatal=True)
     real = youtube.upload

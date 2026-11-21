@@ -50,6 +50,10 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
   bị dừng nhầm; sửa secret là chạy lại; «Thử YouTube» được cũng bỏ dừng); giờ thử lại tính từ lúc lỗi; YouTube để video
   khác chế độ yêu cầu / từ chối video thì báo admin; nút «Ngắt YouTube» báo rõ khi token đặt bằng biến môi trường (trước
   đây báo «đã ngắt» mà token môi trường vẫn chạy); gói TikTok lỗi ở tin chữ thì lượt sau không gửi lại video.
+- Codex (PR #16): lưu địa chỉ phiên tải resumable TRƯỚC khi gửi file; lượt thử lại / bot khởi động lại hỏi phiên
+  (`Content-Range: bytes */size`): YouTube đã nhận đủ (mạng rớt đúng lúc trả kết quả) thì lấy id thay vì tải lại
+  thành video trùng, còn dở thì tải tiếp từ byte đã nhận (đỡ gửi lại cả file trên đường truyền yếu), phiên hết
+  hạn (404) thì mở phiên mới. Bot dừng giữa lúc tải không còn bỏ video «không rõ» mà tải tiếp.
 - Test: `tests/test_youtube.py` (máy chủ Google giả: đổi mã, refresh token, tải lên, hạn mức, token bị thu hồi, bot dừng
   giữa lúc tải, web).
 

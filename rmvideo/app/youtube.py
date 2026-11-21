@@ -16,7 +16,8 @@ Tiêu đề / mô tả: phần «▶ YouTube Shorts» của gói nội dung (pro
 
 Lỗi tách khỏi Facebook: mạng / lỗi tạm thử lại sau 5, 10, 20, 40 phút (tối đa MAX_TRIES lần); hết hạn mức / giới hạn tải
 lên của kênh: LATER giây sau; token bị thu hồi / thiếu quyền: dừng kênh đó, báo admin kết nối lại (kết nối lại là tự chạy
-tiếp). Bot dừng giữa lúc tải lên: không tự tải lại (tránh trùng), báo admin. Trạng thái: youtube.json (YT_STATE)."""
+tiếp). Địa chỉ phiên tải lưu TRƯỚC khi gửi file: mạng rớt / bot dừng giữa chừng thì lượt sau hỏi phiên — YouTube đã
+nhận đủ thì lấy id (không tải lại thành video trùng), còn dở thì tải tiếp. Trạng thái: youtube.json (YT_STATE)."""
 from __future__ import annotations
 
 import asyncio
@@ -29,6 +30,7 @@ import secrets
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -57,6 +59,7 @@ MAX_TRIES = 5
 LATER = 6 * 3600               # hết hạn mức / giới hạn tải lên của kênh: thử lại sau 6 giờ
 CONNECT_TTL = 15 * 60          # phiên «Kết nối YouTube» (state OAuth) hết hạn sau 15 phút, dùng một lần
 UPLOAD_TIMEOUT = 1800
+SESSION_TTL = 6 * 86400        # địa chỉ phiên tải resumable của YouTube sống ~1 tuần: quá 6 ngày thì mở phiên mới
 VIEWS_AFTER, VIEWS_RETRY, VIEWS_GIVEUP = 24 * 3600, 6 * 3600, 7 * 86400
 KEEP_ITEMS = 300
 PENDING_MAX_AGE = 3 * 86400    # chờ quá 3 ngày (kênh dừng mà chưa kết nối lại): bỏ, để storage được dọn file
@@ -283,29 +286,64 @@ async def channel_info(token: str, session: aiohttp.ClientSession) -> tuple[str,
     return str(items[0].get("id") or ""), str((items[0].get("snippet") or {}).get("title") or "")
 
 
+async def _session_state(s: aiohttp.ClientSession, loc: str, tok: str, size: int) -> tuple[str, Any]:
+    """Hỏi phiên tải resumable đã nhận tới đâu (PUT rỗng, Content-Range: bytes */size): ("done", video) khi YouTube đã
+    nhận đủ và tạo video; ("offset", số byte đã nhận) khi còn dở; ("gone", None) khi phiên hết hạn / không còn."""
+    async with s.put(loc, data=b"", headers={**_auth(tok), "Content-Range": f"bytes */{size}"},
+                     allow_redirects=False) as r:
+        if r.status == 308:                          # còn dở: Range «bytes=0-N» là phần đã nhận (không có = chưa nhận gì)
+            m = re.match(r"bytes=0-(\d+)$", r.headers.get("Range", ""))
+            return "offset", int(m.group(1)) + 1 if m else 0
+        if r.status in (404, 410):
+            return "gone", None
+        return "done", await _json(r)
+
+
 async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
                  session: aiohttp.ClientSession | None = None, now: float | None = None,
-                 info: dict | None = None) -> str:
+                 info: dict | None = None, resume_url: str = "",
+                 on_session: Callable[[str], Any] | None = None) -> str:
     """Tải video lên kênh `ch` (resumable: POST metadata -> địa chỉ phiên tải -> PUT file). Trả id video YouTube; info:
-    nhận phần status YouTube trả về (privacyStatus, uploadStatus…) để soát."""
+    nhận phần status YouTube trả về (privacyStatus, uploadStatus…) để soát. resume_url: phiên của lượt trước — hỏi YouTube
+    đã nhận tới đâu: đã đủ (mạng rớt đúng lúc YouTube trả kết quả, bot dừng ngay sau khi tải xong) thì lấy luôn id, KHÔNG tải
+    lại thành video trùng; còn dở thì tải tiếp từ chỗ dở. on_session(url): lưu phiên mới TRƯỚC khi gửi file."""
     now = time.time() if now is None else now
-    body = video_body(ch, title, desc, when, now)
     size = os.path.getsize(path)
     own = session is None
     s = session or _session()
     try:
         tok = await access_token(ch, s, margin=UPLOAD_TIMEOUT)      # không để token hết hạn giữa lúc tải
-        async with s.post(UPLOAD, params={"uploadType": "resumable", "part": "snippet,status"}, json=body,
-                          headers={**_auth(tok), "X-Upload-Content-Type": "video/mp4",
-                                   "X-Upload-Content-Length": str(size)}) as r:
-            await _json(r)
-            loc = r.headers.get("Location", "")
-        if not loc:
-            raise YTError("YouTube không trả địa chỉ tải lên")
-        with open(path, "rb") as f:
-            async with s.put(loc, data=f, headers={**_auth(tok), "Content-Type": "video/mp4"},
-                             timeout=aiohttp.ClientTimeout(total=UPLOAD_TIMEOUT)) as r:
-                d = await _json(r)
+        loc, offset, d = resume_url, 0, None
+        if loc:
+            state, val = await _session_state(s, loc, tok, size)
+            if state == "done":
+                d = val
+            elif state == "offset":
+                offset = int(val)
+            else:
+                loc = ""
+        if d is None and not loc:
+            async with s.post(UPLOAD, params={"uploadType": "resumable", "part": "snippet,status"},
+                              json=video_body(ch, title, desc, when, now),
+                              headers={**_auth(tok), "X-Upload-Content-Type": "video/mp4",
+                                       "X-Upload-Content-Length": str(size)}) as r:
+                await _json(r)
+                loc = r.headers.get("Location", "")
+            if not loc:
+                raise YTError("YouTube không trả địa chỉ tải lên")
+            if on_session is not None:
+                on_session(loc)
+        if d is None:
+            hdr = {**_auth(tok), "Content-Type": "video/mp4"}
+            if offset:
+                hdr["Content-Range"] = f"bytes {offset}-{size - 1}/{size}"
+            with open(path, "rb") as f:
+                f.seek(min(offset, size))
+                async with s.put(loc, data=f, headers=hdr, allow_redirects=False,
+                                 timeout=aiohttp.ClientTimeout(total=UPLOAD_TIMEOUT)) as r:
+                    if r.status == 308:
+                        raise YTError("YouTube chưa nhận đủ file (308), thử lại tải tiếp")
+                    d = await _json(r)
         vid = str(d.get("id") or "")
         if not vid:
             raise YTError("YouTube không trả id video")
@@ -493,13 +531,12 @@ async def tick(now: float | None = None, session: aiohttp.ClientSession | None =
 
 
 async def _tick(now: float, session: aiohttp.ClientSession | None) -> str:
-    from state import notify_admin
     st = load_state()
     for it in [i for i in st["items"] if i.get("status") == "uploading"]:
-        # có _LOCK nên không lượt nào đang tải: «uploading» còn lại là bot bị dừng giữa chừng (YouTube có thể đã nhận)
-        _patch(it["key"], status="unknown", why="bot dừng giữa lúc tải lên")
-        await notify_admin(f"⚠️ Bot dừng đúng lúc đang tải video #{it['job']} lên YouTube ({CHANNELS[it['ch']]['vi']}). "
-                           "Mở YouTube Studio kiểm tra; bot KHÔNG tự tải lại để tránh trùng.")
+        # có _LOCK nên không lượt nào đang tải: «uploading» còn lại là bot bị dừng giữa chừng. Video YouTube chỉ được tạo
+        # khi phiên tải nhận đủ file, và phiên được lưu TRƯỚC khi gửi file -> lượt sau hỏi phiên: đã đủ thì lấy id, dở
+        # thì tải tiếp; chưa có phiên thì chưa gửi byte nào, tải lại từ đầu không trùng.
+        _patch(it["key"], status="pending", why="bot dừng giữa lúc tải lên, tải tiếp", next_try=0)
     st = load_state()
     if any(ch not in CHANNELS or p.get("fp") != key_fp(ch) for ch, p in st["paused"].items()):
         st["paused"] = {ch: p for ch, p in st["paused"].items() if ch in CHANNELS and p.get("fp") == key_fp(ch)}
@@ -540,7 +577,10 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
     fp = key_fp(ch)                                 # trước khi await: kết nối lại giữa lúc tải không bị dừng nhầm
     info: dict = {}
     try:
-        vid = await upload(ch, it["path"], it["title"], it.get("desc") or "", it.get("when"), s, now, info)
+        fresh = float(it.get("session_at") or 0) > now - SESSION_TTL
+        vid = await upload(ch, it["path"], it["title"], it.get("desc") or "", it.get("when"), s, now, info,
+                           resume_url=str(it.get("session_url") or "") if fresh else "",
+                           on_session=lambda url: _patch(key, session_url=url, session_at=now))
     except Exception as e:
         t = max(now, time.time())                   # lùi giờ thử lại tính từ lúc lỗi (một lượt tải có thể mất 30 phút)
         why = (str(e) or type(e).__name__)[:200]
@@ -573,7 +613,7 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
         return f"{vi}: video #{it['job']} lỗi ({why}), thử lại lúc {_at(nxt)}"
     sched = scheduled(it.get("when"), now)
     publish = float(it["when"]) if sched else max(now, time.time())
-    _patch(key, status="done", yt_id=vid, at=now, publish=publish, why="", desc="", yt_status=info)
+    _patch(key, status="done", yt_id=vid, at=now, publish=publish, why="", desc="", yt_status=info, session_url="")
     want = "private" if sched else "public"
     warn = ""
     if info.get("uploadStatus") in ("rejected", "failed"):
