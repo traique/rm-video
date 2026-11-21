@@ -15,12 +15,14 @@ from rmvideo.interfaces.web import (
     routes_kids,
     routes_media,
     routes_settings,
+    routes_youtube,
     routes_zoom,
 )
 from rmvideo.interfaces.web.auth import _secure_headers
 from rmvideo.interfaces.web.http import JSON_MAX
 
-GROUPS = (routes_auth, routes_jobs, routes_settings, routes_autopost, routes_kids, routes_media, routes_zoom)
+GROUPS = (routes_auth, routes_jobs, routes_settings, routes_autopost, routes_kids, routes_media, routes_zoom,
+          routes_youtube)
 
 
 def build_app(queue: JobQueue, hooks: dict | None = None) -> web.Application:

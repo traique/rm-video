@@ -75,8 +75,22 @@ def warn_low_disk(log=logging.warning):
     return free
 
 
+def _awaiting_post() -> set:
+    """File kết quả còn chờ tải lên YouTube / gửi gói đăng TikTok (1.2.0; gói TikTok chờ tới giờ vàng, có khi hơn một
+    ngày sau, trong khi OUT_MAX_MB chỉ giữ ~10 video): không xoá."""
+    try:
+        from rmvideo.app import tiktok_kit, youtube
+        return {os.path.abspath(p) for p in youtube.pending_paths() | tiktok_kit.pending_paths()}
+    except Exception as e:                       # đọc trạng thái lỗi: dọn như cũ, không làm hỏng job
+        logging.warning("Không đọc được danh sách video chờ đăng: %s", str(e)[:120])
+        return set()
+
+
 def make_room(need_mb: int, keep: set = frozenset()) -> int:
-    """Xóa video kết quả cũ nhất (và file tải lên mồ côi) tới khi ổ bot trống ≥ need_mb. Trả về MB trống."""
+    """Xóa video kết quả cũ nhất (và file tải lên mồ côi) tới khi ổ bot trống ≥ need_mb. Trả về MB trống. Video còn chờ
+    đăng YouTube / gửi gói TikTok xoá sau cùng: ổ đầy thật thì job mới vẫn có chỗ chạy."""
+    keep = {os.path.abspath(p) for p in keep}
+    waiting = _awaiting_post() - keep
     busy = {p for j in queue.jobs.values() if j.status in ("queued", "processing", "review")
             for p in (j.local, j.music_local, *j.images) if p}       # cả ảnh + nhạc tải lên của job 📸/🎵 đang chờ
     for f in sorted((os.path.join(config.UPLOAD_DIR, x) for x in os.listdir(config.UPLOAD_DIR)), key=os.path.getmtime):
@@ -84,12 +98,14 @@ def make_room(need_mb: int, keep: set = frozenset()) -> int:
             os.remove(f)
     if _free_mb(BASE_DIR) < need_mb:
         cache.prune(max_mb=0)              # cache tạo lại được, video kết quả thì không: bỏ cache trước
-    for f in sorted((os.path.join(OUT_DIR, x) for x in os.listdir(OUT_DIR)), key=os.path.getmtime):
-        if _free_mb(BASE_DIR) >= need_mb:
-            break
-        if f not in keep:
-            logging.info("Dọn chỗ: xóa %s (%dMB)", os.path.basename(f), _size_mb(f))
-            os.remove(f)
+    for skip in (keep | waiting, keep):
+        for f in sorted((os.path.join(OUT_DIR, x) for x in os.listdir(OUT_DIR)), key=os.path.getmtime):
+            if _free_mb(BASE_DIR) >= need_mb:
+                break
+            if os.path.abspath(f) not in skip:
+                logging.info("Dọn chỗ: xóa %s (%dMB)%s", os.path.basename(f), _size_mb(f),
+                             " — video đang chờ đăng YouTube / TikTok" if os.path.abspath(f) in waiting else "")
+                os.remove(f)
     return _free_mb(BASE_DIR)
 
 
@@ -116,9 +132,10 @@ def pick_workdir(need_mb: int) -> str | None:
 
 def _cleanup_outputs(keep: set = frozenset()):
     """Giữ video mới nhất cho web tải về, xóa cũ khi tổng vượt OUT_MAX_MB (ổ Botkeep chỉ 2GB)."""
+    keep = {os.path.abspath(p) for p in keep} | _awaiting_post()
     files = sorted((os.path.join(OUT_DIR, f) for f in os.listdir(OUT_DIR)), key=os.path.getmtime, reverse=True)
     total = 0
     for f in files:
         total += os.path.getsize(f)
-        if total > config.OUT_MAX_MB * 1024 * 1024 and f not in keep:
+        if total > config.OUT_MAX_MB * 1024 * 1024 and os.path.abspath(f) not in keep:
             os.remove(f)

@@ -27,7 +27,8 @@ def test_legacy_tables_are_derived_from_schema():
     assert config.SECRET_KEYS == {"YTDLP_PROXY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "GROQ_API_KEY",
                                   "YTDLP_COOKIES", "FB_PAGE_TOKEN", "KAGGLE_API_TOKEN",
                                   "ZOOM_CLIENT_SECRET", "ZOOM_SECRET_TOKEN",            # bản 1.0.0: kênh Zoom
-                                  "KIDS_FB_PAGE_TOKEN"}                                 # 1.1.0: Fanpage truyện bé
+                                  "KIDS_FB_PAGE_TOKEN",                                 # 1.1.0: Fanpage truyện bé
+                                  "YT_CLIENT_SECRET", "YT_REFRESH_TOKEN", "KIDS_YT_REFRESH_TOKEN"}   # 1.2.0: YouTube
     ids = {g[0] for g in config.GROUPS}
     for s in schema.SCHEMA:
         assert s.group in ids and s.label, s.key
