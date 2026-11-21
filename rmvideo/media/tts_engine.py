@@ -112,7 +112,10 @@ async def _tts_edge(text: str, mp3_path: str, voice: str, ass_path: str | None,
 
 async def synth_clip_ex(text: str, voice: str, path: str) -> tuple:
     """TTS 1 đoạn. Trả (mốc từ hoặc None, provider đã đọc: capcut | edge | piper). CapCut/Piper không có mốc từ:
-    phụ đề rải theo âm tiết."""
+    phụ đề rải theo âm tiết. Số / đơn vị đổi sang chữ trước (vi_text.normalize, như giọng VieNeu trên Kaggle): edge-tts /
+    CapCut tự đọc «50g» thành «năm mươi g» (phản hồi 21/11: video phải đọc dự phòng trên Botkeep nói «50 g»)."""
+    import vi_text
+    text = vi_text.normalize(text)
     capcut = config.TTS_PROVIDER == "capcut" and voice not in _EDGE_VOICES
     if capcut:
         try:

@@ -13,6 +13,40 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.3.5 — khôi phục các phần của 1.3.0 (bỏ nhạc gốc, nội suy khung) kèm các bản sửa 1.3.3-1.3.4 (21/11/2026)
+
+- Video bếp bản 1.3.0 bị kém KHÔNG phải do 1.3.0: phiên dựng Kaggle báo 404 ngay khi gửi việc nên bot dựng trên Botkeep bằng
+  giọng edge-tts (đã sửa ở 1.3.3 / 1.3.4). Khôi phục: bỏ nhạc gốc giữ tiếng động (`SFX_SEP=1`), nội suy khung RIFE khi kéo
+  chậm (`INTERP=1`).
+- Hai phần người dùng thấy kém thật vẫn có nhưng mặc định TẮT: Real-ESRGAN cho ảnh truyện bé (ảnh «cảm giác nhựa»;
+  `IMG_UPSCALE=esrgan` để bật) và cắt khoảng lặng đầu mẩu giọng («tiếng bị sớm»; `VOICE_LEAD_TRIM=1` để bật).
+
+## 1.3.4 — Kaggle không bỏ cuộc vì 404 lúc mới gửi việc; truyện bé đỡ lặp tình tiết (21/11/2026)
+
+- Kaggle: vừa gửi notebook, Kaggle có thể trả 404 «Not found» khi hỏi trạng thái (phiên chưa kịp tạo). Trước đây bot coi là
+  lỗi và dựng trên Botkeep bằng giọng edge-tts (job 3 ngày 21/11: 404 sau 4 giây -> đọc «100 dê muối», giọng khác hẳn).
+  Giờ chờ tiếp tới 3 phút.
+- Truyện bé đỡ lặp «chạy rồi té», «đã hứa thì giữ lời»: bot nhớ chi tiết / đồ vật chính của 4 truyện gần nhất và dặn model
+  không dùng lại; khung truyện không còn viết sẵn «vấp té Bịch!», «Rầm!», «cả hai ngã» (model chép gần nguyên chữ); lời
+  dặn không còn gợi ý điệp khúc «Chạy, chạy, chạy nào!» và nói rõ rắc rối không phải lúc nào cũng là té ngã.
+
+### Chi tiết
+- `kaggle_api.wait`: 404 / NOT_FOUND trong `NOT_FOUND_GRACE` (180s) đầu coi là đang chờ.
+- `story.MOTIFS` / `motifs()` / `avoid_list()`: nhãn chi tiết (té ngã, chạy vội, đồ rơi, thả diều, trái banh, quên lời
+  hứa, làm vỡ đồ) + `prop_vi`, ghi ở `kids_auto.remember_done` (`motifs`), `pick()` trả `avoid`, `prompts.user_prompt`
+  đưa vào lời nhắc. Truyện cũ chưa có `motifs` thì chưa tránh được (bắt đầu từ truyện làm sau bản này).
+- Test: `tests/test_kids_variety.py`, `test_review31.py::test_kaggle_wait_tolerates_404_right_after_push`.
+
+## 1.3.3 — giọng dự phòng đọc đúng đơn vị, «1/2 kg» thành «nửa ký» (21/11/2026)
+
+- Kaggle lỗi phải đọc giọng trên Botkeep (edge-tts / CapCut) thì số và đơn vị cũng được đổi sang chữ trước như giọng
+  VieNeu: «50g» đọc «năm mươi gam» thay vì «năm mươi g» (phản hồi 21/11 về video bản 1.3.0).
+- «1/2 kg» đọc «nửa ký» (trước đây «nửa kg»: đơn vị đứng sau phân số không được đọc thành chữ).
+
+### Chi tiết
+- `tts_engine.synth_clip_ex` gọi `vi_text.normalize`; phụ đề vẫn lấy nguyên văn kịch bản (align.map_script khớp phần lệch).
+- `vi_text.normalize`: phân số kèm đơn vị đọc một lượt. Test: `tests/test_tts_units.py`.
+
 ## 1.3.2 — gỡ các phần của 1.3.0, quay về cách làm video của 1.2.0 (21/11/2026)
 
 - Gỡ bỏ nhạc gốc / giữ tiếng động (Bandit), phóng nét Real-ESRGAN cho truyện bé, nội suy khung RIFE và cắt khoảng lặng
@@ -31,6 +65,44 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 - `kaggle_api.quota_cached` (nhớ 5 phút; sau phiên Kaggle đọc mới), `quota_text`, `vn_time` (giờ làm mới đổi sang UTC+7);
   `kaggle_worker.log_quota` sau mỗi phiên phân tích / dựng / lô (chưa có token thì không gọi); web `/api/kaggle/quota`;
   lệnh console `kaggle_test` dùng cùng câu chữ. Test: `tests/test_kaggle_quota.py`.
+
+## 1.3.0 — bỏ nhạc gốc giữ tiếng động, ảnh truyện bé nét hơn, đoạn kéo chậm hết giật, lời vào đúng nhịp (21/11/2026)
+
+- Kênh bếp: sau khi bỏ giọng người gốc, tiếng nền được tách tiếp thành nhạc / tiếng động; chỉ giữ tiếng động (xèo xèo,
+  dao thớt, nước sôi), nhạc gốc bỏ hẳn nên bot tự lót nhạc Lyria dưới lời. Bật sẵn (`SFX_SEP=1`); model này chỉ dùng phi
+  thương mại: KHI BẬT KIẾM TIỀN cho kênh thì đặt `SFX_SEP=0`.
+- Truyện bé: ảnh phóng bằng Real-ESRGAN thay cho phóng thường: viền, mắt, áo nét hơn mà vẫn giữ lớp lông nỉ; Ken Burns
+  dùng bản 2160x3840 nên phóng / lia không mờ.
+- Kênh bếp: video gốc bị kéo chậm (tới 1,4 lần cho đủ thời lượng) không còn giật — RIFE chèn khung giữa mỗi cặp khung
+  trước khi dựng (`INTERP=1`).
+- Giọng đọc: bỏ khoảng lặng đầu mỗi mẩu giọng (VieNeu mở đầu bằng ~0,1 giây im): lời vào đúng nhịp hình, đỡ phải nói
+  nhanh cho vừa khe.
+
+### Chi tiết
+- `rmvideo/media/stems.py` + `rmvideo/media/bandit/` (mã Bandit, Apache-2.0, bản rút gọn của FreeVideo; phần biến đổi phổ
+  viết lại bằng torch.stft / torch.istft vì torchaudio không còn bản cho torch mới, cùng tên bộ đệm nên nạp được
+  checkpoint gốc). Trọng số Bandit Plus «cocktail» (Watcharasupat và cộng sự, Zenodo 10160698, CC BY-NC 4.0 — xem
+  `rmvideo/media/bandit/WEIGHTS-CC-BY-NC-4.0.txt`), tải từ bản FreeVideo đã chuyển state dict, ghim revision + SHA-256.
+  `vocal_sep.strip_music`: chạy sau khi tách giọng thành công (RoFormer hoặc Kim), tiến trình riêng, chỉ Kaggle GPU;
+  nhạc thấp hơn tiếng động 20 dB thì giữ nguyên; lỗi / quá 5 phút thì trả lại tiếng nền cũ. Renderer đo «điểm nhạc» trên
+  tiếng nền đã tách nên tự lót nhạc khi nhạc gốc đã bỏ. Đo 21/11 (CPU): video bếp có nhạc Lyria — điểm nhạc tiếng nền
+  0,258, phần tiếng động 0,0, phần nhạc 0,948; ba phần cộng lại khớp bản gốc -36 dB; 30 giây audio 96 giây CPU.
+- `rmvideo/kids/esrgan.py`: SRVGGNetCompact (Real-ESRGAN, BSD-3-Clause), trộn trọng số realesr-general-x4v3 (khử nhiễu
+  mạnh) 0,2 + wdn-x4v3 (nhẹ) 0,8 như tuỳ chọn «-dn» của Real-ESRGAN: bản mạnh làm lông nỉ thành da nhựa (đo trên ảnh
+  truyện bé), 0,2 giữ lông. `images.upscale` ghi `scene_XX.png` 1080x1920 (gửi về Botkeep như cũ) + `scene_XX_hd.png`
+  2160x3840 cho dựng (`images.for_render`); không GPU / lỗi thì lanczos như cũ. CPU 13,8 giây / ảnh (T4 nhanh hơn nhiều).
+- `rmvideo/media/interp.py` + `rmvideo/media/rife.py` (RIFE 4.25 IFNet, MIT, từ FreeVideo; model 22MB ghim SHA-256):
+  `kaggle_job.produce` gấp đôi khung video gốc khi kéo chậm ≥ 1,1 lần (ffmpeg giải mã -> khung giữa -> ffmpeg mã hoá, tiếng
+  chép nguyên, cùng thời lượng nên mọi mốc kế hoạch giữ nguyên; `out_fps` chia đều nên tốc độ khung đầu ra không đổi). Hai
+  khung khác hẳn nhau (chuyển cảnh) thì chép khung trước. Đo tốc độ trên 24 cặp đầu, dự tính quá 5 phút thì bỏ. Đo 21/11
+  trên 3 video bếp (đoán khung giữa từ khung trước/sau, so khung thật): PSNR 26,5-28,6 dB, lặp khung (cách cũ) 20,8-23,3,
+  trộn hai khung 23,7-26,7.
+- `voiceplan.speech_span` + `compose_voice`: cắt khoảng lặng đầu mẩu (giữ 0,05s, tối đa 0,5s), mốc từ edge-tts dời theo.
+  Đã xem cách FreeVideo khớp lời (đọc lại 2-3 lượt bằng tham số tốc độ của TTS rồi mới kéo nhẹ ≤ 1,25 lần): VieNeu
+  (vieneu 3.8.5, TTS kiểu mô hình ngôn ngữ) không có tham số tốc độ nên chưa áp được phần đó; bot vẫn giữ một tốc độ
+  chung ≤ 1,12 lần như trước.
+- Cài đặt mới (nhóm ☁️ Kaggle): `SFX_SEP`, `INTERP`. Test: `tests/test_sfx_sep.py`, `test_kids_esrgan.py`,
+  `test_interp.py`, `test_voice_lead.py` (phần cần torch chạy khi máy có torch).
 
 ## 1.2.0 — đăng YouTube Shorts + gói đăng TikTok cho kênh bếp và kênh truyện bé (20/11/2026)
 

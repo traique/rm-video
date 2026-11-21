@@ -465,3 +465,27 @@ def test_split_sync_roformer_engine_needs_cuda(tmp_path, monkeypatch):
     vocal_sep._split_sync(src, str(tmp_path / "a.wav"), engine="roformer", vocals_wav=str(tmp_path / "v.wav"))
     assert os.path.getsize(tmp_path / "a.wav") > 1000 and os.path.getsize(tmp_path / "v.wav") > 1000
     assert ks == [vocal_sep.ROF_MASK_K]                                 # mặt nạ mạnh hơn cho nền RoFormer
+
+
+def test_kaggle_wait_tolerates_404_right_after_push(monkeypatch):
+    """Job 3 ngày 21/11: GetKernelSessionStatus 404 ngay sau SaveKernel (phiên chưa tạo) -> bot bỏ Kaggle. Giờ chờ tiếp
+    trong NOT_FOUND_GRACE giây; quá thời gian đó vẫn 404 thì mới báo lỗi."""
+    nf = kaggle_api.KaggleError("Kaggle lỗi 404 ở GetKernelSessionStatus: {'error': {'code': 404, 'status': 'NOT_FOUND'}}")
+    seq = iter([nf, nf, ("QUEUED", ""), ("COMPLETE", "")])
+
+    def status(slug):
+        x = next(seq)
+        if isinstance(x, Exception):
+            raise x
+        return x
+    monkeypatch.setattr(kaggle_api, "status", status)
+    assert kaggle_api.wait("s", 600, every=0, sleep=lambda s: None) == "COMPLETE"
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: clock["t"])
+
+    def late(slug):
+        clock["t"] += 100
+        raise nf
+    monkeypatch.setattr(kaggle_api, "status", late)
+    with pytest.raises(kaggle_api.KaggleError, match="404"):                       # 404 mãi: vẫn báo lỗi
+        kaggle_api.wait("s", 6000, every=0, sleep=lambda s: None)

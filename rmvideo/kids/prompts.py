@@ -143,13 +143,18 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
                     "nhưng điệp khúc phải có nghĩa đúng với tình huống)"
                     + (f"; ở cảnh 6 khi chuyện xoay chiều, đảo thành «{twist}» (hay câu tương tự)" if twist else "") + ".\n"
                     if refrain else ""))
+    avoid = [str(x) for x in brief.get("avoid") or [] if str(x).strip()]
+    if avoid:       # phản hồi 21/11: «lúc nào cũng chạy rồi té» — nhớ chi tiết các truyện gần đây để đổi chuyện
+        text += ("Mấy truyện gần đây ĐÃ CÓ những chi tiết sau: " + ", ".join(avoid) + ". Truyện hôm nay KHÔNG dùng lại các "
+                 "chi tiết / đồ vật đó; rắc rối và cách giải quyết phải khác hẳn.\n")
     text += (f"\nĐúng {story_mod.N_SCENES} cảnh, theo thứ tự:\n{roles}\n"
             "Cách kể:\n"
             f"- Mỗi cảnh 2-4 câu, {story_mod.SCENE_MIN + 6}-{story_mod.SCENE_MAX - 6} chữ; cả truyện "
             f"{story_mod.WORDS_MIN + 10}-{story_mod.WORDS_MAX - 15} chữ (video chỉ 60-88 giây, dài hơn là bị cắt). Một chuyện nhỏ kể "
             "liền mạch từ đầu tới cuối; câu đầu mỗi "
             "cảnh nối với cảnh trước (thế là / lúc đó / nhưng rồi).\n"
-            "- Có tiếng động (Bịch! Vù vù! Cốc cốc! Ối!). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp 2-3 lần ở cảnh 4, 5 (và 6) "
+            "- Có 1-2 tiếng động hợp chuyện (Cốc cốc! Vù vù! Lách cách! Ối!); rắc rối KHÔNG phải lúc nào cũng là té ngã / va "
+            "vấp — chọn chuyện hợp bối cảnh (quên, nhầm, kẹt, lạc, hiểu lầm…). Có MỘT câu điệp khúc ngắn (dưới 8 chữ) lặp 2-3 lần ở cảnh 4, 5 (và 6) "
             "— chỉ đặt vào chỗ ĐÚNG NGHĨA với tình huống; ở cảnh 6 khi chuyện xoay chiều, có thể ĐẢO điệp khúc cho vui (theo gợi ý "
             "ở trên, đúng với chuyện hôm nay). NGOÀI điệp khúc, không câu nào, cụm nào lặp lại.\n"
             "- Mỗi cảnh chỉ có 1-2 bạn trong hình: lời kể gọi TÊN bạn có mặt, KHÔNG «các bạn / cả nhóm / mấy bạn» khi chỉ có "
@@ -170,7 +175,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "- HỎI BÉ giữa truyện 1-2 lần (cảnh 2-6), ngắn, có chữ «bé», đặt ở CUỐI cảnh như lật trang sách: «Bé đoán xem Thỏ "
             "Trắng giấu ở đâu?» — rồi cảnh sau mở đầu bằng câu trả lời («Hoá ra giấu sau gốc cây!»).\n"
             "- Tiêu đề phải nói đúng đồ vật / chuyện CÓ trong truyện (truyện về trái táo thì không đặt «chiếc bánh»).\n"
-            "- Điệp khúc có NHỊP, hát theo được (3-6 chữ, lặp âm): «Chạy, chạy, chạy nào!», «Tìm nữa, tìm nữa nào!».\n"
+            "- Điệp khúc có NHỊP, hát theo được (3-6 chữ, lặp âm), ví dụ «Tìm nữa, tìm nữa nào!», «Thử lại, thử lại nha!».\n"
             "- Thất bại phải HÀI: chi tiết ngộ nghĩnh + tiếng động (diều rớt lên bụng Gấu Nâu đang ngủ, bánh dính lên mũi).\n"
             "- Cảm xúc qua HÀNH ĐỘNG, không gọi tên: «tai thỏ cụp xuống», «đuôi rũ xuống đất» thay cho «Thỏ buồn».\n"
             "- Cảnh 1 có chi tiết giác quan (màu, mùi, âm thanh). Dùng NÉT RIÊNG của bạn chính ít nhất 2 lần (câu cửa miệng, "
@@ -189,7 +194,7 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
             "- `description`: 2-3 câu tiếng Việt cho ba mẹ: truyện dạy bé điều gì.\n"
             "- `hashtags`: 2 hashtag tiếng Việt không dấu theo bài học (ví dụ: #giuloihua, #bengoan).\n\n"
             "Truyện MẪU để học cách kể (chỉ học giọng kể và nhịp; KHÔNG chép lại câu nào, truyện hôm nay khác nhân vật, bối "
-            "cảnh, chuyện xảy ra):\n" + _example_block() + "\n")
+            "cảnh, chuyện xảy ra; KHÔNG mượn chuyện thả diều, chạy rồi rớt / té của truyện mẫu):\n" + _example_block() + "\n")
     if feedback and previous:
         draft = (f"Tiêu đề: {previous.get('title', '')}\nCâu móc: {previous.get('hook', '')} | Chữ to: {previous.get('hook_text', '')}\n"
                  + "\n".join(f"Cảnh {i}: {sc.get('text', '')}" for i, sc in enumerate(previous.get("scenes") or [], 1)))

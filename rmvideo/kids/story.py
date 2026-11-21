@@ -92,6 +92,27 @@ def recent(stories: Sequence[dict], now: float | None = None, days: int = RECENT
     return [s for s in stories if now - float(s.get("created_at") or 0) <= days * 86400]
 
 
+# chi tiết hay bị lặp giữa các truyện (phản hồi 21/11: «lúc nào cũng chạy và té»): nhãn -> mẫu tìm trong lời kể
+MOTIFS = (("té ngã / vấp", r"\b(té|ngã|vấp|trượt chân|va vào)\b"), ("chạy vội", r"\bchạy (thật nhanh|vội|một hơi|ào)"),
+          ("đồ rơi / rớt", r"\b(rớt|rơi xuống|đổ nhào)\b"), ("thả diều", r"\bdiều\b"), ("trái banh", r"\b(trái banh|quả bóng|banh)\b"),
+          ("quên lời hứa", r"\bquên\b.*\bhứa\b|\bhứa\b.*\bquên\b"), ("làm vỡ đồ", r"\b(vỡ|bể)\b"))
+AVOID_LAST = 4          # chi tiết của chừng này truyện gần nhất đưa vào lời nhắc «không dùng lại»
+
+
+def motifs(story: dict) -> list[str]:
+    """Nhãn chi tiết (MOTIFS) có trong lời kể + đồ vật chính của truyện, để truyện sau tránh."""
+    text = " ".join(str(sc.get("text") or "") for sc in story.get("scenes") or []).lower()
+    out = [name for name, rx in MOTIFS if re.search(rx, text)]
+    prop = str(story.get("prop_vi") or "").strip()
+    return out + ([prop] if prop else [])
+
+
+def avoid_list(stories: Sequence[dict], n: int = AVOID_LAST) -> list[str]:
+    """Chi tiết / đồ vật của n truyện gần nhất (đã viết xong), không trùng, giữ thứ tự."""
+    done = [s for s in sorted(stories, key=_created) if s.get("motifs")][-n:]
+    return list(dict.fromkeys(m for s in done for m in s.get("motifs") or []))
+
+
 def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, now: float | None = None) -> dict:
     """Đề cho một truyện mới: bài học ít dùng nhất, bộ ba (bài học, bối cảnh, xung đột) chưa dùng 30 ngày, bối cảnh và
     xung đột khác vài truyện gần nhất, 3-5 từ tiếng Anh (ưu tiên từ gắn với bài học) chưa dùng 30 ngày, nhân vật chính
@@ -151,6 +172,7 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     main = min(mains, key=last_main)
     recent_en = sorted(w for w, k in last_use.items() if k >= cutoff)          # choose_words xếp các từ này sau
     return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id, "recent_en": recent_en,
+            "avoid": avoid_list(stories),
             "words": [{"en": w, "vi": word_info(data, w)["vi"]} for w in words],
             "word_pool": [{"en": w, "vi": word_info(data, w)["vi"]} for w in pool],
             "main": main, "seed": rnd.randrange(1, 2 ** 31)}
