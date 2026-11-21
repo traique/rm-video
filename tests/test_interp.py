@@ -40,7 +40,9 @@ def test_smooth_only_when_slowed_enabled_and_gpu(monkeypatch, tmp_path):
     assert interp.smooth_for_slowdown("in.mp4", str(tmp_path), 1.3, "m") == "in.mp4"
     monkeypatch.setattr(config, "INTERP", "1")
     fake_torch.cuda.is_available = lambda: False
-    assert interp.smooth_for_slowdown("in.mp4", str(tmp_path), 1.3, "m") == "in.mp4"       # Botkeep / không GPU
+    logs = []
+    assert interp.smooth_for_slowdown("in.mp4", str(tmp_path), 1.3, "m", logs.append) == "in.mp4"   # không GPU
+    assert logs and "không có GPU" in logs[0]
     fake_torch.cuda.is_available = lambda: True
 
     def slow(*a, **k):
