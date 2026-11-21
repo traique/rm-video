@@ -15,7 +15,6 @@ import logging
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -223,54 +222,8 @@ def generate_one(pipe: Any, kind: str, prompt: str, seed: int, steps: int, guida
     return pipe(prompt=prompt, width=w, height=h, num_inference_steps=steps, guidance_scale=guidance, generator=g).images[0]
 
 
-ESR_DIR = os.environ.get("ESR_DIR") or os.path.join(tempfile.gettempdir(), "rmv_esrgan")
-
-
-def hd_path(p: str) -> str:
-    """Bản HD (2 lần khung dựng) cạnh ảnh cảnh: scene_01.png -> scene_01_hd.png."""
-    return os.path.splitext(p)[0] + "_hd.png"
-
-
-def for_render(paths: Sequence[str]) -> list[str]:
-    """Ảnh đưa vào dựng: bản HD Real-ESRGAN khi có (Ken Burns phóng / lia vẫn nét), không thì ảnh thường."""
-    return [hd_path(p) if os.path.exists(hd_path(p)) else p for p in paths]
-
-
-def _cover(img: Any, w: int, h: int) -> Any:
-    """Phủ kín w x h rồi cắt giữa (như scale=…:force_original_aspect_ratio=increase,crop của ffmpeg)."""
-    from PIL import Image
-    k = max(w / img.width, h / img.height)
-    big = img.resize((max(w, round(img.width * k)), max(h, round(img.height * k))), Image.Resampling.LANCZOS)
-    x, y = (big.width - w) // 2, (big.height - h) // 2
-    return big.crop((x, y, x + w, y + h))
-
-
-def upscale_esrgan(src: str, dst: str, w: int = OUT_W, h: int = OUT_H) -> bool:
-    """1.2.0: Real-ESRGAN x4 trên GPU (rmvideo/kids/esrgan.py) -> dst (w x h) + bản HD 2w x 2h cho dựng. False khi
-    không có GPU (caller phóng lanczos như cũ)."""
-    import torch
-    from PIL import Image
-
-    from rmvideo.kids import esrgan
-    if not torch.cuda.is_available():
-        return False
-    big = esrgan.upscale(Image.open(src).convert("RGB"), ESR_DIR, "cuda")
-    _cover(big, 2 * w, 2 * h).save(hd_path(dst))
-    _cover(big, w, h).save(dst)
-    return True
-
-
 def upscale(src: str, dst: str, w: int = OUT_W, h: int = OUT_H) -> str:
-    """Phóng lên 1080x1920: phủ kín khung rồi cắt (768x1344 lệch tỉ lệ 9:16 ~1,6%, không kéo méo). 1.2.0: Real-ESRGAN
-    trên GPU (kèm bản HD cho Ken Burns); không có GPU / lỗi thì lanczos + làm nét như cũ."""
-    try:
-        if upscale_esrgan(src, dst, w, h):
-            return dst
-    except Exception as e:                      # tải model hỏng, thiếu bộ nhớ GPU…: phóng lanczos, không hỏng job
-        logging.warning("Real-ESRGAN lỗi (%s): phóng lanczos", str(e)[:150])
-        for p in (dst, hd_path(dst)):
-            if os.path.exists(p):
-                os.remove(p)
+    """Phóng lên 1080x1920: phủ kín khung rồi cắt (768x1344 lệch tỉ lệ 9:16 ~1,6%, không kéo méo)."""
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", src, "-vf",
                     f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},unsharp=5:5:0.4:3:3:0.0",
                     "-frames:v", "1", dst], check=True)

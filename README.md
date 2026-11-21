@@ -260,19 +260,6 @@ dụng chép nội dung từ nền tảng khác. Nên bot làm phần còn lại
 Lưu ý kênh bếp: nhiều video nguồn lấy từ TikTok; đăng bản làm lại ngược lên TikTok dễ bị coi là «nội dung không nguyên
 bản» và bị hạn chế phân phối. Kênh bé là nội dung tự tạo nên hợp TikTok hơn.
 
-## 🎚️ Tách âm, phóng nét, nội suy khung (1.3.0)
-
-- **Bỏ nhạc gốc, giữ tiếng động** (`SFX_SEP`, kênh bếp, Kaggle GPU): sau khi bỏ giọng người gốc, model Bandit tách tiếng
-  nền thành nhạc / tiếng động và chỉ giữ tiếng động; bot tự lót nhạc Lyria thay nhạc gốc. Trọng số Bandit giấy phép
-  **CC BY-NC 4.0 (phi thương mại)** — bật kiếm tiền cho kênh thì đặt `SFX_SEP=0`.
-- **Phóng nét ảnh truyện bé** (Real-ESRGAN, BSD-3): tự chạy trên Kaggle GPU, lỗi thì phóng thường như cũ.
-- **Nội suy khung** (`INTERP`, RIFE 4.25, MIT): video gốc bị kéo chậm cho đủ thời lượng thì chèn khung giữa trước khi dựng
-  trên Kaggle, chuyển động không giật.
-
-Thành phần bên thứ ba: `rmvideo/media/bandit/` (mã Apache-2.0, trọng số CC BY-NC 4.0 — Watcharasupat và cộng sự),
-`rmvideo/media/rife.py` (MIT, hzwer — `rmvideo/media/RIFE-LICENSE-MIT.txt`), Real-ESRGAN (BSD-3-Clause, Xintao Wang); mã
-suy luận Bandit / RIFE lấy từ FreeVideo (Apache-2.0, FlashML-org).
-
 ## 🧸 Truyện bé «Kể Bé Nghe» (1.1.0)
 
 Kênh thứ hai, Fanpage RIÊNG: truyện 60–90 giây cho bé 3–8 tuổi ở thế giới **Đồi Cỏ Non** (Thỏ Trắng, Gấu Nâu, Mèo Cam, Sóc Nhỏ),

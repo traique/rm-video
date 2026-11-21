@@ -85,8 +85,8 @@ def test_kaggle_side_analyze(tmp_path, monkeypatch):
         return vid
     seen = {}
 
-    async def fake_sep(src, amb, timeout=0, windows=None, vocals_wav="", strip=True):
-        seen["windows"], seen["vocals"], seen["strip"] = windows, vocals_wav, strip
+    async def fake_sep(src, amb, timeout=0, windows=None, vocals_wav=""):
+        seen["windows"], seen["vocals"] = windows, vocals_wav
         for p in (amb, vocals_wav):
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=200:duration=6", p],
                            check=True)
@@ -103,7 +103,6 @@ def test_kaggle_side_analyze(tmp_path, monkeypatch):
     res = asyncio.run(kaggle_job.analyze(spec, str(tmp_path / "w")))   # tự tạo thư mục tạm
     assert res["ok"] and res["token"] == "tok1" and res["sep"] is True
     assert seen["windows"] is None and seen["vocals"].endswith(".wav")          # tách cả bài, ghi giọng sạch
-    assert seen["strip"] is True                                                  # giữ tiếng nền (bếp): bỏ nhạc gốc
     assert seen["asr"] == ("vocals16k.wav", "vi", "Cá kèo.")                    # Whisper nghe GIỌNG ĐÃ TÁCH
     assert set(res["files"]) == {"thumbs.zip", "ambient.flac"}
     with zipfile.ZipFile(res["files"]["thumbs.zip"]) as z:
@@ -125,7 +124,7 @@ def test_kaggle_side_analyze_inpaints_text_bands(tmp_path, monkeypatch):
     async def fake_fetch(ref, tmp, name):
         return vid
 
-    async def fake_sep(src, amb, timeout=0, windows=None, vocals_wav="", strip=True):
+    async def fake_sep(src, amb, timeout=0, windows=None, vocals_wav=""):
         for p in (amb, vocals_wav):
             subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=200:duration=6", p],
                            check=True)
