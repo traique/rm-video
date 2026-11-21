@@ -183,6 +183,41 @@ def quota() -> dict:
             "gpu_used": secs(g.get("timeUsed")), "refresh": d.get("quotaRefreshTime", "")}
 
 
+VN_OFFSET = 7 * 3600          # giờ Việt Nam (UTC+7, không đổi giờ mùa hè)
+QUOTA_TTL = 300               # web hỏi liên tục: đọc lại Kaggle tối đa mỗi 5 phút
+_QCACHE: dict = {}
+
+
+def quota_cached(max_age: float = QUOTA_TTL) -> dict:
+    """quota() nhớ trong max_age giây (max_age=0: đọc mới, vd ngay sau một phiên GPU)."""
+    hit = _QCACHE.get("q")
+    if hit and time.time() - hit[0] < max_age:
+        return hit[1]
+    q = quota()
+    _QCACHE["q"] = (time.time(), q)
+    return q
+
+
+def vn_time(iso: str) -> str:
+    """'2026-11-22T00:00:00Z' -> '07:00 22/11' (giờ Việt Nam); không đọc được thì trả nguyên."""
+    from datetime import datetime, timedelta, timezone
+    try:
+        t = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return t.astimezone(timezone(timedelta(seconds=VN_OFFSET))).strftime("%H:%M %d/%m")
+    except (TypeError, ValueError):
+        return str(iso or "?")
+
+
+def quota_text(q: dict) -> str:
+    """'còn 21,5 / 30 giờ GPU tuần này, làm mới 07:00 22/11'."""
+    left, used = max(0.0, q["gpu_left"]) / 3600, q.get("gpu_used", 0.0) / 3600
+    total = left + used
+    s = f"còn {left:.1f}".replace(".", ",") + (f" / {total:.0f}" if total else "") + " giờ GPU tuần này"
+    return s + (f", làm mới {vn_time(q['refresh'])}" if q.get("refresh") else "")
+
+
 def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: list | None = None,
          dataset_sources: list | None = None) -> dict:
     """kernel_sources: slug các notebook khác mà notebook này đọc đầu ra (gắn ở /kaggle/input/notebooks/<tên>/<slug>/,

@@ -465,7 +465,8 @@ def _jsonable(o):
 def main(spec: dict, out_dir: str = "/kaggle/working"):
     global _SEP_DONE
     _SEP_DONE = {}                                       # một phiên Kaggle: các việc cùng video dùng chung tiếng nền
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
+    logging.Formatter.converter = staticmethod(lambda secs=None: time.gmtime((time.time() if secs is None else secs) + 7 * 3600))
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)   # giờ Việt Nam
     prepare_env(spec)
     sys.path.insert(0, APP)
     jobs = spec["jobs"] if spec.get("kind") == "batch" else [spec]
