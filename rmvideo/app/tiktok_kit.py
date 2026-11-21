@@ -229,3 +229,8 @@ async def run_forever(every: float = 60) -> None:
         except Exception as e:
             logging.warning("Gói TikTok lỗi: %s", str(e)[:200])
         await asyncio.sleep(every)
+
+
+def pending_paths() -> set[str]:
+    """File video còn chờ (storage không dọn các file này)."""
+    return {str(i["path"]) for i in load_state()["items"] if i.get("status") in ("pending",) and i.get("path")}

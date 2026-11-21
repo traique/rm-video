@@ -59,6 +59,7 @@ CONNECT_TTL = 15 * 60          # phiên «Kết nối YouTube» (state OAuth) h�
 UPLOAD_TIMEOUT = 1800
 VIEWS_AFTER, VIEWS_RETRY, VIEWS_GIVEUP = 24 * 3600, 6 * 3600, 7 * 86400
 KEEP_ITEMS = 300
+PENDING_MAX_AGE = 3 * 86400    # chờ quá 3 ngày (kênh dừng mà chưa kết nối lại): bỏ, để storage được dọn file
 FATAL = {"invalid_grant", "invalid_client", "unauthorized_client", "authError", "forbidden", "insufficientPermissions",
          "youtubeSignupRequired", "accessNotConfigured", "SERVICE_DISABLED"}
 LATER_REASONS = {"quotaExceeded", "uploadLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded",
@@ -478,9 +479,15 @@ async def _tick(now: float, session: aiohttp.ClientSession | None) -> str:
         await notify_admin(f"⚠️ Bot dừng đúng lúc đang tải video #{it['job']} lên YouTube ({CHANNELS[it['ch']]['vi']}). "
                            "Mở YouTube Studio kiểm tra; bot KHÔNG tự tải lại để tránh trùng.")
     st = load_state()
-    if any(p.get("fp") != _fp(refresh_token(ch)) for ch, p in st["paused"].items() if ch in CHANNELS):
-        st["paused"] = {ch: p for ch, p in st["paused"].items() if p.get("fp") == _fp(refresh_token(ch))}
+    if any(ch not in CHANNELS or p.get("fp") != _fp(refresh_token(ch)) for ch, p in st["paused"].items()):
+        st["paused"] = {ch: p for ch, p in st["paused"].items()
+                        if ch in CHANNELS and p.get("fp") == _fp(refresh_token(ch))}
         save_state(st)                              # token đã đổi (kết nối lại / dán tay): chạy tiếp
+    old = [i for i in st["items"] if i.get("status") == "pending" and float(i.get("created") or now) < now - PENDING_MAX_AGE]
+    for i in old:
+        _patch(i["key"], status="failed", why=f"chờ quá {PENDING_MAX_AGE // 86400} ngày chưa tải lên được, bỏ")
+    if old:
+        st = load_state()
     it = next((i for i in st["items"] if i.get("status") == "pending" and float(i.get("next_try") or 0) <= now
                and i.get("ch") in CHANNELS and i["ch"] not in st["paused"] and not missing(i["ch"])), None)
     due = [i for i in st["items"] if i.get("status") == "done" and i.get("yt_id") and i.get("views") is None
@@ -591,3 +598,10 @@ async def run_forever(every: float = 120) -> None:
         except Exception as e:
             logging.warning("YouTube lỗi: %s", str(e)[:200])
         await asyncio.sleep(every)
+
+
+def pending_paths() -> set[str]:
+    """File video còn chờ (storage không dọn các file này)."""
+    now = time.time()
+    return {str(i["path"]) for i in load_state()["items"] if i.get("status") in ("pending", "uploading") and i.get("path")
+            and float(i.get("created") or now) >= now - PENDING_MAX_AGE}

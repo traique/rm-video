@@ -193,6 +193,7 @@ def test_queue_tick_upload_errors_and_views(monkeypatch, yt, tmp_path):
     assert youtube.after_facebook("cook", Job, str(vid), "t", "d", W) is False    # một lần mỗi job
     it = youtube.load_state()["items"][0]
     assert it["title"] == "Gà chiên nước mắm #Shorts" and it["status"] == "pending"
+    youtube._patch("cook:7", created=NOW)                  # after_facebook ghi giờ thật; test chạy trên mốc NOW
 
     # hết hạn mức: thử lại sau 6 giờ, không tính là lỗi
     flags = {"quota": True}
@@ -322,3 +323,17 @@ def test_autopost_finish_queues_youtube(monkeypatch, yt, tmp_path):
     it = youtube.load_state()["items"][0]
     assert (it["key"], it["when"], it["title"]) == ("cook:42", NOW + 7200, "Bò kho #Shorts")
     assert json.dumps(it, ensure_ascii=False)
+
+
+def test_pending_too_long_is_dropped(monkeypatch, yt, tmp_path):
+    """Kênh dừng (token bị thu hồi) mà không kết nối lại: video chờ quá PENDING_MAX_AGE thì bỏ (để ổ đĩa được dọn)."""
+    config.save_settings({"YT_REFRESH_TOKEN": "RT1"})
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"x")
+    assert youtube.enqueue("cook", 1, str(vid), "A", "d", None, now=NOW - youtube.PENDING_MAX_AGE - 1)
+    st = youtube.load_state()
+    st["paused"]["cook"] = {"why": "x", "fp": youtube._fp("RT1"), "at": NOW}
+    youtube.save_state(st)
+    asyncio.run(youtube.tick(now=NOW))
+    it = youtube.load_state()["items"][0]
+    assert it["status"] == "failed" and "3 ngày" in it["why"] and youtube.pending_paths() == set()

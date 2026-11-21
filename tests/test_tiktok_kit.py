@@ -165,3 +165,33 @@ def test_kids_finish_pending_queues_youtube_and_tiktok(monkeypatch, kit, tmp_pat
     it = tiktok_kit.load_state()["items"][0]
     assert (it["key"], it["send_at"], it["caption"].startswith("Truyện cho bé")) == ("kids:77", W - tiktok_kit.LEAD, True)
     assert youtube.load_state()["items"] == []                     # YouTube kênh bé chưa kết nối: không xếp
+
+
+def test_storage_keeps_files_waiting_for_tiktok_or_youtube(monkeypatch, kit, tmp_path):
+    """OUT_MAX_MB chỉ giữ ~10 video mà gói TikTok có thể chờ hơn một ngày tới giờ vàng: file chờ không bị dọn."""
+    import os
+    import time
+
+    import storage
+    from rmvideo.app import youtube
+    bot, Job, vid = kit
+    out = tmp_path / "out"
+    out.mkdir()
+    monkeypatch.setattr(storage, "OUT_DIR", str(out))
+    monkeypatch.setattr(config, "OUT_MAX_MB", 1)
+    monkeypatch.setattr(youtube, "STATE_FILE", str(tmp_path / "yt.json"))
+    files = []
+    for k in range(4):                                     # 4 file 600KB, cũ nhất trước
+        f = out / f"out_{k}_0.mp4"
+        f.write_bytes(b"x" * 600_000)
+        os.utime(f, (time.time() - 1000 + k, time.time() - 1000 + k))
+        files.append(str(f))
+    Job.parts = [{"label": "Video", "path": files[0], "token": "t"}]
+    assert tiktok_kit.after_facebook("cook", Job, files[0], "d", W, now=NOW)      # file cũ nhất chờ giờ vàng
+    st = youtube.load_state()
+    st["items"].append({"key": "cook:5", "ch": "cook", "job": 5, "path": files[1], "status": "pending", "created": time.time()})
+    st["items"].append({"key": "cook:6", "ch": "cook", "job": 6, "path": files[2], "status": "pending",
+                        "created": time.time() - youtube.PENDING_MAX_AGE - 10})          # chờ quá lâu: không giữ
+    youtube.save_state(st)
+    storage._cleanup_outputs({files[3]})
+    assert [os.path.exists(f) for f in files] == [True, True, False, True]
