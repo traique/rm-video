@@ -88,9 +88,9 @@ def test_word_budget_counts_spoken_words_and_fits_teaser(monkeypatch):
     monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
     monkeypatch.setattr(config, "OPENROUTER_API_KEY", "")
     segs = [(32.2, 41.0, "Ướp với 100g đường, 50ml nước mắm, 2 muỗng dầu hào trong 15 phút."), (42.0, 45.0, "Đảo đều lên nha.")]
-    asyncio.run(pe.generate_timed("t", "", "cook", segs, 60.0, teaser=3.0))
+    asyncio.run(pe.generate_timed("t", "", "cook", segs, 60.0, teaser=2.0))
     lines = [x for x in seen["prompt"].splitlines() if re.match(r"^\d+ \| ", x)]
-    assert lines[0].startswith("0 | 0.0s | 7-9 từ")                       # câu hook vừa 3.4s, không phải 5.5s
+    assert lines[0].startswith("0 | 0.0s | 7-9 từ")                       # câu hook vừa 2 + 1,5s, không phải 5.5s
     lo, hi = map(int, lines[1].split(" | ")[2].split()[0].split("-"))
     assert hi >= 21 and pe.spoken_words(segs[0][2]) == 21                 # "100g" = 3 chữ đọc ra
     pe.set_voice_rate(None)
@@ -249,12 +249,12 @@ def test_music_only_template_post_blocks_autopost(silent_job, monkeypatch):  # n
 
 def test_teaser_total_never_exceeds_duration_limit(teaser_job, tmp_path, monkeypatch):  # noqa: F811
     src, seen = teaser_job
-    monkeypatch.setattr(config, "MAX_DURATION", 10)                 # video 8s + 3s mở đầu > giới hạn 10s
+    monkeypatch.setattr(config, "MAX_DURATION", 9)                  # video 8s + 2s mở đầu > giới hạn 9s
     job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src)
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
-    assert job.out_dur == pytest.approx(10.0) and "bớt 1s cuối cho vừa 10s" in job.error
-    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(10.0, abs=0.15)
+    assert job.out_dur == pytest.approx(9.0) and "bớt 1s cuối cho vừa 9s" in job.error
+    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(9.0, abs=0.15)
 
 
 def test_budget_timeout_is_not_a_network_timeout():

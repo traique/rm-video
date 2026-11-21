@@ -250,7 +250,8 @@ def shared_look(plan, W: int, H: int, src_w: int, src_h: int) -> bool:
     return max(W / (src_w * keep), H / (src_h * keep)) <= 1.05
 
 
-TEASER_DUR = 3.0          # đoạn mở đầu: cảnh món đã xong chiếu trước 3 giây, kèm câu hook (bản 29)
+TEASER_DUR = 2.0          # đoạn mở đầu: cảnh thành phẩm chiếu trước kèm câu hook (bản 29: 3 giây; 1.4.0: 2 giây)
+TEASER_LEAD = 0.5         # bắt đầu trước khung AI chọn chừng này (cùng cảnh): thấy trọn động tác cắn / rưới sốt
 
 
 TEASER_ZOOM = 0.06        # đẩy cận 6% trong đoạn mở đầu (ảnh tĩnh: x1.7)
@@ -259,14 +260,16 @@ TEASER_ZOOM = 0.06        # đẩy cận 6% trong đoạn mở đầu (ảnh tĩ
 TEASER_STILL_ZOOM = 1.7
 
 
-def teaser_window(t: float, cuts: list, end: float, dur: float = TEASER_DUR) -> tuple:
+def teaser_window(t: float, cuts: list, end: float, dur: float = TEASER_DUR, lead: float = 0.0) -> tuple:
     """(giây bắt đầu, ảnh tĩnh?) của đoạn mở đầu dài dur giây trong CÙNG cảnh với khung t (thời gian video gốc).
-    Đủ chỗ thì bắt đầu đúng khung t (khung đầu video = ảnh bìa AI chọn, Facebook/TikTok hay lấy khung đầu làm ảnh
-    bìa); cảnh đủ dài nhưng t sát cuối cảnh thì lùi về trước; cảnh ngắn hơn dur thì đứng hình tại t (đẩy cận)."""
+    Đủ chỗ thì bắt đầu tại t - lead (không lùi qua đầu cảnh): khung AI chọn thường là giữa động tác (đang cắn, đang kéo
+    sợi), lùi một chút để thấy trọn động tác; cảnh đủ dài nhưng t sát cuối cảnh thì lùi về trước; cảnh ngắn hơn dur thì
+    đứng hình tại t (đẩy cận)."""
     prev = max([c for c in cuts if c <= t + 0.05], default=0.0)
     nxt = min([c for c in cuts if c > t + 0.05] + [end])
-    if nxt - t >= dur + 0.15:
-        return round(t, 3), False
+    s0 = min(t, max(t - lead, prev + 0.15 if prev > 0 else 0.0))
+    if nxt - s0 >= dur + 0.15:
+        return round(s0, 3), False
     if nxt - prev >= dur + 0.3:
         return round(max(prev + 0.15, nxt - dur - 0.15), 3), False
     return round(t, 3), True

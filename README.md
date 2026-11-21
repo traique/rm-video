@@ -609,19 +609,36 @@ nên bot thử gắn ảnh bìa sau khi đăng (Facebook không nhận thì bỏ
 
 ## 🎬 Mở đầu bằng món thành phẩm (video nấu ăn có lời)
 
-`TEASER=1` (mặc định, cần key Gemini): AI chọn khoảnh khắc món đã xong đẹp nhất (cũng là ảnh bìa), video mở đầu bằng
-**3 giây cảnh đó** kèm **câu hook có giọng ngay giây 0** và chữ hook to giữa màn hình, rồi mới vào video từ đầu.
+`TEASER=1` (mặc định, cần key Gemini): video mở đầu bằng **2 giây cảnh thành phẩm hấp dẫn nhất** kèm **câu hook có
+giọng ngay giây 0** và chữ hook to giữa màn hình, rồi mới vào video từ đầu (1.4.0; trước đó 3 giây cảnh ảnh bìa).
 
-- Đoạn mở đầu nằm trong cùng một cảnh (không vắt qua chuyển cảnh); cảnh ngắn hơn 3 giây thì đứng hình. Đẩy cận nhẹ,
-  vào thẳng cảnh món (không mờ từ đen) vì khung đầu thường được lấy làm ảnh bìa; dưới giọng hook là tiếng xèo/giòn của
-  chính cảnh đó (khi đã tách giọng gốc).
-- Câu hook viết riêng cho cảnh món (AI nhìn ảnh), đọc vừa 3 giây; không hiện phụ đề trùng với chữ hook.
-- Không làm khi: AI không thấy cảnh món đã xong rõ ràng, video gốc đã tự mở đầu bằng món (AI xem 4 khung trải trên
-  phần mở đầu, và bot so khung: phần mở đầu dùng lại đúng cảnh đó thì bỏ — nhiều kênh tự chiếu trước món ở 5-10 giây
-  đầu), video không lời, chế độ review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do;
-  khi đó câu hook vẫn đọc ngay giây 0 trên phần mở đầu sẵn có của video gốc.
-- Video ≤ 90 giây thì thêm 3 giây cũng không vượt 90 giây (bớt phần cuối) để vẫn đăng được Reels; chọn 30/60/90 giây
+- Cùng lượt chọn ảnh bìa, AI xếp hạng riêng các khung MÓN ĐÃ XONG để mở đầu, ưu tiên khoảnh khắc có hành động (cắn thử,
+  gắp / kéo sợi, cắt đôi, rưới sốt, bẻ lớp giòn, khói bốc); bot gửi thêm 4 khung có chuyển động ở nửa sau video để AI
+  không chỉ thấy dĩa món đứng yên. Ảnh bìa vẫn là khung đẹp nhất AI chọn riêng.
+- Đoạn mở đầu nằm trong cùng một cảnh (không vắt qua chuyển cảnh), bắt đầu trước khung AI chọn 0,5 giây để thấy trọn
+  động tác; cảnh ngắn hơn 2 giây thì đứng hình. Dưới giọng hook là tiếng xèo/giòn của chính cảnh đó (khi đã tách giọng).
+- Câu hook viết riêng cho cảnh món (AI nhìn ảnh), được đọc lấn sang video chính tối đa 1,5 giây nếu người gốc chưa nói;
+  không hiện phụ đề trùng với chữ hook.
+- Chỉ bỏ đoạn mở đầu khi: video gốc mở NGAY bằng món (khung giây 0,5 đã là món), AI không thấy cảnh món đã xong, mọi
+  cảnh thành phẩm đều là đúng cảnh phần mở đầu gốc đã chiếu (bot thử 3 cảnh xếp hạng đầu), video không lời, chế độ
+  review / nhạc / ảnh, phần cắt từ video dài. Mỗi lần bỏ qua đều có ghi chú lý do.
+- Video ≤ 90 giây thì thêm 2 giây cũng không vượt 90 giây (bớt phần cuối) để vẫn đăng được Reels; chọn 30/60/90 giây
   thì giữ đúng độ dài đó. Duyệt kịch bản rồi render lại: dùng đúng đoạn mở đầu đã chọn.
+
+## 🪝 Chọn câu hook mạnh nhất (1.4.0)
+
+`HOOK_PICK=1` (mặc định, cần key Gemini; thêm 2 lượt Gemini mỗi video): sau khi AI viết kịch bản, một lượt AI riêng viết
+thêm ~8 câu mở đầu theo nhiều kiểu — **vấn đề** («bò lúc lắc hay bị dai là do bước này»), **mẹo bất ngờ**, **kết quả**
+cụ thể, **tò mò**, **con số** có thật — rồi một lượt AI khác chấm 1-10 và chọn câu mạnh nhất (câu cũ cũng được chấm
+cùng, nên không bao giờ kém hơn).
+
+- Bot tự loại câu: dài quá khe đoạn mở đầu, chào hỏi / kêu gọi, «mình thử…» (người đọc không phải người nấu), «triệu
+  view» bịa, nguyên liệu hay con số không có trong lời gốc; người gốc nói ngay giây đầu thì câu hook phải giữ đủ nguyên
+  liệu / số của câu đó.
+- Ghi chú job cho biết câu đã chọn, kiểu, điểm. Kiểu hook lưu vào `hooks.json`; khi YouTube đã đếm lượt xem sau 24h,
+  trạng thái 🤖 tự động đăng có dòng «Hook theo lượt xem YouTube 24h: vấn đề 2.000 (5 video) · …» để biết kênh hợp kiểu
+  nào.
+- Mở đầu 2 giây nên câu hook thường chỉ 6-10 chữ (người gốc nói ngay từ đầu thì ngắn hơn).
 
 ## Từ điển bóc lời
 

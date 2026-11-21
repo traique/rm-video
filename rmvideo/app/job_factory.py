@@ -121,7 +121,8 @@ def approved(src: Job, segs: list) -> Job:
               tg_file_id=src.tg_file_id, title_hint=src.title_hint, music_url=src.music_url,
               music_local="", music_tg_file_id=src.music_tg_file_id, source=src.source, chat_id=src.chat_id,
               approved=segs, cut_at=src.cut_at, source_meta=src.source_meta, teaser=dict(src.teaser or {}),
-              edit=dict(src.edit or {}), recipe=dict(src.recipe or {}), zoom=dict(src.zoom or {}))
+              edit=dict(src.edit or {}), recipe=dict(src.recipe or {}), zoom=dict(src.zoom or {}),
+              hook_kind=src.hook_kind)
     job.post = src.post
     job.hook = src.hook          # chữ hook in màn hình + ảnh bìa (trước đây bản duyệt mất chữ hook, lấy tiêu đề bài)
     return job

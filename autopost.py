@@ -1042,6 +1042,8 @@ def status_text() -> str:
                  f"đã đăng {len(st['posts'])} bài.")
     from rmvideo.app import youtube
     lines += youtube.status_lines("cook", now)
+    from rmvideo.app.flow import hooks
+    lines += hooks.status_lines("cook")
     from rmvideo.app import tiktok_kit
     lines += tiktok_kit.status_lines("cook", now)
     if not why:

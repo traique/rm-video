@@ -115,21 +115,54 @@ def pick_candidates(times: np.ndarray, scores: np.ndarray, k: int = N_CAND, min_
     return out
 
 
+N_ACTION = 4               # đoạn mở đầu: thêm chừng này khung «có hành động» (cắn, kéo sợi, rưới sốt...) cho AI xếp hạng
+
+
+def action_candidates(frames: np.ndarray, times: np.ndarray, scores: np.ndarray, taken: list, k: int = N_ACTION,
+                      min_gap: float = 1.5) -> list:
+    """Khung CÓ CHUYỂN ĐỘNG ở nửa sau video (thường là cắn thử, gắp, cắt đôi, rưới sốt lên món đã xong) để AI chọn cảnh
+    mở đầu: ảnh bìa chọn khung đứng yên đẹp nhất nên hay bỏ sót các khoảnh khắc này. Chuyển động = độ lệch trung bình
+    với khung liền trước / sau; khung bị loại khi chấm ảnh bìa (sát chuyển cảnh, tối, màn kết) vẫn bị loại."""
+    n = len(frames)
+    if n < 3:
+        return []
+    g = frames.astype(np.float32).mean(axis=3)
+    d = np.abs(np.diff(g, axis=0)).mean(axis=(1, 2))
+    motion = np.zeros(n)
+    motion[1:] += d
+    motion[:-1] += d
+    motion[1:-1] /= 2
+    fm = frame_metrics(frames)
+    late = times >= float(times[-1]) * 0.5
+    sc = _z(motion) + 0.5 * _z(fm["sharp"]) + 0.5 * _z(fm["color"])
+    sc = np.where(np.isfinite(scores) & late, sc, -np.inf)
+    out: list = []
+    for i in np.argsort(-sc):
+        if not np.isfinite(sc[i]) or len(out) >= k:
+            break
+        if all(abs(times[i] - times[j]) >= min_gap for j in taken + out):
+            out.append(int(i))
+    return out
+
+
 # ---------- 2. AI chọn ----------
 
 COVER_PROMPT = """Dưới đây là {n} ảnh (Ảnh 0 đến Ảnh {last}) cắt từ một {kind} có tiêu đề «{title}». Chọn MỘT ảnh làm ẢNH BÌA hấp dẫn nhất để người lướt mạng dừng lại xem: món ăn/sản phẩm chính rõ nét, đầy đủ, màu đẹp, trông ngon; không bị tay, dụng cụ hay hơi nước che; không mờ nhoè vì chuyển động; không phải cảnh chuyển tiếp hay khung tối. Với video nấu ăn, ưu tiên món đã hoàn thành.
 Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn"}}"""
 
 # Đoạn mở đầu (bản 29): cùng lượt AI chọn ảnh bìa hỏi thêm ảnh đó có phải MÓN ĐÃ XONG không, và video gốc đã tự mở
-# đầu bằng món xong chưa — chưa thì chiếu trước cảnh món xong 3 giây. Bản 30: gửi NHIỀU khung trải trên các giây đầu
+# đầu bằng món xong chưa — chưa thì chiếu trước cảnh món xong. Bản 1.4.0: AI xếp hạng riêng các khung THÀNH PHẨM để mở
+# đầu (ưu tiên khoảnh khắc có hành động: cắn, kéo sợi, cắt đôi, rưới sốt) và cho biết khung đầu nào của video gốc đã
+# có món (chỉ khi video gốc mở ngay bằng món mới bỏ đoạn mở đầu). Bản 30: gửi NHIỀU khung trải trên các giây đầu
 # (video cá kèo 13/11/2026: giây 0.5 đang chiên, nhưng giây 3-6 đã chiếu trước dĩa cá thành phẩm -> một khung là thiếu,
 # đoạn mở đầu bị lặp đúng cảnh đầu video).
 TEASER_ASK = """
 Ảnh {first} đến Ảnh {last} (các ảnh cuối) là các khung trong {secs:.0f} giây ĐẦU của video gốc, theo thứ tự thời gian, chỉ để bạn so sánh — KHÔNG được chọn các ảnh này làm ảnh bìa.
-Trả lời thêm hai ý:
-- "finished": ảnh bạn chọn có phải MÓN ĐÃ HOÀN THÀNH không (đã nấu xong: bày ra dĩa/tô/nồi, đang gắp hoặc cắn thử) — true/false. Nguyên liệu sống, đang sơ chế, đang nấu dở trên bếp là false.
-- "opens_with_dish": trong các khung đầu video (Ảnh {first} đến Ảnh {last}) có khung nào đã cho thấy món hoàn thành chưa — video gốc tự chiếu trước món đã xong, kể cả chỉ thoáng qua hay khác góc máy — true/false.
-Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn", "finished": true/false, "opens_with_dish": true/false}}"""
+Video mới sẽ MỞ ĐẦU bằng 2 giây cảnh THÀNH PHẨM hấp dẫn nhất (người đang lướt phải thấy ngay phần thưởng nếu xem tiếp). Trả lời thêm:
+- "finished": ảnh bạn chọn làm ảnh bìa có phải MÓN ĐÃ HOÀN THÀNH không (đã nấu xong: bày ra dĩa/tô/nồi, đang gắp hoặc cắn thử) — true/false. Nguyên liệu sống, đang sơ chế, đang nấu dở trên bếp là false.
+- "teaser": các số ảnh (chỉ trong Ảnh 0 đến Ảnh {cand_last}) là MÓN ĐÃ HOÀN THÀNH, xếp từ hấp dẫn nhất để mở đầu video. Ưu tiên khoảnh khắc CÓ HÀNH ĐỘNG làm người xem thèm: cắn thử, gắp / kéo sợi, cắt đôi thấy bên trong, rưới / chan nước sốt, bẻ lớp da giòn, khói bốc; rồi mới tới dĩa món đứng yên. Không có ảnh nào là món đã xong thì [].
+- "opens_at": số ảnh ĐẦU TIÊN trong Ảnh {first} đến Ảnh {last} đã cho thấy món hoàn thành (video gốc tự chiếu trước món đã xong, kể cả thoáng qua hay khác góc máy); không có thì -1.
+Trả về DUY NHẤT JSON: {{"best": số thứ tự ảnh, "reason": "lý do ngắn", "finished": true/false, "teaser": [số ảnh, ...], "opens_at": số ảnh hoặc -1}}"""
 
 OPENING_MAX = 12.0         # "phần mở đầu" của video gốc: tối đa 12 giây đầu (video cá kèo: xem trước 0-10s)
 REPEAT_SIM = 0.9           # khung đầu video giống cảnh mở đầu chừng này trở lên = video gốc dùng lại đúng cảnh đó
@@ -184,14 +217,16 @@ try:
         best: int
         reason: str
         finished: bool = False
-        opens_with_dish: bool = False
+        teaser: list[int] = []
+        opens_at: int = -1
 except Exception:
     CoverOut = None
 
 
 async def ai_judge(images: list, title: str, mode: str, opening=None, opening_secs: float = 0.0) -> dict | None:
     """Gemini chọn ảnh bìa trong các ứng viên. opening: các khung đầu video gốc (để AI cho biết ảnh chọn có phải món
-    đã xong và video gốc đã mở đầu bằng món chưa). Trả {"best", "finished", "opens_with_dish"} hoặc None."""
+    đã xong và video gốc đã mở đầu bằng món chưa). Trả {"best", "finished", "teaser": [số ứng viên thành phẩm, hấp dẫn
+    nhất trước], "opens_at": số khung đầu đầu tiên có món (-1 = không), "opens_with_dish"} hoặc None."""
     if not config.GEMINI_API_KEY or len(images) < 2:
         return None
     import prompt_engine
@@ -202,17 +237,31 @@ async def ai_judge(images: list, title: str, mode: str, opening=None, opening_se
     prompt = COVER_PROMPT.format(n=len(images), last=len(images) - 1, kind=kind, title=title or "(không có)")
     if opening:
         prompt = prompt.rsplit("\nTrả về DUY NHẤT JSON", 1)[0] + TEASER_ASK.format(
-            first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX)
+            first=len(images), last=len(images) + len(opening) - 1, secs=opening_secs or OPENING_MAX,
+            cand_last=len(images) - 1)
     try:
         raw = await prompt_engine.call_gemini(prompt, images + opening, schema=CoverOut, label="Ảnh", timeout=40)
         d = prompt_engine.loads_lenient(raw)
         best = int(d.get("best"))
         if 0 <= best < len(images):
+            teaser: list[int] = []
+            for x in (d.get("teaser") or []) if opening else []:
+                try:
+                    i = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= i < len(images) and i not in teaser:
+                    teaser.append(i)
+            try:
+                at = int(d.get("opens_at", -1)) - len(images)
+            except (TypeError, ValueError):
+                at = -1
+            at = at if opening and 0 <= at < len(opening) else -1
             logging.info("AI chọn ảnh bìa %d/%d%s: %s", best, len(images),
-                         f" (món xong: {d.get('finished')}, gốc mở đầu bằng món: {d.get('opens_with_dish')})"
+                         f" (món xong: {d.get('finished')}, mở đầu bằng: {teaser}, gốc có món từ khung đầu số {at})"
                          if opening else "", str(d.get("reason", ""))[:120])
-            return {"best": best, "finished": d.get("finished") is True,
-                    "opens_with_dish": d.get("opens_with_dish") is True}
+            return {"best": best, "finished": d.get("finished") is True, "teaser": teaser, "opens_at": at,
+                    "opens_with_dish": at >= 0}
         logging.warning("AI chọn ảnh bìa số %s ngoài danh sách 0-%d, lấy ảnh điểm cao nhất", best, len(images) - 1)
     except Exception as e:
         logging.warning("AI chọn ảnh bìa lỗi (%s), lấy ảnh điểm cao nhất", str(e)[:100])
@@ -317,7 +366,11 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
                       opening: bool = False) -> dict | None:
     """Khung đẹp nhất của video (thời gian theo video GỐC): chấm điểm rồi AI chọn trong 6 ứng viên. opening=True: gửi
     kèm khung mở đầu để AI cho biết ảnh chọn có phải món đã xong không và video gốc đã mở đầu bằng món chưa (đoạn mở
-    đầu, bản 29). Trả {"t", "score", "n", "ai", "finished", "opens_with_dish"} hoặc None. Không ném lỗi."""
+    đầu, bản 29; bản 1.4.0 thêm khung có hành động). Trả {"t", "score", "n", "ai", "finished", "opens_with_dish",
+    "teaser_ts": [giây các khung thành phẩm, hấp dẫn nhất trước], "opens_at": giây khung đầu video gốc đầu tiên đã có món
+    (-1 = không)} hoặc None. Không ném lỗi."""
+    teaser_ts: list = []
+    opens_at = -1.0
     try:
         times, frames = await asyncio.to_thread(frames_sync, src, thumbs_dir, thumb_times)
         if not len(frames):
@@ -327,6 +380,8 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
         if not cand:
             return None
         best, got = cand[0], None
+        if opening:                                   # đoạn mở đầu: thêm khung có hành động cho AI xếp hạng
+            cand = cand + action_candidates(frames, times, sc, cand)
         if len(cand) >= 2 and config.GEMINI_API_KEY:
             images = []
             for i in cand:
@@ -337,13 +392,18 @@ async def best_moment(src: str, mode: str, title: str, src_dur: float, cuts: lis
             if opening:                                   # các khung trải trên phần mở đầu video gốc
                 for t in opening_times(win):
                     heads.append(await asyncio.to_thread(scenes._keyframe_sync, src, min(t, max(0.0, src_dur - 0.2))))
+            heads_t = [t for t, h in zip(opening_times(win), heads) if h] if opening else []
             got = await ai_judge(images, title, mode, [h for h in heads if h], win)
             if got is not None:
                 best = cand[got["best"]]
+                teaser_ts = [round(float(times[cand[i]]), 3) for i in got.get("teaser") or []]
+                k = int(got.get("opens_at", -1))
+                opens_at = float(heads_t[k]) if 0 <= k < len(heads_t) else -1.0
         logging.info("Khung đẹp nhất: %.1fs (điểm %.2f, %d ứng viên%s)", float(times[best]), float(sc[best]),
                      len(cand), ", AI chọn" if got else "")
         return {"t": float(times[best]), "score": float(sc[best]), "n": len(cand), "ai": got is not None,
-                "finished": bool(got and got["finished"]), "opens_with_dish": bool(got and got["opens_with_dish"])}
+                "finished": bool(got and got["finished"]), "opens_with_dish": bool(got and got["opens_with_dish"]),
+                "teaser_ts": teaser_ts, "opens_at": opens_at}
     except Exception as e:
         logging.warning("Không chọn được khung đẹp nhất: %s", str(e)[:200])
         return None

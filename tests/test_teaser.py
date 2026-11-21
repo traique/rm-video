@@ -1,4 +1,4 @@
-"""Bản 29: video nấu ăn có lời mở đầu bằng 3 giây cảnh MÓN ĐÃ XONG (AI chọn, cũng là ảnh bìa) kèm câu hook có giọng.
+"""Bản 29: video nấu ăn có lời mở đầu bằng cảnh MÓN ĐÃ XONG (1.4.0: 2 giây, thành phẩm hấp dẫn nhất) (AI chọn, cũng là ảnh bìa) kèm câu hook có giọng.
 Chọn cửa sổ trong cùng một cảnh, AI xác nhận món đã xong / video gốc chưa mở đầu bằng món, dựng thật bằng FFmpeg
 (hình, tiếng nền, độ dài), cả luồng pipeline (mốc lùi 3 giây, giữ ≤ 90s cho Reels, bản duyệt dùng lại), Kaggle."""
 import asyncio
@@ -49,10 +49,16 @@ def _noise_db(path, a, b) -> float:
 
 def test_teaser_window_stays_in_one_scene():
     w = core_video.teaser_window
-    assert w(40.0, [30.0, 50.0], 60.0) == (40.0, False)      # đủ chỗ: bắt đầu đúng khung AI chọn (khung đầu = ảnh bìa)
-    assert w(48.5, [30.0, 50.0], 60.0) == (46.85, False)     # sát cuối cảnh: lùi về trước, không vắt sang cảnh sau
-    assert w(41.0, [40.0, 42.5], 60.0) == (41.0, True)       # cảnh 2.5s < 3s: đứng hình tại khung đó
-    assert w(57.5, [], 59.0) == (55.85, False)               # không vượt quá phần sẽ render (đã cắt quảng cáo cuối)
+    assert w(40.0, [30.0, 50.0], 60.0, 3.0) == (40.0, False)      # đủ chỗ: bắt đầu đúng khung AI chọn
+    assert w(48.5, [30.0, 50.0], 60.0, 3.0) == (46.85, False)     # sát cuối cảnh: lùi về trước, không vắt sang cảnh sau
+    assert w(41.0, [40.0, 42.5], 60.0, 3.0) == (41.0, True)       # cảnh 2.5s < 3s: đứng hình tại khung đó
+    assert w(57.5, [], 59.0, 3.0) == (55.85, False)               # không vượt quá phần sẽ render (đã cắt quảng cáo cuối)
+    # 1.4.0: 2 giây, bắt đầu trước khung AI chọn 0,5s (thấy trọn động tác cắn / rưới sốt) nhưng không lùi qua đầu cảnh
+    assert core_video.TEASER_DUR == 2.0
+    assert w(40.0, [30.0, 50.0], 60.0, 2.0, 0.5) == (39.5, False)
+    assert w(30.3, [30.0, 50.0], 60.0, 2.0, 0.5) == (30.15, False)
+    assert w(0.3, [], 60.0, 2.0, 0.5) == (0.0, False)
+    assert w(41.0, [40.0, 41.9], 60.0, 2.0, 0.5) == (41.0, True)
 
 
 def test_hook_subtitle_hidden_only_under_big_hook_text(monkeypatch):
@@ -111,13 +117,21 @@ def test_ai_judge_with_opening_frame(monkeypatch):
 
     async def fake(prompt, images, schema=None, label="", timeout=60):
         seen.update(n=len(images), prompt=prompt)
-        return '{"best": 1, "reason": "dĩa thịt kho", "finished": true, "opens_with_dish": false}'
+        return '{"best": 1, "reason": "dĩa thịt kho", "finished": true, "teaser": [2, 1, 9, 2, "x"], "opens_at": 5}'
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake)
     heads = [b"o1", b"o2", b"o3", b"o4"]                                     # 4 khung trải trên 12 giây đầu video gốc
     d = asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=heads, opening_secs=12))
-    assert d == {"best": 1, "finished": True, "opens_with_dish": False} and seen["n"] == 7
-    assert "Ảnh 3 đến Ảnh 6 (các ảnh cuối) là các khung trong 12 giây ĐẦU" in seen["prompt"]
-    assert "kể cả chỉ thoáng qua" in seen["prompt"] and seen["prompt"].count("Trả về DUY NHẤT JSON") == 1
+    # thứ hạng thành phẩm chỉ giữ số ứng viên hợp lệ (bỏ 9 — khung đầu video, trùng, chữ); Ảnh 5 = khung đầu số 2
+    assert d == {"best": 1, "finished": True, "teaser": [2, 1], "opens_at": 2, "opens_with_dish": True}
+    assert seen["n"] == 7 and "Ảnh 3 đến Ảnh 6 (các ảnh cuối) là các khung trong 12 giây ĐẦU" in seen["prompt"]
+    assert "chỉ trong Ảnh 0 đến Ảnh 2" in seen["prompt"] and "CÓ HÀNH ĐỘNG" in seen["prompt"]
+    assert "kể cả thoáng qua" in seen["prompt"] and seen["prompt"].count("Trả về DUY NHẤT JSON") == 1
+
+    async def none_yet(*a, **k):
+        return '{"best": 0, "reason": "", "finished": false, "teaser": [], "opens_at": -1}'
+    monkeypatch.setattr(prompt_engine, "_call_gemini", none_yet)
+    d = asyncio.run(cover_mod.ai_judge([b"a", b"b", b"c"], "Thịt kho", "cook", opening=heads))
+    assert d["teaser"] == [] and d["opens_at"] == -1 and not d["opens_with_dish"]
 
     async def picks_opening(*a, **k):                                         # chọn nhầm khung đầu video: không hợp lệ
         return '{"best": 3, "reason": "", "finished": true, "opens_with_dish": false}'
@@ -129,9 +143,9 @@ def test_ai_judge_with_opening_frame(monkeypatch):
 @pytest.mark.parametrize("moment, key, why", [
     (None, "k", "không chọn được khung hình"),
     ({"ai": False}, "", "cần key Gemini"),
-    ({"finished": False}, "k", "AI không thấy cảnh món đã xong"),
-    ({"opens_with_dish": True}, "k", "video gốc đã mở đầu bằng món"),
-    ({"t": 2.0}, "k", "video gốc đã mở đầu bằng món"),
+    ({"teaser_ts": []}, "k", "AI không thấy cảnh món đã xong"),
+    ({"opens_at": 0.5}, "k", "video gốc đã mở đầu ngay bằng món"),               # gốc mở NGAY bằng món: đã đạt
+    ({"teaser_ts": [2.0, 5.0]}, "k", "cảnh món đã xong chỉ có ở phần mở đầu video gốc"),
 ])
 def test_plan_teaser_skips(monkeypatch, moment, key, why):
     monkeypatch.setattr(config, "GEMINI_API_KEY", key)
@@ -139,30 +153,39 @@ def test_plan_teaser_skips(monkeypatch, moment, key, why):
     async def best(*a, **k):
         assert k.get("opening") is True
         return None if moment is None else {"t": 40.0, "score": 1.0, "n": 6, "ai": True, "finished": True,
-                                             "opens_with_dish": False, **moment}
+                                             "opens_with_dish": False, "teaser_ts": [40.0], "opens_at": -1.0,
+                                             **moment}
     monkeypatch.setattr(cover_mod, "best_moment", best)
     tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [], 58.0))
     assert tz is None and why in msg and (m is None) == (moment is None)
 
 
 def test_plan_teaser_picks_window(monkeypatch):
+    moment = {"t": 45.0, "score": 1.0, "n": 10, "ai": True, "finished": True, "opens_with_dish": True,
+              "teaser_ts": [40.0, 50.0], "opens_at": 4.17}       # gốc thoáng có món ở giây 4 (không phải ngay đầu)
+
     async def best(*a, **k):
-        return {"t": 40.0, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False}
+        return moment
     monkeypatch.setattr(cover_mod, "best_moment", best)
 
     async def near(path, t0, t1):
-        assert t0 < 40.0 < t1
-        return [41.5]                                                         # cảnh đổi 1.5s sau khung đẹp nhất
+        assert t0 < 40.0 < t1 or t0 < 50.0 < t1
+        return [41.5]                                                         # cảnh đổi 1.5s sau khung thành phẩm
     monkeypatch.setattr(scenes, "cuts_near", near)
     seen = []
     monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda src, a, dur, win: seen.append((a, dur, win)) or (0.31, 2.0))
     tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [12.0], 58.0))
-    assert tz == {"a": 38.35, "dur": 3.0, "still": False, "t": 40.0} and msg == ""
-    assert seen == [(38.35, 3.0, 9.0)]                                       # so với 9 giây đầu (15% của 60s)
-    # phần mở đầu video gốc dùng lại đúng cảnh này (video cá kèo: giây 3.5 giống cảnh giây 209.5 tới 0.97) -> bỏ
+    # 2 giây cùng cảnh với khung xếp hạng nhất; ảnh bìa vẫn là khung đẹp nhất AI chọn riêng (giây 45)
+    assert tz == {"a": 39.35, "dur": 2.0, "still": False, "t": 40.0, "cover": 45.0} and msg == ""
+    assert seen == [(39.35, 2.0, 9.0)]                                       # so với 9 giây đầu (15% của 60s)
+    # cảnh xếp nhất là đúng cảnh phần mở đầu gốc đã chiếu (video cá kèo: giống 0.97) -> lấy cảnh xếp nhì
+    monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda src, a, dur, win: (0.97, 3.5) if a < 45 else (0.2, 1.0))
+    tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [12.0], 58.0))
+    assert tz["t"] == 50.0 and tz["a"] == 49.5 and msg == ""
+    # mọi cảnh thành phẩm đều lặp phần mở đầu gốc -> bỏ
     monkeypatch.setattr(cover_mod, "opening_repeat_sync", lambda *a: (0.97, 3.5))
     tz, m, msg = asyncio.run(pipeline.plan_teaser("x.mp4", "cook", "Thịt kho", 60.0, [12.0], 58.0))
-    assert tz is None and m["t"] == 40.0 and msg == "video gốc đã chiếu trước cảnh món ở giây 4"
+    assert tz is None and m["t"] == 45.0 and msg == "video gốc đã chiếu trước cảnh món ở giây 4"
 
 
 def test_opening_window_and_times():
@@ -233,7 +256,8 @@ def teaser_job(fakes, monkeypatch, tmp_path):  # noqa: F811
 
     async def best(*a, **k):
         seen["moment"] += 1 if k.get("opening") else 0         # chỉ đếm lượt hỏi cho đoạn mở đầu (ảnh bìa thường thì không)
-        return {"t": 4.5, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False}
+        return {"t": 4.5, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False,
+                "teaser_ts": [4.5], "opens_at": -1.0}
     monkeypatch.setattr(cover_mod, "best_moment", best)
 
     async def near(*a):
@@ -272,26 +296,26 @@ def test_pipeline_opens_with_finished_dish_and_hook(teaser_job, tmp_path):
     job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src)
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
-    assert job.teaser == {"a": 4.5, "dur": 3.0, "still": False, "t": 4.5}
-    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(11.0, abs=0.15)   # 8s + 3s mở đầu
+    assert job.teaser == {"a": 4.0, "dur": 2.0, "still": False, "t": 4.5, "cover": 4.5}   # lùi 0,5s thấy trọn động tác
+    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(10.0, abs=0.15)   # 8s + 2s mở đầu
     t = seen["timed"]
-    assert t["teaser"] == 3.0 and t["out_dur"] == pytest.approx(11.0)
-    assert t["segs"][0][0] == pytest.approx(3.1, abs=0.01)    # câu gốc đầu tiên vào đúng lúc video chính bắt đầu
+    assert t["teaser"] == 2.0 and t["out_dur"] == pytest.approx(10.0)
+    assert t["segs"][0][0] == pytest.approx(2.1, abs=0.01)    # câu gốc đầu tiên vào đúng lúc video chính bắt đầu
     assert [s[2] for s in t["segs"]] == [x for *_, x in ORIG]
     assert all(t["images"])                                    # ảnh cho AI: đoạn hook lấy cảnh món đã xong
-    assert seen["render"]["teaser"]["a"] == 4.5 and seen["covers"] == [4.5]           # ảnh bìa = đúng khung đó
+    assert seen["render"]["teaser"]["a"] == 4.0 and seen["covers"] == [4.5]           # ảnh bìa = khung AI chọn
     assert job.final_segments[0]["start"] < 0.05 and HOOK.split()[0] not in job.srt  # giọng hook ngay giây 0, không phụ đề
-    assert "Lời" in job.srt and "Mở đầu bằng 3 giây cảnh món đã xong" in job.error and job.hook == "THỊT KHO MỀM RỤC"
+    assert "Lời" in job.srt and "Mở đầu bằng 2 giây cảnh thành phẩm" in job.error and job.hook == "THỊT KHO MỀM RỤC"
     assert seen["moment"] == 1
 
 
 def test_teaser_kept_for_approved_script_and_reel_limit(teaser_job, tmp_path, monkeypatch):
     src, seen = teaser_job
-    monkeypatch.setattr(pipeline, "REEL_MAX", 10)              # video ≤ "90s" thì thêm mở đầu cũng không vượt "90s"
+    monkeypatch.setattr(pipeline, "REEL_MAX", 9)               # video ≤ "90s" thì thêm mở đầu cũng không vượt "90s"
     job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src, review=True)
     (tmp_path / "w1").mkdir()
     assert asyncio.run(pipeline.process(job, str(tmp_path / "w1"))) == "REVIEW"
-    assert job.approved[0]["text"] == HOOK and job.teaser["a"] == 4.5 and job.out_dur == pytest.approx(10.0)
+    assert job.approved[0]["text"] == HOOK and job.teaser["a"] == 4.0 and job.out_dur == pytest.approx(9.0)
     job.status = "review"
     state.queue.jobs[job.id] = job
     new = review.approve_job(job, {1: "Cho thịt vô nồi đất nha"})
@@ -299,8 +323,8 @@ def test_teaser_kept_for_approved_script_and_reel_limit(teaser_job, tmp_path, mo
     (tmp_path / "w2").mkdir()
     out = asyncio.run(pipeline.process(new, str(tmp_path / "w2")))
     assert seen["moment"] == 1                                 # bản duyệt dùng lại đúng đoạn mở đầu, không hỏi AI lại
-    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(10.0, abs=0.15)
-    assert seen["render"]["teaser"]["a"] == 4.5 and "bớt 1s cuối cho vừa 10s" in new.error
+    assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(9.0, abs=0.15)
+    assert seen["render"]["teaser"]["a"] == 4.0 and "bớt 1s cuối cho vừa 9s" in new.error
 
 
 @pytest.mark.parametrize("change", ["review_mode", "setting_off", "part_of_long_video", "no_speech_narrate"])
@@ -342,13 +366,14 @@ def test_no_teaser_note_when_ai_says_original_opens_with_dish(teaser_job, tmp_pa
     src, seen = teaser_job
 
     async def opens(*a, **k):
-        return {"t": 5.0, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": True}
+        return {"t": 5.0, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": True,
+                "teaser_ts": [5.0], "opens_at": 0.5}                        # khung giây 0,5 của gốc đã là món
     monkeypatch.setattr(cover_mod, "best_moment", opens)
     job = Job(url="", mode="cook", duration=0, voice=config.CAPCUT_VOICE_FEMALE, local=src)
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
     assert asyncio.run(core_video.probe_duration(out)) == pytest.approx(8.0, abs=0.15) and job.teaser == {}
-    assert "Không chiếu trước cảnh món (video gốc đã mở đầu bằng món)" in job.error
+    assert "Không chiếu trước cảnh món (video gốc đã mở đầu ngay bằng món)" in job.error
     assert seen["covers"] == [5.0]                             # ảnh bìa vẫn là khung AI chọn, không hỏi AI lần nữa
 
 

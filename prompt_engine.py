@@ -1042,12 +1042,12 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     return out
 
 
-TEASER_SPILL = 0.4      # câu hook của đoạn mở đầu được lấn sang video chính tối đa chừng này giây
+TEASER_SPILL = 1.5      # câu hook của đoạn mở đầu (2 giây) được lấn sang video chính tối đa chừng này giây
 HOOK_TIP = """
 - ĐIỂM ĂN TIỀN của video (mẹo chính người gốc nói, đã kiểm trong lời gốc): «{tip}». Câu hook (đoạn 0) và chữ "hook" xoáy vào điều BẤT NGỜ hoặc KẾT QUẢ mà mẹo này mang lại, nói như một lời hứa ngắn cho người đang lướt; KHÔNG khen chung chung kiểu "giữ trọn vị ngọt", "thơm ngon khó cưỡng". "title" cũng nêu tên món kèm đúng điểm này (người xem YouTube / Facebook bấm vì lời hứa trong tiêu đề). Nguyên liệu, con số trong câu hook và tiêu đề chỉ lấy từ mẹo này hoặc lời gốc."""
 
 TEASER_HINT = """
-- ĐOẠN MỞ ĐẦU: đoạn 0 chiếu trước cảnh MÓN ĐÃ HOÀN THÀNH trong {dur:.0f} giây đầu (xem ảnh đoạn 0), rồi video mới bắt đầu làm từ đầu. Câu hook nói về đúng món đang thấy (giòn, thơm, mềm, màu, độ hấp dẫn) hoặc gợi tò mò cách làm, đọc vừa {dur:.0f} giây; KHÔNG kể bước làm, không nhắc nguyên liệu hay con số mà lời gốc không có."""
+- ĐOẠN MỞ ĐẦU: đoạn 0 chiếu trước cảnh THÀNH PHẨM trong {dur:g} giây đầu (xem ảnh đoạn 0), rồi video mới bắt đầu làm từ đầu. Câu hook ngắn, dứt khoát (đúng số từ của đoạn 0): nói về đúng món đang thấy (giòn, thơm, mềm, màu, độ hấp dẫn), nêu vấn đề mẹo chính giải quyết, hoặc gợi tò mò cách làm; KHÔNG kể bước làm, không nhắc nguyên liệu hay con số mà lời gốc không có."""
 INTRO_MIN = 2.0         # lời gốc bắt đầu muộn hơn thế này thì thêm câu hook riêng ở giây 0 (sớm hơn: đoạn 0 là hook)
 INTRO_SPEAK = 5.5       # câu mở đầu đọc tối đa chừng này giây (một câu hook, phần còn lại của quãng để im)
 DEAD_AIR = 3.5          # đọc xong mà khe còn lặng quá chừng này giây (ước theo số chữ) -> bắt viết thêm (bản 50)
@@ -1066,7 +1066,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
     segments = merge_sentences([(a, b, strip_sub_cta(t)) for a, b, t in segments if not is_sub_cta_line(t)], out_dur)
     if not segments:
         return None
-    if intro and segments[0][0] >= INTRO_MIN:
+    if intro and (segments[0][0] >= INTRO_MIN or (teaser and segments[0][0] >= teaser - 0.05)):
         cap = teaser + TEASER_SPILL if teaser else INTRO_SPEAK
         segments = [(0.0, min(segments[0][0], cap), "")] + segments
     slots = []

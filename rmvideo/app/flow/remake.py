@@ -44,7 +44,7 @@ from queue_manager import Job
 from review import spoken_script
 from rmvideo.app import brand, job_factory, voice_book
 from rmvideo.app.assemble import _edit_kw, assemble
-from rmvideo.app.flow import analysis, backends, common, dedupe, dish, short, style, style_b, teaser
+from rmvideo.app.flow import analysis, backends, common, dedupe, dish, hooks, short, style, style_b, teaser
 from rmvideo.app.flow import music as music_flow
 from rmvideo.domain import recipe
 from rmvideo.domain.job import LongMode, Mode, Source, Status
@@ -590,12 +590,12 @@ class Remake:
             self.cards = [{"t": round(t, 2), "dur": 3.0, "kind": "tip", "text": f"MẸO: {tip['text']}"}]
 
     async def decide_teaser(self, silent: bool):
-        """Đoạn mở đầu: cảnh MÓN ĐÃ XONG chiếu trước 3 giây kèm câu hook (chỉ video nấu ăn có lời)."""
+        """Đoạn mở đầu: cảnh THÀNH PHẨM hấp dẫn nhất chiếu trước 2 giây kèm câu hook (chỉ video nấu ăn có lời)."""
         job = self.job
         if job.approved:
             self.tz = dict(job.teaser) if job.teaser else None   # bản đã duyệt: đúng đoạn mở đầu đã quyết lúc viết lời
         elif self.teaser_ok and job.mode == Mode.COOK and config.TEASER != "0" and not silent:
-            job.step = "AI chọn cảnh món đã xong (ảnh bìa + đoạn mở đầu)"
+            job.step = "AI chọn cảnh thành phẩm (ảnh bìa + đoạn mở đầu)"
             self.tz, moment, why_tz = await teaser.plan_teaser(self.inp, job.mode, self.title, self.src_dur,
                                                                self.cover_cuts, self.cover_end)
             if moment:
@@ -609,7 +609,7 @@ class Remake:
         tz, job = self.tz, self.job
         if not tz:
             return
-        self.cover_at = tz["t"]
+        self.cover_at = tz.get("cover", tz["t"])          # ảnh bìa: khung đẹp nhất AI chọn (có thể khác cảnh mở đầu)
         T = float(tz["dur"])
         full = self.out_dur + T
         # chọn 30/60/90 giây thì giữ đúng độ dài đó; "giữ nguyên" mà video ≤ 90s thì không để vượt 90s (hết là Reels)
@@ -619,7 +619,7 @@ class Remake:
         self.speech = [(a + T, b + T) for a, b in self.speech]
         self.render_dur = total if (self.render_dur or total < full - 0.01) else 0
         self.out_dur = job.out_dur = total
-        job.note(f"ℹ️ Mở đầu bằng {T:.0f} giây cảnh món đã xong (giây {tz['t']:.0f} video gốc"
+        job.note(f"ℹ️ Mở đầu bằng {T:g} giây cảnh thành phẩm (giây {tz['t']:.0f} video gốc"
                  + (", cảnh ngắn nên đứng hình" if tz.get("still") else "") + ") kèm câu hook"
                  + (f"; bớt {full - total:.0f}s cuối cho vừa {total:.0f}s" if total < full - 0.5 else "") + ". ")
 
@@ -661,10 +661,12 @@ class Remake:
             self.segs = scenes.snap_to_cuts(self.segs, self.cuts)     # câu mới vang lên đúng lúc chuyển cảnh
             job.step = (f"Viết lại {len(self.segs)} đoạn theo mốc lời"
                         + (f" + {len(self.cuts)} điểm chuyển cảnh" if self.cuts else "") + " (AI)")
-            return await self.polish(await prompt_engine.generate_timed_any(
+            timed = await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, self.segs, self.content_end,
                 images_for=self.keyframes_for,            # AI nhìn ảnh từng đoạn để lời khớp hình
-                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0)))
+                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0))
+            await self.pick_hook(timed)
+            return await self.polish(timed)
         if len(self.cuts) >= 2 or (not self.cuts and scenes.mode() == "light" and await self.late_cuts()):
             sc = scenes.scene_segments(self.cuts, self.content_end)   # video không lời: AI nhìn ảnh từng cảnh
             job.step = f"AI xem {len(sc)} cảnh và viết lời cho từng cảnh"
@@ -672,6 +674,19 @@ class Remake:
                                                                          await self.keyframes_for(sc), self.content_end,
                                                                          **self._timed_kw(0.0, hook=False)))
         return None
+
+    async def pick_hook(self, timed: dict | None):
+        """Câu hook (1.4.0): AI viết thêm nhiều câu mở đầu theo nhiều kiểu, chấm điểm, thay đoạn 0 bằng câu mạnh nhất
+        (rmvideo/app/flow/hooks.py). Lỗi gì cũng giữ câu cũ."""
+        if not timed or not timed.get("segments") or not hooks.wanted():
+            return
+        job = self.job
+        job.step = "Viết thêm câu hook, AI chọn câu mạnh nhất"
+        got = await hooks.improve(timed, self.title, self.hook_tip(), teaser=bool(self.tz))
+        if got:
+            job.hook_kind = got["kind"]
+            score = f", {got['score']:g}/10" if isinstance(got.get("score"), (int, float)) else ""
+            job.note(f"ℹ️ Câu hook ({hooks.KINDS[got['kind']]}{score}, chọn trong {got['n']} câu): «{got['text']}». ")
 
     async def polish(self, timed: dict | None) -> dict | None:
         """Soát lời lần cuối cho kịch bản AI vừa viết (bản 50): sửa chữ dùng sai nghĩa / vô nghĩa, ghi chú chỗ đã sửa."""
@@ -691,6 +706,8 @@ class Remake:
         job.script = spoken_script(timed["segments"]) or timed["script"]
         if timed.get("hook") and not job.approved:
             job.hook = timed["hook"]                      # chữ hook in màn hình 3 giây đầu + ảnh bìa
+        if job.hook_kind and timed["segments"]:          # kiểu hook: so với lượt xem về sau (hooks.status_lines)
+            hooks.record(job.id, job.hook_kind, timed["segments"][0].get("text") or "", self.title)
         if timed.get("fresh", 1.0) < AUTO_MIN_FRESH:     # AI lỗi một phần -> nhiều đoạn giữ nguyên lời gốc
             job.no_autopost = f"lời mới chỉ {timed['fresh'] * 100:.0f}% khác lời gốc"
         if not job.approved:
