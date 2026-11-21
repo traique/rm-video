@@ -697,7 +697,8 @@ def test_teaser(env, monkeypatch):
 
     async def best(*a, **k):
         env.rec.add("cover.best_moment", k.get("opening"))
-        return {"t": 4.5, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False}
+        return {"t": 4.5, "score": 1.0, "n": 6, "ai": True, "finished": True, "opens_with_dish": False,
+                "teaser_ts": [4.5], "opens_at": -1.0}
     monkeypatch.setattr(cover_mod, "best_moment", best)
 
     async def near(*a):

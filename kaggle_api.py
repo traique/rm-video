@@ -4,6 +4,7 @@ API của thư viện chính thức (kagglesdk): POST https://api.kaggle.com/v1/
 `Authorization: Bearer <token>`. Kaggle trả 404 cho MỌI request không xưng là client của họ (User-Agent phải bắt đầu
 bằng `kaggle-api/`) — đo thật 12/11/2026."""
 import json
+import logging
 import os
 import re
 import threading
@@ -218,13 +219,40 @@ def quota_text(q: dict) -> str:
     return s + (f", làm mới {vn_time(q['refresh'])}" if q.get("refresh") else "")
 
 
+# slug người gọi dùng -> slug thật Kaggle trả về sau khi lưu (Kaggle đặt slug theo TIÊU ĐỀ notebook, xem push)
+_ALIAS: dict[str, str] = {}
+
+
+def title_for(slug: str) -> str:
+    """Tiêu đề notebook mà Kaggle đổi ra ĐÚNG slug này ("rmvideo-worker" -> "rmvideo worker")."""
+    return slug.replace("-", " ")
+
+
+def real_slug(slug: str) -> str:
+    return _ALIAS.get(slug, slug)
+
+
+def _ref_slug(d: dict) -> str:
+    """Slug trong ref / url SaveKernel trả về ("/code/quetrai/rmvideo-worker" -> "rmvideo-worker"); không đọc được: ""."""
+    for key in ("ref", "url"):
+        parts = [p for p in re.split(r"[/?#]", str(d.get(key) or "").split("://")[-1]) if p]
+        if len(parts) >= 2 and re.fullmatch(r"[a-z0-9][a-z0-9-]*", parts[-1]):
+            return parts[-1]
+    return ""
+
+
 def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: list | None = None,
          dataset_sources: list | None = None) -> dict:
     """kernel_sources: slug các notebook khác mà notebook này đọc đầu ra (gắn ở /kaggle/input/notebooks/<tên>/<slug>/,
     bản chạy xong gần nhất — đo thật 13/11/2026); dataset_sources: dataset gắn vào /kaggle/input/datasets/... Mục có
-    dấu «/» là của người khác (user/slug), không có thì là của chính tài khoản."""
+    dấu «/» là của người khác (user/slug), không có thì là của chính tài khoản.
+
+    Tiêu đề notebook LUÔN lấy theo slug (`title` chỉ để ghi log): Kaggle đặt lại slug theo tiêu đề. Bản cũ gửi tiêu đề
+    video («ĐỒ CHUA GIÒN SẦN SẬT») làm tiêu đề notebook dựng -> Kaggle đổi slug rmvideo-worker thành chua-gi-n-s-n-s-t,
+    hỏi trạng thái bằng slug cũ bị 404 «Not found» nên bot bỏ Kaggle, dựng trên Botkeep bằng giọng edge-tts trong khi
+    phiên Kaggle vẫn chạy xong (tốn giờ GPU vô ích) — đúng lỗi job 3 ngày 21/11 (kiểm bằng API 21/11/2026)."""
     u = user()
-    body = {"slug": f"{u}/{slug}", "newTitle": title, "text": text, "language": "python", "kernelType": "script",
+    body = {"slug": f"{u}/{slug}", "newTitle": title_for(slug), "text": text, "language": "python", "kernelType": "script",
             "isPrivate": True, "enableGpu": gpu, "enableInternet": True,
             "datasetDataSources": [d if "/" in d else f"{u}/{d}" for d in dataset_sources or []],
             "kernelDataSources": [k if "/" in k else f"{u}/{k}" for k in kernel_sources or []],
@@ -240,19 +268,27 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
         raise
     if d.get("error"):
         raise KaggleError(f"Kaggle không nhận notebook: {d['error']}")
+    got = _ref_slug(d)
+    if got and got != slug:
+        logging.warning("Kaggle lưu notebook %s dưới slug %s (%s): hỏi trạng thái theo slug Kaggle trả về", slug, got,
+                        title[:60])
+        _ALIAS[slug] = got
+    else:
+        _ALIAS.pop(slug, None)
     return d
 
 
 def status(slug: str) -> tuple:
     """(trạng thái, lý do lỗi). QUEUED là giá trị mặc định (0) của enum KernelWorkerStatus nên API bỏ hẳn trường
     status khi phiên đang xếp hàng chờ máy: trước đây đọc ra "" và bot đứng ở «gửi việc» 17-20 phút không báo gì."""
-    d = call("GetKernelSessionStatus", {"userName": user(), "kernelSlug": slug})
+    d = call("GetKernelSessionStatus", {"userName": user(), "kernelSlug": real_slug(slug)})
     return str(d.get("status") or "QUEUED"), d.get("failureMessage") or ""
 
 
 def outputs(slug: str) -> dict:
     """Danh sách file đầu ra của phiên chạy xong gần nhất (gộp mọi trang; đo thật 19/11: pageSize=200 cắt mất result.json khi
     notebook ghi gần 300 file)."""
+    slug = real_slug(slug)
     d = call("ListKernelSessionOutput", {"userName": user(), "kernelSlug": slug, "pageSize": 500})
     files = list(d.get("files") or [])
     tok = d.get("nextPageToken") or ""

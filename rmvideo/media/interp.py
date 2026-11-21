@@ -153,7 +153,8 @@ def smooth_for_slowdown(src: str, tmp: str, stretch: float, models_dir: str, log
         return src
     try:
         import torch
-        if not torch.cuda.is_available():
+        if not torch.cuda.is_available():         # job giọng edge / CapCut chạy Kaggle bằng CPU (góp ý Codex PR #20)
+            log(f"Nội suy khung bỏ qua (chậm {stretch:.2f}x): phiên không có GPU")
             return src
         out = os.path.join(tmp, "smooth.mp4")
         info = double_fps(src, out, models_dir, "cuda", log=log)

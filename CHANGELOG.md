@@ -13,6 +13,27 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.0 — luôn mở đầu bằng thành phẩm hấp dẫn nhất; viết nhiều câu hook rồi chọn câu mạnh nhất (21/11/2026)
+
+- Đoạn mở đầu (`TEASER`) rút còn **2 giây** và chọn theo khoảnh khắc **thành phẩm hấp dẫn nhất**: AI xếp hạng riêng các
+  khung món đã xong, ưu tiên có hành động (cắn, kéo sợi, cắt đôi, rưới sốt); bot gửi thêm 4 khung có chuyển động ở nửa
+  sau video. Bắt đầu trước khung đó 0,5 giây (cùng cảnh). Ảnh bìa vẫn là khung đẹp nhất AI chọn riêng.
+- Bớt các trường hợp bỏ đoạn mở đầu: trước đây AI thấy video gốc «có món trong 12 giây đầu» là bỏ; giờ chỉ bỏ khi gốc mở
+  NGAY bằng món (giây 0,5), còn không thì vẫn mở bằng thành phẩm — cảnh xếp nhất trùng phần mở đầu gốc thì thử cảnh xếp
+  nhì, nhì (tối đa 3).
+- Câu hook (`HOOK_PICK=1`, mới): AI viết thêm ~8 câu theo các kiểu vấn đề / mẹo bất ngờ / kết quả / tò mò / con số, bot
+  loại câu sai luật (dài quá, chào hỏi, «mình thử», «triệu view», nguyên liệu / số bịa), AI chấm điểm chọn câu mạnh nhất
+  (câu cũ chấm cùng). Kiểu hook lưu `hooks.json`, trạng thái tự động đăng ghép với lượt xem YouTube sau 24h.
+- Câu hook của đoạn mở đầu được đọc lấn sang video chính tối đa 1,5 giây (trước 0,4) khi người gốc chưa nói.
+- **Sửa lỗi video bếp không dựng được trên Kaggle**: bot gửi tiêu đề video («ĐỒ CHUA GIÒN SẦN SẬT») làm tiêu đề notebook
+  dựng, Kaggle đổi slug notebook theo tiêu đề (`rmvideo-worker` -> `chua-gi-n-s-n-s-t`), bot hỏi trạng thái bằng slug cũ
+  bị 404 nên bỏ Kaggle và dựng trên Botkeep bằng giọng edge-tts, trong khi phiên Kaggle vẫn chạy xong (tốn giờ GPU). Đây
+  mới là nguyên nhân thật của lỗi 404 ở job 3 (1.3.4 chỉ chờ thêm 3 phút nên chưa sửa được). Giờ tiêu đề notebook luôn
+  theo slug, và bot hỏi trạng thái theo slug Kaggle trả về sau khi lưu.
+- Nội dung đăng luôn gửi kèm: job web / tự đăng / truyện bé báo về Telegram và Zoom kèm tin «📝 Nội dung đăng» đầy đủ
+  (trước đây chỉ có link); video gửi thẳng Telegram có bài dài hơn 1.024 ký tự (giới hạn chú thích) thì gửi đủ ở tin riêng
+  thay vì bị cắt.
+
 ## 1.3.5 — khôi phục các phần của 1.3.0 (bỏ nhạc gốc, nội suy khung) kèm các bản sửa 1.3.3-1.3.4 (21/11/2026)
 
 - Video bếp bản 1.3.0 bị kém KHÔNG phải do 1.3.0: phiên dựng Kaggle báo 404 ngay khi gửi việc nên bot dựng trên Botkeep bằng

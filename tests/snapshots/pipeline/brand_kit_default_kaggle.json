@@ -193,6 +193,7 @@
       "GEMINI_FALLBACK_MODELS",
       "GEMINI_MODEL",
       "GROQ_WHISPER_MODEL",
+      "HOOK_PICK",
       "IMG_UPSCALE",
       "INTERP",
       "NO_SPEECH",

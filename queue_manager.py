@@ -75,7 +75,8 @@ class Job:
     remote_src: dict = field(default_factory=dict)   # Kaggle: đầu vào dựng sẵn (phần cắt từ video dài: tải nguồn + cắt)
     post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
     hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
-    teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t"} (bản duyệt dùng lại)
+    hook_kind: str = ""       # kiểu câu hook đã chọn (rmvideo/app/flow/hooks.py KINDS) để so với lượt xem
+    teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t", "cover"} (bản duyệt dùng lại)
     edit: dict = field(default_factory=dict)     # kế hoạch dựng đã quyết (REMAKE_STYLE, rmvideo/media/edl.py; bản duyệt dùng lại)
     recipe: dict = field(default_factory=dict)   # món + định lượng đã đối chiếu với lời gốc (rmvideo/domain/recipe.py)
     brief: dict = field(default_factory=dict)    # 🧸 truyện bé: đề đã chọn {lesson, setting, conflict, words, main, seed}
