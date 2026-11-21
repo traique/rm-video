@@ -37,6 +37,11 @@ ROF_MODEL = "vocals_mel_band_roformer.ckpt"
 ROF_OVERLAP = 2         # khúc 11s chồng nửa khúc (cấu hình model để 1: không chồng)
 ROF_MASK_K = 8.0        # mặt nạ mạnh hơn Kim (k=1): RoFormer k=1 sót hơn Kim 2 lượt 2-3 dB, k=8 ngang mà vẫn giữ xèo hơn
 ROF_TIMEOUT = 420.0     # tải + nạp + tách (T4 chưa đo, ước 1-2 phút cho 220s); phiên phân tích chỉ có 30 phút
+# 1.2.0: bỏ NHẠC gốc khỏi tiếng nền (rmvideo/media/stems.py, Bandit; trọng số CC BY-NC: SFX_SEP chỉ bật khi kênh chưa kiếm
+# tiền). Đo 21/11 trên CPU: 30s audio 96s (T4 nhanh hơn nhiều); video bếp có nhạc: điểm nhạc tiếng nền 0,258 -> phần
+# tiếng động 0,0 (phần nhạc 0,948), ba phần cộng lại khớp bản gốc -36 dB.
+SFX_TIMEOUT = 300.0
+SFX_KEEP_DB = 20.0      # nhạc thấp hơn tiếng động chừng này dB = gốc gần như không có nhạc: giữ nguyên, khỏi méo tiếng
 
 
 def sha256_file(path: str) -> str:
@@ -316,6 +321,55 @@ def free_mb() -> int:
     return 99999
 
 
+def sfx_wanted() -> bool:
+    """Bỏ nhạc gốc bằng Bandit? Chỉ trên Kaggle GPU (SEP_DEVICE=cuda) và cài đặt SFX_SEP=1."""
+    if os.environ.get("SEP_DEVICE") != "cuda":
+        return False
+    import config
+    return str(getattr(config, "SFX_SEP", "0")) == "1"
+
+
+def _strip_music(ambient_wav: str) -> str:
+    """(tiến trình con, GPU) Ghi đè ambient_wav bằng phần TIẾNG ĐỘNG (bỏ nhạc gốc). Trả dòng log."""
+    import torch
+    if not torch.cuda.is_available():               # CPU: 30s audio ~96s, cả bài quá chậm
+        raise RuntimeError("Bandit cần GPU (không có CUDA)")
+    from rmvideo.media import stems
+    amb = _decode(ambient_wav, 900.0)
+    fx, lv = stems.effects_only(amb, _DIR, "cuda")
+    if lv["music"] < lv["effects"] - SFX_KEEP_DB:
+        return f"Bandit: gốc gần như không có nhạc ({lv}), giữ tiếng nền"
+    _write_wav(ambient_wav, fx)
+    return f"Bandit: đã bỏ nhạc gốc, giữ tiếng động ({lv})"
+
+
+async def strip_music(ambient_wav: str) -> bool:
+    """Bỏ nhạc gốc khỏi tiếng nền đã tách (Kaggle GPU, SFX_SEP=1) trong tiến trình riêng; lỗi / quá giờ thì giữ nguyên
+    tiếng nền cũ (còn nhạc gốc như trước 1.2.0). True khi đã bỏ nhạc."""
+    if not sfx_wanted() or not os.path.exists(ambient_wav):
+        return False
+    bak = ambient_wav + ".bak.wav"
+    try:
+        import shutil
+        shutil.copyfile(ambient_wav, bak)
+        code, log = await _child(["--sfx", ambient_wav], SFX_TIMEOUT)
+        msg = (log[-1] if log else "")[-300:]
+        if code == 0:
+            logging.info("Tách âm: %s", msg)
+            return "đã bỏ nhạc" in msg
+        logging.warning("Bỏ nhạc gốc lỗi (mã %s: %s): giữ tiếng nền cũ", code, msg)
+    except asyncio.TimeoutError:
+        logging.warning("Bỏ nhạc gốc quá %.0fs: giữ tiếng nền cũ", SFX_TIMEOUT)
+    except Exception as e:
+        logging.warning("Bỏ nhạc gốc lỗi (%s): giữ tiếng nền cũ", str(e)[:200])
+    try:
+        if os.path.exists(bak):
+            os.replace(bak, ambient_wav)                # file dở / hỏng của lượt lỗi không được dùng
+    except OSError:
+        pass
+    return False
+
+
 def roformer_wanted() -> bool:
     """Thử RoFormer trước Kim_Vocal_2? Chỉ trên Kaggle (kaggle_job đặt SEP_DEVICE=cuda) ở notebook đã cài audio-separator
     (phiên phân tích, PIP_ANALYZE) và cài đặt VOICE_SEP_MODEL cho phép. Botkeep giữ nguyên Kim_Vocal_2."""
@@ -351,6 +405,7 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
                 code, log = await _child(args + ["roformer"], ROF_TIMEOUT)
                 if code == 0 and os.path.exists(ambient_wav):
                     logging.info("Tách giọng AI (RoFormer): %s", log[-1] if log else "xong")
+                    await strip_music(ambient_wav)
                     return True
                 why = f"mã {code}: {(log[-1] if log else '')[-200:]}"
             except asyncio.TimeoutError:
@@ -367,6 +422,7 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
         if code == 0 and os.path.exists(ambient_wav):
             gpu = [x for x in log if x.startswith("GPU")]
             logging.info("Tách giọng AI: %s%s", log[-1] if log else "xong", f" ({gpu[-1]})" if gpu else "")
+            await strip_music(ambient_wav)
             return True
         logging.warning("Tách giọng bỏ qua (mã %s): %s", code, (log[-1] if log else "")[-200:])
         return False
@@ -378,5 +434,8 @@ async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=N
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--sfx":
+        print(_strip_music(sys.argv[2]), file=sys.stderr)
+        sys.exit(0)
     _split_sync(sys.argv[1], sys.argv[2], windows=json.loads(sys.argv[3]) if len(sys.argv) > 3 else None,
                 vocals_wav=sys.argv[4] if len(sys.argv) > 4 else "", engine=sys.argv[5] if len(sys.argv) > 5 else "kim")

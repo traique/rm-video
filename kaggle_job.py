@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 import time
 import traceback
 import urllib.request
@@ -176,6 +177,7 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
     import config
     import vocal_sep
     from rmvideo.app.assemble import assemble
+    from rmvideo.media import interp
     t = {}
     segs = spec["segments"]
     out_dur = float(spec["out_dur"])
@@ -222,6 +224,12 @@ async def produce(spec: dict, inp: str, tmp: str, synth) -> dict:
         if spec.get("mode") == "cook" and not amb:
             gate = [tuple(x) for x in spec.get("speech") or []] or [(0.0, 99999.0)]
         return amb, gate
+    stretch = float(spec.get("stretch") or 1.0)
+    if stretch >= interp.MIN_STRETCH:              # 1.2.0: video gốc bị kéo chậm -> RIFE gấp đôi khung, đỡ giật
+        t1 = time.time()
+        inp = await asyncio.to_thread(interp.smooth_for_slowdown, inp, tmp, stretch,
+                                      os.path.join(tempfile.gettempdir(), "rmv_models"), logging.info)
+        t["interp"] = round(time.time() - t1, 1)
     try:
         res = await assemble(inp, tmp, mode=spec["mode"], segs=segs, out_dur=out_dur,
                              render_dur=float(spec.get("render_dur") or 0), synth=synth, ambient=_ambient,

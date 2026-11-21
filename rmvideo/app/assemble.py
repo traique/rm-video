@@ -75,7 +75,9 @@ async def _durations(clips: Sequence[dict]) -> list[float]:
         if not c.get("path"):
             return 0.0
         async with sem:
-            return await voiceplan.speech_duration(c["path"], c.get("words"))
+            lead, dur = await voiceplan.speech_span(c["path"], c.get("words"))
+        c["lead"] = lead                    # compose_voice cắt khoảng lặng đầu mẩu (1.2.0)
+        return dur
     return list(await asyncio.gather(*[one(c) for c in clips]))
 
 
