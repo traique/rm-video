@@ -13,7 +13,7 @@ import config
 import kaggle_worker
 import prompt_engine
 from queue_manager import Job
-from rmvideo.kids import job as kids_job, llm, prompts, story as story_mod, writer
+from rmvideo.kids import job as kids_job, llm, pitch, prompts, story as story_mod, writer
 
 
 async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | None, list]:
@@ -27,6 +27,15 @@ async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | No
             raise RuntimeError("KIDS_LLM_PROVIDER=gemini nhưng chưa có GEMINI_API_KEY")
         job.note("ℹ️ Chưa có GEMINI_API_KEY: Qwen trên Kaggle viết truyện. ")
         return None, []
+    if not brief.get("pitch"):                  # ý truyện: nghĩ nhiều ý, chọn ý hay nhất, rồi mới viết (1.4.1)
+        job.step = "Truyện bé: AI nghĩ ý truyện — " + story_mod.describe(brief, data)
+        import kids_auto
+        got = await pitch.choose(brief, data, kids_auto.load_state()["stories"],
+                                 [config.KIDS_GEMINI_MODEL, config.KIDS_GEMINI_REVISE_MODEL, ""],
+                                 log=lambda s: logging.info("Truyện bé: %s", s))
+        if got:
+            brief["pitch"] = {k: got[k] for k in ("kind", "title", "premise", "mood")}
+            job.note(f"ℹ️ Ý truyện ({got['kind']}, chọn trong {got['n']} ý): «{got['title']}». ")
     job.step = "Truyện bé: Gemini viết truyện — " + story_mod.describe(brief, data)
     be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=lambda s: logging.info("Truyện bé: %s", s),
                               revise_model=config.KIDS_GEMINI_REVISE_MODEL, thinking=config.KIDS_GEMINI_THINKING)

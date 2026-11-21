@@ -133,6 +133,7 @@ class Remake:
         self.cover_end = 0.0
         self.cover_at: float | None = None
         self.tz: dict | None = None         # đoạn mở đầu {"a", "dur", "still", "t"}
+        self.hook_pre: dict | None = None   # câu hook chọn trước đoạn mở đầu (hooks.choose, 1.4.1)
         self.remote = False
         self.amb_task: asyncio.Task | None = None
         self.pre_cover: asyncio.Task | None = None       # ảnh bìa bắt đầu trong lúc chờ Kaggle
@@ -595,9 +596,10 @@ class Remake:
         if job.approved:
             self.tz = dict(job.teaser) if job.teaser else None   # bản đã duyệt: đúng đoạn mở đầu đã quyết lúc viết lời
         elif self.teaser_ok and job.mode == Mode.COOK and config.TEASER != "0" and not silent:
+            dur = await self.pre_hook()                   # câu hook trước: đoạn mở đầu dài vừa câu hook
             job.step = "AI chọn cảnh thành phẩm (ảnh bìa + đoạn mở đầu)"
             self.tz, moment, why_tz = await teaser.plan_teaser(self.inp, job.mode, self.title, self.src_dur,
-                                                               self.cover_cuts, self.cover_end)
+                                                               self.cover_cuts, self.cover_end, dur=dur)
             if moment:
                 self.cover_at = moment["t"]               # ảnh bìa = đúng khung đó, khỏi hỏi AI lần nữa
             job.teaser = self.tz or {}
@@ -675,14 +677,41 @@ class Remake:
                                                                          **self._timed_kw(0.0, hook=False)))
         return None
 
+    def _dish(self) -> str:
+        facts = getattr(self, "facts", None)
+        return str(getattr(facts, "dish", "") or "") if facts is not None else ""
+
+    async def pre_hook(self) -> float | None:
+        """Câu hook chọn TRƯỚC đoạn mở đầu (1.4.1): trả độ dài đoạn mở đầu vừa đọc hết câu (2-4 giây); None = như cũ
+        (AI lỗi / tắt HOOK_PICK: đoạn mở đầu 2 giây, câu hook viết cùng kịch bản rồi mới chọn)."""
+        self.hook_pre = None
+        if not hooks.wanted():
+            return None
+        job = self.job
+        job.step = "Viết câu hook, AI chọn câu mạnh nhất"
+        lines = [t for *_, t in (self.raw_segs or self.segs or []) if t]
+        got = await hooks.choose(self.title, self.hook_tip(), self._dish(), " ".join(lines), lines[0] if lines else "",
+                                 kaggle_worker.words_per_sec(job.voice))
+        if got:
+            self.hook_pre = got
+            return float(got["secs"])
+        return None
+
     async def pick_hook(self, timed: dict | None):
         """Câu hook (1.4.0): AI viết thêm nhiều câu mở đầu theo nhiều kiểu, chấm điểm, thay đoạn 0 bằng câu mạnh nhất
-        (rmvideo/app/flow/hooks.py). Lỗi gì cũng giữ câu cũ."""
-        if not timed or not timed.get("segments") or not hooks.wanted():
+        (rmvideo/app/flow/hooks.py). Có đoạn mở đầu thì câu đã chọn trước (pre_hook) vào thẳng khe đoạn 0. Lỗi gì cũng
+        giữ câu cũ."""
+        if not timed or not timed.get("segments"):
             return
         job = self.job
-        job.step = "Viết thêm câu hook, AI chọn câu mạnh nhất"
-        got = await hooks.improve(timed, self.title, self.hook_tip(), teaser=bool(self.tz))
+        pre = getattr(self, "hook_pre", None)
+        if pre and self.tz and hooks.apply(timed, pre):
+            got: dict | None = pre
+        elif hooks.wanted():
+            job.step = "Viết thêm câu hook, AI chọn câu mạnh nhất"
+            got = await hooks.improve(timed, self.title, self.hook_tip(), teaser=bool(self.tz), dish=self._dish())
+        else:
+            return
         if got:
             job.hook_kind = got["kind"]
             score = f", {got['score']:g}/10" if isinstance(got.get("score"), (int, float)) else ""

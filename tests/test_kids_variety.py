@@ -41,3 +41,30 @@ def test_remember_done_records_motifs(monkeypatch, tmp_path):
     kids_auto.remember_done(Job, brief, {"title": "T", "prop_vi": "con diều", "scenes": [{"text": "Thỏ vấp té."}]})
     st = json.load(open(tmp_path / "k.json", encoding="utf-8"))
     assert st["stories"][-1]["motifs"] == ["té ngã / vấp", "con diều"]
+
+
+def test_gripping_frames_and_rules_21_11():
+    """Phản hồi 21/11 (job 7): «câu chuyện chưa gây cấn, na ná nhau, người xem lướt qua». Thêm khung truyện có hồi hộp
+    (bí ẩn, giải cứu, đua giờ, hiểu lầm, khoe rồi lật ngược), mở thẳng vào chuyện, câu móc cuối cảnh, bất ngờ ở cảnh 6,
+    kết hài; ảnh đổi góc máy theo cảnh."""
+    ids = {p["id"] for p in DATA["plots"]}
+    assert {"mystery_trail", "rescue_mission", "race_clock", "secret_surprise", "boast_flip"} <= ids
+    for pid in ("mystery_trail", "rescue_mission", "race_clock", "secret_surprise", "boast_flip", "lost_quest",
+                "broken_confess", "gift_simple"):
+        p = story.by_id(DATA["plots"], pid)
+        assert p["beats"][0].startswith("MỞ NGAY"), pid                    # mở thẳng vào chuyện, không «đang chơi vui»
+    for pid in ("mystery_trail", "rescue_mission", "race_clock", "secret_surprise", "boast_flip"):
+        p = story.by_id(DATA["plots"], pid)
+        assert "BẤT NGỜ" in p["beats"][5] and "hỏi bé" in " ".join(p["beats"][1:5]), pid
+    # khung mới chưa dùng lần nào được chọn trước (khung hợp bài học, lâu chưa dùng nhất)
+    used = ["lost_quest", "gift_simple", "help_chain"]
+    assert story.pick_plot(DATA, "kindness", "lost_item", used, random.Random(1)) == "mystery_trail"
+    brief = story.pick(DATA, [], random.Random(3))
+    u = prompts.user_prompt(brief, DATA)
+    assert "câu ĐẦU TIÊN đã là điều lạ" in u and "câu móc" in u and "XOAY CHIỀU / BẤT NGỜ" in u and "chi tiết hài" in u
+    assert "KHÔNG chung chung kiểu «Mất đồ rồi!»" in u and "KHÔNG đứng yên nhìn thẳng" in u
+    assert not prompts.EXAMPLE[0][0].startswith("Hôm nay")                  # truyện mẫu cũng mở thẳng vào chuyện
+    assert "2. Câu ĐẦU của cảnh 1" in prompts.REVISE_CHECK
+    sc = {"characters": [brief["main"]], "action_en": "Little Squirrel crouches to look at tiny footprints", "text": "x"}
+    shots = [prompts.image_prompt(sc, brief, DATA, i) for i in range(8)]
+    assert "dynamic low angle shot" in shots[0] and "wide shot" in shots[3] and "close-up on the faces" in shots[2]

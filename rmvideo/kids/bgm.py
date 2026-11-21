@@ -51,8 +51,12 @@ def _lib(lib_dir: str | None = None) -> lyria.Lib:
 
 
 def mood_for(brief: dict, data: dict) -> str:
-    """Màu nhạc theo khung truyện của đề (plots[].mood); không có khung / không ghi: playful."""
+    """Màu nhạc theo ý truyện đã chọn (pitch.mood, 1.4.1), không có thì theo khung truyện của đề (plots[].mood); không
+    có khung / không ghi: playful."""
     from rmvideo.kids import story as story_mod
+    pm = str((brief.get("pitch") or {}).get("mood") or "")
+    if pm in MOODS:
+        return pm
     plot = story_mod.by_id(data.get("plots") or [], brief.get("plot") or "")
     mood = str((plot or {}).get("mood") or "")
     return mood if mood in MOODS else DEFAULT_MOOD

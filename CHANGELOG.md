@@ -13,6 +13,27 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.1 — câu hook bếp trọn ý, đoạn mở đầu dài vừa câu hook; truyện bé gây cấn hơn (21/11/2026)
+
+- Bếp, phản hồi job 6 («câu mở không ăn nhập»): bản 1.4.0 chọn câu hook SAU khi viết kịch bản và ép vào đoạn mở đầu 2 giây
+  nên câu hook chỉ còn tối đa 5 chữ («Đồ chua bị hăng?»: cụt, không hứa gì, lạc với câu «Chuẩn bị 1 kg cà rốt…» ngay sau).
+  Giờ câu hook được chọn TRƯỚC, đoạn mở đầu dài vừa đọc hết câu (2-4 giây, 7-11 chữ). Câu hook phải nêu tên món, là câu trọn
+  ý có lời hứa (câu hỏi phải kèm lời hứa), đúng ý lời gốc; AI chấm điểm biết câu ngay sau hook, câu cụt / không nêu món tối
+  đa 4 điểm; «best» lệch điểm chấm thì theo điểm.
+- Truyện bé, phản hồi job 7 («chưa gây cấn, na ná nhau») và «ép khung có cứng nhắc không»: nguyên nhân là khuôn — mỗi khung
+  quy định từng cảnh làm gì (thử ba lần, bạn giúp, cảnh 7 nói bài học) nên truyện nào cũng cùng một nhịp. Giờ:
+  - **Ý truyện** (`rmvideo/kids/pitch.py`): Gemini nghĩ 4 ý khác kiểu nhau, tránh ý / tiêu đề / chi tiết của các truyện gần đây;
+    mã bỏ ý có từ cấm, trùng tiêu đề cũ; một lượt AI khác chấm (mở đầu có chuyện ngay, hồi hộp, bất ngờ, dễ hiểu cho bé 3-6,
+    khác truyện gần đây; ý theo khuôn «thử ba lần, bạn giúp» tối đa 5 điểm) rồi mới viết truyện. Ý đã dùng lưu vào bộ nhớ
+    kids_auto để lần sau tránh. Lỗi thì viết theo ý gợi ý của khung như trước.
+  - **Lời nhắc không còn 8 nhịp bắt buộc**: chỉ giữ bộ xương (câu đầu cảnh 1 đã có chuyện xảy ra, leo thang tới lúc căng nhất,
+    gần cuối xoay chiều / bất ngờ, cảnh 8 kết vui hoặc ấm) và giới hạn kỹ thuật. Thử mấy lần, ai giúp, điệp khúc, câu hỏi bé,
+    bài học nói ra hay chỉ thể hiện qua việc làm: tuỳ truyện. Bộ kiểm bỏ lỗi «thiếu câu hỏi cho bé»; giá trị gửi gắm chỉ cần
+    hiện ra ở một chỗ (không còn «cảnh 7 phải nói bài học»). Truyện mẫu chỉ để học giọng kể, không học cốt truyện.
+  - Khung truyện chỉ còn là một ý gợi ý một câu (`premise`); thêm 5 khung có hồi hộp (dấu vết bí ẩn, giải cứu, đua giờ, hiểu
+    lầm, khoe rồi lật ngược) làm gợi ý. Câu móc 3 giây đầu phải nêu đồ vật / chuyện cụ thể. Nhạc nền theo không khí của ý.
+  - Ảnh đổi góc máy theo cảnh (thấp, cận mặt, toàn cảnh) và tả tư thế đang làm thay vì đứng nhìn thẳng.
+
 ## 1.4.0 — luôn mở đầu bằng thành phẩm hấp dẫn nhất; viết nhiều câu hook rồi chọn câu mạnh nhất (21/11/2026)
 
 - Đoạn mở đầu (`TEASER`) rút còn **2 giây** và chọn theo khoảnh khắc **thành phẩm hấp dẫn nhất**: AI xếp hạng riêng các

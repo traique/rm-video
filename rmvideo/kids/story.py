@@ -230,13 +230,29 @@ def pick_plot(data: dict, lesson_id: str, conflict_id: str, used: Sequence[str],
     return str(order[0]["id"])
 
 
-def plot_beats(brief: dict, data: dict) -> list[str]:
-    """8 nhịp cho lời nhắc: theo khung truyện của đề (điền tên nhân vật chính / bạn giúp), không có thì SCENE_ROLES."""
-    plot = by_id(data.get("plots") or [], brief.get("plot") or "")
+def cast_names(brief: dict, data: dict) -> tuple[str, str]:
+    """(tên nhân vật chính, tên bạn đồng hành) của đề — bạn đồng hành chọn theo seed để xoay vòng."""
     chars = data["characters"]
     main = chars.get(brief.get("main", ""), {}).get("name_vi", "Thỏ Trắng")
     others = [c["name_vi"] for k, c in chars.items() if k != brief.get("main")]
     friend = others[int(brief.get("seed") or 0) % len(others)] if others else "Gấu Nâu"
+    return main, friend
+
+
+def plot_premise(brief: dict, data: dict) -> str:
+    """Ý gợi ý (một câu) của khung truyện đề đã bốc, đã điền tên nhân vật; không có khung: rỗng."""
+    plot = by_id(data.get("plots") or [], brief.get("plot") or "")
+    if not plot:
+        return ""
+    main, friend = cast_names(brief, data)
+    return str(plot.get("premise") or plot.get("vi") or "").replace("{main}", main).replace("{friend}", friend)
+
+
+def plot_beats(brief: dict, data: dict) -> list[str]:
+    """8 nhịp của khung truyện (điền tên nhân vật chính / bạn giúp), không có thì SCENE_ROLES. 1.4.1: lời nhắc viết truyện
+    KHÔNG còn đưa 8 nhịp này (khuôn từng cảnh làm truyện na ná nhau); giữ cho bản ghi / công cụ soát."""
+    plot = by_id(data.get("plots") or [], brief.get("plot") or "")
+    main, friend = cast_names(brief, data)
     beats = plot.get("beats") if plot else None
     return [b.replace("{main}", main).replace("{friend}", friend) for b in beats] if beats else list(SCENE_ROLES)
 
@@ -247,7 +263,8 @@ def describe(brief: dict, data: dict) -> str:
     return " · ".join(x for x in (ch.get("name_vi", ""), by_id(data["lessons"], brief.get("lesson", "")).get("vi", ""),
                                   by_id(data["settings"], brief.get("setting", "")).get("vi", ""),
                                   by_id(data["conflicts"], brief.get("conflict", "")).get("vi", ""),
-                                  ("khung: " + by_id(data.get("plots") or [], brief.get("plot") or "").get("vi", ""))
+                                  ("ý: " + str(brief["pitch"].get("title") or "")) if (brief.get("pitch") or {}).get("title")
+                                  else ("khung: " + by_id(data.get("plots") or [], brief.get("plot") or "").get("vi", ""))
                                   if brief.get("plot") else "",
                                   ", ".join(w["en"] for w in brief.get("words", []))) if x)
 
@@ -395,7 +412,8 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
         problems.append("`prop_en` phải là tên tiếng Anh của đồ vật chính (1-3 từ, ví dụ «candy bag»)")
     lesson = by_id(data["lessons"], brief.get("lesson", ""))
     if lesson and not any(k in low for k in lesson.get("keywords", [])):
-        problems.append(f"cảnh 7 phải nói rõ bài học «{lesson['vi']}» (dùng chữ: {', '.join(lesson['keywords'])})")
+        problems.append(f"truyện chưa thể hiện giá trị «{lesson['vi']}»: cho nhân vật làm hay nói tự nhiên một chỗ có chữ "
+                        f"{' / '.join(lesson['keywords'])} (một câu ngắn là đủ, không giảng)")
     if len(texts) == N_SCENES and any(h in texts[-1].lower() for h in SAD):
         problems.append("cảnh 8 phải kết thúc vui, không còn buồn / khóc / giận / sợ")
     if len(texts) == N_SCENES and re.search(r"các bé|bé ơi|các con|các em", texts[-1].lower()):     # phản hồi 19/11: câu kết «trớt»
@@ -435,9 +453,7 @@ def validate(story: dict, brief: dict, data: dict, example_sentences: Sequence[s
                         "chấm than bình thường")
     if re.search(r"\b(nha|hen|nhé)\s*[?!.]?$", hook.strip().lower()):
         problems.append("câu móc không kết bằng «nha/hen» (ví dụ: «phải làm sao đây?» là đủ)")
-    mid = " ".join(texts[1:6]).lower()                         # cảnh 2-6: có câu hỏi cho bé tham gia (sách tranh)
-    if len(texts) == N_SCENES and not re.search(r"\bbé\b[^.!?]*\?", mid):
-        problems.append("thiếu câu hỏi cho bé giữa truyện (cảnh 2-6, ví dụ «Bé đoán xem Thỏ Trắng giấu ở đâu?») để bé tham gia")
+    # 1.4.1: câu hỏi cho bé giữa truyện không còn bắt buộc (ép mọi truyện cùng một chiêu cũng thành khuôn)
     rep = repeated_sentences(texts)
     if rep:
         problems.append("lặp câu/cụm: " + "; ".join(f"«{x}» ×{n}" for x, n in rep[:3])

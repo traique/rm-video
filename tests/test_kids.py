@@ -786,11 +786,11 @@ def test_prompts_and_schema():
     assert all(f"«{w['vi']}»" in u for w in story.must_mention(brief, DATA)) and "Thỏ Trắng" in u and "Đồi Cỏ Non" in u
     assert 3 <= len(story.must_mention(brief, DATA)) <= 14 and "ÍT NHẤT 3" in u and brief["word_pool"]
     assert not any(story.count_word(u, w["en"]) for w in brief["words"])    # KHÔNG đưa tiếng Anh cho model
-    assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "KHÔNG chép" in u and "nhân quả" in u
-    assert "Khung truyện:" in u and "sợi chỉ xuyên suốt" in u and "Cảnh 1:" in u and "Điệp khúc gợi ý" in u
-    assert "BÍ KÍP KỂ CHO CUỐN" in u and "HỎI BÉ" in u and "nét riêng" in u and "Ôi chao" in u and "ĐẢO điệp khúc" in u
+    assert "`hook`" in u and "3 giây đầu" in u and "Truyện MẪU" in u and "không chép" in u and "nhân quả" in u
+    assert "BỘ XƯƠNG" in u and "Cảnh 1:" in u and "MẸO KỂ CHO CUỐN" in u and "nét riêng" in u and "Ôi chao" in u
+    assert "Ý gợi ý" in u and "điệp khúc kiểu «" in u and "không bắt buộc" in u          # không còn 8 nhịp bắt buộc
     assert all("các bạn" not in b and "cả nhóm" not in b for pl in DATA["plots"] for b in pl["beats"])
-    assert all(pl.get("twist") for pl in DATA["plots"]) and "đảo thành «" in u
+    assert all(pl.get("twist") and pl.get("premise") for pl in DATA["plots"])
     u2 = prompts.user_prompt(brief, DATA, ["cảnh 1 thiếu hook"])
     assert "chưa đạt vì" in u2 and "thiếu hook" in u2
     sch = prompts.schema(DATA)
@@ -810,7 +810,7 @@ def test_prompts_and_schema():
     noq = json.loads(json.dumps(st0))
     for sc in noq["scenes"]:
         sc["text"] = sc["text"].replace("Bé đoán xem Sóc Nhỏ có chạy tới không?", "Sóc Nhỏ chạy tới coi chuyện gì.")
-    assert any("câu hỏi cho bé" in q for q in story.validate(noq, brief, DATA))
+    assert not any("câu hỏi cho bé" in q for q in story.validate(noq, brief, DATA))   # 1.4.1: không bắt buộc nữa
     bad_hook = dict(st0, hook="Thỏ Trắng đi chơi", hook_text="a")
     probs = story.validate(bad_hook, brief, DATA)
     assert any("`hook`" in q for q in probs) and any("`hook_text`" in q for q in probs)
@@ -819,7 +819,8 @@ def test_prompts_and_schema():
     assert sch["properties"]["scenes"]["items"]["properties"]["text"]["minLength"] >= 60    # grammar ép độ dài cảnh
     assert len(prompts.example_sentences()) >= 10 and len(prompts.EXAMPLE) == 8
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
-    assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle. Orange Cat,")
+    assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle, dynamic low angle shot. "
+                        "Orange Cat,")
     assert "The character is toddler-sized" in p and "All friends" not in p      # 1 bạn: không gợi ý «các bạn» (20/11)
     assert "green t-shirt" in p and p.endswith("no other animals")
     assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5
@@ -1184,15 +1185,28 @@ def test_flow_kids_gemini_writes_first(tmp_path, monkeypatch):
 
     async def fake_gemini(prompt, images=None, schema=None, label="", timeout=60, thinking="", model=""):
         gem.append((prompt, schema))
+        if prompt.startswith("Bạn là biên kịch truyện tranh"):            # lượt nghĩ ý truyện (1.4.1)
+            return json.dumps({"pitches": [
+                {"kind": "bí ẩn", "title": "Ai lấy mất hộp bánh của Gấu Nâu?",
+                 "premise": "Hộp bánh biến mất, chỉ còn vụn bánh dẫn ra gốc cây. Hoá ra một chú nhím con đang đói.",
+                 "mood": "curious"},
+                {"kind": "hài", "title": "Chiếc nón biết bay của Mèo Cam",
+                 "premise": "Gió thổi bay chiếc nón, nón đáp lên đầu đủ thứ buồn cười rồi rơi trúng chỗ không ngờ.",
+                 "mood": "playful"}]}, ensure_ascii=False)
+        if prompt.startswith("Bạn là biên tập viên kênh truyện"):           # lượt chấm ý truyện
+            return json.dumps({"scores": [{"i": 0, "score": 9}, {"i": 1, "score": 7}], "best": 0})
         return json.dumps(_good_story(_LAST_BRIEF[0]), ensure_ascii=False)
     monkeypatch.setattr(prompt_engine, "_call_gemini", fake_gemini)
     job = kids_auto.make_now("web")
     _LAST_BRIEF[:] = [job.brief]
     (tmp_path / "w").mkdir()
     out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
-    assert os.path.exists(out) and len(gem) == 2                                  # nháp + tự soát
-    prompt, schema = gem[0]
-    assert "checklist" in gem[1][0] and "Soát theo checklist" in gem[1][0]
+    assert os.path.exists(out) and len(gem) == 4                                  # ý truyện + chấm + nháp + tự soát
+    prompt, schema = gem[2]
+    assert "Ý TRUYỆN đã chọn" in prompt and "Hộp bánh biến mất" in prompt and job.brief["pitch"]["mood"] == "curious"
+    assert "Ý truyện (bí ẩn, chọn trong 2 ý)" in job.error and "Hộp bánh biến mất" in kids_auto.load_state()["stories"][-1].get(
+        "premise", "")
+    assert "checklist" in gem[3][0] and "Soát theo checklist" in gem[3][0]
     assert "`hook`" in prompt and "minLength" not in json.dumps(schema) and schema["propertyOrdering"][0] == "title"
     spec = calls[0]
     assert spec["story"]["title"] and spec["attempts"][-1]["beats"] and "story" in spec
