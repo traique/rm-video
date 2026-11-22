@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from rmvideo.kids import story as story_mod
+from rmvideo.kids import writer
 
 N_PITCHES = 4
 RECENT = 6                      # số truyện gần nhất đưa vào lời nhắc «đừng lặp ý»
@@ -29,7 +30,7 @@ PITCH_PROMPT = """Bạn là biên kịch truyện tranh hoạt hình ngắn cho 
 Thế giới: {world}. Bốn bạn nhỏ: {cast}.
 Nhân vật chính: {main}. Bối cảnh: {setting}.
 Giá trị nhẹ nhàng truyện gửi gắm (thể hiện qua việc nhân vật làm, không giảng): {lesson}.
-Đồ vật / con vật có thể dùng (không bắt buộc): {things}.
+Đồ vật / con vật / việc trong danh sách này: {things}.
 Một hướng gợi ý (có thể dùng, đổi, hoặc bỏ hẳn): {seed}
 Các truyện gần đây (KHÔNG lặp lại ý, rắc rối, đồ vật chính hay cách giải quyết của chúng):
 {recent}
@@ -39,9 +40,10 @@ Yêu cầu mỗi ý:
 - Đơn giản, bé 3-6 tuổi hiểu được; an toàn (không bạo lực, không đáng sợ, không ai bị phạt).
 - Không theo khuôn «thử ba lần, bạn tới giúp, nói bài học».
 - "premise": 2-3 câu tiếng Việt kể chuyện gì xảy ra ngay đầu, căng nhất ở đâu, bất ngờ gì, kết ra sao.
+- "things": ĐÚNG 3 thứ chép nguyên văn từ danh sách đồ vật / con vật / việc ở trên mà ý này dùng TỰ NHIÊN (là thứ nhân vật cầm, thấy, làm trong chuyện; bé sẽ học tên tiếng Anh của chúng).
 - "title": tiêu đề gây tò mò có tên {main}, không lộ kết.
 - "mood": playful (vui nhộn) / curious (tò mò, hồi hộp nhẹ) / tender (ấm áp).
-Trả về DUY NHẤT JSON: {{"pitches": [{{"kind": "...", "title": "...", "premise": "...", "mood": "..."}}]}}"""
+Trả về DUY NHẤT JSON: {{"pitches": [{{"kind": "...", "title": "...", "premise": "...", "mood": "...", "things": ["...", "...", "..."]}}]}}"""
 
 JUDGE_PROMPT = """Bạn là biên tập viên kênh truyện hoạt hình cho bé có hàng triệu lượt xem. Ba mẹ và bé đang lướt video: chỉ dừng lại nếu ngay giây đầu có chuyện, và xem tới cuối nếu truyện hồi hộp, có bất ngờ. Chấm từng ý truyện 1-10:
 (1) mở đầu có chuyện xảy ra ngay, khiến muốn biết chuyện gì tiếp theo;
@@ -59,6 +61,7 @@ try:
         title: str
         premise: str
         mood: str = "playful"
+        things: list[str] = []
 
     class PitchesOut(BaseModel):
         pitches: list[_Pitch]
@@ -113,11 +116,13 @@ def _parse(raw: str) -> list[dict]:
     for x in prompt_engine.loads_lenient(raw).get("pitches") or []:
         if not isinstance(x, dict):
             continue
-        p = {k: story_mod.south_kids(re.sub(r"\s+", " ", str(x.get(k) or "")).strip().strip('"«»'))
-             for k in ("kind", "title", "premise")}
+        p: dict[str, Any] = {k: story_mod.south_kids(re.sub(r"\s+", " ", str(x.get(k) or "")).strip().strip('"«»'))
+                             for k in ("kind", "title", "premise")}
         p["mood"] = str(x.get("mood") or "").strip().lower()
         if p["mood"] not in MOODS:
             p["mood"] = "playful"
+        p["things"] = [re.sub(r"\s+", " ", str(t)).strip().strip('"«»') for t in (x.get("things") or [])
+                       if str(t).strip()][:4]
         if p["premise"]:
             out.append(p)
     return out
@@ -127,12 +132,15 @@ async def _ask(prompt: str, schema: Any, models: Sequence[str]) -> str:
     """Gọi Gemini lần lượt theo danh sách model (model viết truyện trước, model dự phòng sau)."""
     import prompt_engine
     last: Exception | None = None
-    for m in models:
+    order = [m for m in models if not writer.is_down(m)] or list(models)   # model vừa quá tải: bỏ qua (writer.DOWN_SECS)
+    for m in order:
         try:
             return await prompt_engine.call_gemini(prompt, schema=schema, label="Ý truyện", timeout=TIMEOUT, model=m)
         except Exception as e:
             last = e
-            logging.warning("Ý truyện: %s lỗi (%s)", m or "model mặc định", str(e)[:100])
+            if writer.model_busy(e):
+                writer.mark_down(m)
+            logging.warning("Ý truyện: %s lỗi (%s)", m or "model mặc định", writer.err_text(e))
     raise last or RuntimeError("không có model")
 
 
@@ -157,7 +165,7 @@ async def choose(brief: dict, data: dict, stories: Sequence[dict], models: Seque
                                              kinds=", ".join(KINDS)), PitchesOut, models)
         pool = _parse(raw)
     except Exception as e:
-        log(f"Ý truyện: AI nghĩ ý lỗi ({str(e)[:100]}), viết theo ý gợi ý của khung")
+        log(f"Ý truyện: AI nghĩ ý lỗi ({writer.err_text(e)}), viết theo ý gợi ý của khung")
         return None
     titles = [x.split(" — ")[0] for x in recent]
     ok = []
@@ -176,7 +184,7 @@ async def choose(brief: dict, data: dict, stories: Sequence[dict], models: Seque
             d = prompt_engine.loads_lenient(await _ask(JUDGE_PROMPT.format(recent="; ".join(titles) or "(chưa có)",
                                                                            items=items), JudgeOut, models))
         except Exception as e:
-            log(f"Ý truyện: AI chấm lỗi ({str(e)[:100]}), lấy ý đầu")
+            log(f"Ý truyện: AI chấm lỗi ({writer.err_text(e)}), lấy ý đầu")
             d = {}
         for x in d.get("scores") or []:
             try:

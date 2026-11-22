@@ -13,12 +13,37 @@ import asyncio
 import copy
 import json
 import logging
+import time
 from typing import Any
 
 import config
 
 TIMEOUT = 120.0       # giây cho một lượt (truyện ngắn, flash-lite ~5-15 giây)
 _DROP = {"minLength", "maxLength", "additionalProperties"}
+# model vừa quá tải / quá giờ: bỏ qua chừng này giây (22/11 tối, job 12-13: Gemini 4 Hydrogen 503 / quá giờ ở MỌI lượt —
+# ý truyện 2 lượt x 60 giây + bản nháp 120 giây chờ vô ích trước khi đổi sang flash-lite, mỗi truyện mất ~4 phút)
+DOWN_SECS = 900
+_DOWN: dict[str, float] = {}
+
+
+def mark_down(model: str) -> None:
+    if model:
+        _DOWN[model] = time.time() + DOWN_SECS
+
+
+def is_down(model: str) -> bool:
+    return bool(model) and _DOWN.get(model, 0.0) > time.time()
+
+
+def err_text(e: BaseException, n: int = 100) -> str:
+    """Lời lỗi để ghi log: lỗi quá giờ không có lời (log cũ «gemini-4-hydrogen lỗi ()») -> tên loại lỗi."""
+    return str(e)[:n] or type(e).__name__
+
+
+def model_busy(e: BaseException) -> bool:
+    """Lỗi của riêng model (quá tải / hết lượt / quá giờ): đổi model khác được."""
+    import prompt_engine
+    return isinstance(e, (asyncio.TimeoutError, TimeoutError)) or prompt_engine._overloaded(str(e))
 
 
 def gemini_schema(schema: dict) -> dict:
@@ -61,16 +86,21 @@ class GeminiBackend:
 
     def chat(self, messages: list[dict[str, str]], schema: dict, max_tokens: int = 0, temperature: float = 0.8,
              seed: int | None = None, role: str = "draft") -> str:
-        import prompt_engine
         prompt = "\n\n".join(m["content"] for m in messages)
         model = self.model_for(role)
+        alt = self.revise_model if model == self.model else self.model
+        if is_down(model) and alt and alt != model and not is_down(alt):
+            self.log(f"Truyện bé: {model} vừa quá tải, lượt {role} dùng {alt}")
+            return self._ask(alt, prompt, schema, role)
         try:
             return self._ask(model, prompt, schema, role)
         except Exception as e:
-            alt = self.revise_model if model == self.model else self.model
-            if not alt or alt == model or not prompt_engine._overloaded(str(e)):
+            if not model_busy(e):
                 raise
-            self.log(f"Truyện bé: {model} lỗi ({str(e)[:60]}), lượt {role} dùng {alt}")
+            mark_down(model)
+            if not alt or alt == model:
+                raise
+            self.log(f"Truyện bé: {model} lỗi ({err_text(e, 60)}), lượt {role} dùng {alt}")
             return self._ask(alt, prompt, schema, role)
 
     def _ask(self, model: str, prompt: str, schema: dict, role: str) -> str:

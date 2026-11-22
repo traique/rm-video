@@ -130,6 +130,41 @@ def _sentence_start(segs: list, t: float) -> float:
     return round(max((pe + a) / 2, a - 0.4, 0.0), 3)
 
 
+def _cuts_sentence(pieces: list, ins: int, segs: list) -> bool:
+    """Chèn khúc phụ ở chỉ số ins (giữa hai khúc main liền nhau trên video gốc) có cắt đôi một câu không — đúng phép thử
+    của luật R8 trong check_rules."""
+    prev = pieces[ins - 1] if ins > 0 else None
+    nxt = pieces[ins] if ins < len(pieces) else None
+    if prev is None or nxt is None or prev.role != "main" or nxt.role != "main" or abs(nxt.a - prev.b) >= 0.02:
+        return False
+    return any(a + 0.1 < prev.b < b - 0.1 for a, b, _ in segs)
+
+
+TAIL_TRIES = 8
+
+
+def _tail_slot(pieces: list, segs: list, t_in: float, last: int) -> tuple[list, int]:
+    """(các khúc, chỉ số) để chèn khối cuối (cảm thán + điểm danh + tóm tắt). Chỗ t_in mà cắt đôi một câu (R8) thì thử
+    khoảng lặng sau từng câu kế tiếp. 1.4.2: điểm danh đứng chung khối cuối với tóm tắt, R8 ở chỗ chèn từng làm bỏ lần lượt
+    cả hai phép (job 11 ngày 22/11 mất cả điểm danh lẫn tóm tắt) trong khi lỗi là ở chỗ chèn, không ở phép."""
+    end_main = pieces[last].b
+    starts = sorted(a for a, _b, _t in segs)
+    cands = [t_in]
+    for _a, b, _t in sorted(segs, key=lambda s: s[1]):
+        if t_in < b < end_main - edl.MIN_PIECE and len(cands) <= TAIL_TRIES:
+            nxt = next((a for a in starts if a >= b - 0.01), None)
+            cands.append(round((b + nxt) / 2, 3) if nxt is not None and nxt - b < 1.0 else round(b + 0.05, 3))
+    first: tuple[list, int] | None = None
+    for t in cands:
+        trial = list(pieces)
+        ins = _split_at(trial, t) if t < end_main - 0.01 else last + 1
+        if first is None:
+            first = (trial, ins)
+        if not _cuts_sentence(trial, ins, segs):
+            return trial, ins
+    return first if first is not None else (list(pieces), last + 1)
+
+
 def _gap_bounds(segs: list, keep: list[bool], a: float, b: float) -> tuple[float, float]:
     """Mở [a, b] ra tới giữa khoảng lặng với câu được giữ hai bên (không cắt vào câu khác)."""
     before = [s[1] for s, k in zip(segs, keep) if k and s[1] <= a + 0.01]
@@ -334,7 +369,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         if done < pieces[last].a - edl.MIN_PIECE:
             t_in = done
         t_in = _sentence_start(segs, t_in)                   # không cắt đôi câu (bản 47)
-        ins = _split_at(pieces, t_in) if t_in < pieces[last].b - 0.01 else last + 1
+        pieces, ins = _tail_slot(pieces, segs, t_in, last)
         pieces[ins:ins] = tail
     out = edl.EditPlan(pieces=pieces, stretch=stretch, level="strong")
     # lời "gốc" cho khúc side (để AI viết lời mới cho đúng hình) + thẻ nguyên liệu

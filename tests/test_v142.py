@@ -118,3 +118,106 @@ def test_release_notes_join_wrapped_lines(tmp_path):
     assert title == "thử (1/1/2027)"
     assert lines == ["Bếp: điểm danh dời về cuối video, ngay trước tóm tắt.", "Ảnh: bỏ bóng khỏi prompt, tả phản ứng;",
                      "SUBS mới."]
+
+
+def test_kaggle_push_retries_transient_errors(monkeypatch):
+    """22/11 tối (job 12, 13): SaveKernel «Connection aborted» rồi «499» — bot bỏ job ở lần gửi đầu. Giờ gửi lại; Kaggle
+    đã nhận (phiên đang chờ máy) thì không gửi lại (khỏi tốn gấp đôi giờ GPU)."""
+    import kaggle_api
+    monkeypatch.setattr(kaggle_api, "_sleep", lambda s: None)
+    monkeypatch.setattr(kaggle_api, "user", lambda: "u")
+    calls = []
+
+    def flaky(method, body, service=kaggle_api.KERNELS, timeout=120):
+        calls.append(method)
+        if method == "SaveKernel" and calls.count("SaveKernel") <= 2:
+            raise kaggle_api.KaggleError("Kaggle lỗi 499 ở SaveKernel: {}" if len(calls) > 1
+                                         else "Không gọi được Kaggle (SaveKernel): ('Connection aborted.')")
+        if method == "GetKernelSessionStatus":
+            return {"status": "COMPLETE"}                           # phiên cũ đã xong: Kaggle chưa nhận bản mới
+        return {"ref": "/code/u/rmvideo-kids", "versionNumber": 3}
+    monkeypatch.setattr(kaggle_api, "_call", flaky)
+    kaggle_api.push("rmvideo-kids", "x", "print(1)")
+    assert calls.count("SaveKernel") == 3 and calls.count("GetKernelSessionStatus") == 2
+
+    calls.clear()
+
+    def accepted(method, body, service=kaggle_api.KERNELS, timeout=120):
+        calls.append(method)
+        if method == "SaveKernel":
+            raise kaggle_api.KaggleError("Không gọi được Kaggle (SaveKernel): RemoteDisconnected")
+        return {}                                                    # không có trường status = QUEUED: đã nhận
+    monkeypatch.setattr(kaggle_api, "_call", accepted)
+    assert kaggle_api.push("rmvideo-kids", "x", "print(1)") == {} and calls.count("SaveKernel") == 1
+
+    def bad(method, body, service=kaggle_api.KERNELS, timeout=120):
+        raise kaggle_api.KaggleError("Kaggle lỗi 400 ở SaveKernel: bad")                # lỗi thật: không thử lại
+    monkeypatch.setattr(kaggle_api, "_call", bad)
+    import pytest
+    with pytest.raises(kaggle_api.KaggleError):
+        kaggle_api.push("rmvideo-kids", "x", "print(1)")
+    assert kaggle_api.transient(kaggle_api.KaggleError("Kaggle lỗi 503 ở GetKernelSessionStatus: {}"))
+    assert not kaggle_api.transient(kaggle_api.KaggleError("Kaggle lỗi 404 ở GetKernelSessionStatus: {}"))
+
+
+def test_kaggle_read_calls_retry(monkeypatch):
+    import kaggle_api
+    monkeypatch.setattr(kaggle_api, "_sleep", lambda s: None)
+    n = {"k": 0}
+
+    def flaky(method, body, service=kaggle_api.KERNELS, timeout=120):
+        n["k"] += 1
+        if n["k"] < 3:
+            raise kaggle_api.KaggleError("Kaggle lỗi 502 ở GetKernelSessionStatus: {}")
+        return {"status": "RUNNING"}
+    monkeypatch.setattr(kaggle_api, "_call", flaky)
+    assert kaggle_api.call("GetKernelSessionStatus", {}) == {"status": "RUNNING"} and n["k"] == 3
+
+
+def test_kids_model_cooldown(monkeypatch):
+    """Gemini 4 quá tải / quá giờ: nhớ 15 phút, lượt sau đổi ngay sang model kia (job 12-13: ~4 phút chờ mỗi truyện)."""
+    import asyncio
+    from rmvideo.kids import writer
+    monkeypatch.setattr(writer, "_DOWN", {})
+    assert writer.err_text(asyncio.TimeoutError()) == "TimeoutError" and writer.model_busy(asyncio.TimeoutError())
+    asked = []
+
+    def ask(self, model, prompt, schema, role):
+        asked.append(model)
+        if model == "g4":
+            raise asyncio.TimeoutError()
+        return "{}"
+    monkeypatch.setattr(writer.GeminiBackend, "_ask", ask)
+    b = writer.GeminiBackend("g4", log=lambda s: None, revise_model="lite")
+    assert b.chat([{"content": "x"}], {}) == "{}" and asked == ["g4", "lite"] and writer.is_down("g4")
+    asked.clear()
+    b.chat([{"content": "x"}], {})
+    assert asked == ["lite"]                                        # model vừa lỗi: không chờ nó nữa
+
+
+def test_pitch_things_reach_writer_prompt():
+    import json
+    from rmvideo.kids import pitch, story
+    raw = json.dumps({"pitches": [{"kind": "bí ẩn", "title": "Gấu Nâu và trái táo lăn", "premise": "Trái táo lăn mất, "
+                                   "Gấu Nâu đuổi theo tới bụi cây thì thấy Sóc Nhỏ.", "mood": "curious",
+                                   "things": ["trái táo", "cái mền", "trái chuối"]}]})
+    p = pitch._parse(raw)[0]
+    assert p["things"] == ["trái táo", "cái mền", "trái chuối"]
+    data = story.load()
+    brief = story.pick(data, [], __import__("random").Random(3))
+    brief["pitch"] = p
+    u = prompts.user_prompt(brief, data)
+    assert "Ý này dùng: «trái táo», «cái mền», «trái chuối»" in u
+    assert '"things"' in pitch.PITCH_PROMPT and "ĐÚNG 3 thứ" in pitch.PITCH_PROMPT
+
+
+def test_tail_slot_moves_off_a_sentence():
+    """Chỗ chèn khối cuối rơi giữa câu (R8): dời tới khoảng lặng sau câu đó, không bỏ điểm danh + tóm tắt."""
+    from rmvideo.media import edl
+    pieces = [edl.Piece(0.0, 22.0), edl.Piece(22.0, 30.0, push=0.1)]
+    segs = [(18.0, 20.5, "câu một"), (21.0, 25.0, "câu hai vắt qua chỗ chèn"), (25.5, 29.0, "câu ba")]
+    assert style_b._cuts_sentence(list(pieces), 1, segs)
+    out, ins = style_b._tail_slot(pieces, segs, 22.0, 1)
+    assert out[ins - 1].b == 25.25 and not style_b._cuts_sentence(out, ins, segs)
+    ok, k = style_b._tail_slot(pieces, [(18.0, 21.5, "a"), (22.5, 29.0, "b")], 22.0, 1)
+    assert k == 1 and ok[0].b == 22.0                                    # chỗ đầu đã ổn: giữ nguyên như cũ
