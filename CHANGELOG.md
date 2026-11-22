@@ -24,6 +24,9 @@ Theo log tối 22/11 (job 12, 13 truyện bé thất bại; Google quá tải, G
   (2 lượt nghĩ ý x 60 giây + bản nháp 120 giây) trước khi đổi sang flash-lite. Log ghi tên lỗi thay vì «lỗi ()».
 - **Ý truyện chọn sẵn 3 đồ vật / việc** trong danh sách gợi ý; lời nhắc viết truyện dặn giữ đủ. Job 12: 4 lượt viết liền
   đều bị bộ kiểm báo «mới nhắc tới 2 trong các thứ gợi ý» (ý truyện không biết phải dùng các thứ đó).
+- **Bếp: khối cuối (cảm thán + điểm danh + tóm tắt) chèn đúng khoảng lặng**. Chỗ chèn mà cắt đôi một câu (luật R8) thì
+  dời tới khoảng lặng sau câu kế tiếp, thay vì bỏ lần lượt từng phép. Từ 1.4.2 điểm danh đứng chung khối cuối với tóm tắt
+  nên một chỗ chèn xấu có thể làm mất cả hai (job 11 không có điểm danh lẫn tóm tắt).
 - Job 11 (bếp) chạy 69 phút là do Kaggle không cấp máy trong 35 phút nên bot dựng trên Botkeep (giọng edge-tts, 720p):
   đúng thiết kế, không phải lỗi mã.
 

@@ -209,3 +209,15 @@ def test_pitch_things_reach_writer_prompt():
     u = prompts.user_prompt(brief, data)
     assert "Ý này dùng: «trái táo», «cái mền», «trái chuối»" in u
     assert '"things"' in pitch.PITCH_PROMPT and "ĐÚNG 3 thứ" in pitch.PITCH_PROMPT
+
+
+def test_tail_slot_moves_off_a_sentence():
+    """Chỗ chèn khối cuối rơi giữa câu (R8): dời tới khoảng lặng sau câu đó, không bỏ điểm danh + tóm tắt."""
+    from rmvideo.media import edl
+    pieces = [edl.Piece(0.0, 22.0), edl.Piece(22.0, 30.0, push=0.1)]
+    segs = [(18.0, 20.5, "câu một"), (21.0, 25.0, "câu hai vắt qua chỗ chèn"), (25.5, 29.0, "câu ba")]
+    assert style_b._cuts_sentence(list(pieces), 1, segs)
+    out, ins = style_b._tail_slot(pieces, segs, 22.0, 1)
+    assert out[ins - 1].b == 25.25 and not style_b._cuts_sentence(out, ins, segs)
+    ok, k = style_b._tail_slot(pieces, [(18.0, 21.5, "a"), (22.5, 29.0, "b")], 22.0, 1)
+    assert k == 1 and ok[0].b == 22.0                                    # chỗ đầu đã ổn: giữ nguyên như cũ
