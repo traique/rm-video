@@ -13,6 +13,20 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.3 — Kaggle lỗi mạng không làm hỏng job; truyện bé đỡ chờ Gemini quá tải, ý truyện chọn sẵn đồ vật (22/11/2026)
+
+Theo log tối 22/11 (job 12, 13 truyện bé thất bại; Google quá tải, Gemini báo 503 liên tục).
+- **Gửi việc lên Kaggle lỗi tạm thì gửi lại** (mất kết nối, 429, 499, 5xx; tối đa 4 lần trong ~50 giây). Trước mỗi lần gửi lại,
+  bot hỏi Kaggle đã nhận việc chưa (phiên đang chờ máy / đang chạy thì thôi, khỏi chạy hai phiên tốn gấp đôi giờ GPU). Job 12,
+  13 hỏng ngay lần gửi đầu vì «Connection aborted» và «Kaggle lỗi 499». Các lời gọi chỉ đọc (hỏi trạng thái, lấy đầu ra)
+  lỗi tạm cũng hỏi lại 2 lần.
+- **Gemini quá tải / quá giờ thì nhớ 15 phút**: lượt sau dùng ngay model kia. Trước đây mỗi truyện chờ ~4 phút
+  (2 lượt nghĩ ý x 60 giây + bản nháp 120 giây) trước khi đổi sang flash-lite. Log ghi tên lỗi thay vì «lỗi ()».
+- **Ý truyện chọn sẵn 3 đồ vật / việc** trong danh sách gợi ý; lời nhắc viết truyện dặn giữ đủ. Job 12: 4 lượt viết liền
+  đều bị bộ kiểm báo «mới nhắc tới 2 trong các thứ gợi ý» (ý truyện không biết phải dùng các thứ đó).
+- Job 11 (bếp) chạy 69 phút là do Kaggle không cấp máy trong 35 phút nên bot dựng trên Botkeep (giọng edge-tts, 720p):
+  đúng thiết kế, không phải lỗi mã.
+
 ## 1.4.2 — bếp: đầu video chỉ để giữ chân, câu đọc liền mạch, phụ đề ngắt đúng chỗ; bé: tắt được phụ đề, ảnh ít lỗi hơn (22/11/2026)
 
 Theo phản hồi job 8 (truyện bé) và job 9 (đồ chua).

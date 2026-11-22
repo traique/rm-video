@@ -23,6 +23,20 @@ class KaggleError(RuntimeError):
     pass
 
 
+_sleep = time.sleep            # test thay bằng hàm không chờ
+CALL_RETRIES = 2               # hỏi Get* / List* lỗi tạm: hỏi lại chừng này lần
+PUSH_TRIES = 4                 # gửi notebook lỗi tạm: tối đa chừng này lần (kiểm Kaggle đã nhận chưa trước khi gửi lại)
+PUSH_WAIT = (5.0, 15.0, 30.0)
+_TRANSIENT_RE = re.compile(r"Kaggle lỗi (429|499|5\d\d) ")
+
+
+def transient(e: Exception) -> bool:
+    """Lỗi tạm của mạng / máy chủ Kaggle (mất kết nối, 429, 499, 5xx): thử lại được. 22/11 tối (job 12, 13): SaveKernel
+    «Connection aborted» rồi «499», Google đang quá tải (Gemini cũng 503) — bot bỏ job ngay ở lần gửi đầu."""
+    s = str(e)
+    return "Không gọi được Kaggle" in s or bool(_TRANSIENT_RE.search(s))
+
+
 def clean_user(v: str) -> str:
     """'https://www.kaggle.com/QueTrai/' / '@quetrai' / ' quetrai ' -> 'quetrai'."""
     v = (v or "").strip()
@@ -73,6 +87,20 @@ def configured() -> bool:
 
 
 def call(method: str, body: dict, service: str = KERNELS, timeout: float = 120) -> dict:
+    """Một lời gọi API. Lời gọi chỉ đọc (Get* / List*) lỗi tạm thì hỏi lại CALL_RETRIES lần; lời gọi ghi (SaveKernel...)
+    không tự gọi lại ở đây (push tự kiểm Kaggle đã nhận chưa rồi mới gửi lại)."""
+    tries = 1 + (CALL_RETRIES if method.startswith(("Get", "List")) else 0)
+    for k in range(tries):
+        try:
+            return _call(method, body, service, timeout)
+        except KaggleError as e:
+            if k == tries - 1 or not transient(e):
+                raise
+            _sleep(2.0 * (k + 1))
+    raise KaggleError(f"Không gọi được Kaggle ({method})")          # pragma: no cover
+
+
+def _call(method: str, body: dict, service: str = KERNELS, timeout: float = 120) -> dict:
     tok = token()
     try:
         r = requests.post(f"{API}/{service}/{method}", json=body, timeout=timeout,
@@ -259,13 +287,28 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
             "competitionDataSources": [], "modelDataSources": [], "categoryIds": []}
     if gpu:
         body["machineShape"] = "NvidiaTeslaT4"
-    try:
-        d = call("SaveKernel", body)
-    except KaggleError as e:
-        if "409" in str(e) and "title" in str(e).lower():
-            raise KaggleError(f"Kaggle báo trùng tên notebook: tài khoản '{body['slug'].split('/')[0]}' không phải chủ "
-                              "token. Sửa KAGGLE_USERNAME trong Cài đặt cho đúng tên ở kaggle.com/<tên>") from None
-        raise
+    d: dict = {}
+    for k in range(PUSH_TRIES):
+        try:
+            d = call("SaveKernel", body)
+            break
+        except KaggleError as e:
+            if "409" in str(e) and "title" in str(e).lower():
+                raise KaggleError(f"Kaggle báo trùng tên notebook: tài khoản '{body['slug'].split('/')[0]}' không phải "
+                                  "chủ token. Sửa KAGGLE_USERNAME trong Cài đặt cho đúng tên ở kaggle.com/<tên>") from None
+            if not transient(e) or k == PUSH_TRIES - 1:
+                raise
+            logging.warning("Kaggle: gửi notebook %s lỗi tạm (%s), thử lại lần %d", slug, str(e)[:120], k + 2)
+            _sleep(PUSH_WAIT[min(k, len(PUSH_WAIT) - 1)])
+            # kết nối đứt lúc Kaggle đã nhận notebook: phiên mới đang chờ máy / đang chạy -> không gửi lại (gửi lại là
+            # thêm một phiên, tốn gấp đôi giờ GPU). Phiên trước của slug này luôn đã xong / bị huỷ khi bắt đầu việc mới.
+            try:
+                st, _why = status(slug)
+            except KaggleError:
+                st = ""
+            if st.upper() in ("QUEUED", "RUNNING"):
+                logging.warning("Kaggle đã nhận notebook %s dù kết nối lỗi (%s): không gửi lại", slug, st)
+                return {}
     if d.get("error"):
         raise KaggleError(f"Kaggle không nhận notebook: {d['error']}")
     got = _ref_slug(d)

@@ -144,6 +144,9 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
     if pitch.get("premise"):
         text += (f"Ý TRUYỆN đã chọn (giữ đúng ý này; diễn biến từng cảnh do bạn quyết): «{pitch.get('title', '')}» — "
                  f"{pitch['premise']}\n")
+        if pitch.get("things"):        # 1.4.2 (job 12-13): ý không định trước đồ vật -> 4 lượt liền «mới nhắc tới 2»
+            text += ("Ý này dùng: " + ", ".join(f"«{t}»" for t in pitch["things"])
+                     + " — giữ đủ các thứ đó trong lời kể, viết đúng chữ như vậy.\n")
     else:
         idea = story_mod.plot_premise(brief, data)
         text += (f"Chuyện xảy ra: {main['name_vi']} {conflict['vi']}."
