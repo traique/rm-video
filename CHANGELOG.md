@@ -13,6 +13,37 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.2 — bếp: đầu video chỉ để giữ chân, câu đọc liền mạch, phụ đề ngắt đúng chỗ; bé: tắt được phụ đề, ảnh ít lỗi hơn (22/11/2026)
+
+Theo phản hồi job 8 (truyện bé) và job 9 (đồ chua).
+- **Bếp: điểm danh nguyên liệu dời về cuối video**, ngay trước khúc tóm tắt (cả bản đầy đủ lẫn bản ngắn). Phần đầu chỉ
+  còn cảnh thành phẩm + câu hook rồi vào thẳng video gốc. Lời đọc khúc này là «Nguyên liệu gồm…» (không còn «Chuẩn bị…»).
+  Khúc tóm tắt dài 1,2 giây mỗi bước (trước 0,7 giây: thẻ TÓM TẮT tắt khi lời mới đọc được nửa). Mỗi bước trong lời tóm
+  tắt không còn bị cắt giữa tên nguyên liệu («rửa sạch củ cải và cà» → «rửa sạch củ cải và cà rốt»).
+- **Bếp: câu hook nêu tên món**. Bộ lọc nhận cả tên món rút gọn từ tên món / tiêu đề («Làm đồ chua thơm ngon đơn giản tại
+  nhà» → «đồ chua»). Job 9: 8/8 câu «Đồ chua…» bị loại oan vì «không nêu tên món», video còn lại câu viết cùng kịch bản.
+  Chưa chọn được câu hook trước thì đoạn mở đầu dài 3 giây (trước 2 giây: lượt viết thêm chỉ được 3-5 chữ).
+- **Câu đọc liền mạch**: lời gốc bị máy nghe cắt mỗi 3-4 giây giữa câu, AI viết tiếp một câu qua nhiều đoạn và mỗi đoạn được
+  đọc riêng với ngữ điệu kết câu («…giúp cho cà rốt và củ cải trắng» | «ra bớt phần nhựa đắng đi…»). Giờ:
+  - trước khi viết: lời gốc không có dấu câu nhưng có viết hoa đầu câu thì đoạn bắt đầu bằng chữ thường được gộp với đoạn
+    trước (tối đa 9 giây);
+  - sau khi viết: đoạn lời mới chưa hết câu được đọc liền với đoạn sau thành một câu (tối đa 16 giây / 230 ký tự; dài
+    hơn thì tách ở dấu phẩy). Không gộp câu hook, đoạn giữ tiếng gốc, khúc điểm danh / tóm tắt.
+- **Phụ đề ngắt dòng đúng chỗ** (cả bếp lẫn bé): không tách số khỏi đơn vị và tên nguyên liệu («1 kg cà rốt»), không tách từ
+  ghép / tên riêng («Tiếng Anh», «Thỏ Trắng»), dòng không kết bằng hư từ, ưu tiên ngắt trước «rồi», «thì», «và»… Trước đây
+  chia đều theo số chữ: «Giờ mình lấy 1 | kg cà rốt gọt | vỏ rồi tới 1».
+- **Cài đặt phụ đề**: `SUBS` (video bếp làm tự động / Telegram / Zoom; trang web vẫn chọn từng video) và `KIDS_SUBS` (truyện bé;
+  tắt thì không in lời kể, thẻ từ tiếng Anh, chữ to câu móc, bảng từ cuối vẫn giữ, file `.srt` vẫn có).
+- **Ảnh truyện bé**:
+  - hành động tả thứ không vẽ được (bóng, bóng tối, tiếng động, mùi, gió…) bị bỏ khỏi prompt ảnh, lời nhắc viết truyện
+    dặn tả nhân vật phản ứng thay vì tả cái bóng (job 8 cảnh 2: «chiếc bóng đen» vẽ thành khối tròn đen lơ lửng);
+  - bỏ chữ «toddler» khỏi câu tỉ lệ (FLUX vẽ tã / quần lót trắng cho Thỏ và Gấu);
+  - cảnh hai bạn ghi rõ bạn nào bên trái, bạn nào bên phải (job 8 cảnh 6: Thỏ có tay chân lông nâu của Gấu);
+  - prompt dài quá giới hạn thì bỏ câu tả thế giới chung trước khi vượt.
+  - Đã thử đo màu lông dưới đầu nhân vật để tự bắt lỗi lẫn nét: nền đất / hàng rào cùng màu nâu nên không tách được ảnh
+    lỗi, chưa đưa vào.
+- Kiểm ảnh OWLv2 chạy được cả với transformers 5 (bản 5 bỏ `post_process_object_detection`).
+
 ## 1.4.1 — câu hook bếp trọn ý, đoạn mở đầu dài vừa câu hook; truyện bé gây cấn hơn (21/11/2026)
 
 - Bếp, phản hồi job 6 («câu mở không ăn nhập»): bản 1.4.0 chọn câu hook SAU khi viết kịch bản và ép vào đoạn mở đầu 2 giây

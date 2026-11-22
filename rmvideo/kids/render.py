@@ -372,11 +372,14 @@ def gloss_times(words_timed: Sequence[tuple], brief_words: Sequence[dict]) -> li
 async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[str], brief: dict, out: str, tmp: str,
                  music: str | None = None, title: str = "", channel: dict | None = None, W: int = 1080, H: int = 1920,
                  fps: int = FPS, rnd: random.Random | None = None, recap: tuple[dict, str] | None = None,
-                 fx: str = "full", hook: tuple[dict, str, str] | None = None, hook_scene: int | None = None) -> dict:
+                 fx: str = "full", hook: tuple[dict, str, str] | None = None, hook_scene: int | None = None,
+                 subs: bool = True) -> dict:
     """clips: [{"path": wav}] theo thứ tự cảnh (độ dài tiếng nói tự đo). recap: (clip, lời) câu ôn từ đọc trong màn
     kết. fx: full (chuyển động + hạt + tiếng động) | motion (chỉ chuyển động, phụ đề bật) | off (như 1.1.0).
     hook: (clip, câu móc đọc, chữ to) -> 3 giây đầu là ảnh cảnh hook_scene (mặc định cảnh 3) zoom chặt + câu móc + chữ to,
-    tiêu đề lùi ra sau. Trả {"length", "plan", "srt", "ass", "hits", "sfx"}."""
+    tiêu đề lùi ra sau. subs=False (KIDS_SUBS=0, 1.4.2): không in lời kể lên hình; thẻ từ tiếng Anh, chữ to của câu móc,
+    tiêu đề, bảng từ cuối vẫn giữ, file .srt vẫn có (đăng kèm làm phụ đề rời). Trả {"length", "plan", "srt", "ass",
+    "hits", "sfx"}."""
     channel = channel or {}
     rnd = rnd or random.Random(0)
     fx = fx if fx in ("full", "motion", "off") else "full"
@@ -460,7 +463,7 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     fc += ";[vc]" + overlays(pl, title, brief.get("words", []), glosses, channel, W, H, work,
                              hook[2] if hook else "").lstrip(",")
     # không mờ từ đen / về đen: khung đầu là cảnh móc, khung cuối là bảng kết sáng (Reels lặp lại không lộ màn đen)
-    fc += f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR},format=yuv420p[v];"
+    fc += (f",subtitles=filename={ass}:fontsdir={ff.ASSETS_DIR}" if subs else "") + ",format=yuv420p[v];"
     events: dict[str, list[float]] = {}
     if fx == "full":                                   # whoosh lúc chuyển cảnh, ting lúc dạy từ
         sf = await sfx_files(work)
@@ -496,7 +499,7 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
     await ff._run_ffmpeg("-y", *ff.thread_args(), *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
                          *renderer.encode_args(H, fps), "-t", f"{total:.3f}", out)
     return {"length": total, "plan": pl, "srt": srt, "ass": ass, "music_gain_db": gain if music_idx is not None else None,
-            "hits": hits, "sfx": {k: len(v) for k, v in events.items()}, "fx": fx}
+            "hits": hits, "sfx": {k: len(v) for k, v in events.items()}, "fx": fx, "subs": subs}
 
 
 async def cover(video: str, out_dir: str, at: float = 1.6) -> tuple[str, str]:

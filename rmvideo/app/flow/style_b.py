@@ -4,7 +4,8 @@ toàn bộ phép B, chỉ áp lớp A, ghi lý do.
 
 Phép được làm:
   B2 điểm danh nguyên liệu  4-5 khúc ~1.2 giây LẶP LẠI lúc từng nguyên liệu xuất hiện, thẻ "1 kg cánh gà" (chỉ số đã
-                            đối chiếu); các bước sau vẫn chiếu đủ, đúng thứ tự
+                            đối chiếu), đứng CUỐI video ngay trước tóm tắt (1.4.2; trước đây ngay sau câu hook — phản
+                            hồi 22/11: «phần đầu nên tập trung giữ chân người xem», công thức để chung với tóm tắt)
   B3 bỏ phần chào hỏi      bước intro ở đầu không có nguyên liệu / con số
   B4 dời cảm thán về cuối   tối đa 1 đoạn reaction giữa video, không có bước / nguyên liệu / số
   B5 tóm tắt trước khi kết  4-6 bước chính, ~0.7 giây mỗi bước (lặp)
@@ -32,7 +33,7 @@ from rmvideo.media import edl
 MONTAGE_MAX = 5
 MONTAGE_LEN = 1.2
 RECAP_MAX = 5
-RECAP_LEN = 0.7
+RECAP_LEN = 1.2          # 1.4.2: 0,7 giây/bước thì thẻ TÓM TẮT tắt khi lời tóm tắt mới đọc được nửa (job 9)
 RECAP_MARK = "Tóm lại:"            # đầu lời "gốc" của khúc tóm tắt / điểm danh: AI viết riêng, không gộp với câu bên cạnh
 MONTAGE_MARK = "Nguyên liệu gồm:"
 HOOK_KEEP = 2.0          # câu đầu tiên dài ít nhất chừng này giây luôn giữ làm câu mở đầu (thường là món thành phẩm)
@@ -176,10 +177,19 @@ _TAIL_STOP = {"thành", "và", "với", "trong", "khoảng", "tầm", "chừng",
               "lên", "thêm", "nửa", "một", "các", "những", "đã", "sẽ", "đến", "tới", "từ"}
 
 
+STEP_WORDS = 8           # một bước trong lời tóm tắt dài tối đa chừng này chữ (+ cho trọn tên nguyên liệu)
+
+
 def _short_step(text: str, kind: str) -> str:
-    """Một bước cho lời tóm tắt: vế đầu, tối đa 6 chữ ("Chiên lửa nhỏ khoảng 1 phút rưỡi")."""
+    """Một bước cho lời tóm tắt: vế đầu, tối đa STEP_WORDS chữ ("Chiên lửa nhỏ khoảng 1 phút rưỡi"), không cắt giữa tên
+    nguyên liệu (job 9 ngày 22/11, tối đa 6 chữ: «rửa sạch củ cải và cà», «cho củ cải và cà rốt» mất «vào hũ»)."""
     head = (text or kind).split(",")[0].split(";")[0].strip().rstrip(".")
-    words = head.split()[:6]
+    allw = head.split()
+    n = min(len(allw), STEP_WORDS)
+    while n < len(allw) and n < STEP_WORDS + 2 and \
+            ingredients.find(" ".join(allw[:n + 1])) - ingredients.find(" ".join(allw[:n])):
+        n += 1                                    # chữ kế tiếp làm trọn một tên nguyên liệu ("cà" + "rốt")
+    words = allw[:n]
     while len(words) > 2 and (words[-1].lower() in _TAIL_STOP or any(ch.isdigit() for ch in words[-1])):
         words.pop()                               # không để cụt ở "thành", "và", "khoảng 15"
     return " ".join(words).lower()
@@ -248,8 +258,6 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
             lo, hi = _gap_bounds(segs, keep, hook_end, s.t1)
             pieces = _cut_out(pieces, max(hook_end, lo) if hook_end else 0.0, hi)
             did.append(f"bỏ {hi - hook_end:.0f}s chào hỏi đầu video")
-    elif intro or (segs and segs[0][0] < 1.0):
-        hook_end = _hook_end(segs, intro[0].t1 if intro else HOOK_MAX)
     # B6: đổi chỗ hai bước sơ chế độc lập (tối đa 1)
     first_cook = min((s.t0 for s in steps if s.kind == "cook"), default=end)
     moved: tuple | None = None
@@ -270,7 +278,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
                     if pieces[k].role == "main" and pieces[k].b <= y_end + 0.01), len(pieces))
         pieces.insert(ins, edl.Piece(lo, hi, zoom=1.12, role="side", tag="moved"))
         did.append("đổi chỗ hai bước sơ chế độc lập")
-    # B2: điểm danh nguyên liệu (sau câu hook / đoạn mở đầu)
+    # B2: điểm danh nguyên liệu — dồn về cuối, đứng ngay trước tóm tắt (1.4.2)
     items = [it for it in facts.items if (it.seen_at >= 0 or it.said_at >= 0)]
     items.sort(key=lambda it: (not (it.verified and it.qty is not None), it.seen_at if it.seen_at >= 0 else it.said_at))
     seen: set = set()
@@ -291,12 +299,10 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
             montage.append((edl.Piece(ka, round(ka + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage"),
                             _label(it)))
     if len(montage) >= 3 and "B2" not in skip:
-        at = _split_at(pieces, hook_end) if hook_end else 0       # sau câu mở đầu, không thay nó
-        pieces[at:at] = [p for p, _ in montage]
-        did.append(f"điểm danh {len(montage)} nguyên liệu")
+        did.append(f"điểm danh {len(montage)} nguyên liệu cuối video")
     else:
         montage = []
-    # B4 + B5: cảm thán giữa video dời về cuối, tóm tắt các bước chính, trước cảnh cuối
+    # B4 + B2 + B5: cảm thán giữa video dời về cuối, điểm danh nguyên liệu, tóm tắt các bước chính, trước cảnh cuối
     tail: list = []
     react_text = recap_text = ""
     react = [s for s in steps if s.kind == "reaction" and s.t1 < end * 0.8 and 1.5 <= s.t1 - s.t0 <= 5.0
@@ -309,6 +315,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         said = " ".join(t for a, b, t in segs if lo <= a and b <= hi).strip()
         react_text = said if said[-1:] in ".!?…" else said + "."
         did.append("dời đoạn cảm thán về cuối")
+    tail += [p for p, _ in montage]
     core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0
             and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]
     if len(core) >= 3 and "B5" not in skip:

@@ -67,7 +67,7 @@ def test_recap_must_keep_its_steps():
     assert not prompt_engine.side_lost("Nấu kiểu này đơn giản lắm.", "Đun sôi nước rồi thả mực vô.")   # đoạn thường
     assert prompt_engine.side_spoken(o) == "Tóm lại là dùng mực đông lạnh, đun sôi nước, cho hành tây, vớt mực ra dĩa."
     m = "Nguyên liệu gồm: mực, 1/2 muỗng bột ngọt, hành tây."
-    assert prompt_engine.side_spoken(m) == "Chuẩn bị mực, 1/2 muỗng bột ngọt, hành tây."
+    assert prompt_engine.side_spoken(m) == "Nguyên liệu gồm mực, 1/2 muỗng bột ngọt, hành tây."   # 1.4.2: cuối video
 
 
 def test_lost_recap_is_rewritten_then_falls_back(monkeypatch):

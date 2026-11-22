@@ -14,11 +14,16 @@ STYLE_EN = ("Pixar style 3D animation, cute children's storybook, soft rounded s
             "colors, soft warm light, vertical 9:16, no text")
 # 19/11: nhân vật mỗi cảnh một kích cỡ (sóc to gấp đôi thỏ, thỏ mặt dài như người lớn) -> khoá tỉ lệ: tất cả cùng chiều cao,
 # dáng bé con (đầu tròn to, má phúng phính, thân ngắn)
-PROPORTION_EN = "All friends are toddler-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
+PROPORTION_EN = "All friends are small kid-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
 # 20/11 (job 1: Gấu ôm HAI Thỏ, cảnh kết thêm một gấu con): câu tỉ lệ nói theo đúng số bạn — «All friends» ở cảnh 1 bạn gợi ý
 # vẽ thêm bạn; nhắc lại «chỉ một bản» ngay sau số bạn thay vì chỉ có «no other animals» ở cuối prompt (T5 đọc nhẹ phần cuối)
-PROPORTION_ONE_EN = "The character is toddler-sized: big round head, chubby cheeks, short body, standing on two legs"
-PROPORTION_TWO_EN = "Both friends are toddler-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
+# 22/11 (job 8): chữ «toddler» làm FLUX vẽ tã / quần lót trắng cho cả thỏ lẫn gấu -> «small kid-sized»
+PROPORTION_ONE_EN = "The character is small kid-sized: big round head, chubby cheeks, short body, standing on two legs"
+PROPORTION_TWO_EN = "Both friends are small kid-sized and the same height: big round head, chubby cheeks, short body, standing on two legs"
+# thứ FLUX không vẽ được mà vẽ bừa: job 8 (22/11) «a huge black shadow falls over the flowers» -> khối tròn đen lơ lửng sau
+# lưng Thỏ. Vế câu có các chữ này bị bỏ khỏi hành động (visible_action); còn lại quá ngắn thì dùng hành động dự phòng.
+UNDRAWABLE_EN = re.compile(r"\b(shadows?|silhouettes?|darkness|dark shapes?|sounds?|noises?|voices?|echo(?:es)?|smells?|"
+                           r"scents?|wind|breeze|invisible|ghosts?|monsters?|thunder)\b", re.IGNORECASE)
 # nói khẳng định (FLUX schnell không có prompt âm; chữ «copies» trong prompt lại gợi ra bản sao)
 ONLY_EN = {1: "alone", 2: "each appearing only once"}
 # từ dạy là vật / thiên nhiên mà câu dạy gọi «mặt trời đó» -> vật phải có trong hình (job 1 cảnh 1: dạy «sun», hình không có
@@ -192,7 +197,8 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
              f"TIẾNG ANH (English only), tối đa 25 từ, gọi nhân vật bằng tên tiếng Anh ({names_en}), tả hành động + cảm xúc + "
              "đồ vật trong hình, thì hiện tại; tư thế ĐANG LÀM rõ ràng (tiptoeing, crouching to look at footprints, jumping "
              "back in surprise, hugging tightly…), KHÔNG đứng yên nhìn thẳng; không tả ngoại hình hay quần áo (đã có sẵn), "
-             "không chữ.\n"
+             "không chữ. CHỈ tả thứ VẼ ĐƯỢC: KHÔNG có bóng (shadow), bóng tối, tiếng động, mùi, gió, thứ vô hình — chuyện có cái "
+             "bóng lạ / tiếng động lạ thì tả nhân vật đang phản ứng (hiding behind a tree, peeking out, ears perked up).\n"
              "- `prop_vi` / `prop_en`: MỘT đồ vật chính xuyên suốt truyện (ví dụ «cái thang gỗ» / «wooden ladder»): tiếng Việt "
              "1-3 chữ, tên tiếng Anh 1-3 từ. Đồ vật này phải có trong lời kể cảnh 1 hoặc 2 và được tả trong `action_en` của mọi "
              "cảnh nó xuất hiện (bé phải THẤY nó trong hình).\n"
@@ -329,6 +335,14 @@ def prop_required(idx: int, scene: dict, prop: tuple[str, str] | None) -> bool:
     return idx == 0 or story_mod.prop_mentioned(prop[0], text)
 
 
+def visible_action(action: str) -> str:
+    """Bỏ vế câu tả thứ không vẽ được (UNDRAWABLE_EN) khỏi action_en; vế khác giữ nguyên."""
+    if not UNDRAWABLE_EN.search(action or ""):
+        return action
+    parts = re.split(r"\s*(?:[,;]|\bwhile\b|\bas\b|\bwhen\b)\s*", action)
+    return ", ".join(p for p in parts if p and not UNDRAWABLE_EN.search(p)).strip(" ,")
+
+
 def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: bool = False,
                  prop: tuple[str, str] | None = None) -> str:
     """[hành động model viết (tiếng Anh; không phải tiếng Anh thì dùng hành động dự phòng theo vai cảnh idx) + đồ vật chính
@@ -339,6 +353,8 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
     keys = [k for k in scene.get("characters", []) if k in chars][:2] or [brief["main"]]
     text = str(scene.get("text") or "")
     action = (scene.get("action_en") or "").strip().rstrip(".")
+    if story_mod.is_english(action):
+        action = visible_action(action)
     if not story_mod.is_english(action) or len(action.split()) < 3:
         names = " and ".join(chars[k]["name_en"] for k in keys)
         action = f"{names} {FALLBACK_ACTIONS_EN[idx % len(FALLBACK_ACTIONS_EN)]}"
@@ -369,18 +385,25 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
     # «exactly»: đo thật 18/11, FLUX hay vẽ thêm bản sao nhân vật (hai thỏ, hai sóc) hoặc một con gấu con lạ
     who = "Exactly two friends in the picture" if len(keys) == 2 else "Exactly one character in the picture"
     who += ", " + ONLY_EN[2 if len(keys) == 2 else 1]
+    if len(keys) == 2:
+        # 22/11 (job 8 cảnh 6): hai bạn lẫn nét của nhau (Thỏ có tay chân lông nâu của Gấu) — đặt mỗi bạn một bên ngay
+        # trong câu đầu (T5 đọc kỹ phần đầu prompt)
+        who += f", {chars[keys[0]]['name_en']} on the left, {chars[keys[1]]['name_en']} on the right"
     proportion = PROPORTION_TWO_EN if len(keys) == 2 else PROPORTION_ONE_EN
     extras = [light] if light else []
+    world = [data["world"]["prompt_en"]]
     while True:
         act = ", ".join([action] + must + soft)
-        where = ", ".join([setting, data["world"]["prompt_en"]] + extras)
+        where = ", ".join([setting] + world + extras)
         out = f"{who}: {act}. {descs}. {proportion}. Setting: {where}. {style}, no other animals"
-        if len(out.split()) <= PROMPT_WORDS_MAX or not (soft or extras):
+        if len(out.split()) <= PROMPT_WORDS_MAX or not (soft or extras or world):
             return out
         if soft:
             soft.pop()
-        else:
+        elif extras:
             extras.pop()
+        else:
+            world.pop()                        # cuối cùng mới bỏ câu tả thế giới chung (bối cảnh cảnh vẫn còn)
 
 
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:

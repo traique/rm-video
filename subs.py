@@ -64,9 +64,131 @@ def _keep_pairs(chunk: list, pairs: set) -> list:
     return chunk
 
 
+# ---- chỗ ngắt dòng (1.4.2) ----
+# Phản hồi 22/11: «ngắt câu chưa tự nhiên» — chia đều theo số chữ ra «Giờ mình lấy 1 | kg cà rốt gọt | vỏ rồi tới 1 | kg củ
+# cải trắng» (bếp), «Tiếng | Anh là flower» (bé). Giờ chọn chỗ ngắt có điểm: không tách số khỏi đơn vị, không tách từ
+# ghép / tên riêng, không để dòng kết bằng hư từ («của», «cho», «và»...), ưu tiên ngắt TRƯỚC từ nối («rồi», «thì»...);
+# dòng vẫn cân đối, tối đa max_words (+1 khi cần để khỏi ngắt xấu).
+_NUM_WORDS = {"một", "hai", "ba", "bốn", "tư", "năm", "sáu", "bảy", "tám", "chín", "mười", "mươi", "trăm", "nghìn", "ngàn",
+              "triệu", "nửa", "vài", "mấy", "rưỡi"}
+_UNIT_WORDS = {"g", "gam", "gram", "gr", "kg", "ký", "kí", "cân", "lạng", "ml", "lít", "l", "muỗng", "thìa", "chén", "bát",
+               "ly", "cốc", "phút", "giây", "tiếng", "giờ", "ngày", "tháng", "năm", "lần", "củ", "quả", "trái", "cái", "con",
+               "miếng", "lát", "nhánh", "tép", "cây", "bó", "gói", "hũ", "nước", "độ", "phần", "người", "chiếc", "bông"}
+# hư từ / từ chỉ loại gắn với chữ SAU nó: dòng không nên kết bằng chúng
+_BIND_NEXT = {"của", "cho", "và", "với", "là", "các", "những", "một", "cái", "con", "chiếc", "rất", "thật", "hơi", "đã",
+              "sẽ", "đang", "không", "chưa", "bị", "được", "tới", "đến", "từ", "vô", "vào", "để", "thì", "mà", "khi", "nếu",
+              "vì", "nên", "như", "trong", "trên", "dưới", "lúc", "cây", "củ", "quả", "trái", "bông", "tiếng", "hũ", "nồi",
+              "chảo", "bạn", "cô", "chú", "bà", "ông", "anh", "chị", "em", "mình", "hãy", "đừng", "cùng", "thêm", "khoảng",
+              "chừng", "tầm", "mỗi", "nhiều", "ít", "cả", "hết", "giúp", "làm", "bỏ", "đem", "sau", "trước"}
+# từ nối: ngắt ngay TRƯỚC chúng là tự nhiên
+_GOOD_START = {"rồi", "và", "thì", "là", "nhưng", "mà", "để", "cho", "khi", "nếu", "vì", "nên", "hay", "hoặc", "còn", "cũng",
+               "với", "lúc", "sau", "trước", "giờ", "xong", "thế", "vậy", "bỗng", "ai", "ơi"}
+_COMPOUND_WORDS = (
+    "mọi người", "cả nhà", "các bạn", "hôm nay", "bây giờ", "lúc này", "tiếng anh", "gọt vỏ", "rửa sạch", "để ráo",
+    "ăn kèm", "tủ lạnh", "tủ mát", "bảo quản", "tiện lợi", "giòn rụm", "giòn tan", "sần sật", "thơm ngon", "đơn giản",
+    "đậm đà", "mềm mại", "khổng lồ", "giật mình", "nhúc nhích", "cẩn thận", "ngạc nhiên", "vui vẻ", "bạn bè", "xin lỗi",
+    "cảm ơn", "cám ơn", "chuẩn bị", "nguyên liệu", "công thức", "thành phẩm", "lửa nhỏ", "nhỏ lửa", "vừa ăn", "nêm nếm",
+    "gia vị", "cắt lát", "xắt sợi", "thái lát", "một chút", "chút xíu", "đồ chua", "như vậy", "thế này", "sau khi",
+    "trước khi", "trong khi", "bởi vì", "cho nên", "nhưng mà", "ngon lành", "hấp dẫn", "bông hoa", "cái cây", "con diều",
+    "chiếc bóng", "vườn rau", "cầu vồng", "mặt trời", "mặt trăng", "ngôi sao", "quả bóng", "trái bóng", "hộp quà",
+    "bánh kem", "bánh quy", "đồ chơi", "xe đạp", "ôm chặt", "ăn được", "đẹp mắt", "đều tay", "sạch sẽ", "từ từ",
+    "nhẹ nhàng", "nhanh chóng", "thật sự", "dễ dàng", "chắc chắn", "lo lắng", "sợ hãi", "buồn bã", "hạnh phúc",
+    "tò mò", "hồi hộp", "bất ngờ", "dũng cảm", "chia sẻ", "giúp đỡ", "kiên nhẫn", "trung thực", "cả ngày", "ngày mai",
+    "hôm qua", "buổi sáng", "buổi tối", "nước lọc", "nước sôi", "nước mắm", "dầu ăn", "bột ngọt", "hạt nêm", "đường cát",
+    "muối hột", "giấm ăn", "chảo nóng", "nóng già", "để nguội", "sôi lên", "vớt ra", "đảo đều", "trộn đều", "khuấy đều",
+    "trở nên", "thật là", "rất là", "chuẩn vị", "bánh mì", "cơm tấm", "bún thịt", "rau củ", "lượn sóng", "củ cải", "cà rốt",
+    "luống hoa", "dịu dàng", "làm sao", "biết bao", "ghê chưa", "quá chừng", "luôn nha", "nha cả", "thật nhiều",
+)
+
+
+def _compounds() -> set:
+    out = {tuple(c.split()) for c in _COMPOUND_WORDS}
+    try:
+        import ingredients
+        for g in ingredients.GROUPS:
+            for name in g:
+                ws = name.lower().split()
+                out.update(zip(ws, ws[1:]))
+    except Exception:
+        pass
+    return {c for c in out if len(c) == 2}
+
+
+_PAIRS: set | None = None
+
+
+def _break_cost(prev: str, nxt: str, pairs: set, before: str = "") -> float:
+    """Điểm phạt khi ngắt dòng giữa chữ `prev` và chữ `nxt` (âm: ngắt đẹp); before: chữ ngay trước `prev`."""
+    a, b, z = _tok(prev), _tok(nxt), _tok(before)
+    if not a or not b:
+        return 0.0
+    cost = 0.0
+    if prev.rstrip().endswith((".", "!", "?", ",", ";", ":", "…")):
+        return -6.0
+    if any(ch.isdigit() for ch in a) or a in _NUM_WORDS:
+        cost += 40.0 if (b in _UNIT_WORDS or any(ch.isdigit() for ch in b) or b in _NUM_WORDS) else 25.0
+    if (a, b) in pairs:
+        cost += 22.0
+    if a in _UNIT_WORDS and z and (any(ch.isdigit() for ch in z) or z in _NUM_WORDS):
+        cost += 12.0                                          # «1 kg | cà rốt»: định lượng đi liền tên nguyên liệu
+    if prev[:1].isupper() and nxt[:1].isupper():              # tên riêng hai chữ («Thỏ Trắng», «Gấu Nâu»)
+        cost += 18.0
+    if a in _BIND_NEXT:
+        cost += 10.0
+    if b in _GOOD_START:
+        cost -= 4.0
+    return cost
+
+
+def _split_phrase(ph: list, max_words: int, max_chars: int, pairs: set) -> list:
+    """Chia một cụm (không có dấu câu ở giữa) thành các dòng: quy hoạch động trên chỗ ngắt."""
+    n = len(ph)
+    texts = [w[2] for w in ph]
+    chars = len(" ".join(texts))
+    if n <= max_words and chars <= max_chars:
+        return [ph]
+    k_min = max(-(-n // max_words), -(-chars // max_chars))
+    target = chars / max(1, k_min)
+    inf = float("inf")
+    best = [0.0] + [inf] * n
+    back = [0] * (n + 1)
+    for i in range(1, n + 1):
+        for j in range(max(0, i - max_words - 1), i):
+            if best[j] == inf:
+                continue
+            cw, cc = i - j, len(" ".join(texts[j:i]))
+            if cw > max_words + 1 or (cc > max_chars + 8 and cw > 1):
+                continue
+            c = 6.0 + (cc - target) ** 2 / 12.0
+            if cw == 1:
+                c += 14.0                                    # dòng một chữ
+            if cw > max_words:
+                c += 9.0 * (cw - max_words)
+            if cc > max_chars:
+                c += 2.0 * (cc - max_chars)
+            if j > 0:
+                c += _break_cost(texts[j - 1], texts[j], pairs, texts[j - 2] if j >= 2 else "")
+            if best[j] + c < best[i]:
+                best[i], back[i] = best[j] + c, j
+    if best[n] == inf:                                       # không chia được theo luật: chia đều như cũ
+        base, extra = divmod(n, k_min)
+        out, i = [], 0
+        for j in range(k_min):
+            size = base + (1 if j < extra else 0)
+            out.append(ph[i:i + size])
+            i += size
+        return [x for x in out if x]
+    cuts, i = [], n
+    while i > 0:
+        cuts.append((back[i], i))
+        i = back[i]
+    return [ph[a:b] for a, b in reversed(cuts)]
+
+
 def group_words(words, max_words=4, max_chars=22, until: float | None = None):
-    """Chia dòng phụ đề CÂN ĐỐI: tách cụm theo câu/dấu phẩy/ngắt hơi/đoạn giọng, rồi chia mỗi cụm
-    thành các dòng đều nhau (tránh dòng chỉ còn 1 chữ). words: [(start, end, text[, clip])]."""
+    """Chia dòng phụ đề: tách cụm theo câu/dấu phẩy/ngắt hơi/đoạn giọng, rồi chia mỗi cụm thành các dòng cân đối ở chỗ
+    ngắt tự nhiên (_split_phrase; tránh dòng chỉ còn 1 chữ). words: [(start, end, text[, clip])]."""
+    global _PAIRS
     phrases, cur = [], []
     for w in words:
         brk = cur and (w[0] - cur[-1][1] > 0.6
@@ -79,20 +201,11 @@ def group_words(words, max_words=4, max_chars=22, until: float | None = None):
     if cur:
         phrases.append(cur)
     lines = []
-    pairs = _brand_pairs()
+    if _PAIRS is None:
+        _PAIRS = _compounds()
+    pairs = _PAIRS | _brand_pairs()
     for ph in phrases:
-        n = len(ph)
-        chars = len(" ".join(x[2] for x in ph))
-        k = max(-(-n // max_words), -(-chars // max_chars))     # số dòng tối thiểu
-        k = min(k, n)
-        base, extra = divmod(n, k)
-        i = 0
-        chunk = []
-        for j in range(k):                                     # chia đều: 5 từ -> 3+2, không 4+1
-            size = base + (1 if j < extra else 0)
-            chunk.append(ph[i:i + size])
-            i += size
-        lines.extend(_keep_pairs(chunk, pairs) if pairs else chunk)
+        lines.extend(_split_phrase(ph, max_words, max_chars, pairs))
     out = []
     for i, ln in enumerate(lines):
         start = ln[0][0]

@@ -123,11 +123,13 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
         pieces.append(edl.Piece(round(a, 3), round(b, 3), zoom=1.0 if last else style.ZOOMS[i % len(style.ZOOMS)],
                                 push=style.PUSH if last else 0.0))
     side = [edl.Piece(t, round(t + MONTAGE_LEN, 3), zoom=1.12, role="side", tag="montage") for _, t in montage]
-    # câu hook (nếu có) đi trước, rồi điểm danh nguyên liệu, rồi các bước
+    # câu hook (nếu có) đi trước, rồi các bước; điểm danh nguyên liệu dồn về cuối, ngay trước cảnh cuối (1.4.2: phần đầu
+    # chỉ để giữ chân người xem — phản hồi 22/11)
     head = 1 if hook_end and pieces and pieces[0].a < 0.05 and abs(pieces[0].b - hook_end) < 0.01 else 0
-    plan = edl.EditPlan(pieces=pieces[:head] + side + pieces[head:], stretch=stretch, level="short")
+    at = max(head, len(pieces) - 1)
+    plan = edl.EditPlan(pieces=pieces[:at] + side + pieces[at:], stretch=stretch, level="short")
     if montage:
-        t0 = round(pieces[0].length * stretch, 2) if head else 0.0
+        t0 = round(sum(p.length for p in pieces[:at]) * stretch, 2)
         labels = [style_b._label(it) for it, _ in montage]
         plan.texts.append({"t": t0, "dur": round(len(montage) * MONTAGE_LEN * stretch, 2),
                            "kind": "montage", "text": style_b.MONTAGE_MARK + " " + ", ".join(n[:1].lower() + n[1:] for n in labels) + "."})

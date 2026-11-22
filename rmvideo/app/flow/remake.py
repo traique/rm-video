@@ -682,8 +682,8 @@ class Remake:
         return str(getattr(facts, "dish", "") or "") if facts is not None else ""
 
     async def pre_hook(self) -> float | None:
-        """Câu hook chọn TRƯỚC đoạn mở đầu (1.4.1): trả độ dài đoạn mở đầu vừa đọc hết câu (2-4 giây); None = như cũ
-        (AI lỗi / tắt HOOK_PICK: đoạn mở đầu 2 giây, câu hook viết cùng kịch bản rồi mới chọn)."""
+        """Câu hook chọn TRƯỚC đoạn mở đầu (1.4.1): trả độ dài đoạn mở đầu vừa đọc hết câu (2-4 giây); chưa chọn được
+        thì hooks.FALLBACK_SECS (câu hook viết cùng kịch bản rồi mới chọn); None = tắt HOOK_PICK (đoạn mở đầu 2 giây)."""
         self.hook_pre = None
         if not hooks.wanted():
             return None
@@ -695,7 +695,9 @@ class Remake:
         if got:
             self.hook_pre = got
             return float(got["secs"])
-        return None
+        # không câu nào qua bộ lọc / AI lỗi: đoạn mở đầu vẫn đủ chỗ cho một câu trọn ý (job 9 ngày 22/11: 2 giây -> lượt
+        # viết thêm chỉ được 3-5 chữ, cả 8 câu bị loại, còn lại câu cụt viết cùng kịch bản)
+        return hooks.FALLBACK_SECS
 
     async def pick_hook(self, timed: dict | None):
         """Câu hook (1.4.0): AI viết thêm nhiều câu mở đầu theo nhiều kiểu, chấm điểm, thay đoạn 0 bằng câu mạnh nhất

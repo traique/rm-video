@@ -821,7 +821,7 @@ def test_prompts_and_schema():
     p = prompts.image_prompt({"characters": ["orange_cat"], "action_en": "Orange Cat jumps over a puddle."}, brief, DATA)
     assert p.startswith("Exactly one character in the picture, alone: Orange Cat jumps over a puddle, dynamic low angle shot. "
                         "Orange Cat,")
-    assert "The character is toddler-sized" in p and "All friends" not in p      # 1 bạn: không gợi ý «các bạn» (20/11)
+    assert "The character is small kid-sized" in p and "All friends" not in p      # 1 bạn: không gợi ý «các bạn» (20/11)
     assert "green t-shirt" in p and p.endswith("no other animals")
     assert "Pixar style" in p and len(p.split()) < 110                       # vừa 256 token T5
     assert "White Rabbit" not in p                                           # chỉ nhân vật có mặt trong cảnh
@@ -832,9 +832,10 @@ def test_prompts_and_schema():
     probs = story.validate(bad_act, brief, DATA)
     assert len(probs) == 8 and all("TIẾNG ANH" in q for q in probs)
     p2 = prompts.image_prompt(bad_act["scenes"][2], brief, DATA, 2)
-    assert p2.startswith("Exactly two friends in the picture, each appearing only once: White Rabbit and Brown Bear arguing, "
+    assert p2.startswith("Exactly two friends in the picture, each appearing only once, White Rabbit on the left, "
+                      "Brown Bear on the right: White Rabbit and Brown Bear arguing, "
                          "upset faces")
-    assert "Both friends are toddler-sized and the same height" in p2
+    assert "Both friends are small kid-sized and the same height" in p2
     assert "nhìn" not in p2
     spam = dict(st, scenes=[dict(sc) for sc in st["scenes"]])
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
@@ -1000,8 +1001,9 @@ def test_render_small_video_with_music(tmp_path):
     # fx=off: như 1.1.0 — không nảy, không tiếng động, không bật chữ
     out2 = str(tmp_path / "out_off.mp4")
     res2 = asyncio.run(render.render(imgs, clips, texts, brief, out2, str(tmp_path), title="x", channel=kids_auto.channel(),
-                                     W=180, H=320, fps=12, rnd=random.Random(1), fx="off"))
+                                     W=180, H=320, fps=12, rnd=random.Random(1), fx="off", subs=False))
     assert res2["hits"] == [] and res2["sfx"] == {} and os.path.getsize(out2) > 10_000
+    assert res2["subs"] is False and res2["srt"] and res["subs"] is True          # KIDS_SUBS=0: không in, .srt vẫn có
     assert "fscx86" not in open(res2["ass"], encoding="utf-8").read()
     cov, thumb = asyncio.run(render.cover(out, str(tmp_path)))
     assert os.path.getsize(cov) > 1000 and os.path.getsize(thumb) > 500
