@@ -138,10 +138,26 @@ def test_parse_cuts_reads_scdet_log_and_keeps_old_detector(monkeypatch):
 
 
 # ---------- phụ đề ----------
+def _lines(text):
+    words = [(i * 0.3, i * 0.3 + 0.25, w) for i, w in enumerate(text.split())]
+    return [" ".join(x[2] for x in ln) for _, _, ln in subs.group_words(words)]
+
+
 def test_group_words_balanced_lines():
-    words = [(i * 0.3, i * 0.3 + 0.25, w) for i, w in enumerate("một hai ba bốn năm".split())]
+    words = [(i * 0.3, i * 0.3 + 0.25, w) for i, w in enumerate("nhà bếp sáng sủa ghê".split())]
     lines = subs.group_words(words)
-    assert [len(ln) for _, _, ln in lines] == [3, 2]
+    assert sorted(len(ln) for _, _, ln in lines) == [2, 3]          # 5 chữ: 3+2 hay 2+3, không 4+1
+
+
+def test_group_words_breaks_at_natural_places():
+    """1.4.2 (phản hồi 22/11): không tách số khỏi đơn vị / tên nguyên liệu, không tách từ ghép, tên riêng."""
+    got = _lines("Giờ mình lấy 1 kg cà rốt gọt vỏ rồi tới 1 kg củ cải trắng cũng gọt sạch luôn.")
+    assert "1 kg cà rốt" in got and "1 kg củ cải trắng" in got
+    assert not any(ln.endswith((" 1", " kg")) for ln in got)
+    assert _lines("Tiếng Anh là flower.") == ["Tiếng Anh là flower."]
+    got = _lines("Bỗng Thỏ Trắng nhìn thấy một chiếc bóng đen thật to ngoài vườn rau xanh.")
+    assert not any(ln.endswith("Thỏ") for ln in got)
+    assert all(len(ln.split()) <= 5 for ln in got)
 
 
 def test_ass_escapes_override_codes(tmp_path):

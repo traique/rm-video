@@ -63,10 +63,12 @@ def test_short_opens_with_source_hook_then_roll_call():
     assert why == "" and plan.out_dur() <= short.budget(0.0) + 1e-6
     first = plan.pieces[0]
     assert first.role == "main" and first.a < 0.05 and first.b == pytest.approx(2.6)          # câu hook đi đầu
-    assert [p.tag for p in plan.pieces[1:4]] == ["montage"] * 3                               # rồi mới điểm danh
+    tags = [p.tag for p in plan.pieces]
+    m0 = tags.index("montage")                         # 1.4.2: điểm danh dồn về cuối, ngay trước cảnh cuối
+    assert tags[m0:m0 + 3] == ["montage"] * 3 and m0 == len(tags) - 1 - tags.count("montage") and m0 > 1
     mt = next(x for x in plan.texts if x["kind"] == "montage")
-    assert mt["t"] == pytest.approx(2.6) and all(o.t >= 2.6 for o in plan.overlays)
-    assert renderer.hook_title_end(0.0, plan) == pytest.approx(2.6)        # chữ hook tắt đúng lúc thẻ «500 g…» hiện
+    assert mt["t"] == pytest.approx(round(plan.starts()[m0], 2)) and all(o.t >= mt["t"] for o in plan.overlays)
+    assert renderer.hook_title_end(0.0, plan) is None                      # không còn thẻ chen ngay sau câu hook
     assert "mở bằng câu hook" in plan.summary
     kept = plan.map_segments(segs)
     assert kept[0][2] == "Thịt kho kiểu này ngon hết sảy luôn" and kept[0][0] == pytest.approx(0.2)
@@ -75,7 +77,8 @@ def test_short_opens_with_source_hook_then_roll_call():
 def test_short_with_teaser_keeps_old_layout():
     segs, f, end = _src_with_hook()
     plan, _ = short.plan_short(end, segs, f, short.budget(3.0), hook=False)  # có đoạn mở đầu: đó là hook rồi
-    assert plan.pieces[0].tag == "montage"
+    tags = [p.tag for p in plan.pieces]
+    assert tags[0] != "montage" and tags[-2] == "montage" and plan.pieces[-1].role == "main"   # 1.4.2: cuối video
 
 
 # ---------------- lời AI lặp ý ----------------

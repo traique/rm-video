@@ -278,6 +278,9 @@ SCHEMA: tuple[Setting, ...] = (
     S("BRAND_LOGO", "1", "brand", "Gắn logo", help="Logo tải lên ở cuối trang cài đặt; chưa tải thì dùng logo Bếp Đong Đủ.", options=_ONOFF_OPTS,
       choices=ON_OFF),
     S("BRAND_INTRO", "1", "brand", "Hiện tiêu đề 3 giây đầu", options=_ONOFF_OPTS, choices=ON_OFF),
+    S("SUBS", "1", "video", "Phụ đề video bếp",
+      help="Tắt: video làm tự động / gửi qua Telegram, Zoom không in lời đọc lên hình (thẻ nguyên liệu, chữ hook vẫn giữ). "
+           "Trang web vẫn chọn được từng video.", options=_ONOFF_OPTS, choices=ON_OFF),
     S("SUB_STYLE", "karaoke", "video", "Kiểu phụ đề",
       options=(("karaoke", "Karaoke (sáng dần theo giọng)"), ("box", "Hộp nền đen"), ("outline", "Chữ trắng viền đen"),
                ("plain", "Vàng gọn")), choices=("karaoke", "box", "outline", "plain")),
@@ -569,6 +572,9 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("full", "Đầy đủ (mặc định): Ken Burns mạnh + nảy/rung khi có tiếng động, hạt bokeh, whoosh + ting"),
                ("motion", "Chỉ chuyển động + phụ đề bật lên (không hạt, không tiếng động)"),
                ("off", "Tắt: Ken Burns nhẹ như bản 1.1.0")), choices=("full", "motion", "off")),
+    S("KIDS_SUBS", "1", "kids", "Phụ đề truyện bé",
+      help="Tắt: video không in lời kể lên hình (thẻ từ tiếng Anh, tiêu đề, bảng từ cuối video vẫn giữ). Áp từ truyện sau.",
+      options=_ONOFF_OPTS, choices=ON_OFF),
     S("KIDS_BGM_LINKS", "", "kids", "Link nhạc nền trẻ em",
       help="Link mp3 / YouTube / TikTok (Kaggle tự tải), cách nhau dấu phẩy; hoặc chép file nhạc vào assets/kids_bgm/ "
            "(cần PUBLIC_URL). Chỉ dùng nhạc được phép dùng thương mại.", validate=_bgm_links, live=True),
@@ -609,7 +615,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "OPENROUTER_API_KEY", "YTDLP_COOKIES", "YTDLP_PROXY", "ZOOM_CLIENT_ID", "ZOOM_CLIENT_SECRET", "ZOOM_BOT_JID",
     "ZOOM_SECRET_TOKEN", "TTS_PROVIDER", "VIENEU_VOICE_FEMALE", "VIENEU_VOICE_MALE", "VOICE_QA",
     "CAPCUT_VOICE_FEMALE", "CAPCUT_VOICE_MALE", "TTS_RATE", "TTS_PITCH", "SPEECH_STYLE", "VOICE_HUMANIZE", "TTS_OFFLINE",
-    "QUALITY", "TEASER", "HOOK_PICK", "COVER", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "SHORT_VERSION", "POST_RECIPE", "TIPS",
+    "QUALITY", "TEASER", "HOOK_PICK", "COVER", "SUBS", "SUB_STYLE", "SUB_TIMING", "REMAKE_STYLE", "SHORT_VERSION", "POST_RECIPE", "TIPS",
     "QTY_CHECK",
     "TIME_SKIP_LABEL", "BRAND_NAME", "BRAND_COLOR", "BRAND_LOOK", "BRAND_GRAIN", "BRAND_TAGLINE", "BRAND_CLOSE",
     "BRAND_SERIES", "BRAND_STING", "COVER_TEMPLATE", "BRAND_LOGO", "BRAND_INTRO", "VOICE_SEPARATION",
@@ -624,7 +630,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
-    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_BGM_LINKS", "KIDS_BGM",
+    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_SUBS", "KIDS_BGM_LINKS", "KIDS_BGM",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )

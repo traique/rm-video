@@ -155,7 +155,7 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     res = await render.render(images_mod.for_render(imgs), clips, texts, brief, out, tmp, music=music, title=st["title"],
                               channel=spec.get("channel") or {}, rnd=random.Random(int(brief.get("seed") or 0)),
                               recap=(recap_clip, recap) if recap_clip.get("path") else None,
-                              fx=str(spec.get("fx") or "full"),
+                              fx=str(spec.get("fx") or "full"), subs=bool(spec.get("subs", True)),
                               hook=(hook_clip, hook, st.get("hook_text") or "") if hook_clip.get("path") else None,
                               hook_scene=story_mod.hook_scene(st))
     t["render"] = round(time.time() - t0, 1)

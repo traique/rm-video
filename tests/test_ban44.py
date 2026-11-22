@@ -40,13 +40,19 @@ def test_real_video_strong_plan_passes_rules():
 
 
 def test_real_video_opens_with_dish_then_ingredients():
+    """1.4.2 (phản hồi 22/11): đầu video giữ nguyên cảnh gốc (giữ chân người xem), điểm danh nguyên liệu dồn về cuối,
+    ngay trước tóm tắt."""
     end, segs, facts, mot = _real()
     plan, _ = style_b.plan_strong(end, segs, [], mot, 1.0, "auto", facts)
     first = plan.pieces[0]
     assert first.role == "main" and first.a == 0.0 and first.b >= style_b.HOOK_KEEP      # đầu bếp nhấc mực thành phẩm
-    assert plan.pieces[1].tag == "montage"
-    assert plan.texts[0]["text"].startswith("Nguyên liệu gồm: 1/2 muỗng bột ngọt")
-    assert plan.texts[0]["t"] == round(first.b - first.a, 2)
+    assert plan.pieces[1].tag != "montage"
+    tags = [p.tag for p in plan.pieces]
+    m0, r0 = tags.index("montage"), tags.index("recap")
+    assert m0 < r0 and all(t == "montage" for t in tags[m0:r0]) and m0 > len(tags) // 2
+    mt = next(x for x in plan.texts if x["kind"] == "montage")
+    assert mt["text"].startswith("Nguyên liệu gồm: 1/2 muỗng bột ngọt")
+    assert mt["t"] == round(plan.starts()[m0], 2)
 
 
 def test_greeting_first_sentence_is_not_kept_as_hook():
@@ -143,7 +149,8 @@ def test_sentence_across_scene_cut_is_not_lost():
     plan, why = style_b.plan_strong(end, segs, cuts, mot, 1.0, "auto", facts)
     assert why == "" and plan.level == "strong"
     tags = [p.tag or p.role for p in plan.pieces]
-    assert tags[0] == "main" and tags[1] == "montage" and "recap" in tags
+    assert tags[0] == "main" and "montage" in tags and "recap" in tags
+    assert tags.index("montage") < tags.index("recap")                     # 1.4.2: điểm danh cuối video, trước tóm tắt
 
 
 def test_split_at_scene_cut_close_to_sentence_end():
@@ -199,9 +206,11 @@ def test_montage_and_recap_texts_stay_apart_and_in_order():
     k_m = next(k for k, t in enumerate(texts) if t.startswith(style_b.MONTAGE_MARK))
     k_r = next(k for k, t in enumerate(texts) if t.startswith(style_b.RECAP_MARK))
     m = next(p for p in plan.pieces if p.tag == "montage")
-    assert slots[k_m][0] == plan.texts[0]["t"] and k_m == 1                          # ngay sau câu mở đầu, đứng riêng
-    assert texts[k_m + 1].startswith("Hôm nay") and slots[k_m + 1][0] >= slots[k_m][1] - 0.05
-    assert m.a >= 0 and texts[k_r].count(style_b.RECAP_MARK) == 1 and len(texts[k_r]) < 160
+    mt = next(x for x in plan.texts if x["kind"] == "montage")
+    assert slots[k_m][0] == mt["t"] and k_r == k_m + 1                               # 1.4.2: cuối video, ngay trước tóm tắt
+    assert texts[1].startswith("Hôm nay")                                             # đầu video: câu gốc, không chen thẻ
+    assert slots[k_r][0] >= slots[k_m][1] - 0.05                                      # đứng riêng, không đè nhau
+    assert m.a >= 0 and texts[k_r].count(style_b.RECAP_MARK) == 1 and len(texts[k_r]) < 200
     assert "Vậy là đã xong" in " ".join(texts[k_r + 1:])                             # tóm tắt TRƯỚC lời chào kết
     assert "Vậy là đã xong" not in " ".join(texts[:k_r])
 

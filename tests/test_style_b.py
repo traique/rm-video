@@ -36,10 +36,12 @@ def test_strong_plan_applies_all_ops_and_obeys_rules():
     assert why == "" and plan.level == "strong"
     assert not style_b.check_rules(plan, SEGS, f.steps, style_b.chatter(SEGS, f.steps))
     tags = [p.tag for p in plan.pieces]
-    assert tags[:4] == ["montage"] * 4 and "recap" in tags and tags.count("moved") == 2
+    m0 = tags.index("montage")                  # 1.4.2: điểm danh dồn về cuối, ngay trước tóm tắt (đầu video giữ chân)
+    assert tags[m0:m0 + 4] == ["montage"] * 4 and tags[m0 + 4] == "recap" and tags.count("moved") == 2
+    assert m0 > len(tags) // 2 and tags[0] != "montage"
     labels = [o.text for o in plan.overlays if o.kind == "ingredient"]
     assert labels == ["1 kg cánh gà", "5 tép tỏi", "2 củ hành tím", "Nước mắm"]      # số chưa đối chiếu: không in
-    assert plan.texts[0]["text"].startswith("Nguyên liệu gồm: 1 kg cánh gà")
+    assert next(x for x in plan.texts if x["kind"] == "montage")["text"].startswith("Nguyên liệu gồm: 1 kg cánh gà")
     # hai bước sơ chế độc lập (tỏi, hành) đổi chỗ; các bước nấu giữ thứ tự; cảnh cuối (đẩy cận) vẫn cuối
     mains = [p for p in plan.pieces if p.role == "main"]
     assert all(x.b <= y.a + 1e-6 for x, y in zip(mains, mains[1:])) and plan.pieces[-1].push > 0
@@ -100,7 +102,7 @@ def test_render_strong_plan_for_real(tmp_path, monkeypatch):
 def test_dish_intro_sentence_stays_as_opening_hook():
     """1.1.2 job 2 (20/11, canh chua cá lóc): câu đầu «Hôm nay mình chỉ mọi người công thức…» nói trên cảnh món đã xong bị
     coi là lời chào -> điểm danh nguyên liệu chen lên giây 0, video mở bằng nồi nước. Giờ chỉ lời chào thật («xin chào»)
-    mới không giữ làm câu mở đầu: điểm danh đứng SAU câu giới thiệu món."""
+    mới không giữ làm câu mở đầu (1.4.2: điểm danh dồn về cuối video, câu giới thiệu món mở đầu như gốc)."""
     assert style_b._hook_end([(0.3, 3.6, "Hôm nay mình chỉ chỉa mọi người công thức canh chua cá lóc chuẩn vị miền Tây"),
                               (3.8, 8.0, "Mọi người nhớ lưu lại")], 6.0) == 3.6
     assert style_b._hook_end([(0.0, 3.0, "Xin chào cả nhà, hôm nay mình nấu canh chua")], 6.0) == 0.0
@@ -108,5 +110,5 @@ def test_dish_intro_sentence_stays_as_opening_hook():
     f = facts(steps=[r.Step("intro", 0, 0, t0=0.3, t1=2.8)] + facts().steps[1:])
     plan, why = style_b.plan_strong(45, segs, [6.2, 16.2, 30.0], MOT, 1.0, "auto", f)
     tags = [p.tag for p in plan.pieces]
-    assert why == "" and tags[0] != "montage" and tags[1:5] == ["montage"] * 4
-    assert plan.pieces[0].a == pytest.approx(0.0) and plan.pieces[0].b == pytest.approx(2.8)
+    assert why == "" and tags[0] != "montage" and tags.count("montage") == 4 and tags.index("montage") > 5
+    assert plan.pieces[0].a == pytest.approx(0.0) and plan.pieces[0].b >= 2.8 - 1e-6     # câu giới thiệu món còn trọn

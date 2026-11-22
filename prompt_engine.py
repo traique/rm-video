@@ -556,7 +556,7 @@ LUẬT BẮT BUỘC:
 - Giọng NÓI CHUYỆN như đang đứng bếp chỉ cho người xem, KHÔNG viết kiểu tít báo / ghi chú / mệnh lệnh cụt: câu trọn ý, có "mình" / "mọi người", có từ nối tự nhiên (giờ, rồi, xong, tới đây) và dấu phẩy ngắt hơi. Sai: "Bắt nồi nước sôi sùng sục rồi thả vô luôn." / "Tránh đảo nhiều làm rách da mất ngon." Đúng: "Giờ mình bắc nồi nước lên, đợi sôi sùng sục rồi thả mực vô." / "Mọi người đừng đảo nhiều nha, đảo hoài là rách da, mất ngon liền." Từ đệm cuối câu (nha, nè, luôn, ghê) thì đổi qua lại, không hai câu liền nhau cùng kết bằng "nha" (chỉ bớt từ đệm; mỗi đoạn vẫn viết ĐỦ số từ yêu cầu, tả thêm điều đang thấy trên hình).
 - HÀNH ĐỘNG ĐI TRƯỚC: mỗi đoạn (trừ đoạn hook đầu) nói NGAY hành động đang diễn ra trên hình ở đầu câu (được mở bằng 1-3 chữ dẫn như "Giờ mình", "Rồi", "Tới đây mình"), vì câu được phát đúng lúc cảnh đó vừa hiện lên. Viết "Giờ mình lật mặt nè, thịt vàng đều rồi." chứ KHÔNG viết "Chờ thịt vàng đều rồi lật mặt." Viết "Rồi mình áp chảo với lửa vừa thôi." chứ KHÔNG viết "Dùng lửa vừa để áp chảo."
 - BỎ LỜI QUẢNG CÁO CỦA NGƯỜI GỐC: video này được đăng lại bởi kênh khác, nên KHÔNG được giữ lời bán hàng/kêu gọi mua của người gốc (giỏ hàng, "góc trái màn hình", link, mã giảm giá, "giá đang rất tốt", "bấm vào mua", tên shop) và KHÔNG được tự nhận sản phẩm của người gốc ("bột do chính tay em làm", "độc quyền của em"). Đoạn đó viết thành lời nói về món ăn hoặc lời chốt tự nhiên ("Làm vầy là ăn được rồi, bà con thử liền nha."). Vẫn được gọi tên nguyên liệu như "bột rang muối", "bột chiên giòn" một cách chung chung.
-- ĐOẠN ĐIỂM DANH / TÓM TẮT: đoạn có lời gốc bắt đầu bằng «Nguyên liệu gồm:» hoặc «Tóm lại:» là máy soạn cho khúc chiếu nguyên liệu / tóm tắt các bước (trên hình có thẻ chữ tương ứng). Đọc lại ĐỦ các ý trong đó, đúng thứ tự, bằng giọng nói chuyện (vd «Chuẩn bị mực, nửa muỗng bột ngọt...», «Tóm lại là để nguyên mực đông, đun sôi nước...»); KHÔNG đổi thành lời khen món hay câu chung chung. Đoạn điểm danh vào THẲNG món đầu tiên (thẻ chữ từng món hiện ngay khi khúc bắt đầu), không mở bằng «Rồi mình...».
+- ĐOẠN ĐIỂM DANH / TÓM TẮT: đoạn có lời gốc bắt đầu bằng «Nguyên liệu gồm:» hoặc «Tóm lại:» là máy soạn cho khúc chiếu nguyên liệu / tóm tắt các bước (trên hình có thẻ chữ tương ứng). Hai khúc này đứng CUỐI video, lúc món đã xong (điểm danh rồi tới tóm tắt). Đọc lại ĐỦ các ý trong đó, đúng thứ tự, bằng giọng nói chuyện (vd «Nguyên liệu gồm mực, nửa muỗng bột ngọt...», «Tóm lại là để nguyên mực đông, đun sôi nước...»); KHÔNG đổi thành lời khen món hay câu chung chung. Đoạn điểm danh vào THẲNG món đầu tiên (thẻ chữ từng món hiện ngay khi khúc bắt đầu), không mở bằng «Rồi mình...», không nói «chuẩn bị» như lúc mới bắt đầu nấu.
 - MỖI ĐOẠN LÀ MỘT CÂU TRỌN NGHĨA: lời gốc hay bị cắt giữa câu (vd đoạn gốc "rồi Gà thấm thì anh chị" + đoạn sau "dùng cái gói bột..."). Khi đó viết ý trọn vẹn của riêng phần đó ("Gà thấm gia vị rồi nè."), KHÔNG để câu treo kiểu "...thì bà cho tui", "Khi", "Mua". Không gộp sai nghĩa hai việc khác nhau vào một câu.
 - KHÔNG KÊU GỌI ĐĂNG KÝ / THEO DÕI KÊNH ở BẤT KỲ đoạn nào, kể cả đoạn cuối: không viết "đăng ký kênh", "theo dõi", "follow", "like share", "bấm chuông", "ủng hộ kênh", "hẹn gặp lại ở video sau". Lời gốc có câu đó thì bỏ ý đó: viết lời chốt về món ("Vậy là có dĩa cá kèo giòn rụm rồi nè.") hoặc để "text" rỗng.
 - Không emoji trong "text".
@@ -753,7 +753,7 @@ def _side(t: str) -> bool:
 def side_spoken(orig: str) -> str:
     """Lời đọc dự phòng của khúc điểm danh / tóm tắt (máy soạn, không phải lời người gốc nên đọc thẳng được)."""
     body = dialect.south(orig.split(":", 1)[1].strip())
-    return ("Tóm lại là " if orig.lstrip().startswith("Tóm lại") else "Chuẩn bị ") + body
+    return ("Tóm lại là " if orig.lstrip().startswith("Tóm lại") else "Nguyên liệu gồm ") + body
 
 
 # mở đầu khúc điểm danh: thẻ chữ từng món hiện ngay khi khúc bắt đầu, "Rồi mình chuẩn bị" mất ~1 giây -> lời trễ thẻ
@@ -980,6 +980,79 @@ def side_lost(new: str, orig: str) -> bool:
     return any(own and not own & have for own in ({w for w in x if seen[w] == 1} for x in items))
 
 
+def _starts_lower(t: str) -> bool:
+    m = re.search(r"[^\W\d_]", t or "")
+    return bool(m) and m.group(0).islower()
+
+
+JOIN_MAX = 16.0         # các mẩu lời MỚI chưa hết câu được gộp đọc liền tới chừng này giây (join_fragments)
+JOIN_PAUSE = 1.2        # ... khi người gốc nghỉ giữa hai mẩu không quá chừng này giây
+JOIN_CHARS = 230        # ... và câu gộp không dài quá chừng này ký tự (giọng đọc một hơi, VieNeu đọc ổn định)
+
+
+def _joinable(p: dict, s: dict) -> bool:
+    pt, st = (p.get("text") or "").rstrip(), (s.get("text") or "").strip()
+    return bool(pt and st and (p.get("orig") or "").strip() and (s.get("orig") or "").strip()
+                and p.get("ost") != "orig" and s.get("ost") != "orig"
+                and not _side(p.get("orig") or "") and not _side(s.get("orig") or "")
+                and not pt.endswith(_SENT_END)
+                and float(s["start"]) - (float(p["start"]) + float(p.get("span") or p["slot"])) <= JOIN_PAUSE)
+
+
+def _join(run: list) -> dict:
+    p = dict(run[0])
+    for s in run[1:]:
+        pt, st = (p.get("text") or "").rstrip(), (s.get("text") or "").strip()
+        if len(st) > 1 and st[1:2].islower():
+            st = st[:1].lower() + st[1:]
+        p["text"] = pt.rstrip(",;:") + (", " if pt.endswith(",") else " ") + st
+        p["orig"] = f"{(p.get('orig') or '').strip()} {(s.get('orig') or '').strip()}"
+        p["span"] = round(float(s["start"]) + float(s.get("span") or s["slot"]) - float(p["start"]), 2)
+        p["slot"] = round(float(s["start"]) + float(s["slot"]) - float(p["start"]), 2)
+    p["copy"] = round(sum(float(x.get("copy") or 0) for x in run) / len(run), 2)
+    return p
+
+
+def join_fragments(timed: dict | None) -> dict | None:
+    """Sau khi AI viết lại: đoạn lời mới chưa hết câu (không kết bằng . ! ? …) đọc LIỀN với đoạn sau thành một câu. Lời
+    gốc bị máy nghe cắt mỗi 3-4 giây giữa câu, AI viết tiếp câu qua nhiều đoạn («Công dụng của muối là giúp cho cà rốt và
+    củ cải trắng» | «ra bớt phần nhựa đắng đi, rồi làm rau củ» | «trở nên giòn rụm...»), mỗi đoạn đọc riêng với ngữ điệu
+    kết câu và nghỉ ở giữa -> phản hồi 22/11 «ngắt câu chưa tự nhiên». Câu gộp dài quá JOIN_MAX giây thì tách ở chỗ có
+    dấu phẩy. Không gộp câu hook (đoạn chưa có lời gốc), đoạn giữ tiếng gốc, khúc điểm danh / tóm tắt."""
+    if not timed or not timed.get("segments"):
+        return timed
+    segs = timed["segments"]
+    said = [(s.get("text") or "").rstrip() for s in segs if (s.get("text") or "").strip()]
+    if sum(t.endswith(_SENT_END) for t in said) < 0.5 * len(said):
+        return timed               # lời không dùng dấu kết câu (AI viết kiểu khác / bản giả): không suy ra câu cụt được
+    runs: list = []
+    for s in segs:
+        if runs and _joinable(runs[-1][-1], s):
+            runs[-1].append(s)
+        else:
+            runs.append([s])
+    out: list = []
+    n = 0
+    for run in runs:
+        while run:
+            k = len(run)
+            while k > 1 and (float(run[k - 1]["start"]) + float(run[k - 1]["slot"]) - float(run[0]["start"]) > JOIN_MAX
+                             or sum(len(x.get("text") or "") + 1 for x in run[:k]) > JOIN_CHARS):
+                k -= 1
+            if k < len(run):          # dài quá: cắt sau mẩu kết bằng dấu phẩy gần cuối nhất (nếu có)
+                k = next((j + 1 for j in range(k - 1, 0, -1)
+                          if (run[j].get("text") or "").rstrip().endswith((",", ";", ":"))), k)
+            out.append(_join(run[:k]) if k > 1 else dict(run[0]))
+            n += k - 1
+            run = run[k:]
+    if not n:
+        return timed
+    for k, s in enumerate(out):
+        s["i"] = k
+    logging.info("Gộp %d mẩu lời chưa hết câu để đọc liền thành câu trọn", n)
+    return {**timed, "segments": out, "script": " ".join(x["text"] for x in out if x.get("text"))}
+
+
 def merge_sentences(segments: list, out_dur: float) -> list:
     """Gộp các mẩu lời bị cắt ngang thành câu trọn TRƯỚC khi AI viết lại. Máy nghe cắt theo chỗ ngắt hơi nên ra
     những mẩu cụt ("Sau khi mình" | "luộc ... vớt ra" | "cho mình." | "Rồi"); AI viết từng mẩu thành một câu riêng
@@ -992,6 +1065,11 @@ def merge_sentences(segments: list, out_dur: float) -> list:
     hay kéo dài chữ cuối tới tận câu sau nên không dựa vào độ dài mẩu."""
     # nguồn bóc lời không có dấu câu (cả bài không đoạn nào kết bằng dấu) thì không suy "câu chưa xong" được
     punct = sum((t or "").rstrip().endswith(_CLAUSE_END) for _, _, t in segments) >= max(1, 0.2 * len(segments))
+    # không có dấu câu nhưng có viết hoa đầu câu (Whisper trên Kaggle): đoạn bắt đầu bằng chữ thường là câu đang nói dở
+    # (job 9 ngày 22/11: «rồi xong lúc này mình sẽ đem đi» | «rửa sạch lại khoảng 3 nước nha» -> AI viết «...giờ mình
+    # mang đi.» | «Rửa thật sạch...», đọc thành hai câu cụt)
+    lows = sum(_starts_lower(t) for _, _, t in segments)
+    caps = not punct and 0 < lows < 0.85 * len(segments)
 
     def n(t):
         return len(t.split())
@@ -1014,7 +1092,7 @@ def merge_sentences(segments: list, out_dur: float) -> list:
                 if en - ns <= SENT_MAX + 1.5:
                     out[-1] = (round(ns, 2), en, f"{ptx} {tx}")
                     continue
-            if cut and en - pst <= SENT_CUT_MAX:
+            if (cut or (caps and _starts_lower(tx))) and en - pst <= SENT_CUT_MAX:
                 # câu dài bị cắt ngang ("Bởi vì lúc chiên cá kèo thì Các cá" | "kèo sẽ giòn lâu..." — cắt giữa tên
                 # "cá kèo", AI viết thành "Lúc này cá sẽ" | "giòn rụm...", Botkeep 12/11/2026): thà một câu dài
                 out[-1] = (pst, en, f"{ptx} {tx}")
@@ -1509,7 +1587,7 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
         tkw["hook_tip"] = hook_tip
     ekw = {"examples": examples} if examples else {}       # sổ giọng: mọi lô cùng một bộ mẫu
     if len(segments) <= BATCH + 6:
-        return await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw, **ekw)
+        return join_fragments(await generate_timed(title, desc, mode, segments, out_dur, images_for, **tkw, **ekw))
     starts = list(range(0, len(segments), BATCH))
 
     async def _one(b):
@@ -1558,8 +1636,8 @@ async def generate_timed_any(title: str, desc: str, mode: str, segments: list, o
     merged = out
     script = " ".join(s["text"] for s in merged if s["text"])
     fresh = 1 - sum(s.get("copy", 0) for s in merged) / max(1, len(merged))
-    return {"segments": merged, "script": script, "fresh": round(fresh, 2), "hook": first.get("hook", ""),
-            "title": first["title"], "caption": first["caption"], "hashtags": first["hashtags"]}
+    return join_fragments({"segments": merged, "script": script, "fresh": round(fresh, 2), "hook": first.get("hook", ""),
+                           "title": first["title"], "caption": first["caption"], "hashtags": first["hashtags"]})
 
 
 # Dấu hiệu lời BÁN HÀNG của người gốc trên lời gốc do máy nghe chép (có cả lỗi chính tả máy nghe:

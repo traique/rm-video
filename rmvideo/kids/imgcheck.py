@@ -215,7 +215,12 @@ def detect(img: Any, loaded: tuple[Any, Any, str] | None = None, min_score: floa
     with torch.no_grad():
         out = model(**inputs)
     side = max(img.size)
-    r = proc.post_process_object_detection(out, threshold=min_score, target_sizes=torch.tensor([[side, side]]).to(device))[0]
+    sizes = torch.tensor([[side, side]]).to(device)
+    post = getattr(proc, "post_process_object_detection", None)
+    if post is not None:
+        r = post(out, threshold=min_score, target_sizes=sizes)[0]
+    else:                         # transformers 5 bỏ post_process_object_detection (chỉ còn bản grounded)
+        r = proc.post_process_grounded_object_detection(out, threshold=min_score, target_sizes=sizes)[0]
     return [(queries[int(lab)], float(sc), [int(round(v)) for v in box.tolist()])
             for box, sc, lab in zip(r["boxes"], r["scores"], r["labels"])]
 

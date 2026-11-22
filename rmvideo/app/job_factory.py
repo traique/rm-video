@@ -60,12 +60,15 @@ def approved_segments(segs: list) -> list:
 
 
 def remake(*, mode: str, voice: str, source: str, url: str = "", local: str = "", duration: int = 0,
-           long_mode: str = "", subs: bool = True, cover: bool = True, review: bool = False, quality: str = "",
+           long_mode: str = "", subs: bool | None = None, cover: bool = True, review: bool = False, quality: str = "",
            music_url: str = "", music_local: str = "", music_tg_file_id: str = "", music_mix: str = "",
            tg_file_id: str = "", title_hint: str = "", chat_id: int = 0, zoom: dict | None = None) -> Job:
     """Job làm lại video (nấu ăn / review / 🎵 / tải về) từ link, file tải lên hoặc file Telegram.
-    zoom: nơi trả lời {to, account, user} khi job gửi từ Zoom (báo xong / lỗi vào đúng cuộc trò chuyện đó)."""
+    zoom: nơi trả lời {to, account, user} khi job gửi từ Zoom (báo xong / lỗi vào đúng cuộc trò chuyện đó).
+    subs: None = theo cài đặt SUBS (1.4.2); trang web truyền đúng lựa chọn của từng video."""
     mode = video_mode(mode)
+    if subs is None:
+        subs = default_subs()
     # file nhạc tải lên đi kèm job (kể cả khi không dùng) để worker xoá cùng đầu vào khi job xong
     return Job(url=url, mode=mode, duration=0 if long_mode else duration, voice=voice, subs=subs, cover=cover,
                long_mode=long_mode, local=local, tg_file_id=tg_file_id, review=review, quality=str(quality or "")[:8],
@@ -91,9 +94,14 @@ def photo(*, source: str, duration: int, images: list | None = None, tg_images: 
                music_local=music_local, music_tg_file_id=music_tg_file_id, title_hint=title_hint[:200])
 
 
+def default_subs() -> bool:
+    """Phụ đề video bếp mặc định (cài đặt SUBS; phản hồi 22/11 «quá nhiều chữ»)."""
+    return str(getattr(config, "SUBS", "1")) != "0"
+
+
 def auto(*, url: str, title: str, duration: float, mode: str, voice: str, chat_id: int) -> Job:
     """🤖 Tự động đăng: video > 90 giây làm NGUYÊN video (không cắt 90 giây đầu)."""
-    return Job(url=url, mode=mode, duration=0, voice=voice, source=Source.AUTO.value,
+    return Job(url=url, mode=mode, duration=0, voice=voice, source=Source.AUTO.value, subs=default_subs(),
                long_mode=LongMode.FULL.value if duration > config.MAX_DURATION else "", chat_id=chat_id,
                title_hint=(title or "")[:200])
 

@@ -48,7 +48,9 @@ def notes(version: str = VERSION, path: str = CHANGELOG, limit: int = MAX_LINES)
     except OSError:
         return "", []
     head = re.compile(rf"^##\s+v?{re.escape(version)}(?![\d.])\s*(?:[—–-]\s*(.*))?$")
-    title, out, inside = "", [], False
+    title, inside = "", False
+    out: list[str] = []
+    take = filled = False
     for ln in lines:
         m = head.match(ln)
         if m:
@@ -58,12 +60,28 @@ def notes(version: str = VERSION, path: str = CHANGELOG, limit: int = MAX_LINES)
             if ln.startswith("## "):
                 break
             if ln.startswith(("- ", "* ")):
-                out.append(re.sub(r"\*\*|`", "", ln[2:]).strip())
                 if len(out) >= limit:
                     break
+                out.append(ln[2:].strip())
+                take, filled = True, False
+            elif out and ln.startswith("  ") and ln.lstrip().startswith(("- ", "* ")):
+                # mục con: mục cha kết bằng «:» thì lấy mục con đầu tiên làm nội dung, các mục con khác bỏ
+                take = out[-1].endswith(":") and not filled
+                if take:
+                    out[-1] += " " + ln.lstrip()[2:].strip()
+                    filled = True
+            elif out and ln.startswith("  "):
+                if take:
+                    out[-1] += " " + ln.strip()         # dòng nối của mục (1.4.2: trước chỉ lấy dòng đầu, câu bị cụt)
             elif out and ln.strip() and not ln.startswith("  "):
                 break                                    # hết khối tóm tắt đầu mục
-    return title, out
+    return title, [_first_sentence(re.sub(r"\*\*|`", "", x)) for x in out]
+
+
+def _first_sentence(text: str, cap: int = 200) -> str:
+    """Câu đầu của một mục (đủ ý cho tin báo ngắn), tối đa `cap` ký tự."""
+    t = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ỹ«(])", text.strip(), maxsplit=1)[0].strip()
+    return t if len(t) <= cap else t[:cap].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
 def message(version: str = VERSION) -> str:

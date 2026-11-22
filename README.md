@@ -604,6 +604,8 @@ Khử nhiễu nén (hqdn3d) → scale lanczos → tương phản/sáng nhẹ →
 
 Font **Be Vietnam Pro ExtraBold** (OFL, thiết kế cho tiếng Việt, đóng kèm assets/), chữ đang đọc sáng dần sang vàng đúng nhịp giọng (karaoke `\kf`), dòng chia cân đối không trơ một chữ, chữ luôn đúng nguyên văn kịch bản.
 
+Chỗ ngắt dòng chọn theo cụm từ (1.4.2): không tách số khỏi đơn vị / tên nguyên liệu («1 kg cà rốt»), không tách từ ghép và tên riêng («Tiếng Anh», «Thỏ Trắng»), dòng không kết bằng hư từ («của», «cho», «và»), ưu tiên ngắt trước từ nối («rồi», «thì»). Tắt phụ đề: `SUBS=0` (video bếp làm tự động / Telegram / Zoom; trang web chọn từng video), `KIDS_SUBS=0` (truyện bé, vẫn giữ thẻ từ tiếng Anh).
+
 Giọng CapCut không trả mốc từng từ: bot đo các khoảng **có tiếng** trong chính giọng đã tạo, mỗi cụm chữ giữa hai dấu câu vào đúng khúc giọng giữa hai chỗ ngắt hơi, âm cuối cụm được dành thêm thời gian. Đo trên 105 từ có mốc thật: chữ sáng lệch giọng trung bình 61–69ms (cách rải đều cũ 271ms; nghe lại bằng STT CapCut 85ms và mất 7–11 giây). Không gọi mạng.
 
 ## Ảnh bìa tự động
@@ -691,7 +693,8 @@ chọn khác giữ nguyên). Tắt chữ của kênh: nhập `0` (tên kênh, c�
   - `light`: đổi cỡ khung 1.0 / 1.12 / 1.18 ở chỗ chuyển cảnh / ngắt câu (máy quay đứng yên trông như quay nhiều máy),
     bỏ khoảng chết, tua 2-4 lần đoạn chờ không lời + chớp sáng + thẻ "»» 30 PHÚT SAU" (chỉ khi lời gốc có nói thời
     gian, `TIME_SKIP_LABEL`), đẩy cận chậm cảnh cuối. Không cắt giữa câu, không mất lời gốc nào.
-  - `strong` (video nấu ăn, cần AI đọc công thức): thêm điểm danh nguyên liệu kèm thẻ số đã đối chiếu, bỏ phần chào
+  - `strong` (video nấu ăn, cần AI đọc công thức): thêm điểm danh nguyên liệu kèm thẻ số đã đối chiếu (cuối video, ngay
+    trước tóm tắt — 1.4.2: phần đầu chỉ để giữ chân người xem), bỏ phần chào
     hỏi, dời một đoạn cảm thán về cuối, tóm tắt các bước trước cảnh cuối, đổi chỗ tối đa một cặp bước sơ chế độc lập,
     bỏ lời tán gẫu lúc chờ. Luật cứng R1-R7 (các bước nấu luôn đúng thứ tự, không mất câu có số liệu...) do mã kiểm;
     vi phạm thì tự lùi về `light` và ghi lý do. Chế độ review: `strong` = `light`.
@@ -699,7 +702,7 @@ chọn khác giữ nguyên). Tắt chữ của kênh: nhập `0` (tên kênh, c�
     lần, tua 2 đoạn chờ, 277s → 266s; đo chuyển động ~8 giây (4 lõi).
 - **Bản ngắn ≤ 90 giây cho Reels** (`SHORT_VERSION=on`, video nấu ăn dài hơn 100 giây): sau khi giao bản đầy đủ, bot
   ra thêm «Bản ngắn» từ cùng video: mỗi bước sơ chế / nấu / bày giữ ít nhất một câu (ưu tiên câu có nguyên liệu,
-  con số), đúng thứ tự gốc, điểm danh nguyên liệu kèm thẻ số đã đối chiếu nếu đủ chỗ, kết bằng cảnh món đẩy cận;
+  con số), đúng thứ tự gốc, điểm danh nguyên liệu kèm thẻ số đã đối chiếu nếu đủ chỗ (ngay trước cảnh cuối), kết bằng cảnh món đẩy cận;
   không lấy câu tán gẫu; quá dài thì bỏ bớt câu của bước sơ chế trước. AI viết lời riêng cho bản ngắn; công thức đầy
   đủ vẫn nằm trong bài đăng. Tự động đăng: `AUTO_POST_VERSION=short` (mặc định khi có bản ngắn) đăng bản ngắn dạng
   Reels, `full` đăng bản đầy đủ.

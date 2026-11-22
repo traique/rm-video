@@ -33,6 +33,7 @@ KINDS = {"van_de": "vấn đề", "meo": "mẹo bất ngờ", "ket_qua": "kết 
 N_HOOKS = 8
 MIN_WORDS = 7                   # câu hook ngắn hơn là câu cụt («Đồ chua bị hăng?» — job 6, 21/11)
 TEASER_MAX = 4.0                # giây: đoạn mở đầu dài tối đa chừng này để đọc hết câu hook
+FALLBACK_SECS = 3.0             # chưa chọn được câu hook trước: đoạn mở đầu dài chừng này (câu ~8 chữ)
 TIMEOUT = 45.0
 KEEP = 400                      # số job gần nhất giữ trong hooks.json
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -126,10 +127,41 @@ def _norm(s: str) -> str:
     return " " + re.sub(r"[^\w]+", " ", (s or "").lower()).strip() + " "
 
 
+# chữ chung chung trong tên món / tiêu đề (không phải tên món): «Làm đồ chua thơm ngon đơn giản tại nhà» -> «đồ chua»
+_GENERIC = {"cách", "làm", "nấu", "món", "công", "thức", "bí", "quyết", "mẹo", "thơm", "ngon", "đơn", "giản", "tại", "nhà",
+            "siêu", "dễ", "nhanh", "chuẩn", "vị", "cực", "rất", "hướng", "dẫn", "chỉ", "mọi", "người", "ai", "cũng",
+            "được", "ngay", "tuyệt", "đỉnh", "hấp", "đãi", "khách", "ăn", "là", "mê", "kiểu", "mới", "và", "với",
+            "cho", "của", "the", "một", "hôm", "nay", "mình", "đến", "từ", "theo", "nhất", "lạ", "miệng", "nè", "nha"}
+
+
+def dish_keys(dish: str, title: str = "") -> list[str]:
+    """Cụm gọi tên món để soát câu hook: tên món đầy đủ + 2 chữ đầu sau khi bỏ chữ chung chung, của tên món và của tiêu
+    đề. Job 9 (22/11): món «Đồ chua cà rốt củ cải», tiêu đề «Làm đồ chua thơm ngon đơn giản tại nhà» -> «đồ chua»; bản
+    1.4.1 chỉ so cả tên món hoặc nguyên liệu nên 8/8 câu «Đồ chua…» bị loại «không nêu tên món»."""
+    keys: list[str] = []
+    for src in (dish, title):
+        words = re.sub(r"[^\w]+", " ", (src or "").lower()).split()
+        if src is dish and words:
+            keys.append(" ".join(words))
+        while words and words[0] in _GENERIC:
+            words.pop(0)
+        core = []
+        for w in words:
+            if w in _GENERIC:
+                break
+            core.append(w)
+        if len(core) >= 2:
+            keys.append(" ".join(core[:2]))
+        elif core and src is dish:
+            keys.append(core[0])
+    return list(dict.fromkeys(k for k in keys if k))
+
+
 def names_dish(text: str, dish: str, title: str = "") -> bool:
-    """Câu hook có nêu tên món (hoặc nguyên liệu chính của món / tiêu đề) không. Không biết món: coi như có."""
+    """Câu hook có nêu tên món (cụm tên món của dish_keys, hoặc nguyên liệu chính của món / tiêu đề) không. Không biết
+    món: coi như có."""
     t = _norm(text)
-    if dish and _norm(dish) in t:
+    if any(_norm(k) in t for k in dish_keys(dish, title)):
         return True
     want = ingredients.find(f"{dish} {title}")
     if not want and not dish:
