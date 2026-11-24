@@ -548,6 +548,7 @@ def test_delete_kernel_request_and_error(monkeypatch):
     """DeleteKernel (kagglesdk 0.1.38, ApiDeleteKernelRequest {userName, kernelSlug}); errorMessage -> lỗi, không báo nhầm đã xoá."""
     seen = []
     monkeypatch.setattr(kaggle_api, "user", lambda: "u")
+    monkeypatch.setattr(kaggle_api, "_ALIAS", {})                  # test khác cùng worker có thể đã ghi slug thay thế
     monkeypatch.setattr(kaggle_api, "call", lambda m, body, **k: seen.append((m, body)) or {})
     kaggle_api.delete_kernel("rmvideo-kids")
     assert seen == [("DeleteKernel", {"userName": "u", "kernelSlug": "rmvideo-kids"})]

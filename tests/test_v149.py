@@ -71,6 +71,7 @@ def test_music_dataset_gone_is_pushed_again(tmp_path, monkeypatch):
     data["pushed"] = ["playful_1.m4a"]
     lyria.save_library(data, lib.dir)
     monkeypatch.setattr(lyria, "_REMOTE", {})
+    monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: True)
     assert lyria.remote_ok(lib) and not lyria.changed_since_push(lyria.load_library(lib.dir))
     monkeypatch.setattr(lyria, "_REMOTE", {})
     monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: False)
