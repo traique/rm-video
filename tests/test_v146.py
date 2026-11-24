@@ -233,6 +233,8 @@ def test_flow_kids_collect_job(tmp_path, monkeypatch, clean_parked):
     monkeypatch.setattr(kaggle_worker, "collect_parked", collect)
     monkeypatch.setattr(kaggle_worker, "produce", _fake_produce(tmp_path, calls))
     monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+    from state import queue
+    monkeypatch.setattr(queue, "pending", 0)                     # test khác cùng worker đã xếp job: không QueueFull
     old = kids_auto.make_now("web")                              # job đã nghĩ đề, giữ chỗ rồi hỏng
     brief = old.brief
     col = {"slug": "rmvideo-kids", "token": "t1", "fetch_files": ["cover.jpg"], "gpu": True, "job": old.id}
