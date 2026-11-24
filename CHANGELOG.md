@@ -24,6 +24,10 @@ Theo log sáng 24/11 (job 1 truyện bé thất bại sau 61 phút).
 - **Lyria đứt giữa chừng thì giữ phần nhạc đã nhận, mở phiên mới nối tiếp** (hoà tiếng 1,5 giây ở chỗ nối). Log 22-24/11:
   mọi phiên Lyria đóng «1006 abnormal closure» sau ~51 giây, cả hai lần thử đều vứt hết -> kho nhạc bé chưa có bài nào,
   video bé không có nhạc nền. Nhận được ít nhất 40% độ dài cần thì vẫn dùng (nhạc nền tự lặp khi dựng).
+- **Lyria trả nhạc quá chậm thì bỏ ngay và nghỉ 6 giờ.** Log job 2 (24/11 chiều): phiên đầu chỉ nhận 4 giây nhạc trong
+  51 giây. Luồng Lyria cần ~190 KB/s mà mạng Botkeep chỉ ~80-100 KB/s, nên máy chủ cắt kết nối. Trước đây bot nối thêm
+  3 phiên và thử lại thêm 1 lần, mất ~7 phút mỗi job mà vẫn không có nhạc. Nhận chậm hơn 0,3 lần thời gian thật thì bot
+  thôi luôn, ghi «bỏ qua Lyria (…mạng không theo kịp…)», 6 giờ sau mới thử lại.
 
 ## 1.4.3 — Kaggle lỗi mạng không làm hỏng job; truyện bé đỡ chờ Gemini quá tải, ý truyện chọn sẵn đồ vật (22/11/2026)
 

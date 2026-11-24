@@ -89,6 +89,8 @@ async def stream(m: dict, secs: float, cl: Any, log: Log = logging.info, timeout
     """PCM 16-bit 48 kHz stereo dài ≥ secs giây từ Lyria RealTime (thời gian thật) theo màu `m`. Giới hạn cả phiên
     timeout + stall giây: vòng nhận chỉ xét timeout khi có gói gửi về, kết nối đứng im (không gửi, không đóng) thì treo mãi
     (CI 20/11 treo 30 phút ở 94%)."""
+    if slow_left():
+        raise Slow(f"Lyria tạm nghỉ thêm {slow_left() / 60:.0f} phút ({_SLOW['why']})")
     try:
         return await asyncio.wait_for(_stream(m, secs, cl, log, timeout, tag), timeout + stall)
     except asyncio.TimeoutError:
@@ -96,6 +98,27 @@ async def stream(m: dict, secs: float, cl: Any, log: Log = logging.info, timeout
 
 
 SESSIONS = 4                           # phiên Lyria tối đa cho một bài (phiên đóng giữa chừng thì mở phiên mới nối tiếp)
+# Log 24/11 job 2 (sau 1.4.4): phiên đầu chỉ nhận 4 giây nhạc trong 51 giây rồi đứt. Luồng Lyria là PCM 48 kHz stereo
+# (~190 KB/s, gửi dạng base64 còn nặng hơn) mà mạng Botkeep chỉ ~80-100 KB/s (pip, tải video Kaggle): máy chủ không đẩy kịp
+# thì cắt kết nối. Nhận chậm hơn SLOW_RATE x thời gian thật thì thôi luôn (khỏi nối 4 phiên x 2 lần ≈ 7 phút mỗi job) và
+# nghỉ Lyria SLOW_COOLDOWN giây.
+SLOW_RATE = 0.3
+SLOW_MIN = 20.0                        # phiên ngắn hơn chừng này giây chưa đủ để kết luận chậm
+SLOW_COOLDOWN = 6 * 3600
+_SLOW: dict[str, Any] = {"until": 0.0, "why": ""}
+
+
+class Slow(RuntimeError):
+    """Lyria trả nhạc chậm hơn nhiều so với thời gian thật (mạng không theo kịp): thử lại vô ích."""
+
+
+def slow_left() -> float:
+    """Còn bao nhiêu giây nghỉ Lyria (0: dùng được)."""
+    return max(0.0, _SLOW["until"] - time.time())
+
+
+def _mark_slow(why: str) -> None:
+    _SLOW["until"], _SLOW["why"] = time.time() + SLOW_COOLDOWN, why
 XFADE = 1.5                            # giây hoà tiếng giữa hai phiên
 MIN_PART = 0.4                         # nhận được ít nhất chừng này phần độ dài cần thì vẫn dùng (nhạc nền tự lặp)
 
@@ -125,6 +148,7 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
     err: Exception | None = None
     for k in range(SESSIONS):
         part: list[bytes] = []
+        ts = time.time()
         try:
             await _session(m, cl, log, tag, part, need - len(pcm) + (int(XFADE * RATE) * CH * 2 if pcm else 0),
                            t0 + timeout)
@@ -135,6 +159,13 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
             pcm = _xfade(pcm, got) if pcm else got
         if len(pcm) >= need or time.time() - t0 > timeout:
             break
+        dt, gs = time.time() - ts, len(got) / (RATE * CH * 2)
+        if dt >= SLOW_MIN and gs < SLOW_RATE * dt:
+            why = f"chỉ nhận {gs:.0f} giây nhạc trong {dt:.0f} giây — mạng không theo kịp luồng nhạc Lyria"
+            _mark_slow(why)
+            if len(pcm) >= need * MIN_PART:
+                break
+            raise Slow(why)
         if err is not None and not got and k:          # phiên mới không trả gì: thôi
             break
         if err is not None:
@@ -186,6 +217,8 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
     name = f"{mood}_{n}.m4a"
     t0 = time.time()
     m = lib.moods[mood]
+    if slow_left():                                    # vừa thấy mạng không theo kịp: khỏi mở phiên, khỏi ghi log «tạo bài»
+        raise Slow(f"Lyria tạm nghỉ thêm {slow_left() / 60:.0f} phút ({_SLOW['why']})")
     log(f"{lib.tag}: Lyria tạo bài {name} ({m['vi']}, {secs:.0f} giây)...")
     pcm = await stream(m, secs + 2, cl or factory(), log, lib.timeout, lib.stall, lib.tag)
     secs = min(secs, len(pcm) / (RATE * CH * 2))       # phiên đứt sớm: bài ngắn hơn (nhạc nền tự lặp khi dựng)

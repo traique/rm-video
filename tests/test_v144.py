@@ -164,3 +164,31 @@ def test_lyria_xfade_joins_smoothly():
     assert len(out) == len(a) + len(b) - int(0.5 * 48000) * 2 * 2
     mid = len(a) - int(0.5 * 48000) * 2 * 2 + int(0.25 * 48000) * 4     # giữa đoạn hoà: gần 0
     assert abs(int.from_bytes(out[mid:mid + 2], "little", signed=True)) < 50
+
+
+def test_lyria_slow_stream_gives_up_fast(monkeypatch, tmp_path):
+    """Log 24/11 job 2: phiên đầu 4 giây nhạc trong 51 giây (mạng Botkeep không theo kịp luồng 48 kHz). Không nối thêm
+    3 phiên x 2 lần (~7 phút mỗi job): bỏ ngay, nghỉ Lyria SLOW_COOLDOWN; truyện bé thôi thử lại."""
+    from rmvideo.kids import bgm
+    from rmvideo.media import lyria
+    monkeypatch.setattr(lyria, "_SLOW", {"until": 0.0, "why": ""})
+    monkeypatch.setattr(lyria, "SLOW_MIN", 0.05)
+    fake = _CutLyria(per=0.02, chunk=0.01)
+    real_session = lyria._session
+
+    async def slow_session(*a, **k):
+        await asyncio.sleep(0.2)
+        return await real_session(*a, **k)
+    monkeypatch.setattr(lyria, "_session", slow_session)
+    with pytest.raises(lyria.Slow, match="mạng không theo kịp"):
+        asyncio.run(lyria.stream(MOOD, 6.0, fake, lambda m: None, timeout=60, stall=5))
+    assert fake.sessions == 1 and lyria.slow_left() > 3600
+    with pytest.raises(lyria.Slow, match="tạm nghỉ"):
+        asyncio.run(lyria.stream(MOOD, 6.0, fake, lambda m: None, timeout=60, stall=5))
+    assert fake.sessions == 1                                       # đang nghỉ: không mở phiên
+
+    logs = []
+    brief = {"plot": ""}
+    out = asyncio.run(bgm.pick(brief, {"plots": []}, lib_dir=str(tmp_path / "lib"), client=fake, log=logs.append))
+    assert out is None and fake.sessions == 1
+    assert sum("Lyria" in m for m in logs) == 1 and "bỏ qua Lyria" in logs[0]
