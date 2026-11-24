@@ -28,7 +28,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAIN = "ccr-0f4ff082-rshcy5"                   # nhánh chính
 BRANCH = "botkeep"                             # nhánh mã chạy bot
 ZIP_NAME = "rm-video-botkeep.zip"
-SKIP = ("tests/", "docs/", ".github/", "scripts/", "lora/")
+SKIP = ("tests/", "docs/", ".github/", "scripts/", "lora/",
+        "assets/DejaVuSans-Bold.ttf")     # font chỉ test dùng (696KB): bỏ cho gói nhẹ, Botkeep quét kịp (24/11)
 MAX_ENTRIES, MAX_ZIP, MAX_TOTAL, MAX_FILE = 250, 4 << 20, 20 << 20, 4 << 20
 # giờ cố định cho mọi mục trong zip: CI mỗi lần checkout là giờ file mới -> zip khác dù mã y nguyên -> đẩy bản «mới» giả
 STAMP = (2026, 1, 1, 0, 0, 0)
