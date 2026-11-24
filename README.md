@@ -570,6 +570,9 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
   `rmvideo-cook-bgm` (Kaggle không cần `PUBLIC_URL`). Gõ `cook_bgm` ở console hoặc bấm **Tạo đủ kho Lyria** trên web để
   tạo đủ 9 bài ngay (~25 phút, chạy nền). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
   bài thì dùng thư viện của bạn (dưới); `BGM_SOURCE=files` để chỉ dùng thư viện của bạn như trước.
+- **Mạng Botkeep quá chậm cho Lyria** (đo 24/11: ~4 giây nhạc / 51 giây rồi bị cắt): bot tự gửi notebook `rmvideo-music`
+  lên Kaggle (CPU, không tốn giờ GPU) tạo các bài còn thiếu của kho bé + kho bếp (~45-60 phút), tải về rồi đẩy dataset.
+  Gõ `bgm_kaggle` để chạy ngay. Notebook này **chứa key Gemini** trong mã: để riêng tư, đừng chia sẻ.
 - Thêm nhạc ở ô **🎵 Nhạc nền cho video không lời** trên web: dán link TikTok / YouTube / mp3 (lưu vào `BGM_LINKS`) hoặc
   tải file lên (mp3, m4a, wav…, tối đa 40 bài, 15MB/bài). Dựng trên Kaggle mà chưa đặt `PUBLIC_URL` thì chỉ dùng nhạc
   dạng link.

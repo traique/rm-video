@@ -569,6 +569,14 @@ def kids_setup_status() -> str:
 
 # ---------------- chạy ----------------
 
+def fresh_url(slug: str, name: str) -> str:
+    """Link tải mới của một file output (link ký sẵn của Google Storage có hạn; tải chậm trên Botkeep có thể quá hạn)."""
+    for f in kaggle_api.outputs(slug).get("files", []):
+        if f.get("fileName") == name and f.get("url"):
+            return f["url"]
+    raise KaggleError(f"Kaggle không còn file {name}")
+
+
 def _run_sync(spec: dict, tmp: str, on_step) -> list:
     """Chạy một notebook cho spec (một việc hoặc một lô). Trả danh sách kết quả theo thứ tự việc."""
     jobs = spec["jobs"] if spec.get("kind") == "batch" else [spec]
@@ -598,6 +606,10 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     _wait_session(slug, total, st, queue_max=queue_max)
     d = kaggle_api.outputs(slug)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
+
+    def get(name: str, dst: str, max_bytes: int = 1 << 31, on_progress=None) -> int:
+        return kaggle_api.download(files[name], dst, max_bytes, refresh=lambda: fresh_url(slug, name),
+                                   on_progress=on_progress)
     out = []
     for k in range(n):
         tag = f"_{k}" if spec.get("kind") == "batch" else ""
@@ -605,7 +617,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             if f"result{tag}.json" not in files:
                 raise KaggleError("Kaggle không trả kết quả. Log: " + kaggle_api.log_tail(d, 600))
             rj = os.path.join(tmp, f"kaggle_result{tag}.json")
-            kaggle_api.download(files[f"result{tag}.json"], rj, 5 << 20)
+            get(f"result{tag}.json", rj, 5 << 20)
             res = json.load(open(rj, encoding="utf-8"))
             if not res.get("ok"):
                 raise KaggleError("Việc trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
@@ -613,9 +625,11 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
                 raise KaggleError("kết quả trên Kaggle không phải của việc này (notebook bị việc khác ghi đè)")
             if f"output{tag}.mp4" not in files:
                 raise KaggleError("Kaggle không trả video")
-            on_step(f"Kaggle: tải video về{f' ({k + 1}/{n})' if n > 1 else ''}")
+            part = f" {k + 1}/{n}" if n > 1 else ""
+            on_step(f"Kaggle: tải video{part} về")
             vid = os.path.join(tmp, f"output{tag}.mp4")
-            kaggle_api.download(files[f"output{tag}.mp4"], vid)
+            get(f"output{tag}.mp4", vid, on_progress=lambda got, size, part=part: on_step(
+                f"Kaggle: tải video{part} về ({got / 1e6:.0f}" + (f"/{size / 1e6:.0f}" if size else "") + " MB)"))
             p = proc.run_sync(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid],
                               capture_output=True, text=True, timeout=60)
             try:
@@ -632,7 +646,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
                 if remote in files:
                     try:
                         p = os.path.join(tmp, f"kaggle_{remote}")
-                        kaggle_api.download(files[remote], p, 50 << 20)
+                        get(remote, p, 50 << 20)
                         got[name] = p
                     except Exception as e:
                         logging.warning("Không tải được %s từ Kaggle: %s", remote, e)
@@ -683,7 +697,7 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     if "result.json" not in files:
         raise KaggleError("Kaggle không trả kết quả phân tích. Log: " + kaggle_api.log_tail(d, 600))
     rj = os.path.join(tmp, "kaggle_analysis.json")
-    kaggle_api.download(files["result.json"], rj, 20 << 20)
+    kaggle_api.download(files["result.json"], rj, 20 << 20, refresh=lambda: fresh_url(SLUG_ANALYZE, "result.json"))
     res = json.load(open(rj, encoding="utf-8"))
     if not res.get("ok"):
         raise KaggleError("Phân tích trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
@@ -694,7 +708,7 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
         if name in files:
             p = os.path.join(tmp, f"kaggle_{name}")
             try:
-                kaggle_api.download(files[name], p, 400 << 20)
+                kaggle_api.download(files[name], p, 400 << 20, refresh=lambda name=name: fresh_url(SLUG_ANALYZE, name))
                 res[key] = p
             except Exception as e:                  # thiếu ảnh / tiếng nền: vẫn dùng được lời đã bóc
                 logging.warning("Không tải được %s từ Kaggle: %s", name, e)

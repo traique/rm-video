@@ -121,6 +121,13 @@ async def pick(brief: dict, data: dict, rnd: random.Random | None = None, lib_di
             try:
                 have = await ensure(mood, len(have) + 1, d, client, log)
                 break
+            except lyria.Slow as e:                  # mạng chậm: thử lại vô ích -> nhờ Kaggle tạo kho (24/11, cách 1)
+                log(f"Nhạc bé: bỏ qua Lyria ({str(e)[:140]})")
+                from rmvideo.media import lyria_kaggle
+                msg = lyria_kaggle.start_later(why="Lyria trên Botkeep quá chậm")
+                if msg:
+                    log(f"Nhạc bé: {msg}")
+                break
             except Exception as e:
                 log(f"Nhạc bé: Lyria lỗi ({str(e)[:120]})" + (", thử lại" if attempt == 0 else ""))
     if not have:                                    # màu này chưa có bài nào: lấy bài màu khác còn hơn không nhạc

@@ -13,6 +13,36 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.5 — Kho nhạc nền tạo trên Kaggle (mạng Botkeep quá chậm cho Lyria) (24/11/2026)
+
+- **Nhạc nền bé + bếp do Kaggle tạo** (người dùng chọn ngày 24/11). Trên Botkeep mỗi phiên Lyria chỉ nhận ~4 giây nhạc
+  trong 51 giây rồi bị cắt (luồng Lyria cần ~190 KB/s, mạng Botkeep ~80-100 KB/s), nên kho nhạc chưa bao giờ có bài.
+  Khi Lyria trên Botkeep quá chậm mà kho còn thiếu bài, bot **tự** gửi notebook riêng `rmvideo-music` lên Kaggle (CPU,
+  không tốn giờ GPU): tạo lần lượt các bài còn thiếu (kho bé 3 màu x 3 bài x 100 giây, kho bếp 3 màu x 3 bài x 150
+  giây; xen kẽ màu nên dừng giữa chừng thì màu nào cũng đã có bài), ~45-60 phút. Xong bot tải m4a về kho trên Botkeep,
+  ghi library.json, đẩy dataset `rmvideo-kids-bgm` / `rmvideo-cook-bgm` như cũ: các video sau có nhạc. Tự chạy tối đa
+  6 giờ một lần; gõ `bgm_kaggle` để chạy ngay.
+- **Lưu ý bảo mật:** notebook `rmvideo-music` CHỨA KEY GEMINI trong mã (dạng base64, ai mở được notebook là đọc được).
+  Notebook để riêng tư; đừng chia sẻ / công khai notebook này. Các notebook khác của bot vẫn không chứa key.
+- Dùng lại đúng mã Lyria của Botkeep (nối phiên khi đứt, hoà tiếng chỗ nối, bỏ khi quá chậm) và cùng thông số mã hoá
+  m4a (`lyria.encode_args`).
+
+## 1.4.4 — Tải video Kaggle đứt thì tải tiếp; Lyria đứt giữa chừng không mất nhạc (24/11/2026)
+
+Theo log sáng 24/11 (job 1 truyện bé thất bại sau 61 phút).
+- **Tải video từ Kaggle bị đứt thì tải tiếp từ chỗ đứt** (không tải lại từ đầu, không bỏ job). Job 1: Kaggle dựng xong
+  video 80 MB, mạng Botkeep (~80-100 KB/s) đứt ở 7,7 MB sau 96 giây («IncompleteRead») -> mất trắng ~1 giờ. Giờ bot nối
+  lại và xin phần còn thiếu (Range), link tải hết hạn thì xin link mới; chỉ bỏ cuộc khi 6 lần liền không tải thêm được byte
+  nào. Áp dụng cho mọi file lấy từ Kaggle (video, kết quả, ảnh bìa, tiếng nền đã tách). Bước «tải video về» hiện số MB đã
+  tải (mỗi phút một lần) để biết bot không đứng im.
+- **Lyria đứt giữa chừng thì giữ phần nhạc đã nhận, mở phiên mới nối tiếp** (hoà tiếng 1,5 giây ở chỗ nối). Log 22-24/11:
+  mọi phiên Lyria đóng «1006 abnormal closure» sau ~51 giây, cả hai lần thử đều vứt hết -> kho nhạc bé chưa có bài nào,
+  video bé không có nhạc nền. Nhận được ít nhất 40% độ dài cần thì vẫn dùng (nhạc nền tự lặp khi dựng).
+- **Lyria trả nhạc quá chậm thì bỏ ngay và nghỉ 6 giờ.** Log job 2 (24/11 chiều): phiên đầu chỉ nhận 4 giây nhạc trong
+  51 giây. Luồng Lyria cần ~190 KB/s mà mạng Botkeep chỉ ~80-100 KB/s, nên máy chủ cắt kết nối. Trước đây bot nối thêm
+  3 phiên và thử lại thêm 1 lần, mất ~7 phút mỗi job mà vẫn không có nhạc. Nhận chậm hơn 0,3 lần thời gian thật thì bot
+  thôi luôn, ghi «bỏ qua Lyria (…mạng không theo kịp…)», 6 giờ sau mới thử lại.
+
 ## 1.4.3 — Kaggle lỗi mạng không làm hỏng job; truyện bé đỡ chờ Gemini quá tải, ý truyện chọn sẵn đồ vật (22/11/2026)
 
 Theo log tối 22/11 (job 12, 13 truyện bé thất bại; Google quá tải, Gemini báo 503 liên tục).

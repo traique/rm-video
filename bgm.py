@@ -235,6 +235,11 @@ async def _fill(mood: str, log) -> None:
         _FILL["fail_at"] = time.time()
         logging.warning("Nhạc bếp: %s nhạc Lyria lỗi (%s), %d phút sau thử lại", "tạo" if mood else "đẩy",
                         str(e)[:160], LYRIA_RETRY_AFTER // 60)
+        if isinstance(e, lyria.Slow):              # mạng Botkeep không theo kịp Lyria: nhờ Kaggle tạo kho
+            from rmvideo.media import lyria_kaggle
+            msg = lyria_kaggle.start_later(why="Lyria trên Botkeep quá chậm")
+            if msg:
+                logging.info("Nhạc bếp: %s", msg)
 
 
 async def push_lyria(log=None) -> dict:

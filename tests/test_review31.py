@@ -206,7 +206,7 @@ def test_kaggle_result_from_another_job_is_rejected(monkeypatch, tmp_path):
                                                                        {"fileName": "output.mp4", "url": "v"}]})
     import json
 
-    def dl(url, dst, *a):
+    def dl(url, dst, *a, **k):
         if url == "r":
             json.dump({"ok": True, "token": "khac"}, open(dst, "w"))
         else:
