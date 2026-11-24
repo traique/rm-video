@@ -341,7 +341,9 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
 def delete_kernel(slug: str) -> dict:
     """Xoá notebook (và phiên đang xếp hàng / đang chạy của nó): cách duy nhất qua API công khai để bỏ một phiên đã gửi
     (CancelKernelSession cần mã phiên mà không lệnh nào trả về). Notebook bot tạo lại ở lần gửi sau."""
-    d = call("DeleteKernel", {"userName": user(), "kernelSlug": real_slug(slug)})
+    d = call("DeleteKernel", {"userName": user(), "kernelSlug": real_slug(slug)})   # kagglesdk 0.1.38: ApiDeleteKernelRequest
+    if d.get("errorMessage"):
+        raise KaggleError(f"Kaggle không xoá được notebook {slug}: {d['errorMessage']}")
     _ALIAS.pop(slug, None)
     return d
 

@@ -542,3 +542,16 @@ def test_retired_fallback_model_skipped(monkeypatch):
         raise RuntimeError("503 UNAVAILABLE. high demand")
     _fake_genai(monkeypatch, behaviour2, calls)
     assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok" and "old-2" not in [m for m, _ in calls]
+
+
+def test_delete_kernel_request_and_error(monkeypatch):
+    """DeleteKernel (kagglesdk 0.1.38, ApiDeleteKernelRequest {userName, kernelSlug}); errorMessage -> lỗi, không báo nhầm đã xoá."""
+    seen = []
+    monkeypatch.setattr(kaggle_api, "user", lambda: "u")
+    monkeypatch.setattr(kaggle_api, "call", lambda m, body, **k: seen.append((m, body)) or {})
+    kaggle_api.delete_kernel("rmvideo-kids")
+    assert seen == [("DeleteKernel", {"userName": "u", "kernelSlug": "rmvideo-kids"})]
+    monkeypatch.setattr(kaggle_api, "call", lambda m, body, **k: {"errorMessage": "Permission denied"})
+    with pytest.raises(kaggle_api.KaggleError, match="không xoá được"):
+        kaggle_api.delete_kernel("rmvideo-kids")
+    assert set(kaggle_worker.GPU_SLUGS) == {"rmvideo-worker", "rmvideo-kids", "rmvideo-analyze"}   # không bao giờ xoá notebook giữ model
