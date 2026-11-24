@@ -139,6 +139,7 @@ async def pick(brief: dict, data: dict, rnd: random.Random | None = None, lib_di
         if not have:
             return None
         log(f"Nhạc bé: chưa có bài màu «{mood}», dùng bài màu khác")
+    await asyncio.to_thread(lyria.remote_ok, lib)        # dataset mất trên Kaggle: xoá «pushed» để đẩy lại ngay dưới đây
     data_lib = load_library(d)
     if changed_since_push(data_lib):
         try:

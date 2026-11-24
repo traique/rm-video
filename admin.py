@@ -26,7 +26,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "setup_potoken (PO token cho YouTube, ~300MB) | remove_potoken | clean (dọn bộ nhớ đệm pip + cache) | "
                 "yt_test <link> | cancel <số job> | golden [run|baseline|compare] (bộ video mẫu, xem golden.py) | "
                 "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
-                "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
+                "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kaggle_check (kiểm model / LoRA / kho nhạc trên Kaggle, tự đẩy lại kho nhạc "
+                "bị mất) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
                 "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_bgm (làm đủ kho nhạc Lyria) | "
                 "kids_fb_test | kids_resume | kids_tick (chạy một lượt tự động ngay) | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy "
                 "nền) | bgm_kaggle (tạo kho nhạc bé + bếp bằng Lyria trên Kaggle CPU, chạy nền — mạng Botkeep quá chậm cho Lyria; "
@@ -125,6 +126,10 @@ async def console():
                 logging.info("Tự động đăng: %s", await autopost.tick(force=True))
             elif low == "auto_resume":
                 logging.info("Tự động đăng: %s", await autopost.resume())
+            elif low == "kaggle_check":
+                import kaggle_worker
+                for line in await asyncio.to_thread(kaggle_worker.resources_report):
+                    logging.info("%s", line)
             elif low == "kaggle_test":
                 import kaggle_api
                 if not kaggle_api.configured():

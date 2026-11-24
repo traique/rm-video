@@ -72,6 +72,10 @@ async def process_kids(job: Job, tmp: str) -> str:
     why = kaggle_worker.enabled()
     if why:
         raise RuntimeError(f"Truyện bé cần Kaggle (GPU): {why}")
+    if not (brief.get("collect") or kids_auto.parked_info(job.id)):
+        why = await asyncio.to_thread(kaggle_worker.kids_ready)      # thiếu model trên Kaggle: báo ngay, khỏi viết truyện
+        if why:
+            raise RuntimeError(f"Truyện bé: {why}")
     # job thu kết quả (kids_auto.watch_parked tạo) hoặc job chạy lại sau khi bot tắt lúc phiên đang giữ chỗ (1.4.6)
     col = brief.get("collect") or kids_auto.parked_info(job.id)
     st0: dict | None = None

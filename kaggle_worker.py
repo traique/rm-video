@@ -542,8 +542,8 @@ def kids_sources() -> tuple[list, list]:
         (dss if kind.lower() == "dataset" else nbs).append(slug.strip("/ "))
     nbs = nbs or [SLUG_KIDS_MODELS]
     src = lora_source()
-    if src:                                              # LoRA nhân vật: gắn dataset / notebook chứa file
-        lst = dss if src[0] == "dataset" else nbs
+    if src and not (src[0] == "notebook" and src[1] == SLUG_KIDS_MODELS):   # LoRA nhân vật: gắn dataset / notebook chứa file
+        lst = dss if src[0] == "dataset" else nbs                          # (bản trong notebook model: đã gắn sẵn nếu dùng)
         if src[1] not in lst:
             lst.append(src[1])
     return nbs, dss
@@ -576,9 +576,10 @@ def lora_source() -> tuple[str, str, str] | None:
                 ok = True
             _LORA_OK[slug] = (ok, now)
             if not ok:
-                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, vẽ không LoRA", slug)
-        if not _LORA_OK[slug][0]:
-            return None
+                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, dùng bản trong notebook %s", slug,
+                                SLUG_KIDS_MODELS)
+        if not _LORA_OK[slug][0]:                        # 1.4.9: kids_setup tải LoRA vào đầu ra notebook model
+            return "notebook", SLUG_KIDS_MODELS, name
     return kind, slug, name
 
 
@@ -691,19 +692,137 @@ except Exception as e:
     shutil.rmtree(f"{W}/zimage-turbo-nf4", ignore_errors=True)
 finally:
     shutil.rmtree(os.path.expanduser("~/.cache/huggingface"), ignore_errors=True)
+# 3. LoRA 4 nhân vật (1.4.9): bản lưu trong repo GitHub công khai (Git LFS, 164 MB) -> đầu ra notebook này, phiên dựng tìm
+#    theo tên file trong mọi thứ đã gắn (images.find_lora). Mất dataset rmvideo-kids-lora (lỡ xoá 24/11) vẫn có LoRA.
+try:
+    import hashlib, urllib.request
+    os.makedirs(f"{W}/lora", exist_ok=True)
+    dst = f"{W}/lora/dcn_lora_v1.safetensors"
+    for k in range(3):
+        try:
+            urllib.request.urlretrieve(__LORA_URL__, dst + ".part")
+            h = hashlib.sha256()
+            with open(dst + ".part", "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            if h.hexdigest() != __LORA_SHA__:
+                raise RuntimeError("sai mã sha256")
+            os.replace(dst + ".part", dst)
+            done["lora"] = [os.path.basename(dst)]
+            print("đã tải LoRA (%.0f MB)" % (os.path.getsize(dst) / 2**20), flush=True)
+            break
+        except Exception as e:
+            print("!! LoRA lần", k + 1, "lỗi:", str(e)[:300], flush=True)
+            time.sleep(10)
+finally:
+    if os.path.exists(f"{W}/lora/dcn_lora_v1.safetensors.part"):
+        os.remove(f"{W}/lora/dcn_lora_v1.safetensors.part")
 # (model chữ GGUF ~20GB vượt giới hạn đầu ra notebook: phiên dựng tải từ Hugging Face, ~3 phút)
 print("KẾT QUẢ:", {k: len(v) for k, v in done.items()}, "| đầu ra %.1f GB" % used_gb(), flush=True)
 if "llama" not in done or not ({"flux", "zimage"} & set(done)): raise SystemExit("thiếu: " + ", ".join(k for k in ("llama", "flux/zimage") if k not in done and not ({"flux", "zimage"} & set(done))))
 '''
 
 
+LORA_FILE = "dcn_lora_v1.safetensors"
+LORA_SHA = "e5e1d8a5b924c2b2c566dd3f466c8e04ac6c77c8b024c928e96333b3f524a44b"     # = scripts/push_kids_lora.py
+LORA_URL = ("https://media.githubusercontent.com/media/traique/rm-video/ccr-0f4ff082-rshcy5/lora/" + LORA_FILE)
+
+
+def kids_models_kernel() -> str:
+    return KIDS_MODELS_KERNEL.replace("__LORA_URL__", repr(LORA_URL)).replace("__LORA_SHA__", repr(LORA_SHA))
+
+
 def kids_setup() -> str:
     """Đẩy notebook chuẩn bị model (chạy một lần). Trả câu báo; lỗi thì ném KaggleError."""
     if not kaggle_api.configured():
         raise KaggleError("chưa điền KAGGLE_API_TOKEN trong Cài đặt")
-    kaggle_api.push(SLUG_KIDS_MODELS, "rmvideo kids models", KIDS_MODELS_KERNEL, gpu=True)
-    return (f"Đã gửi notebook {SLUG_KIDS_MODELS} (biên dịch llama.cpp + lượng tử FLUX.1-schnell, ~45-60 phút GPU). "
-            "Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
+    _push(SLUG_KIDS_MODELS, "rmvideo kids models", kids_models_kernel(), True, None, None, lambda s: None)
+    _READY.clear()
+    return (f"Đã gửi notebook {SLUG_KIDS_MODELS} (biên dịch llama.cpp + lượng tử FLUX.1-schnell + tải LoRA nhân vật, ~45-60 "
+            "phút GPU). Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
+
+
+_READY: dict[str, float] = {}       # {"ok": lúc kiểm thấy model sẵn sàng}
+READY_TTL = 30 * 60
+
+
+def _missing(e: Exception) -> bool:
+    return any(k in str(e) for k in ("404", "403", "NOT_FOUND", "not found", "Not found", "denied"))
+
+
+def kids_ready() -> str:
+    """"" khi notebook model truyện bé (rmvideo-kids-models) đã chạy xong; không thì lý do + cách sửa. Chỉ xét khi dùng
+    notebook mặc định (KIDS_KAGGLE_SOURCES trống hoặc có nó). 24/11: người dùng lỡ xoá hết trên Kaggle -> mọi phiên truyện
+    bé gắn một notebook không còn: thay vì để Kaggle từ chối / phiên lỗi giữa chừng, báo ngay «gõ kids_setup»."""
+    if SLUG_KIDS_MODELS not in kids_sources_nb() or not kaggle_api.configured():
+        return ""
+    if time.time() - _READY.get("ok", 0.0) < READY_TTL:
+        return ""
+    try:
+        st, why = kaggle_api.status(SLUG_KIDS_MODELS)
+    except KaggleError as e:
+        if _missing(e):
+            return (f"chưa có notebook {SLUG_KIDS_MODELS} (model vẽ + viết truyện) trên Kaggle — gõ kids_setup "
+                    "(~45-60 phút GPU, một lần) rồi làm truyện lại")
+        return ""                                       # không hỏi được (mạng): cứ làm, Kaggle sẽ báo nếu sai
+    up = st.upper()
+    if "COMPLETE" in up:
+        _READY["ok"] = time.time()
+        return ""
+    if up in ("QUEUED", "RUNNING"):
+        return f"đang chuẩn bị model truyện bé trên Kaggle ({st}, kids_setup ~45-60 phút): xong mới làm truyện được"
+    return f"lần chuẩn bị model truyện bé trên Kaggle lỗi ({st}: {why[:120]}) — gõ kids_setup lại"
+
+
+def kids_sources_nb() -> list:
+    nbs: list = []
+    for item in re.split(r"[,\s]+", config.KIDS_KAGGLE_SOURCES or ""):
+        kind, _, slug = item.partition(":")
+        if item and (not slug or kind.lower() != "dataset"):
+            nbs.append((slug or kind).strip("/ "))
+    return nbs or [SLUG_KIDS_MODELS]
+
+
+def resources_report(heal: bool = True) -> list[str]:
+    """Kiểm những thứ bot cần trên Kaggle (lệnh console kaggle_check, lúc khởi động): notebook model truyện bé, dataset LoRA,
+    kho nhạc (mất thì tự đẩy lại khi heal), notebook PhoWhisper (nếu chọn). Trả các dòng báo."""
+    from rmvideo.media import lyria
+    out = []
+    why = kids_ready()
+    out.append(("✅" if not why else "⚠️") + f" Model truyện bé ({SLUG_KIDS_MODELS}): " + (why or "sẵn sàng"))
+    src = lora_source()
+    if src and src[0] == "dataset":
+        out.append(f"✅ LoRA nhân vật: dataset {src[1]}")
+    elif src:
+        out.append(f"ℹ️ LoRA nhân vật: không thấy dataset {SLUG_KIDS_LORA}, dùng bản trong notebook {src[1]} (kids_setup từ 1.4.9 "
+                   "tải sẵn; notebook cũ hơn thì truyện vẽ không LoRA tới khi chạy lại kids_setup)")
+    from rmvideo.kids import bgm as kids_bgm
+    import bgm
+    for lib in (kids_bgm._lib(), bgm.lyria_lib()):
+        n = len(lyria.load_library(lib.dir)["tracks"])
+        if not n:
+            out.append(f"ℹ️ Kho nhạc {lib.dataset}: chưa có bài (bgm_kaggle để tạo)")
+            continue
+        ok = lyria.remote_ok(lib, force=True)
+        if ok:
+            out.append(f"✅ Kho nhạc {lib.dataset}: {n} bài")
+        else:
+            out.append(f"⚠️ Kho nhạc {lib.dataset}: dataset không còn trên Kaggle, " + ("đang đẩy lại {n} bài".format(n=n) if heal
+                                                                                       else "lần dựng sau tự đẩy lại"))
+            if heal:
+                try:
+                    lyria.push_dataset_sync(lib, lambda m: logging.info("🎵 %s", m))
+                    out[-1] = f"✅ Kho nhạc {lib.dataset}: đã đẩy lại {n} bài"
+                except Exception as e:
+                    out[-1] = f"⚠️ Kho nhạc {lib.dataset}: đẩy lại lỗi ({str(e)[:120]}), lần dựng sau thử lại"
+    if config.KAGGLE_ASR == "phowhisper":
+        try:
+            kaggle_api.status(SLUG_PHOWHISPER)
+            out.append(f"✅ PhoWhisper ({SLUG_PHOWHISPER})")
+        except KaggleError as e:
+            if _missing(e):
+                out.append(f"ℹ️ Không có notebook {SLUG_PHOWHISPER}: bóc lời tự dùng Whisper large-v3")
+    return out
 
 
 def kids_setup_status() -> str:

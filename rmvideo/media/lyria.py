@@ -341,6 +341,36 @@ def push_dataset_sync(lib: Lib, log: Log = logging.info) -> dict:
     return data
 
 
+_REMOTE: dict[str, float] = {}         # {dataset: lúc kiểm thấy còn trên Kaggle}
+REMOTE_TTL = 3600
+
+
+def remote_ok(lib: Lib, force: bool = False) -> bool:
+    """Dataset kho nhạc còn trên Kaggle (nhớ REMOTE_TTL giây). Không còn (24/11: người dùng lỡ xoá hết trên Kaggle) mà
+    library.json vẫn ghi «pushed» thì xoá «pushed» -> lần đẩy kế (pick / fill_later / kaggle_check) đẩy lại cả kho, phiên
+    dựng không gắn một dataset không tồn tại. Không hỏi được (mạng, chưa có token): coi như còn."""
+    import kaggle_api
+    data = load_library(lib.dir)
+    if not data.get("pushed") or not kaggle_api.configured():
+        return bool(data.get("pushed"))
+    if not force and time.time() - _REMOTE.get(lib.dataset, 0.0) < REMOTE_TTL:
+        return True
+    try:
+        ok = kaggle_api.dataset_exists(lib.dataset)
+    except Exception:
+        return True
+    if ok:
+        _REMOTE[lib.dataset] = time.time()
+        return True
+    with _LIB_LOCK:
+        data = load_library(lib.dir)
+        data["pushed"] = []
+        save_library(data, lib.dir)
+    _REMOTE.pop(lib.dataset, None)
+    logging.warning("%s: dataset %s không còn trên Kaggle, sẽ đẩy lại kho", lib.tag, lib.dataset)
+    return False
+
+
 def choose(lib: Lib, have: list[dict], rnd: random.Random | None = None, avoid: int = 2) -> dict:
     """Một bài trong `have`, tránh `avoid` bài vừa dùng; ghi vào «recent» của kho."""
     with _LIB_LOCK:

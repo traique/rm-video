@@ -13,6 +13,22 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.9 — Tự nhận ra và tự khôi phục khi tài nguyên trên Kaggle bị xoá (24/11/2026)
+
+Người dùng lỡ xoá hết «Your Work» trên Kaggle (notebook + có thể cả dataset).
+- **Notebook công việc** (`rmvideo-worker`, `rmvideo-kids`, `rmvideo-analyze`, `rmvideo-music`): bot tự tạo lại ở lần gửi
+  sau, không cần làm gì.
+- **Model truyện bé** (`rmvideo-kids-models`): không tự tạo lại được vì tốn ~1 giờ GPU, cần người gõ `kids_setup`. Thiếu
+  model thì job truyện bé dừng NGAY với lời nhắc «gõ kids_setup» (không viết truyện / gửi Kaggle vô ích), lượt tự động
+  không tạo job (khỏi 3 lần lỗi liền -> dừng tự động); đang chạy kids_setup thì báo «đang chuẩn bị model».
+- **LoRA nhân vật**: `kids_setup` giờ tải luôn file LoRA từ repo GitHub công khai (Git LFS, 164 MB, kiểm sha256) vào đầu
+  ra notebook model; mất dataset `rmvideo-kids-lora` thì phiên dựng dùng bản đó (trước đây vẽ không LoRA). Không cần token
+  Kaggle ngoài Botkeep, không cần chạy `scripts/push_kids_lora.py`.
+- **Kho nhạc** (`rmvideo-kids-bgm`, `rmvideo-cook-bgm`): dataset mất mà library.json vẫn ghi «đã đẩy» thì phiên dựng gắn một
+  dataset không còn. Giờ bot hỏi Kaggle (nhớ 1 giờ), mất thì tự đẩy lại kho từ bản trên Botkeep.
+- **Lệnh `kaggle_check`**: kiểm model truyện bé, LoRA, kho nhạc, PhoWhisper (nếu chọn) và tự đẩy lại kho nhạc bị mất. Lúc
+  khởi động bot cũng kiểm và ghi cảnh báo nếu thiếu.
+
 ## 1.4.8 — Kaggle kín 2 phiên GPU thì xoá phiên «ma» rồi gửi lại; model Gemini đã gỡ không chặn bước nghĩ ý (24/11/2026)
 
 Theo log tối 24/11 (job 4 truyện bé hỏng sau 3,5 phút).

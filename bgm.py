@@ -208,6 +208,8 @@ def fill_later(mood: str, log=None) -> bool:
     import kaggle_worker
     if mood not in MOODS:
         return False
+    if kaggle_worker.is_enabled():
+        lyria.remote_ok(lyria_lib())                  # dataset mất trên Kaggle: xoá «pushed» -> đẩy lại trong nền dưới đây
     data = lyria.load_library(LYRIA_DIR)
     make = len(lyria.tracks(data, mood)) < LYRIA_PER_MOOD and bool(config.GEMINI_API_KEY)
     push = lyria.changed_since_push(data) and kaggle_worker.is_enabled()

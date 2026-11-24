@@ -33,6 +33,7 @@ KEEP_STORIES = 400
 STREAK_PAUSE = 3               # chừng này truyện liên tiếp lỗi thì dừng, báo admin
 _LOCK = asyncio.Lock()
 _POSTED: dict = {}
+_NOTED: dict = {}               # lúc đã ghi log «thiếu model Kaggle» (tối đa 1 lần / giờ)
 
 
 # ---------------- dữ liệu / nhận diện ----------------
@@ -454,6 +455,13 @@ async def _tick(now: float, rnd: random.Random | None, force: bool) -> str:
         slots = free_slots(st, now)
         if not slots:
             return "đã đủ truyện cho các khung giờ trong 36 giờ tới"
+        import kaggle_worker
+        why = await asyncio.to_thread(kaggle_worker.kids_ready)       # thiếu model: không tạo job (khỏi 3 lần lỗi -> dừng)
+        if why:
+            if now - float(_NOTED.get("ready", 0)) > 3600:
+                _NOTED["ready"] = now
+                logging.warning("Truyện bé: %s", why)
+            return "chưa làm truyện: " + why
         if queue.pending and not force:
             return "chờ hàng đợi trống (video bạn gửi được làm trước)"
         slot = slots[0]
@@ -517,7 +525,8 @@ async def run_forever(every: float = 120):
         try:
             msg = await tick()
             if msg and not msg.startswith(("KIDS_AUTO", "đang làm", "đã đủ", "chờ hàng đợi", "một lượt", "chờ thử",
-                                           "đang dừng", "thiếu KIDS", "truyện bé cần", "đang giữ chỗ")):
+                                           "đang dừng", "thiếu KIDS", "truyện bé cần", "đang giữ chỗ",
+                                           "chưa làm truyện")):
                 logging.info("Truyện bé: %s", msg)
         except Exception as e:
             logging.warning("Truyện bé lỗi: %s", str(e)[:200])
