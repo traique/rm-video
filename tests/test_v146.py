@@ -21,14 +21,13 @@ from test_v144 import MOOD, _CutLyria
 
 
 @pytest.fixture
-def clean_parked():
+def clean_parked(tmp_path, monkeypatch):
+    """Trạng thái kids_auto riêng cho test (các worker pytest-xdist dùng chung file KIDS_STATE: ghi chen nhau)."""
+    monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids_auto.json"))
     st = kids_auto.load_state()
     st["parked"], st["pending"], st["paused"], st["streak"] = [], None, "", 0
     kids_auto.save_state(st)
     yield
-    st = kids_auto.load_state()
-    st["parked"], st["pending"] = [], None
-    kids_auto.save_state(st)
 
 
 def _spec(job_id=7):
@@ -462,3 +461,84 @@ def test_join_keeps_proper_names_capitalised():
     a = {"text": "Câu một", "start": 0.0, "slot": 1.0, "span": 1.0, "orig": "x", "copy": 0}
     assert pe._join([a, {"text": "Hà Nội đẹp.", "start": 1.2, "slot": 1.0, "span": 1.0, "orig": "y", "copy": 0}])["text"] == "Câu một Hà Nội đẹp."
     assert pe._join([a, {"text": "Cho hành vào.", "start": 1.2, "slot": 1.0, "span": 1.0, "orig": "y", "copy": 0}])["text"] == "Câu một cho hành vào."
+
+
+# ---------------- Kaggle kín phiên GPU, model Gemini đã gỡ (log 24/11 job 4) ----------------
+
+def test_push_raises_session_limit(monkeypatch):
+    monkeypatch.setattr(kaggle_api, "user", lambda: "u")
+    monkeypatch.setattr(kaggle_api, "call", lambda m, body, **k: {"error": "Maximum batch GPU session count of 2 reached."})
+    with pytest.raises(kaggle_api.SessionLimit, match="session count"):
+        kaggle_api.push("rmvideo-kids", "t", "x", gpu=True)
+
+
+def test_free_slots_deletes_only_abandoned_sessions(monkeypatch, clean_parked):
+    """Phiên bot đã bỏ (chờ máy quá lâu) vẫn xếp hàng và chiếm chỗ: xoá notebook của chúng; notebook có phiên giữ chỗ và
+    phiên đã xong thì để yên."""
+    kids_auto.park_record({"job": 5, "slug": "rmvideo-kids", "token": "t", "since": time.time(), "expires_at": time.time() + 100})
+    states = {"rmvideo-worker": ("QUEUED", ""), "rmvideo-kids": ("QUEUED", ""), "rmvideo-analyze": ("COMPLETE", "")}
+    deleted = []
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: states[slug])
+    monkeypatch.setattr(kaggle_api, "delete_kernel", lambda slug: deleted.append(slug) or {})
+    assert kaggle_worker._free_slots("rmvideo-worker") == ["rmvideo-worker"] and deleted == ["rmvideo-worker"]
+
+
+def test_push_retries_after_freeing_slots(monkeypatch, clean_parked):
+    calls = []
+
+    def push(slug, title, text, gpu=True, **k):
+        calls.append(slug)
+        if len(calls) == 1:
+            raise kaggle_api.SessionLimit("Kaggle không nhận notebook: Maximum batch GPU session count of 2 reached.")
+        return {}
+    monkeypatch.setattr(kaggle_api, "push", push)
+    monkeypatch.setattr(kaggle_worker, "_free_slots", lambda cur: ["rmvideo-worker"])
+    steps = []
+    assert kaggle_worker._push("rmvideo-kids", "t", "x", True, None, None, steps.append) == {} and len(calls) == 2
+    calls.clear()
+    monkeypatch.setattr(kaggle_worker, "_free_slots", lambda cur: [])
+    monkeypatch.setattr(kaggle_api, "push", lambda *a, **k: (_ for _ in ()).throw(kaggle_api.SessionLimit("kín")))
+    with pytest.raises(kaggle_api.SessionLimit):                       # bếp: không chờ, dựng trên Botkeep
+        kaggle_worker._push("rmvideo-worker", "t", "x", True, None, None, steps.append)
+    monkeypatch.setattr(kaggle_api, "_sleep", lambda s: None)
+    monkeypatch.setattr(kaggle_worker, "_others_waiting", lambda: False)
+    t = {"n": 0}
+
+    def push2(*a, **k):
+        t["n"] += 1
+        if t["n"] < 3:
+            raise kaggle_api.SessionLimit("kín")
+        return {"ok": 1}
+    monkeypatch.setattr(kaggle_api, "push", push2)
+    assert kaggle_worker._push("rmvideo-kids", "t", "x", True, None, None, steps.append, wait_max=3600) == {"ok": 1}
+    assert any("kín 2 phiên GPU" in x for x in steps)
+
+
+@pytest.mark.skipif(__import__("prompt_engine").genai is None, reason="cần google-genai")
+def test_retired_fallback_model_skipped(monkeypatch):
+    """Job 4: model chính + dự phòng 1 quá tải (503), dự phòng 2 (gemini-2.5-flash-lite) đã bị Google gỡ (404) -> lỗi báo ra là
+    404 và bước nghĩ ý truyện bỏ; giờ model 404 bị bỏ khỏi danh sách, lỗi báo ra vẫn là quá tải."""
+    import prompt_engine
+    from test_ban43 import _Resp, _fake_genai
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "main-lite")
+    monkeypatch.setattr(config, "GEMINI_FALLBACK_MODELS", "backup-1,old-2")
+    monkeypatch.setattr(prompt_engine, "_GONE", set())
+    calls: list = []
+
+    def behaviour(model):
+        if model == "old-2":
+            raise RuntimeError("404 NOT_FOUND. This model models/old-2 is no longer available")
+        raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    _fake_genai(monkeypatch, behaviour, calls)
+    with pytest.raises(RuntimeError, match="503"):
+        asyncio.run(prompt_engine.call_gemini("viết"))
+    assert prompt_engine.fallback_models() == ["backup-1"] and "old-2" in prompt_engine._GONE
+    calls.clear()
+
+    def behaviour2(model):
+        if model == "backup-1":
+            return _Resp("ok")
+        raise RuntimeError("503 UNAVAILABLE. high demand")
+    _fake_genai(monkeypatch, behaviour2, calls)
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok" and "old-2" not in [m for m, _ in calls]

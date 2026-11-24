@@ -13,6 +13,20 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.8 — Kaggle kín 2 phiên GPU thì xoá phiên «ma» rồi gửi lại; model Gemini đã gỡ không chặn bước nghĩ ý (24/11/2026)
+
+Theo log tối 24/11 (job 4 truyện bé hỏng sau 3,5 phút).
+- **«Maximum batch GPU session count of 2 reached»**: Kaggle chỉ cho 2 phiên GPU xếp hàng / chạy cùng lúc. Phiên bot đã bỏ
+  (chờ máy quá lâu rồi dựng trên Botkeep, hay bị huỷ) vẫn nằm trong hàng chờ và chiếm chỗ tới khi được cấp máy — giờ cao
+  điểm là nhiều giờ. Giờ (1) khi bỏ một phiên bot **xoá notebook** đó (`DeleteKernel`, cách duy nhất qua API công khai để
+  bỏ phiên; notebook được tạo lại ở lần gửi sau), trừ notebook đang có phiên truyện bé giữ chỗ; (2) gửi mà bị từ chối vì kín
+  phiên thì xoá các notebook của bot còn phiên xếp hàng / chạy (đều là phiên ma: bot chỉ chạy một phiên một lúc) rồi gửi
+  lại; truyện bé vẫn kín thì chờ tới 75 phút (2 phút gửi lại một lần), bếp thì dựng trên Botkeep như khi chờ máy quá lâu.
+- **Model dự phòng Google đã gỡ không làm hỏng bước**: `gemini-2.5-flash-lite` (mặc định cũ trong GEMINI_FALLBACK_MODELS)
+  trả 404 «no longer available» → bước nghĩ ý truyện bỏ dù lỗi thật là quá tải. Giờ model 404 bị bỏ khỏi danh sách dự
+  phòng cho tới khi bot khởi động lại (và ghi log để sửa Cài đặt), lỗi báo ra là «quá tải» của model chính; mặc định chỉ
+  còn `gemini-3.1-flash-lite`. Ai đã lưu Cài đặt với giá trị cũ thì sửa ô «Model Gemini dự phòng».
+
 ## 1.4.7 — Rà soát toàn bộ mã (4 tổ kiểm song song) (24/11/2026)
 
 Sửa theo kết quả rà soát: giữ chỗ Kaggle, nhạc Lyria, dựng bếp, cấu hình / đóng gói.

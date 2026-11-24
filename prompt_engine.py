@@ -344,16 +344,24 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
                 resp = await _one(model)
                 break
             except Exception as e2:
+                if "404" in str(e2) or "NOT_FOUND" in str(e2):      # model dự phòng đã ngừng (24/11: gemini-2.5-flash-lite):
+                    _GONE.add(model)                               # bỏ khỏi danh sách, lỗi báo ra vẫn là «quá tải» của model chính
+                    logging.warning("Model dự phòng %s không còn (%s): bỏ qua từ giờ, sửa GEMINI_FALLBACK_MODELS trong Cài đặt",
+                                    model, str(e2)[:80])
+                    continue
                 last = e2
-                if not (_overloaded(str(e2)) or "404" in str(e2) or "NOT_FOUND" in str(e2)):
+                if not _overloaded(str(e2)):
                     raise
         else:
             raise last
     return resp.text or ""
 
 
+_GONE: set[str] = set()        # model dự phòng Google đã gỡ (404 lúc chạy): không thử lại trong lần chạy bot này
+
+
 def fallback_models() -> list[str]:
-    return [m for m in re.split(r"[,\s]+", getattr(config, "GEMINI_FALLBACK_MODELS", "") or "") if m]
+    return [m for m in re.split(r"[,\s]+", getattr(config, "GEMINI_FALLBACK_MODELS", "") or "") if m and m not in _GONE]
 
 
 def _overloaded(err: str) -> bool:

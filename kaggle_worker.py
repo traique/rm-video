@@ -20,7 +20,7 @@ from typing import Any
 
 import config
 import kaggle_api
-from kaggle_api import KaggleError, Parked
+from kaggle_api import KaggleError, Parked, SessionLimit
 from rmvideo.services import kaggle_bundle
 from rmvideo.media import proc, voiceplan
 
@@ -122,16 +122,76 @@ def _others_waiting() -> bool:
         return False
 
 
+GPU_SESSIONS = 2           # Kaggle: tối đa chừng này phiên GPU «batch» xếp hàng / chạy cùng lúc (đo thật 24/11 job 4)
+SLOT_WAIT = 120.0          # giây giữa hai lần gửi lại khi Kaggle kín phiên GPU
+GPU_SLUGS = (SLUG, SLUG_KIDS, SLUG_ANALYZE)
+
+
 def _cancel_session(slug: str, long_expiry: bool = False):
-    """API công khai của Kaggle chỉ huỷ được phiên theo MÃ PHIÊN mà không có lệnh nào trả mã đó (bản cũ gửi tên
-    notebook nên luôn bị 403 và báo nhầm «token sai», bản 43). Thay vào đó mỗi việc gửi đi mang hạn bắt đầu
-    (`expires_at`): bot đã bỏ chờ thì phiên vừa được cấp máy thoát ngay, không tốn giờ GPU, không giữ chỗ.
-    long_expiry (truyện bé, hạn 4 giờ): được cấp máy trước hạn thì vẫn chạy (không huỷ được), kết quả không ai thu."""
-    if long_expiry:
-        logging.info("Bỏ phiên Kaggle %s: được cấp máy trước hạn %.0f giờ thì vẫn chạy (Kaggle không có lệnh huỷ), sau hạn "
-                     "tự thoát", slug, KIDS_PARK_MAX / 3600)
-    else:
-        logging.info("Bỏ chờ phiên Kaggle %s: phiên chưa chạy sẽ tự thoát khi được cấp máy", slug)
+    """Bỏ phiên đã gửi: xoá notebook (kaggle_api.delete_kernel) — API công khai chỉ huỷ phiên theo MÃ PHIÊN mà không lệnh
+    nào trả mã đó (bản 43 bị 403). Trước 1.4.8 chỉ dựa vào hạn bắt đầu `expires_at` (phiên được cấp máy sau hạn tự thoát),
+    nhưng phiên chưa được cấp máy vẫn xếp hàng và CHIẾM một trong GPU_SESSIONS chỗ: job 4 ngày 24/11 bị từ chối «Maximum
+    batch GPU session count of 2 reached» vì hai phiên bot đã bỏ còn xếp hàng. Notebook đang có phiên truyện bé giữ chỗ thì
+    không xoá (long_expiry: phiên đó của chính job này, đã bỏ giữ chỗ trước khi tới đây)."""
+    if _slug_parked(slug):
+        logging.info("Bỏ chờ phiên Kaggle %s nhưng notebook còn phiên truyện bé giữ chỗ: không xoá", slug)
+        return
+    try:
+        kaggle_api.delete_kernel(slug)
+        logging.info("Bỏ phiên Kaggle %s: đã xoá notebook (phiên xếp hàng / đang chạy dừng, trả chỗ GPU)", slug)
+    except Exception as e:
+        logging.info("Bỏ chờ phiên Kaggle %s (không xoá được notebook: %s): phiên chưa chạy sẽ tự thoát khi được cấp máy%s",
+                     slug, str(e)[:100], " sau hạn %.0f giờ" % (KIDS_PARK_MAX / 3600) if long_expiry else "")
+
+
+def _slug_parked(slug: str) -> bool:
+    try:
+        import kids_auto
+        return any(p.get("slug") == slug for p in kids_auto.load_state()["parked"])
+    except Exception:
+        return False
+
+
+def _free_slots(current: str) -> list:
+    """Kaggle kín GPU_SESSIONS phiên GPU: xoá notebook của bot còn phiên xếp hàng / chạy (phiên «ma»: bot đã bỏ chờ mà
+    Kaggle chưa cấp máy; bot chỉ chạy một phiên một lúc nên phiên nào còn đó đều là ma) — trừ notebook có phiên truyện bé
+    giữ chỗ. Trả danh sách slug đã xoá."""
+    freed = []
+    for slug in dict.fromkeys((*GPU_SLUGS, current)):
+        if _slug_parked(slug):
+            continue
+        try:
+            st, _why = kaggle_api.status(slug)
+        except KaggleError:
+            continue
+        if st.upper() in ("QUEUED", "RUNNING"):
+            try:
+                kaggle_api.delete_kernel(slug)
+                freed.append(slug)
+                logging.warning("Kaggle kín %d phiên GPU: đã xoá notebook %s còn phiên %s (bot đã bỏ)", GPU_SESSIONS, slug, st)
+            except Exception as e:
+                logging.warning("Kaggle: không xoá được notebook %s (%s)", slug, str(e)[:120])
+    return freed
+
+
+def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss: list | None, on_step,
+          wait_max: float = 0.0) -> dict:
+    """kaggle_api.push + xử lý «kín phiên GPU»: xoá phiên ma rồi gửi lại; vẫn kín thì chờ (wait_max giây, truyện bé) mỗi
+    SLOT_WAIT gửi lại, hoặc ném SessionLimit (bếp: dựng trên Botkeep)."""
+    t0 = time.time()
+    freed = False
+    while True:
+        try:
+            return kaggle_api.push(slug, title, text, gpu=gpu, kernel_sources=sources, dataset_sources=dss)
+        except SessionLimit:
+            if gpu and not freed:
+                freed = True
+                if _free_slots(slug):
+                    continue
+            if time.time() - t0 >= wait_max or (wait_max and _others_waiting()):
+                raise
+            on_step(f"Kaggle: kín {GPU_SESSIONS} phiên GPU, chờ chỗ ({(time.time() - t0) / 60:.0f} phút)")
+            kaggle_api._sleep(SLOT_WAIT)
 
 
 def with_expiry(spec: dict, start_within: float) -> dict:
@@ -686,9 +746,9 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
                      "gpu": gpu, "since": time.time(), "expires_at": time.time() + KIDS_PARK_MAX - EXPIRY_MARGIN,
                      "brief": spec.get("brief") or {}, **spec["park"]}
     sent = {k: v for k, v in spec.items() if k != "park"}
-    kaggle_api.push(slug, spec.get("title") or "rmvideo worker",
-                    kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max)), gpu=gpu,
-                    kernel_sources=sources or None, dataset_sources=list(spec.get("dataset_sources") or []) or None)
+    _push(slug, spec.get("title") or "rmvideo worker", kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max)),
+          gpu, sources or None, list(spec.get("dataset_sources") or []) or None, on_step,
+          wait_max=queue_max if park_info else 0.0)
     if park_info:                                        # ghi ngay từ lúc gửi: bot tắt lúc đang tải kết quả vẫn còn mục để
         _park(park_info)                                 # chạy lại thu về (rà soát 24/11); xong / lỗi thật thì flow/kids.py bỏ mục
 
@@ -775,15 +835,16 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
     src = [SLUG_PHOWHISPER] if spec.get("asr") == "phowhisper" else None
     try:
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True,
-                        kernel_sources=src)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, src, None, on_step)
+    except SessionLimit:
+        raise
     except KaggleError as e:
         if not src:
             raise
         on_step("Kaggle: chưa có notebook PhoWhisper, dùng large-v3")   # tài khoản chưa chạy rmvideo-phowhisper
         logging.warning("Không gắn được notebook %s (%s): bóc lời bằng large-v3", SLUG_PHOWHISPER, str(e)[:120])
         spec = {**spec, "asr": "large-v3"}
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, None, None, on_step)
 
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "

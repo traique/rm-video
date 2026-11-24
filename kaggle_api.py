@@ -23,6 +23,12 @@ class KaggleError(RuntimeError):
     pass
 
 
+class SessionLimit(KaggleError):
+    """Kaggle từ chối nhận notebook: «Maximum batch GPU session count of 2 reached» (đo thật 24/11 job 4). Phiên bot đã
+    bỏ (chờ máy quá lâu rồi dựng trên Botkeep) vẫn xếp hàng và chiếm chỗ tới khi được cấp máy; kaggle_worker xoá các
+    notebook có phiên «ma» rồi gửi lại."""
+
+
 class Parked(KaggleError):
     """Bot thôi chờ nhưng GIỮ phiên trong hàng chờ Kaggle (truyện bé: hạn bắt đầu dài, kids_auto theo dõi rồi thu kết quả).
     `info`: mô tả phiên để thu kết quả sau (kaggle_worker gắn)."""
@@ -319,6 +325,8 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
                 logging.warning("Kaggle đã nhận notebook %s dù kết nối lỗi (%s): không gửi lại", slug, st)
                 return {}
     if d.get("error"):
+        if "session count" in str(d["error"]).lower():
+            raise SessionLimit(f"Kaggle không nhận notebook: {d['error']}")
         raise KaggleError(f"Kaggle không nhận notebook: {d['error']}")
     got = _ref_slug(d)
     if got and got != slug:
@@ -327,6 +335,14 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
         _ALIAS[slug] = got
     else:
         _ALIAS.pop(slug, None)
+    return d
+
+
+def delete_kernel(slug: str) -> dict:
+    """Xoá notebook (và phiên đang xếp hàng / đang chạy của nó): cách duy nhất qua API công khai để bỏ một phiên đã gửi
+    (CancelKernelSession cần mã phiên mà không lệnh nào trả về). Notebook bot tạo lại ở lần gửi sau."""
+    d = call("DeleteKernel", {"userName": user(), "kernelSlug": real_slug(slug)})
+    _ALIAS.pop(slug, None)
     return d
 
 
