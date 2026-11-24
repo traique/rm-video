@@ -129,12 +129,12 @@ def sources() -> list:
 
 def tiktok_sources() -> list:
     """Kênh TIKTOK nguồn (AUTO_TIKTOK_SOURCES)."""
-    return _norm_list(getattr(config, "AUTO_TIKTOK_SOURCES", ""), normalize_tiktok)
+    return _norm_list(config.AUTO_TIKTOK_SOURCES, normalize_tiktok)
 
 
 def platforms() -> list:
     """Nền tảng nguồn đang tick (AUTO_PLATFORMS). Không tick gì / giá trị lạ -> cả hai."""
-    got = [p for p in PLATFORMS if p in re.split(r"[,\s]+", (getattr(config, "AUTO_PLATFORMS", "") or "").lower())]
+    got = [p for p in PLATFORMS if p in re.split(r"[,\s]+", (config.AUTO_PLATFORMS or "").lower())]
     return got or list(PLATFORMS)
 
 

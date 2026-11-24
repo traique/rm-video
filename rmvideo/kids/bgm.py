@@ -28,7 +28,7 @@ TRACK_SECS = 100                       # video tối đa 88 giây + đuôi
 TRACKS_PER_MOOD = 3
 RATE, CH = lyria.RATE, lyria.CH
 TIMEOUT = 240                          # giây cho một bài (tạo theo thời gian thật ~100 giây + dự phòng)
-STALL = 30                             # giây thêm cho bắt tay / dừng phiên ngoài TIMEOUT (xem stream)
+STALL = 60                             # giây thêm cho bắt tay / dừng phiên ngoài TIMEOUT (> CHUNK_STALL + HANDSHAKE, xem lyria.stream)
 MOODS: dict[str, dict[str, Any]] = {
     "playful": {"vi": "vui tươi", "bpm": 104, "density": 0.4, "brightness": 0.55,
                 "prompt": "playful cheerful children's storybook music, ukulele, glockenspiel, pizzicato strings, light "

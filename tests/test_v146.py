@@ -74,6 +74,10 @@ def test_run_sync_parks_kids_session(monkeypatch, clean_parked):
     p = kids_auto.parked_info(7)
     assert p and p["source"] == "web" and p["fetch_files"] == ["cover.jpg", "story.json"] and p["expires_at"] == info["expires_at"]
     assert kaggle_worker._ABORT["run"] is None
+    with pytest.raises(kaggle_api.KaggleError, match="truyện #7 đang giữ chỗ"):      # cùng notebook: không gửi đè phiên giữ chỗ
+        kaggle_worker._run_sync(_spec(8), "/tmp", steps.append)
+    with pytest.raises(RuntimeError, match="đang giữ chỗ"):
+        kids_auto.make_now("web")
 
 
 def test_abort_parks_only_when_asked(monkeypatch, clean_parked):
@@ -83,8 +87,12 @@ def test_abort_parks_only_when_asked(monkeypatch, clean_parked):
     assert run["flag"] and kids_auto.parked_info(8) is None
     kaggle_worker._ABORT["run"] = run
     kaggle_worker.abort(park=True)                          # bot tắt / quá hạn: giữ chỗ
-    assert kids_auto.parked_info(8)["token"] == "t"
-    kaggle_worker._unwatch(run)
+    assert kids_auto.parked_info(8)["token"] == "t" and run.get("parked")
+    run2 = kaggle_worker._watch("rmvideo-kids")
+    run2["park_info"] = run["park_info"]
+    kaggle_worker.abort()                                   # người dùng huỷ lúc chạy lại: bỏ mục giữ chỗ đã ghi
+    assert kids_auto.parked_info(8) is None
+    kaggle_worker._unwatch(run2)
 
 
 def test_watch_parked_collects_when_done(monkeypatch, clean_parked):
@@ -118,7 +126,20 @@ def test_watch_parked_collects_when_done(monkeypatch, clean_parked):
     assert job.source == "web" and job.chat_id == 5 and job.title_hint == "Mèo Cam" and job.brief["main"] == "cat"
     assert job.brief["collect"]["token"] == "t9" and job.brief["collect"]["job"] == 9
     st = kids_auto.load_state()
-    assert st["parked"] == [] and st["pending"]["job"] == job.id and not sent
+    p9 = kids_auto.parked_info(9)                           # mục giữ chỗ còn tới khi job thu xong (job thu lỗi thì thu lại)
+    assert p9["collect_job"] == job.id and p9["collects"] == 1 and st["pending"]["job"] == job.id and not sent
+    monkeypatch.setitem(queue.jobs, job.id, job)
+    job.status = "processing"
+    assert asyncio.run(kids_auto.watch_parked(now)) == [] and len(put) == 1       # job thu đang làm: không tạo thêm
+    job.status, job.error = "error", "tải output Kaggle đứt"
+    msgs = asyncio.run(kids_auto.watch_parked(now))
+    assert len(put) == 2 and kids_auto.parked_info(9)["collects"] == 2 and kids_auto.load_state()["pending"]["job"] == put[1].id
+    kids_auto._mark_parked(9, collects=3)
+    put[1].status = "error"
+    monkeypatch.setitem(queue.jobs, put[1].id, put[1])
+    msgs = asyncio.run(kids_auto.watch_parked(now))
+    assert "lỗi 3 lần" in msgs[0] and kids_auto.parked_info(9) is None and len(sent) == 1 and len(put) == 2
+    kids_auto.unpark(put[1].id)
 
 
 def test_watch_parked_drops_failed_or_expired(monkeypatch, clean_parked):
@@ -388,3 +409,54 @@ def test_title_abstract_words_not_mismatch():
     text = "Mèo Cam trải cái mền ra cỏ. Sữa đổ, Mèo Cam kéo mền che lại. Gấu Nâu nhìn thấy, cả hai cùng cười."
     assert story.title_mismatch("Bí mật dưới cái mền của Mèo Cam", text, DATA) == []
     assert story.title_mismatch("Chiếc bánh ngọt ngào của Mèo Cam", text, DATA)      # vẫn bắt tiêu đề lạc đề thật
+
+
+# ---------------- bếp: khối cuối, bản ngắn, nối mẩu câu (rà soát 24/11) ----------------
+
+def test_tail_slot_never_before_first_scene():
+    """Mốc chèn rơi vào quãng đã bỏ khỏi video (10-14s): trước đây _split_at trả 0 -> khối cuối đứng ĐẦU video, trước
+    câu hook, R1-R8 không bắt. Giờ chèn vào khoảng trống trước khúc main kế tiếp."""
+    from rmvideo.app.flow import style_b
+    from rmvideo.media import edl
+    pieces = [edl.Piece(0, 10), edl.Piece(14, 20), edl.Piece(20, 30, push=0.06)]
+    segs = [(2, 8, "a"), (11, 13, "b"), (15, 19, "c"), (21, 25, "d")]
+    trial, ins = style_b._tail_slot(pieces, segs, 12.0, 2)
+    assert ins == 1 and trial[0].a == 0 and trial[0].b == 10
+    plan = edl.EditPlan(pieces=[edl.Piece(5, 6, role="side", tag="recap"), edl.Piece(0, 10), edl.Piece(10, 20, push=0.06)])
+    assert any(e.startswith("R9") for e in style_b.check_rules(plan, segs, [], [True] * 4))
+
+
+def test_tail_slot_no_flash_of_final_scene_before_tail():
+    """Câu vắt qua đầu cảnh món cuối: khối cuối dời ra sau câu đó, nhưng không để cảnh món loé lên 0,8 giây rồi mới tới khối
+    cuối (rà soát 24/11); mốc sau (sau câu S2) thì phần cảnh trước khối cuối đủ dài."""
+    from rmvideo.app.flow import style_b
+    from rmvideo.media import edl
+    pieces = [edl.Piece(0, 17), edl.Piece(17, 20), edl.Piece(20, 30, push=0.06)]
+    segs = [(10.0, 17.2, "S0"), (17.4, 20.6, "S1"), (21.0, 24.0, "S2"), (26.0, 29.0, "S3")]
+    t_in = style_b._sentence_start(segs, 20.0)
+    trial, ins = style_b._tail_slot(pieces, segs, t_in, 2)
+    prev = trial[ins - 1]
+    assert ins > 0 and prev.a == 20 and prev.b - prev.a >= style_b.TAIL_PUSH_MIN and not style_b._cuts_sentence(trial, ins, segs)
+    assert trial[ins].push > 0 and trial[ins].a == prev.b
+
+
+def test_short_single_span_splits_hero_so_roll_call_not_first():
+    """Mọi quãng giữ gộp thành một khúc: điểm danh từng mở video ngắn (t=0). Giờ tách cảnh cuối ra, điểm danh đứng trước nó."""
+    from rmvideo.app.flow import short
+    from rmvideo.domain import recipe as r
+    segs = [(100.0, 103.0, "Cho thịt vào nồi kho"), (103.5, 106.0, "Nêm nước mắm rồi kho tiếp")]
+    items = [r.Item("thịt ba chỉ", 500, "g", "ok", seen_at=100.5), r.Item("nước mắm", 2, "muỗng", "ok", seen_at=104.0),
+             r.Item("hành tím", 3, "củ", "ok", seen_at=101.5)]
+    steps = [r.Step("cook", 0, 1, "Kho thịt với nước mắm", t0=100.0, t1=106.0)]
+    plan, why = short.plan_short(108.0, segs, r.Facts(is_recipe=True, dish="Thịt kho", items=items, steps=steps),
+                                 short.budget(0.0), hook=False)
+    assert why == "" and plan.pieces[0].role == "main" and plan.pieces[0].tag != "montage"
+    mt = next(x for x in plan.texts if x["kind"] == "montage")
+    assert mt["t"] > 0 and plan.pieces[-1].role == "main" and plan.pieces[-1].push > 0 and plan.pieces[-1].a == pytest.approx(105.5)
+
+
+def test_join_keeps_proper_names_capitalised():
+    import prompt_engine as pe
+    a = {"text": "Câu một", "start": 0.0, "slot": 1.0, "span": 1.0, "orig": "x", "copy": 0}
+    assert pe._join([a, {"text": "Hà Nội đẹp.", "start": 1.2, "slot": 1.0, "span": 1.0, "orig": "y", "copy": 0}])["text"] == "Câu một Hà Nội đẹp."
+    assert pe._join([a, {"text": "Cho hành vào.", "start": 1.2, "slot": 1.0, "span": 1.0, "orig": "y", "copy": 0}])["text"] == "Câu một cho hành vào."

@@ -346,12 +346,13 @@ giới hạn 100 MB/file thường của GitHub; không nằm trong gói Botkeep
 
 Nhạc nền (19/11, `rmvideo/kids/bgm.py`): **Lyria RealTime** (Gemini API, model thử nghiệm `lyria-realtime-exp`, free tier, nhạc không
 lời, có watermark SynthID) tạo thành **kho** chứ không tạo mỗi video: mỗi khung truyện có một màu (`plots[].mood`: playful / curious /
-tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a). Mỗi truyện thêm một bài cho màu của nó tới khi đủ (≈ 100
-giây tạo theo thời gian thật), kho lưu `assets/kids_bgm/lyria/` + `library.json`, rồi đẩy lên Kaggle thành dataset riêng tư
-`rmvideo-kids-bgm` (`kaggle_api.dataset_push`: tải blob + tạo dataset / phiên bản mới, chờ READY); phiên Kaggle gắn dataset vào
-`/kaggle/input` nên không cần `PUBLIC_URL`, key Gemini không rời Botkeep. Lệnh console `kids_bgm` làm đủ kho một lần (9 bài,
-~15 phút). `KIDS_BGM`: auto (nhạc của mình nếu có, không thì Lyria) / lyria / files / off. Lyria hay Kaggle lỗi thì video không nhạc
-như trước. Giọng Google TTS (`gemini-3.8-flash-tts`, free, 30 giọng, đa người nói) đã thử tiếng Việt, chờ nghe mẫu rồi mới quyết.
+tender), mỗi màu tối đa 3 bài 100 giây (vào 1,5 s, ra 4 s, −20 LUFS, m4a), kho lưu `assets/kids_bgm/lyria/` + `library.json`, rồi đẩy
+lên Kaggle thành dataset riêng tư `rmvideo-kids-bgm` (`kaggle_api.dataset_push`); phiên Kaggle gắn dataset vào `/kaggle/input` nên
+không cần `PUBLIC_URL`. **Kho làm trên Kaggle** (1.4.5, `rmvideo/media/lyria_kaggle.py`): mạng Botkeep (~80–100 KB/s) không theo kịp
+luồng Lyria (đo 24/11: 4 giây nhạc / 51 giây rồi bị cắt), nên bot gửi notebook CPU `rmvideo-music` tạo các bài còn thiếu của cả kho bé
+lẫn kho bếp (~45–60 phút cho 18 bài), tải về rồi đẩy dataset; notebook này **chứa key Gemini** trong mã (để riêng tư). Gõ `bgm_kaggle`
+để làm ngay; `kids_bgm` / `cook_bgm` cũng tự chuyển sang Kaggle khi Kaggle đã tạo được nhạc. `KIDS_BGM`: auto (nhạc của mình nếu
+có, không thì kho Lyria) / lyria / files / off. Kho chưa có bài thì video không nhạc như trước. Giọng Google TTS (`gemini-3.8-flash-tts`, free, 30 giọng, đa người nói) đã thử tiếng Việt, chờ nghe mẫu rồi mới quyết.
 
 Khung cốt truyện (19/11): `rmvideo/kids/data.json` có 10 **khung** rút từ truyện mầm non, sách tranh và podcast kể chuyện cho bé
 (tìm đồ bị mất, làm hỏng rồi nhận lỗi, sợ rồi dám thử, giữ riêng rồi chia sẻ, chờ tới lượt, quên lời hứa rồi sửa, giúp người thì
@@ -571,7 +572,7 @@ Video vẫn được dựng như remake: tiêu đề + chữ hook 3 giây đầu
   **thư giãn**, canh cháo kho bánh → **ấm cúng** (`bgm.mood_for`, đoán từ tên món + tiêu đề + mô tả). Mỗi màu 3 bài
   150 giây; bài thiếu được tạo dần trong nền (job không phải chờ), xong đẩy lên Kaggle thành dataset riêng tư
   `rmvideo-cook-bgm` (Kaggle không cần `PUBLIC_URL`). Gõ `cook_bgm` ở console hoặc bấm **Tạo đủ kho Lyria** trên web để
-  tạo đủ 9 bài ngay (~25 phút, chạy nền). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
+  tạo đủ 9 bài ngay (~25 phút, chạy nền; Kaggle đã tạo được nhạc thì hai lối này tự chuyển sang `bgm_kaggle`). Nhạc tự tạo nên Facebook / TikTok không tắt tiếng vì bản quyền. Kho chưa có
   bài thì dùng thư viện của bạn (dưới); `BGM_SOURCE=files` để chỉ dùng thư viện của bạn như trước.
 - **Mạng Botkeep quá chậm cho Lyria** (đo 24/11: ~4 giây nhạc / 51 giây rồi bị cắt): bot tự gửi notebook `rmvideo-music`
   lên Kaggle (CPU, không tốn giờ GPU) tạo các bài còn thiếu của kho bé + kho bếp (~45-60 phút), tải về rồi đẩy dataset.

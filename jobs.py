@@ -133,11 +133,17 @@ async def _run_one_held(job: Job):
             job.status, job.step = "done", ""
     except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
         proc.kill_owner(job.id)
-        job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
-                                          f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
-        logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
-                      " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
-        await notifier.job_event(job, f"❌ Job #{job.id} quá thời gian ở bước «{job.step}», đã hủy.")
+        if _parked_kids(job):      # truyện bé: Kaggle chưa xong trong hạn nhưng phiên giữ chỗ, kids_auto tự thu kết quả
+            job.status, job.error = "error", (f"Kaggle chưa xong sau {job_budget(job) // 60:.0f} phút ở bước «{job.step}»: "
+                                              "phiên vẫn giữ chỗ, bot theo dõi và tự thu kết quả khi xong")
+            logging.warning("Job %s quá hạn nhưng phiên Kaggle giữ chỗ: %s", job.id, job.step)
+            await notifier.job_event(job, f"⏳ Job #{job.id}: {job.error}")
+        else:
+            job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
+                                              f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
+            logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
+                          " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
+            await notifier.job_event(job, f"❌ Job #{job.id} quá thời gian ở bước «{job.step}», đã hủy.")
     except asyncio.CancelledError:
         proc.kill_owner(job.id)
         me = asyncio.current_task()
@@ -198,12 +204,34 @@ def cancel_job(jid: int) -> str:
     if job.status == "queued":
         job.cancel = True
         queue.save(job)                      # lưu ngay: khởi động lại không được chạy lại job đã huỷ
+        _unpark_kids(job)
         return f"Job #{jid} sẽ bị bỏ qua khi tới lượt."
     if job.status == "processing" and current["job"] is job and current["task"]:
         current["task"].cancel()
-        kaggle_worker.abort()                  # phiên Kaggle đang chạy cho job này (nếu có) cũng dừng, khỏi tốn giờ GPU
+        kaggle_worker.abort()                  # phiên Kaggle đang chờ cho job này (nếu có) cũng bỏ, không giữ chỗ
+        _unpark_kids(job)
         return f"Đang hủy job #{jid}..."
     return f"Job #{jid} đã kết thúc ({job.status})."
+
+
+def _unpark_kids(job: Job) -> None:
+    """Huỷ job truyện bé: bỏ mục giữ chỗ Kaggle của nó (kể cả job thu kết quả), khỏi làm tiếp truyện đã huỷ."""
+    if job.mode != "kids":
+        return
+    try:
+        import kids_auto
+        kids_auto.unpark(int(((job.brief or {}).get("collect") or {}).get("job") or job.id))
+        kids_auto.unpark(job.id)
+    except Exception as e:
+        logging.warning("Không bỏ được mục giữ chỗ Kaggle của job %s (%s)", job.id, str(e)[:120])
+
+
+def _parked_kids(job: Job) -> bool:
+    try:
+        import kids_auto
+        return job.mode == "kids" and kids_auto.parked_info(job.id) is not None
+    except Exception:
+        return False
 
 
 SPEED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speed.json")

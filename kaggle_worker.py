@@ -16,6 +16,8 @@ import secrets
 import time
 import urllib.parse
 
+from typing import Any
+
 import config
 import kaggle_api
 from kaggle_api import KaggleError, Parked
@@ -74,8 +76,18 @@ def abort(park: bool = False):
         return
     run["flag"] = True
     if park and run.get("park_info") and _park(run["park_info"]):
+        run["parked"] = True
         return
-    _cancel_session(run["slug"])
+    if run.get("park_info"):                            # người dùng huỷ: bỏ mục giữ chỗ (ghi lúc gửi), không thu kết quả nữa
+        try:
+            import kids_auto
+            kids_auto.unpark(int(run["park_info"]["job"]))
+        except Exception as e:
+            logging.warning("Không bỏ được mục giữ chỗ Kaggle (%s)", str(e)[:120])
+    if run.get("park_info"):
+        _cancel_session(run["slug"], long_expiry=True)
+    else:
+        _cancel_session(run["slug"])
 
 
 def _park(info: dict) -> bool:
@@ -91,6 +103,16 @@ def _park(info: dict) -> bool:
         return False
 
 
+def _parked_other(slug: str, job: Any) -> Any:
+    """Mã job truyện bé KHÁC đang giữ chỗ trên cùng notebook (None nếu không có)."""
+    try:
+        import kids_auto
+        return next((p.get("job") for p in kids_auto.load_state()["parked"] if p.get("slug") == slug and p.get("job") != job),
+                    None)
+    except Exception:
+        return None
+
+
 def _others_waiting() -> bool:
     """Có job khác đang chờ trong hàng đợi Botkeep (job truyện bé đang giữ worker thì nên nhường)."""
     try:
@@ -100,11 +122,16 @@ def _others_waiting() -> bool:
         return False
 
 
-def _cancel_session(slug: str):
+def _cancel_session(slug: str, long_expiry: bool = False):
     """API công khai của Kaggle chỉ huỷ được phiên theo MÃ PHIÊN mà không có lệnh nào trả mã đó (bản cũ gửi tên
     notebook nên luôn bị 403 và báo nhầm «token sai», bản 43). Thay vào đó mỗi việc gửi đi mang hạn bắt đầu
-    (`expires_at`): bot đã bỏ chờ thì phiên vừa được cấp máy thoát ngay, không tốn giờ GPU, không giữ chỗ."""
-    logging.info("Bỏ chờ phiên Kaggle %s: phiên chưa chạy sẽ tự thoát khi được cấp máy", slug)
+    (`expires_at`): bot đã bỏ chờ thì phiên vừa được cấp máy thoát ngay, không tốn giờ GPU, không giữ chỗ.
+    long_expiry (truyện bé, hạn 4 giờ): được cấp máy trước hạn thì vẫn chạy (không huỷ được), kết quả không ai thu."""
+    if long_expiry:
+        logging.info("Bỏ phiên Kaggle %s: được cấp máy trước hạn %.0f giờ thì vẫn chạy (Kaggle không có lệnh huỷ), sau hạn "
+                     "tự thoát", slug, KIDS_PARK_MAX / 3600)
+    else:
+        logging.info("Bỏ chờ phiên Kaggle %s: phiên chưa chạy sẽ tự thoát khi được cấp máy", slug)
 
 
 def with_expiry(spec: dict, start_within: float) -> dict:
@@ -153,7 +180,12 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue
             _park(park_info)
         raise
     except KaggleError:
-        _cancel_session(slug)
+        if run.get("parked"):                          # abort(park=True) đã ghi giữ chỗ: không báo «phiên sẽ tự thoát»
+            pass
+        elif park_info is not None:
+            _cancel_session(slug, long_expiry=True)
+        else:
+            _cancel_session(slug)
         raise
     finally:
         _unwatch(run)
@@ -647,6 +679,9 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     sources = list(spec.get("kernel_sources") or []) + ([SLUG_ANALYZE] if reuse else [])
     park_info = None
     if kids and spec.get("park"):                        # truyện bé: giữ chỗ trong hàng chờ GPU (xem KIDS_PARK_MAX)
+        other = _parked_other(slug, spec["park"].get("job"))
+        if other:                                        # mọi phiên truyện bé cùng notebook: gửi đè là mất phiên đang giữ chỗ
+            raise KaggleError(f"truyện #{other} đang giữ chỗ trên Kaggle (cùng notebook {slug}): chờ nó xong rồi làm truyện mới")
         park_info = {"slug": slug, "token": spec.get("token"), "fetch_files": list(spec.get("fetch_files") or []),
                      "gpu": gpu, "since": time.time(), "expires_at": time.time() + KIDS_PARK_MAX - EXPIRY_MARGIN,
                      "brief": spec.get("brief") or {}, **spec["park"]}
@@ -654,6 +689,8 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     kaggle_api.push(slug, spec.get("title") or "rmvideo worker",
                     kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max)), gpu=gpu,
                     kernel_sources=sources or None, dataset_sources=list(spec.get("dataset_sources") or []) or None)
+    if park_info:                                        # ghi ngay từ lúc gửi: bot tắt lúc đang tải kết quả vẫn còn mục để
+        _park(park_info)                                 # chạy lại thu về (rà soát 24/11); xong / lỗi thật thì flow/kids.py bỏ mục
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")

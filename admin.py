@@ -28,8 +28,9 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
                 "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
                 "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_bgm (làm đủ kho nhạc Lyria) | "
-                "kids_fb_test | kids_resume | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy nền) | "
-                "bgm_kaggle (tạo kho nhạc bé + bếp bằng Lyria trên Kaggle CPU, chạy nền; mạng Botkeep quá chậm cho Lyria)")
+                "kids_fb_test | kids_resume | kids_tick (chạy một lượt tự động ngay) | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy "
+                "nền) | bgm_kaggle (tạo kho nhạc bé + bếp bằng Lyria trên Kaggle CPU, chạy nền — mạng Botkeep quá chậm cho Lyria; "
+                "kids_bgm / cook_bgm tự chuyển sang đây khi Kaggle đã tạo được nhạc)")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -163,15 +164,19 @@ async def console():
                     logging.info("🧸 %s", await asyncio.to_thread(kaggle_worker.kids_setup))
                 except Exception as e:
                     logging.info("❌ kids_setup lỗi: %s", e)
-            elif low == "kids_bgm":
-                from rmvideo.kids import bgm
-                try:
-                    logging.info("🎵 %s", await bgm.build(log=lambda m: logging.info("🎵 %s", m)))
-                except Exception as e:
-                    logging.info("❌ kids_bgm lỗi: %s", e)
-            elif low == "cook_bgm":
-                import bgm
-                logging.info("🎵 %s", bgm.build_lyria_later())
+            elif low in ("kids_bgm", "cook_bgm"):
+                from rmvideo.media import lyria_kaggle
+                if lyria_kaggle.proven():                 # mạng Botkeep không theo kịp Lyria: kho làm trên Kaggle (1.4.5)
+                    logging.info("🎵 %s", lyria_kaggle.start_later(force=True) or "không có gì để làm")
+                elif low == "kids_bgm":
+                    from rmvideo.kids import bgm
+                    try:
+                        logging.info("🎵 %s", await bgm.build(log=lambda m: logging.info("🎵 %s", m)))
+                    except Exception as e:
+                        logging.info("❌ kids_bgm lỗi: %s", e)
+                else:
+                    import bgm
+                    logging.info("🎵 %s", bgm.build_lyria_later())
             elif low == "bgm_kaggle":
                 from rmvideo.media import lyria_kaggle
                 logging.info("🎵 %s", lyria_kaggle.start_later(force=True) or "không có gì để làm")

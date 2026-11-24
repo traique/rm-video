@@ -16,6 +16,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 
+from typing import Any
+
 import autopost
 import config
 from rmvideo.kids import story as story_mod
@@ -151,14 +153,18 @@ def remember_done(job, brief: dict, story: dict):
 PARK_GRACE = 15 * 60           # quá hạn bắt đầu chừng này giây mà vẫn chờ máy: phiên đã tự thoát, bỏ
 PARK_HARD_MAX = 8 * 3600       # giữ chỗ lâu nhất (kể cả đang chạy — notebook treo): quá là bỏ
 PARK_LOG_EVERY = 10 * 60       # ghi log trạng thái phiên giữ chỗ tối đa mỗi chừng này giây
+PARK_COLLECTS = 3              # job thu kết quả lỗi (mạng đứt) chừng này lần thì bỏ, báo admin
+_STATE_LOCK = threading.Lock()  # load -> sửa -> save kids_auto.json: luồng Kaggle (park_record) và vòng tick không chen nhau
 
 
 def park_record(info: dict) -> None:
     """Worker ghi phiên Kaggle truyện bé đang giữ chỗ (kaggle_worker._park): {job, slug, token, fetch_files, gpu, since,
-    expires_at, brief, source, chat_id, title_hint}. Mỗi job một mục."""
-    st = load_state()
-    st["parked"] = [p for p in st["parked"] if p.get("job") != info.get("job")] + [dict(info)]
-    save_state(st)
+    expires_at, brief, source, chat_id, title_hint}. Mỗi job một mục (ghi lại thì giữ số lần đã thu)."""
+    with _STATE_LOCK:
+        st = load_state()
+        old = next((p for p in st["parked"] if p.get("job") == info.get("job")), {})
+        st["parked"] = [p for p in st["parked"] if p.get("job") != info.get("job")] + [{**old, **info}]
+        save_state(st)
 
 
 def parked_info(job_id: int) -> dict | None:
@@ -166,9 +172,20 @@ def parked_info(job_id: int) -> dict | None:
 
 
 def unpark(job_id: int) -> None:
-    st = load_state()
-    if any(p.get("job") == job_id for p in st["parked"]):
-        st["parked"] = [p for p in st["parked"] if p.get("job") != job_id]
+    """Bỏ mục giữ chỗ của job (hoặc mục có job thu kết quả là job này)."""
+    with _STATE_LOCK:
+        st = load_state()
+        if any(job_id in (p.get("job"), p.get("collect_job")) for p in st["parked"]):
+            st["parked"] = [p for p in st["parked"] if job_id not in (p.get("job"), p.get("collect_job"))]
+            save_state(st)
+
+
+def _mark_parked(job_id: int, **kw: Any) -> None:
+    with _STATE_LOCK:
+        st = load_state()
+        for p in st["parked"]:
+            if p.get("job") == job_id:
+                p.update(kw)
         save_state(st)
 
 
@@ -177,16 +194,15 @@ async def watch_parked(now: float | None = None) -> list[str]:
     Xong -> job thu kết quả (brief.collect; cùng nguồn / chat với job cũ nên giao như job cũ); notebook lỗi hay quá hạn
     bắt đầu -> bỏ, báo admin. Job đang chạy lại (bot vừa khởi động lại) tự thu kết quả, không tạo job mới."""
     import kaggle_api
-    from queue_manager import QueueFull
     from rmvideo.app import job_factory
     from state import notify_admin, queue
     now = now or time.time()
     out: list[str] = []
     for p in list(load_state()["parked"]):
         jid = p.get("job")
-        cur = queue.jobs.get(jid)
-        if cur is not None and cur.status in ("queued", "processing", "approved"):
-            continue
+        busy = [queue.jobs.get(j) for j in (jid, p.get("collect_job")) if j]
+        if any(j is not None and j.status in ("queued", "processing", "approved") for j in busy):
+            continue                                    # job (chạy lại sau khởi động) hay job thu đang làm: tự thu kết quả
         try:
             s, why = await asyncio.to_thread(kaggle_api.status, p["slug"])
         except Exception as e:
@@ -194,26 +210,33 @@ async def watch_parked(now: float | None = None) -> list[str]:
         up = s.upper()
         mins = (now - float(p.get("since") or now)) / 60
         if any(x in up for x in kaggle_api.DONE):
+            n = int(p.get("collects") or 0)
+            if n >= PARK_COLLECTS:
+                unpark(jid)
+                msg = f"job thu kết quả truyện #{jid} lỗi {n} lần, bỏ (kết quả vẫn nằm trên Kaggle, notebook {p['slug']})"
+                logging.warning("Truyện bé: %s", msg)
+                await notify_admin(f"⚠️ Truyện bé: {msg}")
+                out.append(msg)
+                continue
             brief = dict(p.get("brief") or {})
             brief["collect"] = {k: p.get(k) for k in ("slug", "token", "fetch_files", "gpu", "since", "expires_at", "job")}
             job = job_factory.kids(brief=brief, source=p.get("source") or "auto", chat_id=int(p.get("chat_id") or 0),
                                    title_hint=str(p.get("title_hint") or ""))
-            try:
-                queue.put(job, force=True)
-            except QueueFull:
-                out.append(f"Kaggle đã dựng xong truyện #{jid}, hàng đợi đầy: lượt sau thu về")
-                continue
-            st = load_state()
-            st["parked"] = [x for x in st["parked"] if x.get("job") != jid]
-            if st["pending"] and st["pending"].get("job") == jid:
-                st["pending"]["job"] = job.id
-            save_state(st)
+            queue.put(job, force=True)
+            # mục giữ chỗ còn tới khi job thu xong (flow/kids.py unpark): job thu lỗi (mạng đứt) thì lượt sau thu lại
+            prev_collect = p.get("collect_job")
+            _mark_parked(jid, collect_job=job.id, collects=n + 1)
+            with _STATE_LOCK:
+                st = load_state()
+                if st["pending"] and st["pending"].get("job") in (jid, prev_collect):
+                    st["pending"]["job"] = job.id
+                    save_state(st)
             logging.info("Truyện bé: Kaggle đã dựng xong truyện #%s (giữ chỗ %.0f phút): job #%s thu kết quả về", jid, mins,
                          job.id)
             out.append(f"job #{job.id} thu kết quả truyện #{jid}")
             continue
         failed = any(x in up for x in kaggle_api.FAILED)
-        expired = (now > float(p.get("expires_at") or 0) + PARK_GRACE and ("QUEUED" in up or not up)) or mins * 60 > PARK_HARD_MAX
+        expired = (now > float(p.get("expires_at") or 0) + PARK_GRACE and "QUEUED" in up) or mins * 60 > PARK_HARD_MAX
         if failed or expired:
             unpark(jid)
             msg = (f"phiên Kaggle của truyện #{jid} lỗi ({s}: {why[:120]})" if failed
@@ -225,11 +248,7 @@ async def watch_parked(now: float | None = None) -> list[str]:
         if now - float(p.get("logged") or 0) >= PARK_LOG_EVERY:
             logging.info("Truyện bé #%s: Kaggle %s (%.0f phút, giữ chỗ)", jid,
                          "đang chờ máy" if "QUEUED" in up else ("đang làm" if up else f"không hỏi được ({why[:80]})"), mins)
-            st = load_state()
-            for x in st["parked"]:
-                if x.get("job") == jid:
-                    x["logged"] = now
-            save_state(st)
+            _mark_parked(jid, logged=now)
     return out
 
 
@@ -237,6 +256,9 @@ def make_now(source: str = "web", chat_id: int = 0):
     """Tạo MỘT job truyện bé ngay (không gắn khung giờ, không tự đăng). Trả Job; hàng đợi đầy thì ném QueueFull."""
     from rmvideo.app import job_factory
     from state import queue
+    parked = load_state()["parked"]
+    if parked:                                          # cùng notebook Kaggle: gửi thêm là mất phiên đang giữ chỗ
+        raise RuntimeError(f"truyện #{parked[0].get('job')} đang giữ chỗ trên Kaggle (chờ GPU): chờ nó xong rồi làm truyện mới")
     job = job_factory.kids(brief={}, source=source, chat_id=chat_id or config.admin_chat_id() or 0)
     job.brief = new_brief(job)
     job.title_hint = story_mod.describe(job.brief, data())
@@ -262,7 +284,7 @@ async def pick_music(rnd: random.Random | None = None, brief: dict | None = None
                      log=None) -> dict | None:
     """Nhạc nền theo KIDS_BGM: auto = file / link của mình nếu có, không thì kho Lyria theo khung truyện (rmvideo/kids/bgm);
     lyria = chỉ kho Lyria; files = chỉ file / link; off = không nhạc. Trả đầu vào Kaggle hoặc None."""
-    mode = (getattr(config, "KIDS_BGM", "") or "auto").strip().lower()
+    mode = (config.KIDS_BGM or "auto").strip().lower()
     if mode == "off":
         return None
     if mode in ("auto", "files"):
@@ -354,7 +376,7 @@ async def _finish_pending(st: dict, now: float) -> str:
         return await _fail(st, p, now, "job truyện bé không còn trong danh sách")
     if job.status in ("queued", "processing", "approved"):
         return f"đang làm job #{job.id}"
-    if job.status == "error" and any(x.get("job") == job.id for x in st.get("parked") or []):
+    if job.status == "error" and any(job.id in (x.get("job"), x.get("collect_job")) for x in st.get("parked") or []):
         return f"đang giữ chỗ Kaggle cho job #{job.id}"
     if job.status != "done":
         return await _fail(st, p, now, f"job #{job.id} {job.status}: {(job.error or '')[:120]}")
@@ -427,6 +449,8 @@ async def _tick(now: float, rnd: random.Random | None, force: bool) -> str:
     try:
         if st["pending"]:
             return await _finish_pending(st, now)       # vừa đăng / đang làm / lỗi: lượt sau mới lấy khung kế
+        if st["parked"]:                                # mọi phiên truyện bé cùng notebook: gửi thêm là mất phiên đang giữ chỗ
+            return f"đang giữ chỗ Kaggle cho truyện #{st['parked'][0].get('job')}, chưa làm truyện mới"
         slots = free_slots(st, now)
         if not slots:
             return "đã đủ truyện cho các khung giờ trong 36 giờ tới"

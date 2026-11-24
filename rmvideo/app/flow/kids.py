@@ -8,7 +8,6 @@ import asyncio
 import logging
 import os
 import shutil
-import time
 
 import config
 import kaggle_worker
@@ -24,10 +23,8 @@ def _log(s: str) -> None:
 
 
 def _parked(e: Parked) -> RuntimeError:
-    info = e.info or {}
-    mins = (time.time() - float(info.get("since") or time.time())) / 60
-    return RuntimeError(f"Kaggle chưa cấp GPU sau {mins:.0f} phút: phiên vẫn giữ chỗ trong hàng chờ (tối đa "
-                        f"{kaggle_worker.KIDS_PARK_MAX / 3600:.0f} giờ), bot theo dõi và tự thu kết quả khi xong")
+    return RuntimeError(f"{e}: phiên vẫn giữ chỗ trên Kaggle (tối đa {kaggle_worker.KIDS_PARK_MAX / 3600:.0f} giờ), bot "
+                        "theo dõi và tự thu kết quả khi xong")
 
 
 async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | None, list]:
@@ -98,6 +95,12 @@ async def process_kids(job: Job, tmp: str) -> str:
             res = await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
     except Parked as e:
         raise _parked(e) from None
+    except asyncio.CancelledError:                    # bot tắt / người dùng huỷ: kaggle_worker.abort quyết giữ hay bỏ mục
+        raise
+    except Exception:
+        if not col:                                   # lỗi thật sau khi gửi (không phải giữ chỗ): bỏ mục đã ghi lúc gửi
+            kids_auto.unpark(job.id)
+        raise
     video = res["video"]
     job.step = "Truyện bé: kiểm video"
     bad = await kids_job.qa_video(video)

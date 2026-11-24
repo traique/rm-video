@@ -28,7 +28,7 @@ THUMB_FPS = 2
 def mode() -> str:
     """SCENE_ANALYSIS: light | fast | full (xem config)."""
     import config
-    m = (getattr(config, "SCENE_ANALYSIS", "") or "light").strip()
+    m = (config.SCENE_ANALYSIS or "light").strip()
     return m if m in ("light", "fast", "full") else "light"
 
 

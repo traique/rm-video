@@ -24,7 +24,7 @@ N_PITCHES = 4
 RECENT = 6                      # số truyện gần nhất đưa vào lời nhắc «đừng lặp ý»
 TIMEOUT = 60.0
 KINDS = ("bí ẩn", "giải cứu", "hài", "đua giờ", "hiểu lầm", "phiêu lưu nhỏ", "tưởng tượng", "tình bạn", "khám phá")
-MOODS = ("playful", "curious", "tender")
+MOODS = tuple(__import__("rmvideo.kids.bgm", fromlist=["MOODS"]).MOODS)     # màu nhạc = kho nhạc bé (một nguồn)
 
 PITCH_PROMPT = """Bạn là biên kịch truyện tranh hoạt hình ngắn cho bé 3-6 tuổi (video dọc ~80 giây, 8 cảnh, mỗi cảnh một bức tranh có 1-2 nhân vật). Nghĩ {n} Ý TRUYỆN thật khác nhau để chọn ra ý hay nhất.
 Thế giới: {world}. Bốn bạn nhỏ: {cast}.

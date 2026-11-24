@@ -91,7 +91,11 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         """Tạo đủ kho nhạc Lyria của bếp trong nền (như lệnh console cook_bgm)."""
         _check(request)
         import bgm
-        msg = bgm.build_lyria_later()
+        from rmvideo.media import lyria_kaggle
+        if lyria_kaggle.proven():                 # mạng Botkeep không theo kịp Lyria: kho làm trên Kaggle (1.4.5)
+            msg = lyria_kaggle.start_later(force=True) or "không có gì để làm"
+        else:
+            msg = bgm.build_lyria_later()
         return web.json_response({**_bgm_state(), "msg": msg})
 
     async def kaggle_input(request):

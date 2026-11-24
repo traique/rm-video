@@ -1,9 +1,9 @@
 # Thay đổi so với bản botkeep_7
 
 Làm theo "Kế hoạch nâng cấp Video Bot (botkeep_7) — Bản hoàn thiện". Mỗi giai đoạn là một commit riêng trên nhánh.
-Kiểm tra: `ruff check .` sạch, `pytest -q` 131 test xanh + 5 test chỉ chạy khi có key Gemini / model offline (có model: 133 xanh)
-(Python 3.13 cục bộ; CI chạy 3.11 và 3.12). Đã chạy trọn một job với dịch vụ thật (Gemini bóc lời + viết kịch bản,
-edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
+Kiểm tra: `ruff check .`, `mypy` sạch, `pytest -q` (hơn 900 test, Python 3.13 — bản Botkeep và Kaggle chạy; CI cũng 3.13,
+3.11–3.12 vẫn chạy được nhưng không còn được kiểm). Đã chạy trọn job với dịch vụ thật (Gemini bóc lời + viết kịch bản,
+edge-tts, tách giọng, render) và các model offline thật.
 
 ## Cần làm khi cập nhật lên Botkeep
 
@@ -12,6 +12,36 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 3. Đặt `WEB_PASSWORD` (thiếu là web khoá), `ALLOWED_USERS` (thiếu là bot Telegram từ chối mọi người; nhắn bot một tin
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
+
+## 1.4.7 — Rà soát toàn bộ mã (4 tổ kiểm song song) (24/11/2026)
+
+Sửa theo kết quả rà soát: giữ chỗ Kaggle, nhạc Lyria, dựng bếp, cấu hình / đóng gói.
+- **Giữ chỗ Kaggle (truyện bé):**
+  - Mọi phiên truyện bé dùng chung một notebook: đang có phiên giữ chỗ mà gửi truyện mới là mất phiên đó (và tốn GPU gấp
+    đôi). Giờ `kids_now` / lượt tự động từ chối làm truyện mới khi còn phiên giữ chỗ; gửi lên Kaggle cũng chặn ở tầng dưới.
+  - Mục giữ chỗ giữ tới khi job thu kết quả XONG (trước đây xoá ngay khi tạo job thu: job thu đứt mạng là mất video đã dựng).
+    Job thu lỗi thì lượt sau thu lại, tối đa 3 lần rồi báo admin.
+  - Mục giữ chỗ ghi ngay từ lúc gửi phiên (bot tắt lúc đang tải kết quả 15–20 phút vẫn còn mục để chạy lại thu về); lỗi
+    thật sau khi gửi (video không đạt, sai mã) thì bỏ mục.
+  - Người dùng bấm Hủy thì bỏ cả mục giữ chỗ (trước đây bot vẫn làm tiếp và giao truyện đã huỷ); log ghi đúng là phiên có
+    thể vẫn chạy nếu được cấp máy trước hạn (Kaggle không có lệnh huỷ).
+  - Phiên đang chạy mà hỏi trạng thái lỗi mạng sau hạn thì không bị bỏ nhầm; job quá hạn khi đang giữ chỗ báo «⏳ … giữ chỗ»
+    thay vì «❌ … thử chất lượng fast»; thông báo giữ chỗ nêu đúng lý do (chưa cấp máy / chưa xong).
+  - Ghi `kids_auto.json` có khoá (luồng Kaggle và vòng tick không ghi đè nhau).
+- **Nhạc Lyria:**
+  - Tên bài chốt lúc ghi vào kho (trong khoá), không phải lúc bắt đầu tạo: Botkeep tạo nền và notebook Kaggle cùng làm một màu
+    không còn đè bài nhau; mã hoá ra file tạm rồi mới đưa vào kho, wav / m4a dở được dọn.
+  - Notebook nhạc: bot khởi động lại giữa chừng thì lần sau **nối lại** phiên đã gửi (lưu mã lần gửi), không gửi lại từ đầu;
+    không gửi đè khi phiên cũ còn chạy; bot tắt thì luồng chờ Kaggle dừng trong 30 giây (trước đây giữ tiến trình tới 5 phút).
+  - Phiên đứng im không bị tính là «mạng chậm» (khỏi nghỉ Lyria 6 giờ oan); hạn riêng từng phiên nên phần đã nhận không mất
+    khi hết giờ; `kids_bgm` / `cook_bgm` / nút web tự chuyển sang Kaggle khi Kaggle đã tạo được nhạc.
+- **Dựng bếp:** khối cuối (cảm thán + điểm danh + tóm tắt) không bao giờ đứng trước cảnh mở đầu nữa (mốc chèn rơi vào quãng
+  đã bỏ từng cho chỉ số 0 — chèn lên đầu video, trước câu hook, mà R1–R8 không bắt; thêm luật R9 làm lưới cuối); không để
+  cảnh món cuối loé lên < 2 giây rồi mới tới khối cuối; bản ngắn mà mọi quãng giữ gộp thành một khúc thì tách cảnh cuối ra
+  để điểm danh không mở video; bước cảm thán không có lời không bị dời; bước không có mô tả không đọc tên loại («cook»)
+  trong tóm tắt; nối mẩu câu giữ chữ hoa tên riêng («Hà Nội», «Gấu Nâu»).
+- **Cấu hình / đóng gói:** README phần nhạc bé theo cách mới; `.gitignore` thêm file trạng thái bot tự ghi; `pydantic` ghi
+  trong requirements; gói Botkeep bỏ tài liệu / ảnh Fanpage không dùng lúc chạy (còn 1,16 MB); lệnh `kids_tick` có trong help.
 
 ## 1.4.6 — Truyện bé giữ chỗ trong hàng chờ GPU Kaggle; Lyria đứng im theo gói; ý truyện dài không bị loại hết (24/11/2026)
 

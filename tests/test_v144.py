@@ -241,6 +241,7 @@ def test_music_kaggle_end_to_end(music_libs, monkeypatch):
     monkeypatch.setenv("RMV_MUSIC_OUT", str(out))
     monkeypatch.setattr(config, "GEMINI_API_KEY", "AIza-test-key-123")
     monkeypatch.setattr(kaggle_api, "configured", lambda: True)
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("COMPLETE", ""))
     monkeypatch.setitem(sys.modules, "config", sys.modules["config"])
     monkeypatch.delitem(sys.modules, "lyria", raising=False)
     sent = {}

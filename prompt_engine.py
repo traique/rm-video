@@ -1003,7 +1003,8 @@ def _join(run: list) -> dict:
     p = dict(run[0])
     for s in run[1:]:
         pt, st = (p.get("text") or "").rstrip(), (s.get("text") or "").strip()
-        if len(st) > 1 and st[1:2].islower():
+        nxt = st.split(" ", 1)[1:2]
+        if len(st) > 1 and st[1:2].islower() and not (nxt and nxt[0][:1].isupper()):    # «Hà Nội», «Gấu Nâu»: giữ hoa
             st = st[:1].lower() + st[1:]
         p["text"] = pt.rstrip(",;:") + (", " if pt.endswith(",") else " ") + st
         p["orig"] = f"{(p.get('orig') or '').strip()} {(s.get('orig') or '').strip()}"
