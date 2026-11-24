@@ -187,8 +187,120 @@ def test_lyria_slow_stream_gives_up_fast(monkeypatch, tmp_path):
         asyncio.run(lyria.stream(MOOD, 6.0, fake, lambda m: None, timeout=60, stall=5))
     assert fake.sessions == 1                                       # đang nghỉ: không mở phiên
 
+    from rmvideo.media import lyria_kaggle
+    asked = []
+    monkeypatch.setattr(lyria_kaggle, "start_later", lambda **k: asked.append(k) or "gửi notebook nhạc lên Kaggle")
     logs = []
     brief = {"plot": ""}
     out = asyncio.run(bgm.pick(brief, {"plots": []}, lib_dir=str(tmp_path / "lib"), client=fake, log=logs.append))
     assert out is None and fake.sessions == 1
-    assert sum("Lyria" in m for m in logs) == 1 and "bỏ qua Lyria" in logs[0]
+    assert "bỏ qua Lyria" in logs[0] and "notebook nhạc" in logs[1] and len(asked) == 1     # nhờ Kaggle tạo kho
+
+
+@pytest.fixture
+def music_libs(tmp_path, monkeypatch):
+    """Kho bé + bếp tạm, bài ngắn (3 giây), mỗi màu 1 bài."""
+    import bgm
+    from rmvideo.kids import bgm as kids_bgm
+    from rmvideo.media import lyria_kaggle
+    monkeypatch.setattr(kids_bgm, "LIB_DIR", str(tmp_path / "kids"))
+    monkeypatch.setattr(kids_bgm, "TRACK_SECS", 3)
+    monkeypatch.setattr(kids_bgm, "TRACKS_PER_MOOD", 1)
+    monkeypatch.setattr(bgm, "LYRIA_DIR", str(tmp_path / "cook"))
+    monkeypatch.setattr(bgm, "LYRIA_SECS", 3)
+    monkeypatch.setattr(bgm, "LYRIA_PER_MOOD", 1)
+    monkeypatch.setattr(lyria_kaggle, "STATE_FILE", str(tmp_path / "state.json"))
+    return tmp_path
+
+
+def test_music_missing_interleaves_moods(music_libs, monkeypatch):
+    from rmvideo.kids import bgm as kids_bgm
+    from rmvideo.media import lyria, lyria_kaggle
+    monkeypatch.setattr(kids_bgm, "TRACKS_PER_MOOD", 2)
+    os_dir = music_libs / "kids"
+    os_dir.mkdir()
+    (os_dir / "tender_1.m4a").write_bytes(b"x")
+    lyria.add_track(str(os_dir), "tender_1.m4a", "tender", 3, "p")
+    todo = lyria_kaggle.missing()
+    kids = [t["file"] for t in todo if t["lib"] == "kids"]
+    assert kids == ["playful_1.m4a", "curious_1.m4a", "tender_2.m4a", "playful_2.m4a", "curious_2.m4a"]
+    assert todo[0]["lib"] == "kids" and {t["lib"] for t in todo} == {"kids", "cook"}
+    assert all(t["remote"] == f"{t['lib']}__{t['file']}" for t in todo)
+
+
+def test_music_kaggle_end_to_end(music_libs, monkeypatch):
+    """Botkeep gửi notebook -> (giả) Kaggle chạy đúng mã notebook với Lyria giả -> tải m4a về kho, ghi library, đẩy
+    dataset; key không nằm dạng chữ thường trong mã notebook."""
+    import sys
+
+    import config
+    import kaggle_api
+    from rmvideo.media import lyria, lyria_kaggle
+    out = music_libs / "kaggle_out"
+    out.mkdir()
+    monkeypatch.setenv("RMV_MUSIC_OUT", str(out))
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "AIza-test-key-123")
+    monkeypatch.setattr(kaggle_api, "configured", lambda: True)
+    monkeypatch.setitem(sys.modules, "config", sys.modules["config"])
+    monkeypatch.delitem(sys.modules, "lyria", raising=False)
+    sent = {}
+
+    def push(slug, title, text, gpu=True, **k):
+        sent.update(slug=slug, text=text, gpu=gpu)
+        return {}
+
+    def wait(slug, timeout, **k):
+        g = {"__name__": "rmv_test"}
+        exec(compile(sent["text"], "kernel.py", "exec"), g)
+        g["asyncio"].run(g["main"](_CutLyria(per=10.0)))
+        g["save"]()
+        return "COMPLETE"
+
+    def outputs(slug):
+        return {"files": [{"fileName": p.name, "url": str(p)} for p in out.iterdir()]}
+
+    def download(url, dst, *a, **k):
+        import shutil
+        shutil.copy(url, dst)
+        return 1
+    pushed = []
+    monkeypatch.setattr(kaggle_api, "push", push)
+    monkeypatch.setattr(kaggle_api, "wait", wait)
+    monkeypatch.setattr(kaggle_api, "outputs", outputs)
+    monkeypatch.setattr(kaggle_api, "download", download)
+    monkeypatch.setattr(lyria, "push_dataset_sync", lambda lib, log=None: pushed.append(lib.dataset) or {})
+    logs = []
+    msg = lyria_kaggle.run_sync(logs.append)
+    assert sent["slug"] == "rmvideo-music" and sent["gpu"] is False
+    assert "AIza-test-key-123" not in sent["text"]
+    assert "thêm 6/6 bài" in msg and "kho đã đủ" in msg, msg
+    kids = lyria.load_library(str(music_libs / "kids"))
+    assert sorted(t["file"] for t in kids["tracks"]) == ["curious_1.m4a", "playful_1.m4a", "tender_1.m4a"]
+    assert all(t.get("via") == "kaggle" and 2.5 <= t["secs"] <= 3.0 for t in kids["tracks"])
+    assert sorted(pushed) == ["rmvideo-cook-bgm", "rmvideo-kids-bgm"]
+    assert lyria_kaggle.missing() == []
+
+
+def test_music_kaggle_start_later_rules(music_libs, monkeypatch):
+    import config
+    import kaggle_api
+    from rmvideo.media import lyria_kaggle
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(kaggle_api, "configured", lambda: True)
+    ran = []
+
+    def fake_run(log):
+        ran.append(1)
+        return "xong"
+    monkeypatch.setattr(lyria_kaggle, "run_sync", fake_run)
+
+    async def go():
+        m1 = lyria_kaggle.start_later(why="chậm")
+        await lyria_kaggle._RUN["task"]
+        m2 = lyria_kaggle.start_later()                 # vừa chạy: tự động thì chờ RETRY_AFTER
+        m3 = lyria_kaggle.start_later(force=True)       # lệnh console: chạy luôn
+        await lyria_kaggle._RUN["task"]
+        return m1, m2, m3
+    m1, m2, m3 = asyncio.run(go())
+    assert "Kaggle" in m1 and m2 == "" and m3 and len(ran) == 2
+    assert lyria_kaggle.load_state()["status"] == "done"

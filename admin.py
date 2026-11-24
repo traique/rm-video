@@ -28,7 +28,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "auto (trạng thái tự động đăng Facebook) | auto_now (lấy video ngay) | auto_resume | fb_test (thử token Page) | "
                 "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
                 "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_bgm (làm đủ kho nhạc Lyria) | "
-                "kids_fb_test | kids_resume | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy nền)")
+                "kids_fb_test | kids_resume | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy nền) | "
+                "bgm_kaggle (tạo kho nhạc bé + bếp bằng Lyria trên Kaggle CPU, chạy nền; mạng Botkeep quá chậm cho Lyria)")
 
 
 def _stdin_queue(loop) -> asyncio.Queue:
@@ -171,6 +172,9 @@ async def console():
             elif low == "cook_bgm":
                 import bgm
                 logging.info("🎵 %s", bgm.build_lyria_later())
+            elif low == "bgm_kaggle":
+                from rmvideo.media import lyria_kaggle
+                logging.info("🎵 %s", lyria_kaggle.start_later(force=True) or "không có gì để làm")
             elif low == "kids_setup_status":
                 import kaggle_worker
                 try:

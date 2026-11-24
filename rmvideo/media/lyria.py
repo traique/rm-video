@@ -212,9 +212,7 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
     d = lib.dir
     secs = float(secs or lib.track_secs)
     os.makedirs(d, exist_ok=True)
-    n = 1 + max([int(t["file"].rsplit("_", 1)[1].split(".")[0]) for t in tracks(load_library(d), mood)
-                 if t["file"].rsplit("_", 1)[1].split(".")[0].isdigit()] or [0])
-    name = f"{mood}_{n}.m4a"
+    name = next_names(d, mood, 1)[0]
     t0 = time.time()
     m = lib.moods[mood]
     if slow_left():                                    # vừa thấy mạng không theo kịp: khỏi mở phiên, khỏi ghi log «tạo bài»
@@ -229,18 +227,38 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
         w.setframerate(RATE)
         w.writeframes(pcm)
     out = os.path.join(d, name)
-    fade = min(lib.fade_out, secs / 4)
-    await ff._run_ffmpeg("-y", "-i", raw, "-af",
-                         f"atrim=0:{secs:.2f},afade=t=in:d={min(1.5, secs / 4):.2f},afade=t=out:st={secs - fade:.2f}:d={fade:.2f},"
-                         "loudnorm=I=-20:TP=-2:LRA=9", "-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k", out)
+    await ff._run_ffmpeg(*encode_args(raw, out, secs, lib.fade_out))
     os.remove(raw)
-    item = {"file": name, "mood": mood, "secs": round(secs, 1), "prompt": m["prompt"],
-            "created": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    data = load_library(d)
-    data["tracks"].append(item)
-    save_library(data, d)
+    item = add_track(d, name, mood, secs, m["prompt"])
     log(f"{lib.tag}: xong {name} trong {time.time() - t0:.0f} giây")
     return item
+
+
+def encode_args(raw: str, out: str, secs: float, fade_out: float) -> list[str]:
+    """Đối số ffmpeg: PCM wav -> m4a 44,1 kHz stereo 128k (vào 1,5 giây, ra fade_out giây, -20 LUFS). Dùng chung cho
+    notebook nhạc trên Kaggle (rmvideo/media/lyria_kaggle.py)."""
+    fade = min(fade_out, secs / 4)
+    return ["-y", "-i", raw, "-af",
+            f"atrim=0:{secs:.2f},afade=t=in:d={min(1.5, secs / 4):.2f},afade=t=out:st={secs - fade:.2f}:d={fade:.2f},"
+            "loudnorm=I=-20:TP=-2:LRA=9", "-ar", "44100", "-ac", "2", "-c:a", "aac", "-b:a", "128k", out]
+
+
+def add_track(d: str, name: str, mood: str, secs: float, prompt: str, **extra: Any) -> dict:
+    """Ghi một bài (file đã nằm trong kho `d`) vào library.json; trả mục vừa ghi."""
+    item = {"file": name, "mood": mood, "secs": round(secs, 1), "prompt": prompt,
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S"), **extra}
+    data = load_library(d)
+    data["tracks"] = [t for t in data["tracks"] if t.get("file") != name] + [item]
+    save_library(data, d)
+    return item
+
+
+def next_names(d: str, mood: str, n: int) -> list[str]:
+    """Tên `n` bài kế tiếp của màu `mood` trong kho (mood_<số>.m4a, số tiếp theo số lớn nhất đang có)."""
+    nums = [int(t["file"].rsplit("_", 1)[1].split(".")[0]) for t in tracks(load_library(d), mood)
+            if t["file"].rsplit("_", 1)[1].split(".")[0].isdigit()]
+    top = max(nums or [0])
+    return [f"{mood}_{top + i}.m4a" for i in range(1, n + 1)]
 
 
 async def ensure(lib: Lib, mood: str, n: int | None = None, cl: Any = None, log: Log = logging.info,
