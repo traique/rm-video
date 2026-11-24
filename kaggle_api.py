@@ -345,19 +345,75 @@ def outputs(slug: str) -> dict:
     return d
 
 
-def download(url: str, dst: str, max_bytes: int = 1 << 31):
-    """Link output là link ký sẵn của Google Storage (không cần token)."""
+DL_STALLS = 6              # tải output: số lần đứt liên tiếp KHÔNG tải thêm được byte nào thì bỏ cuộc
+DL_TRIES = 60              # trần tổng số lần nối lại (mỗi lần có tiến triển thì không tính vào DL_STALLS)
+DL_WAIT = (3.0, 10.0, 20.0, 30.0)
+DL_REPORT = 60.0           # giây: báo tiến độ tải (mỗi lần báo = một dòng log) tối đa mỗi chừng này
+_EXPIRED = (400, 401, 403, 404, 410)
+
+
+def _total(r, start: int) -> int | None:
+    """Tổng dung lượng file từ Content-Range (206) hoặc Content-Length (200)."""
+    cr = r.headers.get("Content-Range") or ""
+    if "/" in cr and cr.rsplit("/", 1)[1].strip().isdigit():
+        return int(cr.rsplit("/", 1)[1])
+    cl = r.headers.get("Content-Length") or ""
+    return start + int(cl) if cl.isdigit() else None
+
+
+def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_progress=None) -> int:
+    """Link output là link ký sẵn của Google Storage (không cần token). Mạng Botkeep chậm (~80-100 KB/s) và hay đứt
+    giữa chừng (job 1 ngày 24/11: video 80 MB đứt ở 7,7 MB sau 96 giây, mất trắng 1 giờ Kaggle): đứt thì nối lại, tải
+    TIẾP phần còn thiếu bằng Range; link hết hạn (400/403/404) thì gọi refresh() lấy link mới. on_progress(n, tổng)."""
     tmp = dst + ".part"
-    n = 0
+    n, total, stalls, last_rep = 0, None, 0, 0.0
     try:
-        with requests.get(url, stream=True, timeout=600, headers={"User-Agent": UA}) as r:
-            r.raise_for_status()
-            with open(tmp, "wb") as f:
-                for chunk in r.iter_content(1 << 20):
-                    n += len(chunk)
-                    if n > max_bytes:
+        open(tmp, "wb").close()
+        for k in range(DL_TRIES):
+            before = n
+            try:
+                hdr = {"User-Agent": UA}
+                if n:
+                    hdr["Range"] = f"bytes={n}-"
+                with requests.get(url, stream=True, timeout=(30, 120), headers=hdr) as r:
+                    if n and r.status_code == 416 and total is not None and n >= total:
+                        break
+                    r.raise_for_status()
+                    zipped = (r.headers.get("Content-Encoding") or "identity").lower() not in ("identity", "")
+                    if n and (r.status_code != 206 or zipped):     # máy chủ không cho tải tiếp: tải lại từ đầu
+                        n = 0
+                    total = _total(r, n) if not zipped else None
+                    if total is not None and total > max_bytes:
                         raise KaggleError("file output Kaggle quá lớn")
-                    f.write(chunk)
+                    with open(tmp, "r+b") as f:
+                        f.seek(n)
+                        f.truncate()
+                        for chunk in r.iter_content(1 << 16):     # khúc nhỏ: đứt giữa khúc thì mất ít
+                            n += len(chunk)
+                            if n > max_bytes:
+                                raise KaggleError("file output Kaggle quá lớn")
+                            f.write(chunk)
+                            if on_progress and time.time() - last_rep >= DL_REPORT:
+                                last_rep = time.time()
+                                on_progress(n, total)
+                if total is None or n >= total:
+                    break
+                raise requests.ConnectionError(f"kết nối đóng sớm ({n}/{total} byte)")
+            except KaggleError:
+                raise
+            except (requests.RequestException, OSError) as e:
+                code = getattr(getattr(e, "response", None), "status_code", None)
+                stalls = 0 if n > before else stalls + 1
+                if stalls >= DL_STALLS or k == DL_TRIES - 1:
+                    got = f"{n / 1e6:.1f}/{total / 1e6:.1f} MB" if total else f"{n / 1e6:.1f} MB"
+                    raise KaggleError(f"tải output Kaggle đứt sau {k + 1} lần thử ({got}): {str(e)[:200]}") from e
+                if code in _EXPIRED and refresh is not None:
+                    try:
+                        url = refresh() or url
+                    except Exception as e2:                       # hỏi link mới lỗi: thử lại link cũ
+                        logging.warning("Kaggle: không lấy được link tải mới (%s)", str(e2)[:120])
+                logging.warning("Kaggle: tải output đứt ở %.1f MB (%s), nối lại", n / 1e6, str(e)[:120])
+                _sleep(DL_WAIT[min(stalls - 1, len(DL_WAIT) - 1)] if stalls else 1.0)
         os.replace(tmp, dst)
     finally:
         if os.path.exists(tmp):

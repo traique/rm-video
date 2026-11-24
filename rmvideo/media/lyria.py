@@ -95,12 +95,62 @@ async def stream(m: dict, secs: float, cl: Any, log: Log = logging.info, timeout
         raise RuntimeError(f"Lyria không trả nhạc sau {timeout + stall:.0f} giây (kết nối đứng im)") from None
 
 
+SESSIONS = 4                           # phiên Lyria tối đa cho một bài (phiên đóng giữa chừng thì mở phiên mới nối tiếp)
+XFADE = 1.5                            # giây hoà tiếng giữa hai phiên
+MIN_PART = 0.4                         # nhận được ít nhất chừng này phần độ dài cần thì vẫn dùng (nhạc nền tự lặp)
+
+
+def _xfade(a: bytes, b: bytes, secs: float = XFADE) -> bytes:
+    """Nối hai khúc PCM 16-bit stereo, hoà tiếng `secs` giây ở chỗ nối (khỏi «bụp» giữa hai phiên)."""
+    from array import array
+    n = min(int(secs * RATE) * CH, len(a) // 2, len(b) // 2)
+    n -= n % CH
+    if n <= 0:
+        return a + b
+    ta, tb = array("h"), array("h")
+    ta.frombytes(a[len(a) - n * 2:])
+    tb.frombytes(b[:n * 2])
+    frames = n // CH
+    out = array("h", [int(ta[i] + (tb[i] - ta[i]) * (i // CH) / frames) for i in range(n)])
+    return a[:len(a) - n * 2] + out.tobytes() + b[n * 2:]
+
+
 async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: str) -> bytes:
-    from google.genai import types
+    """Log 22-24/11 (job 13, job 1 truyện bé): mỗi phiên đóng «1006 abnormal closure» sau ~51 giây, cả hai lần thử đều
+    vứt hết phần đã nhận -> kho nhạc bé trống, video không nhạc. Giờ giữ phần đã nhận, mở phiên mới nối tiếp (hoà tiếng
+    XFADE giây), đủ MIN_PART độ dài thì dùng được (nhạc nền lặp lại khi dựng)."""
     need = int(secs * RATE * CH * 2)
-    chunks: list[bytes] = []
-    got = 0
+    pcm = b""
     t0 = time.time()
+    err: Exception | None = None
+    for k in range(SESSIONS):
+        part: list[bytes] = []
+        try:
+            await _session(m, cl, log, tag, part, need - len(pcm) + (int(XFADE * RATE) * CH * 2 if pcm else 0),
+                           t0 + timeout)
+        except Exception as e:
+            err = e
+        got = b"".join(part)
+        if got:
+            pcm = _xfade(pcm, got) if pcm else got
+        if len(pcm) >= need or time.time() - t0 > timeout:
+            break
+        if err is not None and not got and k:          # phiên mới không trả gì: thôi
+            break
+        if err is not None:
+            log(f"{tag}: Lyria đứt ở {len(pcm) / RATE / CH / 2:.0f}/{secs:.0f} giây ({str(err)[:80]}), nối phiên mới")
+        err = None
+    if len(pcm) < need * MIN_PART:
+        if err is not None:
+            raise err
+        raise RuntimeError(f"Lyria chỉ trả {len(pcm) / RATE / CH / 2:.0f} giây nhạc")
+    return pcm[:need]
+
+
+async def _session(m: dict, cl: Any, log: Log, tag: str, part: list[bytes], need: int, deadline: float) -> None:
+    """Một phiên Lyria: ghi dần khúc PCM vào `part` (lỗi giữa chừng thì phần đã ghi vẫn còn)."""
+    from google.genai import types
+    got = 0
     async with cl.aio.live.music.connect(model=MODEL) as session:
         await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=m["prompt"], weight=1.0)])
         await session.set_music_generation_config(config=types.LiveMusicGenerationConfig(
@@ -113,17 +163,14 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
             sc = getattr(msg, "server_content", None)
             for ch in (getattr(sc, "audio_chunks", None) or []):
                 if ch.data:
-                    chunks.append(ch.data)
+                    part.append(ch.data)
                     got += len(ch.data)
-            if got >= need or time.time() - t0 > timeout:
+            if got >= need or time.time() > deadline:
                 break
         try:
             await session.stop()
         except Exception:
             pass
-    if got < need * 0.5:
-        raise RuntimeError(f"Lyria chỉ trả {got / RATE / CH / 2:.0f} giây nhạc")
-    return b"".join(chunks)[:need]
 
 
 async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = None, log: Log = logging.info,
@@ -141,6 +188,7 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
     m = lib.moods[mood]
     log(f"{lib.tag}: Lyria tạo bài {name} ({m['vi']}, {secs:.0f} giây)...")
     pcm = await stream(m, secs + 2, cl or factory(), log, lib.timeout, lib.stall, lib.tag)
+    secs = min(secs, len(pcm) / (RATE * CH * 2))       # phiên đứt sớm: bài ngắn hơn (nhạc nền tự lặp khi dựng)
     raw = os.path.join(d, name + ".wav")
     with wave.open(raw, "wb") as w:
         w.setnchannels(CH)
