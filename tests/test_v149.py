@@ -145,3 +145,26 @@ def test_resources_report_lines(monkeypatch, tmp_path):
     lines = kaggle_worker.resources_report(heal=False)
     assert "gõ kids_setup" in lines[0] and any("LoRA" in x and "notebook" in x for x in lines)
     assert sum("chưa có bài" in x for x in lines) == 2
+
+
+def test_auto_setup_only_when_models_gone(monkeypatch):
+    """Người dùng lỡ xoá hết trên Kaggle (24/11) và nhờ bot tự tải lại model: khởi động thấy notebook model mất (404) thì tự
+    chạy kids_setup; đang chạy / đã có / lỗi thì không gửi lại; thiếu giờ GPU thì chỉ báo."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "")
+    pushed = []
+    monkeypatch.setattr(kaggle_api, "push", lambda slug, title, text, gpu=True, **k: pushed.append(slug) or {})
+    monkeypatch.setattr(kaggle_api, "quota", lambda: {"gpu_left": 28.5 * 3600})
+    for st in ("RUNNING", "QUEUED", "COMPLETE", "ERROR"):
+        monkeypatch.setattr(kaggle_api, "status", lambda slug, st=st: (st, ""))
+        assert kaggle_worker.auto_setup() == "" and pushed == []
+
+    def gone(slug):
+        raise kaggle_api.KaggleError("Kaggle lỗi 404 ở GetKernelSessionStatus: Not found")
+    monkeypatch.setattr(kaggle_api, "status", gone)
+    msg = kaggle_worker.auto_setup()
+    assert msg.startswith("tự chạy kids_setup") and pushed == ["rmvideo-kids-models"]
+    monkeypatch.setattr(kaggle_api, "quota", lambda: {"gpu_left": 0.5 * 3600})
+    assert "chỉ còn 0.5 giờ GPU" in kaggle_worker.auto_setup() and pushed == ["rmvideo-kids-models"]
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "notebook:ban/llama")
+    assert kaggle_worker.auto_setup() == ""

@@ -37,6 +37,9 @@ async def _kaggle_quota_log():
         return
     try:                                          # 1.4.9: model / LoRA / kho nhạc còn trên Kaggle không (lỡ xoá 24/11)
         import kaggle_worker
+        msg = await asyncio.to_thread(kaggle_worker.auto_setup)      # mất model truyện bé: tự chạy kids_setup trước (GPU lâu nhất)
+        if msg:
+            logging.warning("Kaggle: %s", msg)
         lines = await asyncio.to_thread(kaggle_worker.resources_report)
         for line in lines:
             if not line.startswith("✅"):

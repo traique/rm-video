@@ -26,8 +26,10 @@ Người dùng lỡ xoá hết «Your Work» trên Kaggle (notebook + có thể 
   Kaggle ngoài Botkeep, không cần chạy `scripts/push_kids_lora.py`.
 - **Kho nhạc** (`rmvideo-kids-bgm`, `rmvideo-cook-bgm`): dataset mất mà library.json vẫn ghi «đã đẩy» thì phiên dựng gắn một
   dataset không còn. Giờ bot hỏi Kaggle (nhớ 1 giờ), mất thì tự đẩy lại kho từ bản trên Botkeep.
-- **Lệnh `kaggle_check`**: kiểm model truyện bé, LoRA, kho nhạc, PhoWhisper (nếu chọn) và tự đẩy lại kho nhạc bị mất. Lúc
-  khởi động bot cũng kiểm và ghi cảnh báo nếu thiếu.
+- **Lệnh `kaggle_check`**: kiểm model truyện bé, LoRA, kho nhạc, nguồn tự đặt trong KIDS_KAGGLE_SOURCES, PhoWhisper (nếu
+  chọn) và tự đẩy lại kho nhạc bị mất. Lúc khởi động bot cũng kiểm và ghi cảnh báo nếu thiếu.
+- **Khởi động mà notebook model truyện bé không còn thì TỰ chạy `kids_setup`** (người dùng nhờ ngày 24/11): chỉ khi thật sự
+  mất (đang chạy / lỗi thì không gửi lại), còn ≥ 75 phút GPU trong tuần, đang dùng notebook mặc định.
 
 ## 1.4.8 — Kaggle kín 2 phiên GPU thì xoá phiên «ma» rồi gửi lại; model Gemini đã gỡ không chặn bước nghĩ ý (24/11/2026)
 

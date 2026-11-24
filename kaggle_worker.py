@@ -742,6 +742,31 @@ def kids_setup() -> str:
             "phút GPU). Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
 
 
+SETUP_GPU_MIN = 75 * 60     # giây GPU còn trong tuần tối thiểu để tự chạy kids_setup (~45-60 phút)
+
+
+def auto_setup() -> str:
+    """Lúc khởi động: notebook model truyện bé không còn trên Kaggle (404) thì TỰ chạy kids_setup — người dùng yêu cầu
+    24/11 sau khi lỡ xoá hết «Your Work». Chỉ khi thật sự mất (không chạy lại khi đang chạy / lỗi, khỏi đốt giờ GPU lặp
+    lại), còn đủ giờ GPU và đang dùng notebook mặc định. Trả câu báo ("" khi không làm gì)."""
+    if SLUG_KIDS_MODELS not in kids_sources_nb() or not kaggle_api.configured():
+        return ""
+    try:
+        kaggle_api.status(SLUG_KIDS_MODELS)
+        return ""
+    except KaggleError as e:
+        if not _missing(e):
+            return ""
+    try:
+        left = float(kaggle_api.quota()["gpu_left"])
+    except Exception:
+        left = SETUP_GPU_MIN
+    if left < SETUP_GPU_MIN:
+        return (f"thiếu notebook {SLUG_KIDS_MODELS} nhưng chỉ còn {left / 3600:.1f} giờ GPU tuần này: gõ kids_setup khi "
+                "Kaggle làm mới giờ GPU")
+    return "tự chạy kids_setup — " + kids_setup()
+
+
 _READY: dict[str, float] = {}       # {"ok": lúc kiểm thấy model sẵn sàng}
 READY_TTL = 30 * 60
 
@@ -815,6 +840,16 @@ def resources_report(heal: bool = True) -> list[str]:
                     out[-1] = f"✅ Kho nhạc {lib.dataset}: đã đẩy lại {n} bài"
                 except Exception as e:
                     out[-1] = f"⚠️ Kho nhạc {lib.dataset}: đẩy lại lỗi ({str(e)[:120]}), lần dựng sau thử lại"
+    for item in re.split(r"[,\s]+", config.KIDS_KAGGLE_SOURCES or ""):           # nguồn tự đặt (vd dataset llama-server)
+        kind, _, slug = item.partition(":")
+        if not item or (not slug and kind == SLUG_KIDS_MODELS) or slug == SLUG_KIDS_MODELS:
+            continue
+        try:
+            ok = kaggle_api.dataset_exists(slug) if kind.lower() == "dataset" else bool(kaggle_api.status(slug or kind))
+        except KaggleError as e:
+            ok = not _missing(e)
+        if not ok:
+            out.append(f"⚠️ KIDS_KAGGLE_SOURCES: không còn «{item}» trên Kaggle — xoá khỏi Cài đặt để dùng {SLUG_KIDS_MODELS}")
     if config.KAGGLE_ASR == "phowhisper":
         try:
             kaggle_api.status(SLUG_PHOWHISPER)
