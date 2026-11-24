@@ -31,11 +31,13 @@ BUDGET = 90 * 60              # giờ chạy tối đa của notebook (bé 9 x ~
 QUEUE_MAX = 45 * 60           # CPU hiếm khi phải chờ máy; chờ quá chừng này thì thôi, lần sau thử lại
 TIMEOUT = QUEUE_MAX + BUDGET + 15 * 60     # bot chờ cả phiên: chờ máy + chạy + dự phòng (notebook tự dừng ở BUDGET)
 TRACK_EXTRA = 120             # giây dự phòng mỗi bài ngoài độ dài bài (bắt tay, nối phiên)
-RETRY_AFTER = 6 * 3600        # lần chạy tự động trước lỗi / thiếu: chừng này giây sau mới tự chạy lại
+RETRY_AFTER = 3 * 3600        # lần chạy tự động trước lỗi / thiếu: chừng này giây sau mới tự chạy lại
+PROVEN_DAYS = 14              # Kaggle đã tạo được nhạc trong chừng này ngày: kho thiếu thì nhờ Kaggle, khỏi thử Lyria trên Botkeep
 STATE_FILE = os.environ.get("BGM_KAGGLE_STATE") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "assets", "bgm_kaggle.json")
 PIP = "pip install -q 'google-genai>=3.0,<4'"     # cùng đời với Botkeep (3.6.1 nối được Lyria)
 _RUN: dict[str, Any] = {"task": None}
+_LAST: dict[str, int] = {"ok": 0}
 Log = Callable[[str], Any]
 
 
@@ -70,6 +72,9 @@ import asyncio, base64, json, os, subprocess, sys, time, types, wave
 SPEC = json.loads(base64.b64decode("__SPEC__").decode())
 OUT = os.environ.get("RMV_MUSIC_OUT") or "/kaggle/working"
 if __name__ == "__main__":
+    if time.time() > float(SPEC.get("expires_at") or 0) > 0:
+        print("rm-video: bot đã thôi chờ việc này, thoát")
+        sys.exit(0)
     r = subprocess.run(__PIP__, shell=True, capture_output=True, text=True)
     print(r.stdout[-800:], r.stderr[-800:])
 cfg = types.ModuleType("config")
@@ -78,6 +83,7 @@ sys.modules["config"] = cfg
 ly = types.ModuleType("lyria")
 sys.modules["lyria"] = ly
 exec(compile(base64.b64decode("__LYRIA__").decode(), "lyria.py", "exec"), ly.__dict__)
+ly.SLOW_RATE = 0.0            # trên Kaggle không có đường lùi: phiên chậm / đứt thì cứ nối phiên mới, không «nghỉ»
 res = {"token": SPEC["token"], "tracks": [], "errors": []}
 
 
@@ -160,9 +166,10 @@ def run_sync(log: Log = logging.info) -> str:
     if not todo:
         return "kho nhạc bé và bếp đã đủ bài"
     spec = {"key": config.GEMINI_API_KEY, "token": secrets.token_hex(8), "budget": BUDGET,
+            "expires_at": round(time.time() + QUEUE_MAX - 30),
             "tracks": [{k: v for k, v in t.items() if k not in ("file",)} for t in todo]}
     log(f"Nhạc Kaggle: gửi notebook {SLUG} (CPU) tạo {len(todo)} bài "
-        f"(~{sum(t['secs'] + 15 for t in todo) / 60:.0f} phút)")
+        f"(~{sum(t['secs'] * 1.8 + 30 for t in todo) / 60:.0f} phút)")      # đo 24/11: 17 bài 100-150 giây hết 68 phút
     kaggle_api.push(SLUG, "rmvideo music", kernel_text(spec), gpu=False)
 
     def st(s: str, secs: float) -> None:
@@ -206,8 +213,15 @@ def run_sync(log: Log = logging.info) -> str:
             except Exception as e:
                 log(f"Nhạc Kaggle: không đẩy được kho {key} lên Kaggle ({str(e)[:120]}), lần dựng sau thử lại")
     left = len(missing(all_libs))
+    _LAST["ok"] = sum(got.values())
     return (f"Nhạc Kaggle: thêm {sum(got.values())}/{len(todo)} bài (bé {got.get('kids', 0)}, bếp {got.get('cook', 0)})"
             + (f", còn thiếu {left} bài" if left else ", kho đã đủ") + (f", {len(errs)} lỗi" if errs else ""))
+
+
+def proven() -> bool:
+    """Kaggle đã tạo được ít nhất một bài trong PROVEN_DAYS ngày: kho thiếu thì nhờ Kaggle luôn (start_later), khỏi mất
+    ~1 phút thử Lyria trên Botkeep mỗi job (mạng Botkeep không theo kịp, đo 24/11)."""
+    return time.time() - float(load_state().get("proven_at") or 0) < PROVEN_DAYS * 86400
 
 
 def running() -> bool:
@@ -233,15 +247,16 @@ def start_later(log: Log | None = None, force: bool = False, why: str = "") -> s
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return ""
-    save_state({"at": time.time(), "status": "running", "why": why})
+    save_state({"at": time.time(), "status": "running", "why": why, "proven_at": load_state().get("proven_at")})
 
     async def run() -> None:
         try:
             msg = await asyncio.to_thread(run_sync, log)
-            save_state({"at": time.time(), "status": "done", "msg": msg})
+            save_state({"at": time.time(), "status": "done", "msg": msg, "ok": _LAST["ok"],
+                        "proven_at": time.time() if _LAST["ok"] else load_state().get("proven_at")})
             log(msg)
         except Exception as e:
-            save_state({"at": time.time(), "status": "error", "msg": str(e)[:300]})
+            save_state({"at": time.time(), "status": "error", "msg": str(e)[:300], "proven_at": load_state().get("proven_at")})
             log(f"❌ Nhạc Kaggle lỗi: {str(e)[:200]}")
     _RUN["task"] = loop.create_task(run())
     return (f"gửi notebook nhạc lên Kaggle (CPU) tạo {len(missing())} bài còn thiếu" + (f" — {why}" if why else "")

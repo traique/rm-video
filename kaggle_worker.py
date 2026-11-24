@@ -18,7 +18,7 @@ import urllib.parse
 
 import config
 import kaggle_api
-from kaggle_api import KaggleError
+from kaggle_api import KaggleError, Parked
 from rmvideo.services import kaggle_bundle
 from rmvideo.media import proc, voiceplan
 
@@ -49,6 +49,12 @@ PIP_ROFORMER = "; pip install -q audio-separator==0.48.0 audioread"
 PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf peft 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
 KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-60 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
 KIDS_RUN_RESERVE = 50 * 60       # giờ chạy cần cho một truyện (đo 18/11: ~20 phút, nạp FLUX từ ổ gắn 7-8 phút): chưa được cấp máy khi chỉ còn ngần này thì bỏ
+# Giữ chỗ (1.4.6, job 3 ngày 24/11: chờ GPU 75 phút rồi bỏ -> mất truyện lẫn chỗ xếp hàng; gửi lại là xếp hàng từ đầu).
+# Phiên truyện bé gửi với hạn bắt đầu KIDS_PARK_MAX: bot thôi chờ (hết queue_max, hoặc có job khác chờ mà đã chờ quá
+# KIDS_PARK_MIN, hoặc bot tắt / job quá hạn) thì phiên VẪN nằm trong hàng chờ; kids_auto hỏi trạng thái mỗi 2 phút, có kết
+# quả thì tạo job thu về (rmvideo/app/flow/kids.py: brief.collect).
+KIDS_PARK_MAX = 4 * 3600
+KIDS_PARK_MIN = 5 * 60
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
@@ -59,14 +65,39 @@ _LOCK = asyncio.Lock()
 _ABORT = {"run": None}     # phiên đang chờ: {"flag", "slug"} riêng từng lượt (lượt trước kết thúc không xoá cờ lượt sau)
 
 
-def abort():
+def abort(park: bool = False):
     """Huỷ job / quá hạn / bot tắt khi đang chờ Kaggle: dừng vòng chờ ngay. Phiên Kaggle chưa được cấp máy sẽ tự thoát
-    khi được cấp (hạn `expires_at` trong việc gửi đi)."""
+    khi được cấp (hạn `expires_at` trong việc gửi đi). park=True (bot tắt, job quá hạn — KHÔNG phải người dùng huỷ): phiên
+    truyện bé giữ chỗ, kids_auto theo dõi và thu kết quả sau."""
     run = _ABORT["run"]
     if not run:
         return
     run["flag"] = True
+    if park and run.get("park_info") and _park(run["park_info"]):
+        return
     _cancel_session(run["slug"])
+
+
+def _park(info: dict) -> bool:
+    """Ghi phiên truyện bé đang giữ chỗ vào kids_auto (theo dõi, thu kết quả). Trả False nếu không ghi được."""
+    try:
+        import kids_auto
+        kids_auto.park_record(info)
+        logging.info("Giữ chỗ phiên Kaggle %s cho job %s: bot theo dõi, có kết quả thì thu về (tối đa %.0f giờ)",
+                     info.get("slug"), info.get("job"), KIDS_PARK_MAX / 3600)
+        return True
+    except Exception as e:
+        logging.warning("Không ghi được phiên Kaggle giữ chỗ (%s)", str(e)[:160])
+        return False
+
+
+def _others_waiting() -> bool:
+    """Có job khác đang chờ trong hàng đợi Botkeep (job truyện bé đang giữ worker thì nên nhường)."""
+    try:
+        from state import queue
+        return int(getattr(queue, "pending", 0) or 0) > 1
+    except Exception:
+        return False
 
 
 def _cancel_session(slug: str):
@@ -98,13 +129,29 @@ def _unwatch(run: dict):
         _ABORT["run"] = None
 
 
-def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None):
+def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None,
+                  park_info: dict | None = None):
     """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, chờ máy quá queue_max, mất mạng, bị huỷ, notebook lỗi) thì bỏ phiên:
     phiên chưa chạy tự thoát nhờ hạn `expires_at` (trước đây phiên quá giờ vẫn nằm trong hàng chờ, lát sau tự chạy,
-    tốn giờ GPU và chặn lượt kế)."""
+    tốn giờ GPU và chặn lượt kế). park_info (truyện bé): thay vì bỏ, giữ chỗ khi chờ máy quá queue_max hoặc có job khác
+    chờ (ném Parked, kids_auto thu kết quả sau)."""
     run = _watch(slug)
+    run["park_info"] = park_info
+    park = None
+    if park_info is not None:
+        qmax = queue_max
+
+        def park(secs: float) -> bool:
+            return (qmax is not None and secs > qmax) or (secs > KIDS_PARK_MIN and _others_waiting())
+        queue_max = None
     try:
-        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"], queue_max=queue_max)
+        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"], queue_max=queue_max,
+                        park=park)
+    except Parked as e:
+        e.info = park_info
+        if park_info is not None:
+            _park(park_info)
+        raise
     except KaggleError:
         _cancel_session(slug)
         raise
@@ -598,12 +645,25 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     queue_max = total - (KIDS_RUN_RESERVE if kids else RUN_RESERVE) - TIMEOUT_PER_EXTRA * (n - 1)
     slug = spec.get("slug") or SLUG
     sources = list(spec.get("kernel_sources") or []) + ([SLUG_ANALYZE] if reuse else [])
-    kaggle_api.push(slug, spec.get("title") or "rmvideo worker", kernel_text(with_expiry(spec, queue_max)), gpu=gpu,
+    park_info = None
+    if kids and spec.get("park"):                        # truyện bé: giữ chỗ trong hàng chờ GPU (xem KIDS_PARK_MAX)
+        park_info = {"slug": slug, "token": spec.get("token"), "fetch_files": list(spec.get("fetch_files") or []),
+                     "gpu": gpu, "since": time.time(), "expires_at": time.time() + KIDS_PARK_MAX - EXPIRY_MARGIN,
+                     "brief": spec.get("brief") or {}, **spec["park"]}
+    sent = {k: v for k, v in spec.items() if k != "park"}
+    kaggle_api.push(slug, spec.get("title") or "rmvideo worker",
+                    kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max)), gpu=gpu,
                     kernel_sources=sources or None, dataset_sources=list(spec.get("dataset_sources") or []) or None)
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _wait_session(slug, total, st, queue_max=queue_max)
+    _wait_session(slug, total, st, queue_max=queue_max, park_info=park_info)
+    return _fetch(slug, jobs, spec.get("kind") == "batch", tmp, on_step, gpu)
+
+
+def _fetch(slug: str, jobs: list, batch: bool, tmp: str, on_step, gpu: bool) -> list:
+    """Tải kết quả của phiên đã chạy xong về `tmp`: mỗi việc trong `jobs` ({token, fetch_files}) một kết quả / KaggleError."""
+    n = len(jobs)
     d = kaggle_api.outputs(slug)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
 
@@ -612,7 +672,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
                                    on_progress=on_progress)
     out = []
     for k in range(n):
-        tag = f"_{k}" if spec.get("kind") == "batch" else ""
+        tag = f"_{k}" if batch else ""
         try:
             if f"result{tag}.json" not in files:
                 raise KaggleError("Kaggle không trả kết quả. Log: " + kaggle_api.log_tail(d, 600))
@@ -739,6 +799,35 @@ async def analyze(spec: dict, tmp: str, on_step=None) -> dict:
         release(spec)
         await log_quota()
     logging.info("Kaggle phân tích xong: %s", res.get("timings"))
+    return res
+
+
+def _collect_sync(park: dict, tmp: str, on_step) -> list:
+    """Thu kết quả phiên truyện bé đang giữ chỗ: chưa xong thì chờ tiếp (vẫn giữ chỗ được), xong thì tải về."""
+    slug = park["slug"]
+    st0, _why = kaggle_api.status(slug)
+    if not any(x in st0.upper() for x in kaggle_api.DONE):
+        left = max(120.0, float(park.get("expires_at") or 0) + KIDS_RUN_RESERVE - time.time())
+
+        def st(s, secs):
+            on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút, giữ chỗ)")
+        _wait_session(slug, left, st, queue_max=KIDS_TIMEOUT - KIDS_RUN_RESERVE, park_info=park)
+    on_step("Kaggle: tải kết quả về")
+    return _fetch(slug, [{"token": park.get("token"), "fetch_files": list(park.get("fetch_files") or [])}], False, tmp,
+                  on_step, bool(park.get("gpu", True)))
+
+
+async def collect_parked(park: dict, tmp: str, on_step=None) -> dict:
+    """Thu kết quả của phiên truyện bé đã giữ chỗ (kids_auto.park_record). Trả kết quả như produce hoặc ném KaggleError."""
+    on_step = on_step or (lambda s: None)
+    try:
+        async with _LOCK:
+            res = (await asyncio.to_thread(_collect_sync, park, tmp, on_step))[0]
+    finally:
+        await log_quota()
+    if isinstance(res, Exception):
+        raise res
+    logging.info("Kaggle (giữ chỗ) xong: %s", res.get("timings"))
     return res
 
 

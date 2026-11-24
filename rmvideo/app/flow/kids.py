@@ -8,12 +8,26 @@ import asyncio
 import logging
 import os
 import shutil
+import time
 
 import config
 import kaggle_worker
 import prompt_engine
+from kaggle_api import Parked
 from queue_manager import Job
 from rmvideo.kids import job as kids_job, llm, pitch, prompts, story as story_mod, writer
+
+
+def _log(s: str) -> None:
+    """Log một dòng của phần truyện bé (không lặp tiền tố khi hàm gọi đã ghi «Truyện bé:»)."""
+    logging.info("%s", s if s.startswith("Truyện bé") else "Truyện bé: " + s)
+
+
+def _parked(e: Parked) -> RuntimeError:
+    info = e.info or {}
+    mins = (time.time() - float(info.get("since") or time.time())) / 60
+    return RuntimeError(f"Kaggle chưa cấp GPU sau {mins:.0f} phút: phiên vẫn giữ chỗ trong hàng chờ (tối đa "
+                        f"{kaggle_worker.KIDS_PARK_MAX / 3600:.0f} giờ), bot theo dõi và tự thu kết quả khi xong")
 
 
 async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | None, list]:
@@ -32,17 +46,16 @@ async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | No
         import kids_auto
         got = await pitch.choose(brief, data, kids_auto.load_state()["stories"],
                                  [config.KIDS_GEMINI_MODEL, config.KIDS_GEMINI_REVISE_MODEL, ""],
-                                 log=lambda s: logging.info("Truyện bé: %s", s))
+                                 log=_log)
         if got:
             brief["pitch"] = {k: got[k] for k in ("kind", "title", "premise", "mood")}
             job.note(f"ℹ️ Ý truyện ({got['kind']}, chọn trong {got['n']} ý): «{got['title']}». ")
     job.step = "Truyện bé: Gemini viết truyện — " + story_mod.describe(brief, data)
-    be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=lambda s: logging.info("Truyện bé: %s", s),
+    be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=_log,
                               revise_model=config.KIDS_GEMINI_REVISE_MODEL, thinking=config.KIDS_GEMINI_THINKING)
     spec = {"brief": brief, "channel": __import__("kids_auto").channel()}
     try:
-        st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, "", lambda s: logging.info("Truyện bé: %s", s),
-                                               srv=be)
+        st, attempts = await asyncio.to_thread(llm.generate_story, spec, data, "", _log, srv=be)
     except Exception as e:
         if provider == "gemini":
             raise
@@ -62,17 +75,29 @@ async def process_kids(job: Job, tmp: str) -> str:
     why = kaggle_worker.enabled()
     if why:
         raise RuntimeError(f"Truyện bé cần Kaggle (GPU): {why}")
-    st0, attempts0 = await write_on_botkeep(job, brief, data)
-    job.step = "Truyện bé: chọn nhạc nền"
+    # job thu kết quả (kids_auto.watch_parked tạo) hoặc job chạy lại sau khi bot tắt lúc phiên đang giữ chỗ (1.4.6)
+    col = brief.get("collect") or kids_auto.parked_info(job.id)
+    st0: dict | None = None
+    try:
+        if col:
+            job.step = "Truyện bé: thu kết quả phiên Kaggle đang giữ chỗ"
+            job.note(f"ℹ️ Thu kết quả phiên Kaggle giữ chỗ (truyện #{col.get('job') or job.id}). ")
+            res = await kaggle_worker.collect_parked(col, tmp, on_step=lambda s: setattr(job, "step", s))
+        else:
+            st0, attempts0 = await write_on_botkeep(job, brief, data)
+            job.step = "Truyện bé: chọn nhạc nền"
 
-    def bgm_step(msg: str) -> None:
-        job.step = msg
-        logging.info("Truyện bé job %s: %s", job.id, msg)
-    music = await kids_auto.pick_music(brief=brief, story_data=data, log=bgm_step)
-    spec = kaggle_worker.kids_spec(job, brief, music, story=st0, attempts=attempts0)
-    job.step = ("Truyện bé: gửi Kaggle (" + ("vẽ 8 cảnh" if st0 else "viết truyện, vẽ 8 cảnh") + ", đọc giọng, dựng) — "
-                + story_mod.describe(brief, data))
-    res = await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
+            def bgm_step(msg: str) -> None:
+                job.step = msg
+                logging.info("Truyện bé job %s: %s", job.id, msg)
+            music = await kids_auto.pick_music(brief=brief, story_data=data, log=bgm_step)
+            spec = kaggle_worker.kids_spec(job, brief, music, story=st0, attempts=attempts0)
+            spec["park"] = {"job": job.id, "source": job.source, "chat_id": job.chat_id, "title_hint": job.title_hint}
+            job.step = ("Truyện bé: gửi Kaggle (" + ("vẽ 8 cảnh" if st0 else "viết truyện, vẽ 8 cảnh") + ", đọc giọng, dựng) — "
+                        + story_mod.describe(brief, data))
+            res = await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
+    except Parked as e:
+        raise _parked(e) from None
     video = res["video"]
     job.step = "Truyện bé: kiểm video"
     bad = await kids_job.qa_video(video)
@@ -97,11 +122,13 @@ async def process_kids(job: Job, tmp: str) -> str:
                   + (f"🎣 {st.get('hook')} [{st.get('hook_text')}]\n\n" if st.get("hook") else "") + story_mod.script_text(st)
                   + (f"\n\n(model viết {len(attempts)} lượt)" if len(attempts) > 1 else ""))
     t = res.get("timings") or {}
-    job.note("ℹ️ Kaggle (GPU): " + (f"viết {t.get('llm', 0):.0f}s, " if not st0 else "")
+    job.note("ℹ️ Kaggle (GPU): " + (f"viết {t.get('llm', 0):.0f}s, " if not st0 and not col else "")
              + f"vẽ {t.get('images', 0):.0f}s, đọc {t.get('tts', 0):.0f}s, dựng {t.get('render', 0):.0f}s"
              + ("; nhạc nền có" if res.get("music") else "; không nhạc nền") + ". ")
     for n in res.get("notes") or []:
         job.note(f"ℹ️ {n} ")
     kids_auto.remember_done(job, brief, st)
+    if col:
+        kids_auto.unpark(int(col.get("job") or job.id))
     logging.info("Truyện bé job %s: «%s» %.1fs, %s", job.id, title, job.out_dur, t)
     return video

@@ -39,7 +39,7 @@ Yêu cầu mỗi ý:
 - MỞ ĐẦU đã có chuyện xảy ra ngay (điều lạ, rắc rối, tiếng động bất ngờ), có lúc HỒI HỘP, và một BẤT NGỜ mà bé không đoán trước; kết vui hoặc ấm.
 - Đơn giản, bé 3-6 tuổi hiểu được; an toàn (không bạo lực, không đáng sợ, không ai bị phạt).
 - Không theo khuôn «thử ba lần, bạn tới giúp, nói bài học».
-- "premise": 2-3 câu tiếng Việt kể chuyện gì xảy ra ngay đầu, căng nhất ở đâu, bất ngờ gì, kết ra sao.
+- "premise": 2-3 câu NGẮN tiếng Việt (tối đa 70 chữ) kể chuyện gì xảy ra ngay đầu, căng nhất ở đâu, bất ngờ gì, kết ra sao.
 - "things": ĐÚNG 3 thứ chép nguyên văn từ danh sách đồ vật / con vật / việc ở trên mà ý này dùng TỰ NHIÊN (là thứ nhân vật cầm, thấy, làm trong chuyện; bé sẽ học tên tiếng Anh của chúng).
 - "title": tiêu đề gây tò mò có tên {main}, không lộ kết.
 - "mood": playful (vui nhộn) / curious (tò mò, hồi hộp nhẹ) / tender (ấm áp).
@@ -94,10 +94,14 @@ def seed_text(brief: dict, data: dict) -> str:
     return story_mod.plot_premise(brief, data) or "(không có)"
 
 
+PREMISE_MAX = 120               # chữ; ý dài hơn là lỗi MỀM: chỉ loại khi còn ý khác đạt (job 3 ngày 24/11: 4/4 ý 98-110 chữ bị loại hết)
+SOFT = ("ý ",)
+
+
 def problems(p: dict, recent_titles: Sequence[str]) -> list[str]:
     why = []
     prem, title = p.get("premise", ""), p.get("title", "")
-    if not 8 <= len(prem.split()) <= 90:
+    if not 8 <= len(prem.split()) <= PREMISE_MAX:
         why.append(f"ý {len(prem.split())} chữ")
     if not 6 <= len(title) <= story_mod.TITLE_MAX:
         why.append("tiêu đề")
@@ -168,12 +172,17 @@ async def choose(brief: dict, data: dict, stories: Sequence[dict], models: Seque
         log(f"Ý truyện: AI nghĩ ý lỗi ({writer.err_text(e)}), viết theo ý gợi ý của khung")
         return None
     titles = [x.split(" — ")[0] for x in recent]
-    ok = []
+    ok, soft = [], []
     for p in pool:
         why = problems(p, titles)
         log(f"Ý truyện ({p['kind']}){' LOẠI: ' + '; '.join(why) if why else ''}: {p['title']} — {p['premise'][:160]}")
         if not why:
             ok.append(p)
+        elif all(w.startswith(SOFT) for w in why):
+            soft.append(p)
+    if not ok and soft:                            # mọi ý đều chỉ lỗi mềm (dài): vẫn dùng, còn hơn viết không có ý
+        log(f"Ý truyện: {len(soft)} ý chỉ dài quá, vẫn chấm")
+        ok = soft
     if not ok:
         return None
     best, scores = 0, {}

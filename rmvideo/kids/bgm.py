@@ -116,14 +116,18 @@ async def pick(brief: dict, data: dict, rnd: random.Random | None = None, lib_di
     lib = _lib(d)
     mood = mood_for(brief, data)
     have = tracks(load_library(d), mood)
-    if len(have) < TRACKS_PER_MOOD:
+    from rmvideo.media import lyria_kaggle
+    if len(have) < TRACKS_PER_MOOD and lyria_kaggle.proven():      # Kaggle đã tạo được nhạc: nhờ Kaggle, khỏi thử Botkeep
+        msg = lyria_kaggle.start_later(why=f"kho bé thiếu bài màu «{mood}»")
+        if msg:
+            log(f"Nhạc bé: {msg}")
+    elif len(have) < TRACKS_PER_MOOD:
         for attempt in range(2):                    # Lyria đứt kết nối giữa chừng (1006 abnormal closure, đo thật 20/11): thử lại một lần
             try:
                 have = await ensure(mood, len(have) + 1, d, client, log)
                 break
             except lyria.Slow as e:                  # mạng chậm: thử lại vô ích -> nhờ Kaggle tạo kho (24/11, cách 1)
                 log(f"Nhạc bé: bỏ qua Lyria ({str(e)[:140]})")
-                from rmvideo.media import lyria_kaggle
                 msg = lyria_kaggle.start_later(why="Lyria trên Botkeep quá chậm")
                 if msg:
                     log(f"Nhạc bé: {msg}")

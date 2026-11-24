@@ -13,6 +13,30 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.6 — Truyện bé giữ chỗ trong hàng chờ GPU Kaggle; Lyria đứng im theo gói; ý truyện dài không bị loại hết (24/11/2026)
+
+Theo log tối 24/11 (job 3 truyện bé hỏng sau 77 phút «Kaggle chờ máy quá 75 phút»; notebook nhạc 17/18 bài).
+- **Chờ GPU quá lâu không làm hỏng truyện nữa.** Trước đây bot bỏ phiên sau 75 phút chờ máy: mất truyện đã viết, mất chỗ
+  xếp hàng (gửi lại là xếp hàng từ đầu, giờ cao điểm không bao giờ tới lượt). Giờ phiên truyện bé gửi với hạn bắt đầu
+  4 giờ; bot thôi chờ khi quá 75 phút, khi có job khác đang chờ (nhường worker sau 5 phút), khi job quá hạn hay bot tắt /
+  khởi động lại — nhưng phiên **vẫn giữ chỗ**. `kids_auto` hỏi trạng thái mỗi 2 phút (kể cả khi KIDS_AUTO tắt, job
+  `kids_now` cũng được theo dõi); Kaggle dựng xong thì tạo job thu kết quả (cùng nguồn / chat với job cũ, truyện ghi dưới mã
+  job cũ); notebook lỗi hay quá 4 giờ chưa được cấp máy thì bỏ và báo admin. Job bị dừng vì bot tắt lúc đang giữ chỗ, khi
+  chạy lại sau khởi động sẽ tự thu kết quả thay vì nghĩ truyện mới. Người dùng bấm Hủy thì vẫn huỷ hẳn, không giữ chỗ.
+  Lệnh `kids` liệt kê các phiên đang giữ chỗ.
+- **Lyria: không có gói nào trong 30 giây thì ngắt phiên, giữ phần đã nhận, nối phiên mới** (notebook nhạc 24/11: một bài
+  «kết nối đứng im» 250 giây, mất cả phần đã nhận). Trên Botkeep nhận chậm rõ rệt thì ngắt ngay trong phiên (~20 giây)
+  thay vì đợi máy chủ cắt sau 51 giây. Notebook nhạc trên Kaggle không bao giờ «nghỉ vì chậm» (chỉ nối phiên), có hạn bắt
+  đầu như các notebook khác; ước lượng thời gian theo số đo thật (17 bài hết 68 phút).
+- **Kaggle đã tạo được nhạc thì kho thiếu bài nhờ Kaggle luôn** (14 ngày), khỏi mất ~1 phút thử Lyria trên Botkeep mỗi job;
+  tự chạy lại tối đa 3 giờ một lần (bài còn thiếu được bổ sung dần).
+- **Ý truyện dài quá không bị loại hết nữa.** Job 3: cả 4 ý 98-110 chữ bị LOẠI (giới hạn 90) nên viết truyện không có ý
+  (mất màu nhạc, đồ vật đã chọn). Giới hạn lên 120 chữ, lời nhắc xin 2-3 câu ngắn (tối đa 70 chữ), ý chỉ dài quá vẫn
+  được chấm khi không còn ý nào khác.
+- **Tiêu đề có từ trừu tượng («bí mật», «điều kỳ lạ», «bất ngờ», «phép màu», «giấc mơ») không bị báo lạc đề** (job 3: «Bí
+  mật dưới cái mền» bị báo thiếu «bí», «mật» -> mất một lượt viết lại).
+- Nhỏ: log truyện bé không lặp «Truyện bé: Truyện bé:»; không ghi dòng bước rỗng «Job N [ 3s] » lúc bắt đầu.
+
 ## 1.4.5 — Kho nhạc nền tạo trên Kaggle (mạng Botkeep quá chậm cho Lyria) (24/11/2026)
 
 - **Nhạc nền bé + bếp do Kaggle tạo** (người dùng chọn ngày 24/11). Trên Botkeep mỗi phiên Lyria chỉ nhận ~4 giây nhạc

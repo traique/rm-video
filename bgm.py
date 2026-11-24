@@ -211,6 +211,13 @@ def fill_later(mood: str, log=None) -> bool:
     data = lyria.load_library(LYRIA_DIR)
     make = len(lyria.tracks(data, mood)) < LYRIA_PER_MOOD and bool(config.GEMINI_API_KEY)
     push = lyria.changed_since_push(data) and kaggle_worker.is_enabled()
+    if make:
+        from rmvideo.media import lyria_kaggle
+        if lyria_kaggle.proven():                   # Kaggle đã tạo được nhạc (mạng Botkeep không theo kịp Lyria): nhờ Kaggle
+            msg = lyria_kaggle.start_later(why=f"kho bếp thiếu bài màu «{mood}»")
+            if msg:
+                (log or (lambda m: logging.info("%s", m)))(f"Nhạc bếp: {msg}")
+            make = False
     if not (make or push):
         return False
     t = _FILL.get("task")

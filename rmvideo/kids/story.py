@@ -41,7 +41,9 @@ GROUP_RE = re.compile(r"\b(các bạn|mấy bạn|cả nhóm|cả bọn|tụi b�
 TITLE_STOP = {"và", "với", "của", "cho", "ở", "trong", "trên", "dưới", "một", "cái", "chiếc", "con", "trái", "cục", "bị",
               "lỡ", "làm", "rồi", "nào", "đây", "thế", "ơi", "à", "nha", "hen", "nhé", "chuyện", "câu", "bạn", "đi", "về",
               "ra", "vào", "lên", "xuống", "ai", "gì", "sao", "mà", "thì", "là", "có", "không", "đã", "sẽ", "đang", "hôm",
-              "nay", "ngày", "lần", "đầu", "tiên", "nhỏ", "to", "bé", "mới", "cũ", "vui", "buồn", "ghê", "quá", "lắm"}
+              "nay", "ngày", "lần", "đầu", "tiên", "nhỏ", "to", "bé", "mới", "cũ", "vui", "buồn", "ghê", "quá", "lắm",
+              # từ trừu tượng hay gặp trong tiêu đề (job 3 ngày 24/11: «Bí mật dưới cái mền» bị báo thiếu «bí», «mật»)
+              "bí", "mật", "điều", "kỳ", "kì", "lạ", "bất", "ngờ", "phép", "giấc", "mơ", "thật", "biết", "đâu"}
 AVOID_BEAT_SCENES = {2, 5, 7}          # cảnh 3 (biến cố), 6 (cao trào), 8 (kết) không chen câu dạy từ (trừ lời chào)
 RECENT_DAYS = 30                       # không lặp bộ ba đề / bộ từ trong chừng này ngày
 N_WORDS = (3,)                         # số từ tiếng Anh mỗi truyện: bé nhỏ nên 3 là vừa (4 làm truyện hết chỗ kể)

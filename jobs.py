@@ -95,7 +95,8 @@ async def _run_one_held(job: Job):
             t = round(time.time() - job.started_at, 1)
             job.timeline.append((step, t))
             logging.info("Job %s [%4.0fs] %s", job.id, t, step)
-        _record(job.step)
+        if job.step:
+            _record(job.step)
         with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp, proc.owned_by(job.id), \
                 context.job_scope(), events.watch_steps(job, _record):      # rmv_: bị giết giữa chừng thì lần sau dọn
             task = asyncio.create_task(run_job(job, tmp))
@@ -109,13 +110,13 @@ async def _run_one_held(job: Job):
                         keep_source = task.result() == "REVIEW"
                         break
                     if time.time() - job.started_at > job_budget(job):
-                        kaggle_worker.abort()          # phiên Kaggle đang chờ (nếu có) dừng theo, khỏi tốn giờ GPU
+                        kaggle_worker.abort(park=True)  # phiên Kaggle đang chờ (nếu có) dừng theo, khỏi tốn giờ GPU (truyện bé: giữ chỗ)
                         task.cancel()
                         await asyncio.gather(task, return_exceptions=True)
                         raise _OverBudget()
             finally:
                 if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
-                    kaggle_worker.abort()
+                    kaggle_worker.abort(park=True)  # truyện bé đang chờ GPU: giữ chỗ, chạy lại sau khởi động thì thu kết quả
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
         if keep_source:

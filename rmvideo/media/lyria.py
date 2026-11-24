@@ -102,9 +102,10 @@ SESSIONS = 4                           # phiên Lyria tối đa cho một bài (
 # (~190 KB/s, gửi dạng base64 còn nặng hơn) mà mạng Botkeep chỉ ~80-100 KB/s (pip, tải video Kaggle): máy chủ không đẩy kịp
 # thì cắt kết nối. Nhận chậm hơn SLOW_RATE x thời gian thật thì thôi luôn (khỏi nối 4 phiên x 2 lần ≈ 7 phút mỗi job) và
 # nghỉ Lyria SLOW_COOLDOWN giây.
-SLOW_RATE = 0.3
+SLOW_RATE = 0.3                        # 0: không xét chậm (notebook nhạc trên Kaggle: không có đường lùi, cứ nối phiên)
 SLOW_MIN = 20.0                        # phiên ngắn hơn chừng này giây chưa đủ để kết luận chậm
 SLOW_COOLDOWN = 6 * 3600
+CHUNK_STALL = 30.0                     # giây không nhận gói nào: coi phiên đứng im, ngắt (giữ phần đã nhận), nối phiên mới
 _SLOW: dict[str, Any] = {"until": 0.0, "why": ""}
 
 
@@ -160,7 +161,7 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
         if len(pcm) >= need or time.time() - t0 > timeout:
             break
         dt, gs = time.time() - ts, len(got) / (RATE * CH * 2)
-        if dt >= SLOW_MIN and gs < SLOW_RATE * dt:
+        if SLOW_RATE > 0 and dt >= SLOW_MIN and gs < SLOW_RATE * dt:
             why = f"chỉ nhận {gs:.0f} giây nhạc trong {dt:.0f} giây — mạng không theo kịp luồng nhạc Lyria"
             _mark_slow(why)
             if len(pcm) >= need * MIN_PART:
@@ -179,15 +180,24 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
 
 
 async def _session(m: dict, cl: Any, log: Log, tag: str, part: list[bytes], need: int, deadline: float) -> None:
-    """Một phiên Lyria: ghi dần khúc PCM vào `part` (lỗi giữa chừng thì phần đã ghi vẫn còn)."""
+    """Một phiên Lyria: ghi dần khúc PCM vào `part` (lỗi giữa chừng thì phần đã ghi vẫn còn). Không có gói nào trong
+    CHUNK_STALL giây (notebook nhạc 24/11: một bài «kết nối đứng im» 250 giây, mất cả phần đã nhận) hay nhận chậm rõ
+    rệt (mạng Botkeep) thì ngắt ngay để _stream nối phiên mới / kết luận chậm."""
     from google.genai import types
-    got = 0
+    got, t0 = 0, time.time()
     async with cl.aio.live.music.connect(model=MODEL) as session:
         await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=m["prompt"], weight=1.0)])
         await session.set_music_generation_config(config=types.LiveMusicGenerationConfig(
             bpm=m["bpm"], temperature=1.0, density=m["density"], brightness=m["brightness"]))
         await session.play()
-        async for msg in session.receive():
+        it = session.receive().__aiter__()
+        while True:
+            try:
+                msg = await asyncio.wait_for(it.__anext__(), CHUNK_STALL)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                raise RuntimeError(f"Lyria không gửi gói nào trong {CHUNK_STALL:.0f} giây") from None
             fp = getattr(msg, "filtered_prompt", None)
             if fp:
                 log(f"{tag}: Lyria lọc prompt ({str(fp)[:80]})")
@@ -196,8 +206,11 @@ async def _session(m: dict, cl: Any, log: Log, tag: str, part: list[bytes], need
                 if ch.data:
                     part.append(ch.data)
                     got += len(ch.data)
+            el = time.time() - t0
             if got >= need or time.time() > deadline:
                 break
+            if SLOW_RATE > 0 and el >= SLOW_MIN and got < SLOW_RATE * el * RATE * CH * 2:
+                raise RuntimeError(f"nhận {got / RATE / CH / 2:.0f} giây nhạc trong {el:.0f} giây")
         try:
             await session.stop()
         except Exception:

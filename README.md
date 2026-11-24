@@ -299,6 +299,9 @@ Cài một lần:
 3. Bấm **🧸 Làm 1 truyện ngay** (hoặc `kids_now`): job vào hàng đợi như job thường, xong thì tải về soát (video, phụ đề `.srt`, ảnh
    bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
    (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+   Kaggle lâu cấp GPU (giờ cao điểm 30–90 phút) thì job thôi chờ nhưng **phiên vẫn giữ chỗ** tới 4 giờ: bot hỏi trạng thái mỗi 2
+   phút, dựng xong thì tạo job thu kết quả về (kể cả job `kids_now`, kể cả sau khi bot khởi động lại); `kids` liệt kê phiên đang
+   giữ chỗ. Nhạc nền do Lyria tạo trên Kaggle (`bgm_kaggle`, xem phần nhạc bếp) vì mạng Botkeep không theo kịp luồng Lyria.
 
 Ai viết: `KIDS_LLM_PROVIDER=auto` (mặc định) = **Gemini viết ngay trên Botkeep**, hai model theo vai (`rmvideo/kids/writer.py`):
 bản nháp = `KIDS_GEMINI_MODEL` (mặc định **gemini-4-hydrogen**, free tier, mức suy nghĩ `KIDS_GEMINI_THINKING=low`; đo 19/11: đạt
