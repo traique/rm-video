@@ -181,8 +181,13 @@ def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss
     t0 = time.time()
     freed = False
     while True:
+        kw: dict = {}
+        if sources:
+            kw["kernel_sources"] = sources
+        if dss:
+            kw["dataset_sources"] = dss
         try:
-            return kaggle_api.push(slug, title, text, gpu=gpu, kernel_sources=sources, dataset_sources=dss)
+            return kaggle_api.push(slug, title, text, gpu=gpu, **kw)
         except SessionLimit:
             if gpu and not freed:
                 freed = True
