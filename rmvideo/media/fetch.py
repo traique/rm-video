@@ -30,6 +30,11 @@ except Exception:
     _IMPERSONATE = None
 
 
+class TooBig(RuntimeError):
+    """Video vượt giới hạn thời lượng / dung lượng của chế độ đã chọn: tải được, chỉ là bot không nhận. Không thử
+    nguồn dự phòng (tikwm cũng sẽ vượt), báo thẳng lý do + nút cần bấm."""
+
+
 def _friendly(e: Exception) -> RuntimeError:
     msg = str(e)
     if "tiktok" in msg.lower():
@@ -426,7 +431,8 @@ def _tikwm_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATION):
     if data.get("images"):
         raise RuntimeError("Bài TikTok này là ảnh trượt, không có video.")
     if (data.get("duration") or 0) > max_duration:
-        raise RuntimeError(f"Video quá dài (> {max_duration}s).")
+        dur = float(data["duration"])
+        raise TooBig(f"Video dài {dur:.0f}s, vượt giới hạn {max_duration}s. " + _long_hint(dur, max_duration))
     path = os.path.join(tmpdir, "input.mp4")
     fetch_media(data.get("hdplay") or data.get("play"), path, _size_limit(max_duration),     # không tin link bên thứ ba
                 f"Video quá {_size_limit(max_duration) // 1048576}MB.")
@@ -456,6 +462,9 @@ def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATIO
             return path, title, desc, meta
         os.remove(path)
         reason = "TikTok chỉ trả về nhạc, giấu video"
+    except TooBig as e:
+        metrics.record("download", "yt-dlp", ok=False, detail=str(e))
+        raise
     except RuntimeError as e:
         reason = str(e)
     metrics.record("download", "yt-dlp", ok=False, detail=reason)
@@ -464,6 +473,9 @@ def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATIO
             out = _tikwm_sync(url, tmpdir, max_duration)
             metrics.record("download", "tikwm", fallback=True)
             return out
+        except TooBig as e2:
+            metrics.record("download", "tikwm", ok=False, fallback=True, detail=str(e2))
+            raise
         except Exception as e2:
             metrics.record("download", "tikwm", ok=False, fallback=True, detail=str(e2))
             raise RuntimeError(
@@ -500,9 +512,9 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
         dur = (info or {}).get("duration") or 0
         size = (info or {}).get("filesize") or (info or {}).get("filesize_approx") or 0
         if dur and dur > max_duration:
-            raise RuntimeError(f"Video dài {dur:.0f}s, vượt giới hạn {max_duration}s. " + _long_hint(dur, max_duration))
+            raise TooBig(f"Video dài {dur:.0f}s, vượt giới hạn {max_duration}s. " + _long_hint(dur, max_duration))
         if size and size > _size_limit(max_duration):
-            raise RuntimeError(f"Video nặng {size / 1048576:.0f}MB, vượt giới hạn {_size_limit(max_duration) // 1048576}MB.")
+            raise TooBig(f"Video nặng {size / 1048576:.0f}MB, vượt giới hạn {_size_limit(max_duration) // 1048576}MB.")
         raise RuntimeError("Tải video thất bại (link riêng tư, đã xóa, hoặc nền tảng chặn). "
                            "Hãy tải video về máy rồi upload file.")
     meta = {"uploader": info.get("uploader") or info.get("channel") or "",

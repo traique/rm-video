@@ -78,3 +78,40 @@ def test_no_gpu_result_starts_long_cooldown(monkeypatch, tmp_path):
     assert isinstance(out[0], kaggle_api.KaggleError) and "xác minh số điện thoại" in kaggle_worker.gpu_cool()
     assert kaggle_worker._COOL["until"] > time.time() + 5 * 3600
     assert os.path.exists(tmp_path / "kaggle_result.json")
+
+
+# ---------------- 25/11 chiều: link TikTok dài hơn chế độ đã chọn ----------------
+
+def test_tiktok_too_long_reports_limit_not_download_failure(monkeypatch, tmp_path):
+    """Job 5 (25/11): TikTok 365s ở chế độ «remake nguyên ≤5 phút». Trước báo «Không tải được video TikTok … tải về máy
+    rồi upload» (sai — tải được, chỉ dài quá) và còn gọi tikwm vô ích. Giờ báo thẳng giới hạn + nút cần bấm."""
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    calls = []
+
+    def long_video(url, tmpdir, max_duration):
+        raise fetch.TooBig(f"Video dài 365s, vượt giới hạn {max_duration}s. " + fetch._long_hint(365, max_duration))
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", long_video)
+    monkeypatch.setattr(fetch, "_tikwm_sync", lambda *a, **k: calls.append(a))
+    with pytest.raises(RuntimeError) as ei:
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path), config.LONG_MAX)
+    msg = str(ei.value)
+    assert msg.startswith("Video dài 365s") and "Cắt thành phần" in msg and "Không tải được" not in msg
+    assert calls == []
+
+
+def test_tiktok_blocked_still_falls_back_to_tikwm(monkeypatch, tmp_path):
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+
+    def blocked(url, tmpdir, max_duration):
+        raise RuntimeError("TikTok chặn tải từ máy chủ.")
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", blocked)
+    monkeypatch.setattr(fetch, "_tikwm_sync", lambda url, d, m: ("p", "t", "t", {}))
+    assert fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path))[0] == "p"
+
+    def tikwm_long(url, d, m):
+        raise fetch.TooBig("Video dài 400s, vượt giới hạn 90s.")
+    monkeypatch.setattr(fetch, "_tikwm_sync", tikwm_long)
+    with pytest.raises(fetch.TooBig, match="^Video dài 400s"):
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path))

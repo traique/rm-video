@@ -26,6 +26,10 @@ phiên; người dùng chuyển sang tài khoản khác và nhờ «đóng hết
 - **Kaggle không cấp GPU** (tài khoản chưa xác minh số điện thoại: phiên chạy ngay nhưng bằng CPU, không có internet — đo
   thật 25/11): notebook thấy không có GPU thì ghi lỗi rõ ràng rồi thoát ngay (trước đây chạy hàng chục phút trên CPU rồi
   hỏng), bot nghỉ gửi phiên GPU 6 giờ và báo «tài khoản đã xác minh số điện thoại chưa?». `kids_setup` cũng dừng ngay.
+- `kaggle_check` kiểm LoRA đúng trong notebook chạy tay (KIDS_KAGGLE_SOURCES), không còn báo nhầm `rmvideo-kids-models`.
+- **Video dài hơn chế độ đã chọn** (job 5: TikTok 365s ở «remake nguyên ≤5 phút»): báo thẳng «Video dài 365s, vượt giới hạn
+  300s» + nút cần bấm, không còn gói thành «Không tải được video TikTok… tải về máy rồi upload» (tải được, chỉ dài quá) và
+  không gọi tikwm vô ích. Phần tải video không đổi từ 16/11.
 
 ## 1.4.10 — Nút «Xóa» / «Xóa tất cả» trong Hàng đợi & kết quả (25/11/2026)
 
