@@ -2,12 +2,14 @@
 
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
 import asyncio
+import contextvars
 import html
 import json
 import logging
 import os
 import re
 import shutil
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +30,27 @@ try:
     _IMPERSONATE = ImpersonateTarget("chrome")
 except Exception:
     _IMPERSONATE = None
+
+
+# Tiến độ tải nguồn (dispatch đặt cho job đang chạy; asyncio.to_thread chép ngữ cảnh sang luồng yt-dlp). Job 6 (25/11):
+# 14MB tải mất ~10 phút, cả lúc đó chỉ thấy «Tải video (yt-dlp)» nên tưởng treo.
+ON_PROGRESS: contextvars.ContextVar = contextvars.ContextVar("fetch_progress", default=None)
+PROGRESS_EVERY = 30.0          # giây: mỗi lần đổi bước là một dòng log + một mốc timeline, không cập nhật dày hơn
+
+
+def _progress_hook(cb, every: float = PROGRESS_EVERY):
+    last = [time.monotonic()]
+
+    def hook(d):
+        if d.get("status") != "downloading" or time.monotonic() - last[0] < every:
+            return
+        last[0] = time.monotonic()
+        got = d.get("downloaded_bytes") or 0
+        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+        speed = d.get("speed") or 0
+        txt = f"{min(99, int(100 * got / total))}% của {total / 1048576:.0f}MB" if total else f"{got / 1048576:.1f}MB"
+        cb(txt + (f" · {speed / 1024:.0f} KB/s" if speed else ""))
+    return hook
 
 
 class TooBig(RuntimeError):
@@ -497,7 +520,11 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
         "quiet": True, "noprogress": True,
         "no_warnings": True,
     }
+    cb = ON_PROGRESS.get()
+    if cb:
+        opts["progress_hooks"] = [_progress_hook(cb)]
     _add_cookies(opts, tmpdir)
+    t0 = time.monotonic()
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -517,6 +544,9 @@ def _ytdlp_video_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURA
             raise TooBig(f"Video nặng {size / 1048576:.0f}MB, vượt giới hạn {_size_limit(max_duration) // 1048576}MB.")
         raise RuntimeError("Tải video thất bại (link riêng tư, đã xóa, hoặc nền tảng chặn). "
                            "Hãy tải video về máy rồi upload file.")
+    secs, mb = time.monotonic() - t0, os.path.getsize(path) / 1048576
+    logging.log(logging.WARNING if secs > 120 else logging.INFO, "Tải nguồn xong: %.1fMB trong %.0fs (%.0f KB/s)%s",
+                mb, secs, mb * 1024 / max(secs, 0.1), " — mạng tới nền tảng video đang chậm" if secs > 120 else "")
     meta = {"uploader": info.get("uploader") or info.get("channel") or "",
             "uploader_id": info.get("uploader_id") or info.get("channel_id") or "",
             "webpage_url": info.get("webpage_url") or url}

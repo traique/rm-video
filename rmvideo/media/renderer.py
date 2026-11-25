@@ -537,17 +537,34 @@ async def render(input_mp4: str, voice_mp3: str, output_mp4: str, mode: str,
                f"adelay={ms}|{ms},volume=0.7[sting];[a0][sting]amix=inputs=2:duration=first:normalize=0[a]")
     fc = fc.replace("[a]", f",afade=t=in:st=0:d=0.15,afade=t=out:st={max(0, out_dur - 0.4):.2f}:d=0.4,alimiter=limit=0.89:level=false[a]", 1)
     fc = await two_pass_loudness(fc, audio_in, out_dur)
-    await ff._run_ffmpeg(
-        "-y", *ff.thread_args(),
-        *audio_in,
-        *(["-i", logo_file] if use_logo else []),
-        *extra_in,
-        "-filter_complex", fc,
-        "-map", "[v]", "-map", "[a]",
-        *encode_args(H, fps),
-        "-t", f"{out_dur:.2f}",
-        output_mp4,
-    )
+
+    def final_args() -> list:                    # dựng lại ở chế độ 1 luồng thì số luồng trong lệnh phải tính lại
+        return ["-y", *ff.thread_args(), *audio_in, *(["-i", logo_file] if use_logo else []), *extra_in,
+                "-filter_complex", fc, "-map", "[v]", "-map", "[a]", *encode_args(H, fps),
+                "-t", f"{out_dur:.2f}", output_mp4]
+    ff.free_memory()
+    logging.info("Trước khi dựng: %s", ff.mem_report())
+    try:
+        await ff._run_ffmpeg(*final_args())
+    except Exception as e:
+        # job 6 (25/11): ffmpeg dựng 720p (~0,4 GB) bị giết giữa chừng vì máy hết RAM sau 27 phút làm job. Ghi ai đang
+        # giữ RAM để lần sau biết, trả RAM, dựng lại một lần ở chế độ 1 luồng (chậm hơn, ít RAM hơn) thay vì bỏ cả job
+        if not ff.oom_killed(e):
+            raise
+        logging.warning("ffmpeg dựng bị hệ thống dừng (hết RAM): %s. Dựng lại 1 luồng", ff.mem_report(top=5))
+        ff.free_memory()
+        tok = ff.LOW_MEM.set(True)
+        try:
+            await ff._run_ffmpeg(*final_args())
+        except Exception as e2:
+            if ff.oom_killed(e2):
+                raise RuntimeError(f"Máy dựng hết RAM, dựng lại 1 luồng vẫn bị hệ thống dừng ({ff.mem_report(top=5)}). "
+                                   "Gửi lại job khi máy rảnh hơn, hoặc đặt OUTPUT_HD=0 / QUALITY=fast trong Cài đặt.") from e2
+            raise
+        finally:
+            ff.LOW_MEM.reset(tok)
+        if notes is not None:
+            notes.append("ℹ️ Máy dựng hết RAM giữa chừng, đã tự dựng lại ở chế độ tiết kiệm RAM (chậm hơn). ")
     if nvenc() and notes is not None:
         notes.append(f"ℹ️ Mã hoá video bằng GPU (NVENC), dựng {time.time() - t_start:.0f}s. ")
     if mode == "cook" and config.QUALITY == "balanced":      # số đo cho lần quyết định 1080p/720p sau

@@ -71,9 +71,16 @@ async def acquire(job: Job, tmp: str) -> tuple:
         inp, title, desc, job.source_meta = await fetch.download(job.url, tmp, max_duration=600)
         return inp, title, desc
     job.step = "Tải video (yt-dlp)"
-    inp, title, desc, job.source_meta = await fetch.download(
-        job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == LongMode.FULL or common.auto_full(job)
-        else config.MAX_DURATION)
+
+    def _progress(txt: str):
+        job.step = f"Tải video (yt-dlp) {txt}"
+    tok = fetch.ON_PROGRESS.set(_progress)
+    try:
+        inp, title, desc, job.source_meta = await fetch.download(
+            job.url, tmp, max_duration=config.LONG_MAX if job.long_mode == LongMode.FULL or common.auto_full(job)
+            else config.MAX_DURATION)
+    finally:
+        fetch.ON_PROGRESS.reset(tok)
     common.check_source_allowed(job)
     return inp, title, desc
 

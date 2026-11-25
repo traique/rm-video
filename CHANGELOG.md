@@ -13,6 +13,20 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
+
+Job 6 (TikTok 75s, 14MB): tải nguồn mất ~10 phút (các job trước 42–85 giây) mà chỉ thấy «Tải video (yt-dlp)»; Kaggle vẫn
+không cấp máy GPU nên bóc lời trên Botkeep; tới bước dựng 720p thì ffmpeg bị hệ thống giết (tín hiệu 9, hết RAM) sau 27
+phút làm job. Đo lại trên máy thật với đúng video đó: ffmpeg dựng chỉ cần 330–455 MB, bước phân tích hình ~110 MB — không
+phải mã mới làm phình RAM (bộ dựng không đổi từ 21/11), nhưng máy Botkeep ~2 GB lúc đó không còn đủ.
+- **ffmpeg dựng bị giết vì hết RAM → tự dựng lại một lần** ở chế độ 1 luồng (sau khi trả RAM), ghi chú cho người dùng; lần
+  hai vẫn hết RAM thì báo rõ kèm số RAM. Huỷ job / tắt bot (cũng giết bằng tín hiệu 9) không bị hiểu nhầm là hết RAM.
+- **Trước khi dựng trả RAM**: bỏ các phiên ONNX đã dùng xong (dò chữ, tách giọng, dò mặt — cần lại thì tự mở), dọn rác,
+  trả bộ nhớ trống về hệ điều hành. Log ghi «Trước khi dựng: RAM trống … / giới hạn … , bot giữ …»; bị giết thì ghi thêm 5
+  tiến trình chiếm RAM nhất để biết ai giữ.
+- **Tải nguồn hiện tiến độ** «Tải video (yt-dlp) 42% của 14MB · 23 KB/s» (30 giây một lần) và ghi «Tải nguồn xong: 14MB
+  trong 600s» — quá 2 phút thì cảnh báo mạng tới nền tảng video đang chậm.
+
 ## 1.4.11 — Không «dồn» phiên lên Kaggle; phát hiện Kaggle không cấp GPU (25/11/2026)
 
 Tài khoản quetrai kẹt hàng chờ chạy nền GPU hơn 20 giờ (notebook mở tay vẫn có GPU ngay) sau một ngày bot gửi rồi bỏ nhiều

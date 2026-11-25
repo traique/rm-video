@@ -115,3 +115,141 @@ def test_tiktok_blocked_still_falls_back_to_tikwm(monkeypatch, tmp_path):
     monkeypatch.setattr(fetch, "_tikwm_sync", tikwm_long)
     with pytest.raises(fetch.TooBig, match="^Video dài 400s"):
         fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path))
+
+
+# ---------------- job 6 (25/11): tải 14MB mất 10 phút không thấy gì, ffmpeg dựng bị hệ thống dừng (hết RAM) ----------------
+
+def _media(tmp_path):
+    import subprocess
+    src, voice = str(tmp_path / "s.mp4"), str(tmp_path / "v.wav")
+    for args in (["-f", "lavfi", "-i", "testsrc2=s=360x640:d=6:r=25", "-f", "lavfi", "-i", "sine=f=300:d=6",
+                  "-shortest", src], ["-f", "lavfi", "-i", "sine=f=500:d=4", voice]):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *args], check=True, capture_output=True, timeout=120)
+    return src, voice
+
+
+@pytest.fixture
+def render_env(tmp_path, monkeypatch):
+    for k, d in config.EDITABLE.items():
+        monkeypatch.setattr(config, k, d)
+    monkeypatch.setattr(config, "QUALITY", "fast")
+    monkeypatch.setattr(config, "BRAND_LOGO", "0")
+    return tmp_path, *_media(tmp_path)
+
+
+def _oom_on_final(monkeypatch, out, times):
+    from rmvideo.media import ff, proc
+    real, seen = ff._run_ffmpeg, []
+
+    async def fake(*args, tool="ffmpeg"):
+        if args and args[-1] == out:
+            seen.append(ff.ffmpeg_threads())
+            if len(seen) <= times:
+                raise proc.ProcError(["ffmpeg"], -9, "frame= 1135 fps=6.5")
+        return await real(*args, tool=tool)
+    monkeypatch.setattr(ff, "_run_ffmpeg", fake)
+    return seen
+
+
+def test_render_retries_once_in_low_memory_mode_after_oom_kill(render_env, monkeypatch):
+    import asyncio
+    from rmvideo.media import ff, renderer
+    tmp, src, voice = render_env
+    monkeypatch.setattr(config, "FFMPEG_THREADS", 2)
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 1)
+    notes: list = []
+    asyncio.run(renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp),
+                                notes=notes))
+    assert seen == [2, 1] and os.path.getsize(out) > 0          # lần 2: 1 luồng
+    assert any("tiết kiệm RAM" in n for n in notes) and ff.ffmpeg_threads() == 2      # hết khối: trả lại như cũ
+
+
+def test_render_gives_clear_error_when_retry_also_oom(render_env, monkeypatch):
+    import asyncio
+    from rmvideo.media import renderer
+    tmp, src, voice = render_env
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 2)
+    with pytest.raises(RuntimeError, match="hết RAM.*RAM trống"):
+        asyncio.run(renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp)))
+    assert len(seen) == 2
+
+
+def test_cancelled_job_is_not_rerendered(render_env, monkeypatch):
+    """Huỷ job cũng giết ffmpeg bằng SIGKILL (-9) — không được hiểu là hết RAM rồi dựng lại."""
+    import asyncio
+    from rmvideo.media import proc, renderer
+    tmp, src, voice = render_env
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 1)
+
+    async def go():
+        with proc.owned_by("job-x") as ev:
+            ev.set()
+            await renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp))
+    with pytest.raises(proc.ProcError):
+        asyncio.run(go())
+    assert len(seen) == 1
+
+
+def test_free_memory_drops_onnx_sessions(monkeypatch):
+    import ocr_text
+    import vocal_sep
+    from rmvideo.media import ff, talking
+    monkeypatch.setattr(ff, "on_kaggle", lambda: False)
+    monkeypatch.setattr(ocr_text, "_session", object())
+    monkeypatch.setattr(vocal_sep, "_session", object())
+    monkeypatch.setitem(talking._SESSION, "s", object())
+    ff.free_memory()
+    assert ocr_text._session is None and vocal_sep._session is None and not talking._SESSION
+    assert "RAM trống" in ff.mem_report(top=3) and "bot giữ" in ff.mem_report()
+
+
+def test_download_progress_shown_every_30s(monkeypatch):
+    from rmvideo.media import fetch
+    now = [100.0]
+    monkeypatch.setattr(fetch.time, "monotonic", lambda: now[0])
+    got: list = []
+    hook = fetch._progress_hook(got.append)
+    for t, b in ((110, 1 << 20), (131, 6 << 20), (140, 7 << 20), (162, 10 << 20)):
+        now[0] = t
+        hook({"status": "downloading", "downloaded_bytes": b, "total_bytes": 14 << 20, "speed": 23 * 1024})
+    hook({"status": "finished"})
+    assert got == ["42% của 14MB · 23 KB/s", "71% của 14MB · 23 KB/s"]
+
+
+def test_download_progress_reaches_ytdlp_thread(monkeypatch, tmp_path):
+    """dispatch đặt ON_PROGRESS rồi gọi fetch.download (asyncio.to_thread): hook của yt-dlp phải thấy được."""
+    import asyncio
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    monkeypatch.setattr(fetch, "_has_video", lambda p: True)
+    monkeypatch.setattr(fetch, "PROGRESS_EVERY", 0.0)
+
+    class YDL:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download):
+            for h in self.opts.get("progress_hooks", []):
+                h({"status": "downloading", "downloaded_bytes": 5, "total_bytes": 10})
+            open(os.path.join(str(tmp_path), "input.mp4"), "wb").write(b"x" * 10)
+            return {"title": "t", "duration": 5}
+    monkeypatch.setattr(fetch.yt_dlp, "YoutubeDL", YDL)
+    monkeypatch.setattr(fetch, "_progress_hook", lambda cb, every=0.0: (lambda d: cb("50%")))
+    steps: list = []
+
+    async def go():
+        tok = fetch.ON_PROGRESS.set(steps.append)
+        try:
+            return await fetch.download("https://www.tiktok.com/@a/video/1", str(tmp_path))
+        finally:
+            fetch.ON_PROGRESS.reset(tok)
+    assert asyncio.run(go())[0].endswith("input.mp4") and steps == ["50%"]
