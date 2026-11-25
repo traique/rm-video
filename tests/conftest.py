@@ -49,4 +49,5 @@ def _no_kaggle_resource_calls(monkeypatch):
             return _t.time()
     monkeypatch.setattr(_kw, "_READY", {"ok": _t.time()})
     monkeypatch.setattr(_kw, "_COOL", {"until": 0.0, "why": ""})        # 1.4.11: không nghỉ gửi GPU lây sang test khác
+    monkeypatch.setattr(_kw, "_ACCT", {"tok": None})                     # 1.4.12: lần đầu thấy token không xoá _READY
     monkeypatch.setattr(_ly, "_REMOTE", _Fresh())

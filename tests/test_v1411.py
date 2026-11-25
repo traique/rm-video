@@ -253,3 +253,43 @@ def test_download_progress_reaches_ytdlp_thread(monkeypatch, tmp_path):
         finally:
             fetch.ON_PROGRESS.reset(tok)
     assert asyncio.run(go())[0].endswith("input.mp4") and steps == ["50%"]
+
+
+# ---------------- 25/11 chiều: đổi sang tài khoản traique ----------------
+
+def test_switching_kaggle_account_live_resets_cooldown_and_ready(monkeypatch):
+    """Bot khởi động với token quetrai (kẹt hàng chờ -> nghỉ gửi GPU 1 giờ), người dùng đổi sang traique trong Cài đặt:
+    tài khoản mới không được mang giờ nghỉ / kết quả «model sẵn sàng» của tài khoản cũ."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_cu")
+    kaggle_worker._cool(kaggle_worker.QUEUE_COOL, "Kaggle lâu không cấp máy GPU")
+    kaggle_worker._OUT_OK["notebookd0f466fb59"] = time.time()
+    assert kaggle_worker.gpu_cool()
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_moi")
+    assert kaggle_worker.gpu_cool() == "" and not kaggle_worker._READY and not kaggle_worker._OUT_OK
+    kaggle_worker._cool(60, "x")
+    assert kaggle_worker.gpu_cool()                                     # cùng tài khoản: vẫn nghỉ như cũ
+
+
+def test_console_typos_suggest_or_accept(monkeypatch):
+    import admin
+    assert admin.normalize("kids_setup-status") == "kids_setup_status"
+    assert admin.normalize("YT-test https://a-b.com/x-Y") == "yt_test https://a-b.com/x-y"
+    assert "kids_setup" in admin.unknown("kid_setup") and "Lệnh console" not in admin.unknown("kid_setup")
+    assert "kaggle_check" in admin.unknown("kids_check")
+    assert "Lệnh console" in admin.unknown("xin chào")
+    for c in admin.COMMANDS:                                            # danh sách gợi ý khớp trang trợ giúp
+        assert c in admin.CONSOLE_HELP
+
+
+def test_too_long_video_not_counted_as_download_failure(monkeypatch, tmp_path):
+    from rmvideo.media import fetch
+    rec = []
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    monkeypatch.setattr(fetch.metrics, "record", lambda *a, **k: rec.append((a, k)))
+
+    def long_video(url, tmpdir, max_duration):
+        raise fetch.TooBig("Video dài 365s, vượt giới hạn 300s.")
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", long_video)
+    with pytest.raises(fetch.TooBig):
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path), 300)
+    assert rec == []

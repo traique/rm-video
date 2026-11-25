@@ -198,8 +198,25 @@ NO_GPU_MARK = "Kaggle không cấp GPU"
 _COOL: dict[str, Any] = {"until": 0.0, "why": ""}
 
 
+_ACCT: dict[str, Any] = {"tok": None}
+
+
+def _sync_account() -> None:
+    """Đổi tài khoản Kaggle trong Cài đặt lúc bot đang chạy (25/11: quetrai kẹt hàng chờ -> traique): thời gian nghỉ gửi
+    GPU và các kết quả «model sẵn sàng» là của tài khoản cũ — bỏ hết, tài khoản mới được xét lại từ đầu."""
+    tok = kaggle_api.token()
+    if _ACCT["tok"] != tok:
+        if _ACCT["tok"] is not None:
+            _COOL.update(until=0.0, why="")
+            _READY.clear()
+            _OUT_OK.clear()
+            logging.info("Kaggle: đã đổi tài khoản, xét lại giờ nghỉ gửi GPU và model truyện bé từ đầu")
+        _ACCT["tok"] = tok
+
+
 def gpu_cool() -> str:
     """Lý do đang nghỉ gửi phiên GPU mới ("" = gửi được)."""
+    _sync_account()
     left = _COOL["until"] - time.time()
     if left <= 0:
         return ""
@@ -207,6 +224,7 @@ def gpu_cool() -> str:
 
 
 def _cool(secs: float, why: str) -> None:
+    _sync_account()
     if time.time() + secs > _COOL["until"]:
         _COOL["until"], _COOL["why"] = time.time() + secs, why
         logging.warning("Kaggle: %s", gpu_cool())
@@ -848,6 +866,7 @@ _OUT_OK: dict[str, float] = {}
 def _custom_ready(slug: str) -> str:
     """Notebook tự đặt trong KIDS_KAGGLE_SOURCES (vd notebook chạy tay kids_setup, 25/11): có đầu ra chưa. "" = có / không
     hỏi được. Notebook chạy tay rồi «Quick Save» thì không có phiên chạy nền (hỏi trạng thái báo 404) nhưng vẫn có đầu ra."""
+    _sync_account()
     if time.time() - _OUT_OK.get(slug, 0.0) < READY_TTL:
         return ""
     try:

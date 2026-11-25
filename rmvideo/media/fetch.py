@@ -485,8 +485,7 @@ def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATIO
             return path, title, desc, meta
         os.remove(path)
         reason = "TikTok chỉ trả về nhạc, giấu video"
-    except TooBig as e:
-        metrics.record("download", "yt-dlp", ok=False, detail=str(e))
+    except TooBig:                  # người dùng chọn chế độ ngắn hơn video, không phải dịch vụ tải lỗi: không tính vào health
         raise
     except RuntimeError as e:
         reason = str(e)
@@ -496,8 +495,7 @@ def _download_sync(url: str, tmpdir: str, max_duration: int = config.MAX_DURATIO
             out = _tikwm_sync(url, tmpdir, max_duration)
             metrics.record("download", "tikwm", fallback=True)
             return out
-        except TooBig as e2:
-            metrics.record("download", "tikwm", ok=False, fallback=True, detail=str(e2))
+        except TooBig:
             raise
         except Exception as e2:
             metrics.record("download", "tikwm", ok=False, fallback=True, detail=str(e2))

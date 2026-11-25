@@ -13,6 +13,17 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.13 — Đổi tài khoản Kaggle lúc đang chạy; gõ sai lệnh console được gợi ý (25/11/2026)
+
+Chuyển sang tài khoản traique (đo thật: cấp máy GPU 20 giây, 2×T4, có internet; kids_setup chờ 15 phút + chạy 45 phút,
+0,7 giờ GPU). Bot khởi động lúc 14:40 còn token quetrai nên tự gửi kids_setup lên quetrai (kẹt hàng chờ ở đó) rồi mới đổi
+token.
+- **Đổi tài khoản Kaggle trong Cài đặt lúc bot đang chạy**: giờ nghỉ gửi GPU và kết quả «model truyện bé sẵn sàng» của
+  tài khoản cũ bị bỏ, tài khoản mới được xét lại từ đầu (trước đây có thể mang theo 1–6 giờ nghỉ của tài khoản cũ).
+- **Gõ sai lệnh console**: «kids_setup-status» (gạch ngang) chạy luôn; «kid_setup», «kids_check» được gợi ý lệnh gần nhất
+  thay vì in cả trang trợ giúp.
+- Video dài hơn chế độ đã chọn không còn tính là «lỗi tải video» trong `health`.
+
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 
 Job 6 (TikTok 75s, 14MB): tải nguồn mất ~10 phút (các job trước 42–85 giây) mà chỉ thấy «Tải video (yt-dlp)»; Kaggle vẫn
