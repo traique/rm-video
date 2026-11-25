@@ -556,3 +556,30 @@ def test_delete_kernel_request_and_error(monkeypatch):
     with pytest.raises(kaggle_api.KaggleError, match="không xoá được"):
         kaggle_api.delete_kernel("rmvideo-kids")
     assert set(kaggle_worker.GPU_SLUGS) == {"rmvideo-worker", "rmvideo-kids", "rmvideo-analyze"}   # không bao giờ xoá notebook giữ model
+
+
+def test_flow_kids_normal_run_clears_park_record(tmp_path, monkeypatch, clean_parked):
+    """Job 7 (25/11): phiên giữ chỗ ghi từ lúc gửi (1.4.11); job tự thu được video sau 42 phút chờ máy nhưng mục giữ chỗ
+    còn đó -> watch_parked tạo job 8 tải lại cùng video (78 MB, 15 phút). Có kết quả là phải bỏ mục ngay."""
+    import pipeline
+    from rmvideo.kids import job as kids_job
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    calls: list = []
+    fake = _fake_produce(tmp_path, calls)
+
+    async def produce(spec, tmp, on_step=None):
+        p = spec["park"]                                         # _run_sync ghi mục giữ chỗ lúc gửi
+        kids_auto.park_record({"slug": "rmvideo-kids", "token": spec.get("token"), "job": p["job"],
+                               "since": time.time(), "expires_at": time.time() + 3600, "brief": spec.get("brief")})
+        return await fake(spec, tmp, on_step)
+    monkeypatch.setattr(kaggle_worker, "produce", produce)
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+    from state import queue
+    monkeypatch.setattr(queue, "pending", 0)
+    job = kids_auto.make_now("web")
+    (tmp_path / "w").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert os.path.exists(out) and len(calls) == 1 and kids_auto.parked_info(job.id) is None
+    assert kids_auto.load_state()["parked"] == []

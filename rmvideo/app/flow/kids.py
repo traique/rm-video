@@ -105,6 +105,9 @@ async def process_kids(job: Job, tmp: str) -> str:
         if not col:                                   # lỗi thật sau khi gửi (không phải giữ chỗ): bỏ mục đã ghi lúc gửi
             kids_auto.unpark(job.id)
         raise
+    # kết quả đã về máy: bỏ mục giữ chỗ (ghi từ lúc gửi) NGAY. Job 7 ngày 25/11 tự thu được video nhưng mục còn đó nên vòng
+    # tự động thấy phiên Kaggle «xong» và tạo job 8 tải lại 78 MB thêm 15 phút
+    kids_auto.unpark(int(col.get("job") or job.id) if col else job.id)
     video = res["video"]
     job.step = "Truyện bé: kiểm video"
     bad = await kids_job.qa_video(video)
@@ -135,7 +138,5 @@ async def process_kids(job: Job, tmp: str) -> str:
     for n in res.get("notes") or []:
         job.note(f"ℹ️ {n} ")
     kids_auto.remember_done(job, brief, st)
-    if col:
-        kids_auto.unpark(int(col.get("job") or job.id))
     logging.info("Truyện bé job %s: «%s» %.1fs, %s", job.id, title, job.out_dur, t)
     return video

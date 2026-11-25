@@ -23,6 +23,9 @@ token.
 - **Gõ sai lệnh console**: «kids_setup-status» (gạch ngang) chạy luôn; «kid_setup», «kids_check» được gợi ý lệnh gần nhất
   thay vì in cả trang trợ giúp.
 - Video dài hơn chế độ đã chọn không còn tính là «lỗi tải video» trong `health`.
+- **Truyện bé không còn bị thu kết quả hai lần**: job 7 (truyện đầu tiên trên traique: chờ máy 42 phút, chạy 14 phút, tải
+  78 MB về mất 16 phút) tự thu được video nhưng mục giữ chỗ ghi từ lúc gửi (1.4.11) không được xoá, nên vòng tự động tạo
+  job 8 tải lại cùng video thêm 15 phút. Có kết quả trong tay là bỏ mục giữ chỗ ngay.
 
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 
