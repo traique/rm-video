@@ -164,10 +164,10 @@ SCHEMA: tuple[Setting, ...] = (
       link="https://aistudio.google.com/apikey", need="must", secret=True, live=True),
     S("GEMINI_MODEL", "gemini-3.5-flash-lite", "advanced", "Model Gemini viết lời",
       validate=_model("GEMINI_MODEL"), live=True),        # live: lỗi 404 tự đổi model giữa job
-    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite", "advanced",
+    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-3.6-flash", "advanced",
       "Model Gemini dự phòng (khi quá tải / hết lượt)",
       help="Model chính báo quá tải (503) hay hết lượt trong ngày thì thử lần lượt các model này (cách nhau dấu phẩy, "
-           "để trống = không thử). Mỗi model có hạn mức riêng.",
+           "để trống = không thử). Mỗi model có hạn mức riêng. gemini-3.6-flash bot tự đặt mức suy nghĩ «low» cho nhanh.",
       validate=_each(lambda v: _model("GEMINI_FALLBACK_MODELS")(v) if v else v), live=True),
     S("OPENROUTER_API_KEY", "", "api", "Key OpenRouter",
       help="Dự phòng viết lời khi Gemini lỗi/hết hạn mức (model miễn phí).", link="https://openrouter.ai/settings/keys",

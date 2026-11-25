@@ -296,12 +296,24 @@ def _schema_rejected(err: str) -> bool:
     return "400" in err or "INVALID_ARGUMENT" in err or "schema" in err.lower()
 
 
+_FLASH_3X = re.compile(r"gemini-3(?:\.\d+)?-flash")      # gemini-3.5-flash, gemini-3.6-flash… (KHÔNG -lite, không -image/-tts)
+
+
 def _with_thinking(cfg, model: str, level: str):
-    """Mức suy nghĩ low/medium/high/xhigh cho Gemini 4 (mặc định của Google là high: chậm, tốn token); model khác giữ nguyên."""
-    if not level or not model.startswith("gemini-4"):
+    """Mức suy nghĩ low/medium/high/xhigh cho Gemini 4 (mặc định của Google là high: chậm, tốn token).
+    Gemini 3.x flash thường (3.5 / 3.6 / 3.8-flash) không đặt mức thì Google cũng suy nghĩ dài: đo 25/11 trả lời một từ mất
+    22-42s, còn «low» 1.2-1.7s — nên không truyền mức thì dùng «low» (viết lời video không cần nghĩ sâu).
+    Model -lite không nhận thinking_config (400 INVALID_ARGUMENT) và model khác: giữ nguyên."""
+    if model.startswith("gemini-4"):
+        lvl = level
+    elif _FLASH_3X.fullmatch(model):
+        lvl = level or "low"
+    else:
+        return cfg
+    if not lvl:
         return cfg
     c = dict(cfg or {})
-    c["thinking_config"] = {"thinking_level": level}
+    c["thinking_config"] = {"thinking_level": lvl}
     return c
 
 

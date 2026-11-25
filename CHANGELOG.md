@@ -47,6 +47,16 @@ token.
   dài). Giờ: 503 thử lại 5 lần với 3+6+12+24 giây mỗi model (cơn quá tải thường vài phút); vẫn không được thì job dừng với
   «Dịch vụ AI đang quá tải / hết lượt tạm thời — gửi lại link sau vài phút» thay vì dựng kịch bản mẫu (key / model sai
   vẫn dùng mẫu + cảnh báo như cũ); lỗi quá tải / hết lượt ghi một dòng cảnh báo, chỉ lỗi lạ mới kèm traceback.
+- **Kiểm tra lại API Gemini theo tài liệu Google (25/11)**: key dạng mới «AQ.…» (Google AI Studio cấp mặc định từ
+  28/5/2026, gọi là auth key, chỉ dùng được cho Gemini API) chạy bình thường với bot — bot gửi key qua SDK google-genai
+  3.6.1 (bản mới nhất), không cần sửa. Model bot dùng đều còn: gemini-3.5-flash-lite (viết lời), gemini-3.5-transcribe
+  (bóc lời), gemini-4-hydrogen (nháp truyện bé, GA 12/11); gemini-3.1-flash-lite (dự phòng) Google hẹn tắt 7/5/2027;
+  gemini-2.5-flash / 2.5-pro bị chuyển hướng từ 1/12/2026 (bot không dùng). Đo thật tối 25/11: 3.1-flash-lite, 3.8-flash
+  và 4-hydrogen 503 «high demand» liên tục nhiều phút, 3.5-flash-lite thỉnh thoảng 503 — nên **thêm gemini-3.6-flash vào
+  danh sách dự phòng mặc định** (1,2-1,7 giây khi đặt mức suy nghĩ «low»; để Google tự chọn thì 22-42 giây vì nghĩ dài).
+  Gemini 3.x flash thường (3.5 / 3.6 / 3.8-flash) không truyền mức suy nghĩ thì bot đặt «low»; model -lite không nhận
+  thinking_config nên giữ nguyên. gemini-3.5-flash giờ chỉ là tên cũ chuyển hướng sang 3.6-flash. Ai đã lưu ô «Model
+  Gemini dự phòng» trong Cài đặt thì tự thêm `,gemini-3.6-flash`.
 
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 
