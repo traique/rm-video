@@ -139,3 +139,131 @@ def _cleanup_outputs(keep: set = frozenset()):
         total += os.path.getsize(f)
         if total > config.OUT_MAX_MB * 1024 * 1024 and os.path.abspath(f) not in keep:
             os.remove(f)
+
+
+
+# ---------------- xoá job (nút Xóa / Xóa tất cả trên web, 1.4.10) ----------------
+ORPHAN_AGE_OUT = 600        # giây: file kết quả mồ côi mới hơn chừng này có thể đang được giao (chưa gắn vào job)
+ORPHAN_AGE_UP = 3600        # giây: file tải lên mới hơn chừng này có thể đang tải / sắp thành job (như make_room)
+
+def _job_files(d: dict) -> list[str]:
+    """File trên máy của một job (dict như trong jobs.db): video kết quả, các phần (bản ngắn, ảnh bìa...), file tải lên.
+    Chỉ file nằm trong thư mục dữ liệu của bot (outputs/, uploads_in/, work/) — không bao giờ ra ngoài."""
+    roots = [os.path.abspath(r) + os.sep for r in (OUT_DIR, config.UPLOAD_DIR, WORK_DIR)]
+    paths = [d.get("output") or "", d.get("local") or "", d.get("music_local") or "", *(d.get("images") or []),
+             *[p.get("path") or "" for p in d.get("parts") or [] if isinstance(p, dict)]]
+    out = []
+    for p in paths:
+        a = os.path.abspath(p) if p else ""
+        if a and any(a.startswith(r) for r in roots) and a not in out:
+            out.append(a)
+    return out
+
+
+def _held(d: dict, waiting: set) -> str:
+    """Lý do KHÔNG được xoá job (rỗng = xoá được): đang chạy / chờ / chờ duyệt, video đang chờ đăng YouTube / TikTok /
+    Fanpage (tự động đăng bếp, truyện bé)."""
+    from queue_manager import ACTIVE
+    jid = d.get("id")
+    if d.get("status") in ACTIVE:
+        return "job đang chờ / chạy / chờ duyệt — bấm Hủy trước"
+    if any(f in waiting for f in _job_files(d)):
+        return "video đang chờ đăng YouTube / gửi gói TikTok"
+    try:
+        import autopost
+        import kids_auto
+        if ((autopost.load_state().get("pending") or {}).get("job") == jid
+                or (kids_auto.load_state().get("pending") or {}).get("job") == jid):
+            return "video đang chờ tự động đăng Fanpage"
+    except Exception as e:
+        logging.warning("Không đọc được trạng thái tự động đăng: %s", str(e)[:120])
+        return "không kiểm được trạng thái tự động đăng"
+    return ""
+
+
+def _remove(files: list[str]) -> int:
+    """Xoá các file, trả số byte giải phóng."""
+    freed = 0
+    for f in files:
+        try:
+            if os.path.isfile(f):
+                freed += os.path.getsize(f)
+                os.remove(f)
+        except OSError as e:
+            logging.warning("Không xoá được %s: %s", f, e)
+    return freed
+
+
+def _parked(jid) -> bool:
+    try:
+        import kids_auto
+        return kids_auto.parked_info(int(jid)) is not None
+    except Exception:
+        return False
+
+
+def delete_job(jid: int) -> tuple[bool, str]:
+    """Nút «Xóa» một job: xoá file của nó trên máy + bỏ khỏi danh sách và jobs.db. Truyện bé đang giữ chỗ Kaggle thì bỏ
+    luôn mục giữ chỗ (không thu kết quả về nữa). Trả (xoá được không, câu báo)."""
+    d = next((x for x in queue.all_saved() if x.get("id") == jid), None)
+    job = queue.jobs.get(jid)
+    if d is None and job is None:
+        return False, f"Không thấy job #{jid}."
+    if job is not None:
+        from dataclasses import asdict
+        d = asdict(job)
+    why = _held(d, _awaiting_post())
+    if why:
+        return False, f"Không xoá job #{jid}: {why}."
+    if _parked(jid):
+        import kids_auto
+        kids_auto.unpark(int(jid))
+    freed = _remove(_job_files(d))
+    queue.forget([jid])
+    logging.info("Đã xoá job #%s (%dMB)", jid, freed >> 20)
+    return True, f"Đã xoá job #{jid}" + (f", giải phóng {freed / 2**20:.0f}MB" if freed >= 2**20 else "") + "."
+
+
+def clear_jobs() -> dict:
+    """Nút «Xóa tất cả»: xoá mọi job đã xong / lỗi / đã huỷ (kể cả job cũ chỉ còn trong jobs.db) cùng file của chúng, rồi
+    xoá video mồ côi trong outputs/ và file tải lên không job nào dùng. GIỮ: job đang chờ / chạy / chờ duyệt, video đang
+    chờ đăng, truyện bé đang giữ chỗ Kaggle. Trả {deleted, kept, freed_mb, msg}."""
+    waiting = _awaiting_post()
+    ids, kept, freed = [], 0, 0
+    keep_files: set[str] = set(waiting)
+    for d in queue.all_saved():
+        jid = d.get("id")
+        if jid in queue.jobs:                                  # bản trong bộ nhớ mới hơn bản trong DB
+            from dataclasses import asdict
+            d = asdict(queue.jobs[jid])
+        if _held(d, waiting) or _parked(jid):
+            kept += 1
+            keep_files.update(_job_files(d))
+            continue
+        freed += _remove(_job_files(d))
+        ids.append(jid)
+    for jid, job in list(queue.jobs.items()):                  # job chỉ có trong bộ nhớ (chưa kịp lưu): giữ file
+        if jid not in ids:
+            from dataclasses import asdict
+            keep_files.update(_job_files(asdict(job)))
+    queue.forget(ids)
+    now = time.time()
+    for folder, min_age in ((OUT_DIR, ORPHAN_AGE_OUT), (config.UPLOAD_DIR, ORPHAN_AGE_UP)):   # file mồ côi (job cũ đã bị
+        try:                                                                                  # dọn khỏi danh sách)
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            f = os.path.abspath(os.path.join(folder, name))
+            try:
+                young = now - os.path.getmtime(f) < min_age     # đang ghi dở (tải lên / giao kết quả): chưa thuộc job nào
+            except OSError:
+                continue
+            if f not in keep_files and os.path.isfile(f) and not young:
+                freed += _remove([f])
+    if ids:
+        queue.compact()
+    msg = (f"Đã xoá {len(ids)} job, giải phóng {freed / 2**20:.0f}MB"
+           + (f"; giữ {kept} job đang chạy / chờ / chờ đăng" if kept else "") + ".")
+    logging.info("Xóa tất cả: %s", msg)
+    return {"deleted": len(ids), "kept": kept, "freed_mb": round(freed / 2**20, 1), "msg": msg}

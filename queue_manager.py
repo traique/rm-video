@@ -281,6 +281,39 @@ class JobQueue:
                 out.append(job)
         return out
 
+    def all_saved(self) -> list[dict]:
+        """Mọi job trong jobs.db (kể cả job cũ không còn trong bộ nhớ), mới nhất trước."""
+        out = []
+        for _jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC").fetchall():
+            try:
+                out.append(json.loads(data))
+            except ValueError:
+                out.append({"id": _jid, "status": "error"})
+        return out
+
+    def forget(self, ids: list[int]) -> None:
+        """Bỏ job khỏi danh sách web và jobs.db (bảng jobs + steps). Nhật ký nguồn (sources) giữ lại để xử lý khiếu nại
+        bản quyền. Không đụng job đang chờ / chạy / chờ duyệt (nơi gọi đã lọc)."""
+        if not ids:
+            return
+        for jid in ids:
+            self.jobs.pop(jid, None)
+        try:
+            marks = ",".join("?" * len(ids))
+            self._db.execute(f"DELETE FROM jobs WHERE id IN ({marks})", ids)
+            self._db.execute(f"DELETE FROM steps WHERE job_id IN ({marks})", ids)
+            self._db.commit()
+        except Exception:
+            logging.exception("Không xoá được job %s khỏi jobs.db", ids)
+        events.changed()
+
+    def compact(self) -> None:
+        """Thu nhỏ jobs.db sau khi xoá nhiều (VACUUM); lỗi thì thôi."""
+        try:
+            self._db.execute("VACUUM")
+        except Exception as e:
+            logging.info("Không thu nhỏ được jobs.db: %s", str(e)[:120])
+
     def log_steps(self, job: Job):
         """timeline [(bước, giây từ lúc bắt đầu)] -> bảng steps (bước, bắt đầu, kết thúc)."""
         tl = [(s, float(t)) for s, t in job.timeline if s]

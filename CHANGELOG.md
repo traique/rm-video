@@ -13,6 +13,18 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.10 — Nút «Xóa» / «Xóa tất cả» trong Hàng đợi & kết quả (25/11/2026)
+
+- **Xóa từng job** (nút «Xóa» ở cột Trạng thái) và **«🗑 Xóa tất cả job đã xong»**: bỏ job khỏi danh sách VÀ xoá luôn trên
+  máy cho nhẹ — video kết quả, bản ngắn, ảnh bìa, file tải lên của job, dòng trong jobs.db (bảng jobs + steps; nhật ký
+  nguồn để xử lý khiếu nại bản quyền vẫn giữ). «Xóa tất cả» còn dọn job cũ chỉ còn trong jobs.db, video mồ côi trong
+  outputs/ và file tải lên không job nào dùng, rồi thu nhỏ jobs.db.
+- **Không xoá**: job đang chờ / chạy / chờ duyệt (bấm Hủy trước), video đang chờ đăng YouTube / gửi gói TikTok / tự động
+  đăng Fanpage (bếp, truyện bé), truyện bé đang giữ chỗ Kaggle (Xóa tất cả bỏ qua; Xóa từng job thì bỏ luôn mục giữ chỗ),
+  file vừa ghi (< 10 phút kết quả, < 1 giờ tải lên: có thể đang giao / đang tải). Chỉ xoá file trong outputs/, uploads_in/,
+  work/ của bot. Cả hai nút đều hỏi lại trước khi xoá.
+- API: `POST /api/jobs/{id}/delete` (409 kèm lý do khi không xoá được), `POST /api/jobs/clear`.
+
 ## 1.4.9 — Tự nhận ra và tự khôi phục khi tài nguyên trên Kaggle bị xoá (24/11/2026)
 
 Người dùng lỡ xoá hết «Your Work» trên Kaggle (notebook + có thể cả dataset).
