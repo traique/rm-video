@@ -105,9 +105,24 @@ async def process_kids(job: Job, tmp: str) -> str:
         if not col:                                   # lỗi thật sau khi gửi (không phải giữ chỗ): bỏ mục đã ghi lúc gửi
             kids_auto.unpark(job.id)
         raise
-    # kết quả đã về máy: bỏ mục giữ chỗ (ghi từ lúc gửi) NGAY. Job 7 ngày 25/11 tự thu được video nhưng mục còn đó nên vòng
-    # tự động thấy phiên Kaggle «xong» và tạo job 8 tải lại 78 MB thêm 15 phút
-    kids_auto.unpark(int(col.get("job") or job.id) if col else job.id)
+    # Mục giữ chỗ (ghi từ lúc gửi) còn tới cuối hàm: bot tắt / quá hạn lúc đang kiểm video thì job chạy lại thu kết quả,
+    # không gửi lại cả phiên. Xong (hoặc kết quả không dùng được — thu lại cũng vậy) mới bỏ; job 7 ngày 25/11 không bỏ
+    # nên vòng tự động thấy phiên «xong» và tạo job 8 tải lại 78 MB thêm 15 phút.
+    parked_job = int(col.get("job") or job.id) if col else job.id
+    try:
+        video = await _finish_kids(job, brief, res, col, st0, data)
+    except asyncio.CancelledError:                    # bot tắt / người dùng huỷ (jobs.py tự bỏ mục khi huỷ)
+        raise
+    except Exception:
+        kids_auto.unpark(parked_job)
+        raise
+    kids_auto.unpark(parked_job)
+    return video
+
+
+async def _finish_kids(job: Job, brief: dict, res: dict, col: dict | None, st0: dict | None, data: dict) -> str:
+    """Kết quả Kaggle đã về máy: kiểm video, ảnh bìa, bài đăng, bộ nhớ truyện. Trả đường dẫn video."""
+    import kids_auto
     video = res["video"]
     job.step = "Truyện bé: kiểm video"
     bad = await kids_job.qa_video(video)

@@ -273,7 +273,7 @@ def test_switching_kaggle_account_live_resets_cooldown_and_ready(monkeypatch):
 def test_console_typos_suggest_or_accept(monkeypatch):
     import admin
     assert admin.normalize("kids_setup-status") == "kids_setup_status"
-    assert admin.normalize("YT-test https://a-b.com/x-Y") == "yt_test https://a-b.com/x-y"
+    assert admin.normalize("YT-test https://a-b.com/x-Y") == "yt_test https://a-b.com/x-Y"   # phần sau tên lệnh giữ nguyên
     assert "kids_setup" in admin.unknown("kid_setup") and "Lệnh console" not in admin.unknown("kid_setup")
     assert "kaggle_check" in admin.unknown("kids_check")
     assert "Lệnh console" in admin.unknown("xin chào")
@@ -394,3 +394,105 @@ def test_busy_is_not_counted_as_kaggle_failure(monkeypatch, tmp_path):
     job = Job(url="https://x", mode="cook", duration=0, voice="v")
     assert asyncio.run(backends.try_produce(job, {}, str(tmp_path))) is None
     assert rec == [] and "đang đông" in job.error and "Kaggle lỗi" not in job.error
+
+
+# ---------------- rà soát 25/11 tối (code-review) ----------------
+
+def test_yielding_to_other_job_does_not_start_cooldown(monkeypatch, tmp_path):
+    """Truyện bé nhường Botkeep cho job khác (giữ chỗ sau 5 phút vì có job chờ) — Kaggle không hề chậm: không ghi số đo
+    «parked», không nghỉ gửi GPU (trước: job bếp vừa tới bị dồn lên Botkeep cả giờ)."""
+    import kids_auto
+    monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids_auto.json"))
+    monkeypatch.setattr(kaggle_worker, "_others_waiting", lambda: True)
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+
+    def sleep(s):
+        now[0] += s
+    monkeypatch.setattr(kaggle_api, "_sleep", sleep)
+    park = {"slug": "rmvideo-kids", "job": 70, "token": "t", "since": 0, "expires_at": 9999}
+    with pytest.raises(kaggle_api.Parked):
+        kaggle_worker._wait_session("rmvideo-kids", 7200, None, queue_max=3600, park_info=park)
+    assert kaggle_worker.gpu_cool() == "" and kaggle_worker._qstate()["waits"] == []
+    # còn chờ máy quá hạn thật thì vẫn ghi số đo + nghỉ
+    monkeypatch.setattr(kaggle_worker, "_others_waiting", lambda: False)
+    now[0] = 0.0
+    with pytest.raises(kaggle_api.Parked):
+        kaggle_worker._wait_session("rmvideo-kids", 7200, None, queue_max=600, park_info=park)
+    assert "lâu không cấp máy" in kaggle_worker.gpu_cool() and kaggle_worker._qstate()["waits"][-1]["how"] == "parked"
+
+
+def test_wait_notices_cancel_within_seconds_despite_long_poll_gap(monkeypatch):
+    """Hỏi thưa (tới 120 giây) nhưng Hủy / tắt bot phải được thấy trong vài giây: nghỉ theo khúc STOP_CHECK."""
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+    naps = []
+
+    def sleep(s):
+        naps.append(s)
+        now[0] += s
+    monkeypatch.setattr(kaggle_api, "_sleep", sleep)
+    flag = {"stop": False}
+
+    def stop():
+        if now[0] >= 700:
+            flag["stop"] = True
+        return flag["stop"]
+    with pytest.raises(kaggle_api.KaggleError, match="đã huỷ"):
+        kaggle_api.wait("x", 7200, every=20, stop=stop)
+    assert max(naps) <= kaggle_api.STOP_CHECK and now[0] < 700 + 2 * kaggle_api.STOP_CHECK
+
+
+def test_collect_of_parked_session_does_not_record_queue_time(monkeypatch, tmp_path):
+    """Thu kết quả phiên giữ chỗ (lâu sau khi gửi): phiên đang chạy ở lần hỏi đầu không được ghi thành «chờ 0 phút» che
+    mất số đo thật, cũng không nghỉ gửi GPU lần nữa."""
+    kaggle_worker.note_queue(42 * 60, "parked")
+    states = iter([("RUNNING", ""), ("RUNNING", ""), ("COMPLETE", "")])
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: next(states))
+    monkeypatch.setattr(kaggle_api, "_sleep", lambda s: None)
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": [{"fileName": "result.json", "url": "r"}]})
+
+    def dl(url, dst, *a, **k):
+        json.dump({"ok": True, "token": "t"}, open(dst, "w"))
+        return 1
+    monkeypatch.setattr(kaggle_api, "download", dl)
+    monkeypatch.setattr(kaggle_worker, "_fetch", lambda *a, **k: [{"ok": True}])
+    park = {"slug": "rmvideo-kids", "job": 70, "token": "t", "since": time.time() - 3000,
+            "expires_at": time.time() + 3600, "fetch_files": []}
+    kaggle_worker._collect_sync(park, str(tmp_path), lambda s: None)
+    waits = kaggle_worker._qstate()["waits"]
+    assert len(waits) == 1 and waits[0]["how"] == "parked"
+    assert kaggle_worker.queue_busy(8 * 60)                             # số đo 42 phút vẫn còn hiệu lực
+
+
+def test_queue_busy_uses_latest_informative_entry():
+    """Phiên bỏ / giữ chỗ sớm (ngắn hơn hạn) chỉ nói «hàng chờ ≥ ngần ấy», không che mất số đo dài trước đó; phiên được
+    cấp máy nhanh sau đó mới cho biết hàng chờ đã ngắn lại."""
+    kaggle_worker.note_queue(42 * 60, "got")
+    kaggle_worker.note_queue(5 * 60, "parked")
+    assert "42 phút" in kaggle_worker.queue_busy(8 * 60)
+    kaggle_worker.note_queue(9 * 60, "gave_up")                        # bỏ sau 9 phút: hàng chờ ≥ 9 phút > hạn 8
+    assert "9 phút" in kaggle_worker.queue_busy(8 * 60)
+    kaggle_worker.note_queue(3 * 60, "got")
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+
+
+def test_console_argument_case_preserved():
+    import admin
+    assert admin.normalize("YT-test https://Youtu.be/AbC") == "yt_test https://Youtu.be/AbC"
+
+
+def test_lora_report_handles_null_files(monkeypatch):
+    """Kaggle trả files: null cho notebook chưa có đầu ra: báo «không có file LoRA», không phải «không kiểm được»."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "notebookabc")
+    monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1")
+    monkeypatch.setattr(kaggle_worker, "_OUT_OK", {})
+    monkeypatch.setattr(kaggle_worker, "_LORA_OK", {})
+    monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: slug != "rmvideo-kids-lora")
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": None})
+    lines = kaggle_worker.resources_report(heal=False)
+    lora = [x for x in lines if "LoRA" in x]
+    assert lora and "không kiểm được" not in lora[0] and "không có file" in lora[0]

@@ -43,8 +43,8 @@ COMMANDS = ("help", "status", "health", "update_ytdlp", "setup_offline", "remove
 
 def normalize(cmd: str) -> str:
     """Chữ thường; tên lệnh gõ «-» thay «_» vẫn nhận (25/11: «kids_setup-status»). Phần sau tên lệnh (link…) giữ nguyên."""
-    head, sep, rest = cmd.strip().lower().partition(" ")
-    return head.replace("-", "_") + sep + rest
+    head, sep, rest = cmd.strip().partition(" ")
+    return head.lower().replace("-", "_") + sep + rest
 
 
 def unknown(cmd: str) -> str:

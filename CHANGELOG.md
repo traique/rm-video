@@ -34,7 +34,14 @@ token.
     việc sắp gửi (bóc lời bếp 8 phút, dựng bếp) thì không gửi, làm thẳng trên Botkeep — hết cảnh gửi, chờ, rồi xoá
     notebook. Truyện bé (chờ được lâu, giữ chỗ) vẫn gửi và cập nhật số đo; phiên sau được cấp máy nhanh là gửi lại.
   - Phải bỏ phiên vì chờ quá lâu nhiều lần trong 24 giờ thì nghỉ dài dần: 1, 2, 4, tối đa 6 giờ (trước: luôn 1 giờ).
-  - Bot chủ động không gửi thì ghi «Kaggle đang đông…», không tính là lỗi Kaggle trong `health`.
+  - Bot chủ động không gửi thì ghi «Kaggle đang đông…», không tính là lỗi Kaggle trong `health` (cả phần của video dài
+    và bản ngắn).
+- Rà soát (code-review + security-review, 25/11 tối): truyện bé nhường Botkeep cho job khác (giữ chỗ sau 5 phút) không bị
+  tính là «Kaggle chậm» (trước: job bếp vừa tới bị dồn lên Botkeep cả giờ); thu kết quả phiên giữ chỗ không ghi nhầm «chờ 0
+  phút» che số đo thật; số đo hàng chờ xét mục mới nhất còn có ý nghĩa; nghỉ giữa hai lần hỏi (tới 2 phút) vẫn thấy Hủy /
+  tắt bot trong 5 giây; mục giữ chỗ truyện bé giữ tới khi làm xong bài đăng (bot tắt lúc đang kiểm video thì chạy lại thu
+  kết quả, không gửi lại cả phiên); `kaggle_check` xử lý notebook chưa có đầu ra; lệnh console giữ nguyên chữ hoa ở link.
+  Security review: không phát hiện lỗ hổng mới.
 
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 

@@ -455,6 +455,7 @@ REFRESH = 300              # giây: báo lại "đang chờ máy / đang làm (N
 # Chờ máy lâu thì vài phút mới có thay đổi; đang chạy thì kết quả cần sớm hơn một chút.
 POLL_QUEUED = ((120, 60.0), (600, 120.0))   # (đã chờ quá ngần này giây, hỏi cách ngần này giây) khi QUEUED
 POLL_RUNNING = 30.0
+STOP_CHECK = 5.0           # giây: lúc nghỉ giữa hai lần hỏi (tới 120 giây) vẫn xem job có bị huỷ / bot tắt không
 
 
 def poll_every(every: float, state: str, waited: float) -> float:
@@ -476,7 +477,15 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=Non
          queue_max: float | None = None, park=None) -> str:
     """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ / chờ máy quá queue_max giây).
     park(giây đã chờ) -> True: thôi chờ nhưng giữ phiên trong hàng chờ (ném Parked; truyện bé, 1.4.6)."""
-    sleep = sleep or _sleep
+    if sleep is None:
+        def sleep(secs: float) -> None:          # nghỉ theo khúc STOP_CHECK: Hủy / tắt bot được thấy trong vài giây
+            done = 0.0
+            while done < secs:
+                if stop is not None and stop():
+                    return
+                step = min(secs - done, STOP_CHECK)
+                _sleep(step)
+                done += step
     t0 = time.time()
     last = ""
     reported = 0.0

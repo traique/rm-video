@@ -834,7 +834,7 @@ class Remake:
                                                          on_step=lambda st: setattr(job, "step", st))
             if isinstance(sh, dict):
                 self.short_out = sh
-            else:
+            elif not isinstance(sh, kaggle_worker.Busy):     # Busy: bản đầy đủ đã ghi chú lý do bên dưới
                 job.note(f"ℹ️ Bản ngắn: Kaggle lỗi ({str(sh)[:120]}), dựng lại sau bản đầy đủ. ")
             if isinstance(main, dict):
                 return await finish(main, self.pre_cover)

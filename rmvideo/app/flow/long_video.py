@@ -128,9 +128,13 @@ async def _remake_pieces(job: Job, tmp: str, src: str, title: str, pieces: list,
                         await asyncio.to_thread(shutil.move, out, dst)
                         out = dst
                 except Exception as e:                 # Kaggle lỗi phần này: làm lại phần này trên Botkeep
-                    logging.warning("%s: Kaggle lỗi (%s), làm trên Botkeep", label, e)
-                    metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
-                    sub.error = f"ℹ️ Kaggle lỗi ({str(e)[:120]}): làm trên Botkeep. "
+                    if isinstance(e, kaggle_worker.Busy):   # bot chủ động không gửi (đang nghỉ / hàng chờ đông)
+                        logging.info("%s: làm trên Botkeep (%s)", label, e)
+                        sub.error = f"ℹ️ {str(e)[:200]}. "
+                    else:
+                        logging.warning("%s: Kaggle lỗi (%s), làm trên Botkeep", label, e)
+                        metrics.record("kaggle", "kaggle", ok=False, detail=str(e))
+                        sub.error = f"ℹ️ Kaggle lỗi ({str(e)[:120]}): làm trên Botkeep. "
                     sub.approved, sub.post_keep = d.approved, sub.post      # lời đã chốt: không gọi AI lần nữa
                     job.step = f"{label}: làm trên Botkeep"
                     out = await dispatch.process(sub, part_dir, allow_review=False, local_only=True, teaser_ok=False)

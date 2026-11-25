@@ -281,16 +281,22 @@ def note_queue(waited: float, how: str) -> None:
 
 
 def queue_busy(limit: float) -> str:
-    """Lý do không gửi việc chỉ chờ máy được `limit` giây ("" = gửi được)."""
-    waits = _qstate().get("waits") or []
-    if not waits:
-        return ""
-    w = waits[-1]
-    if time.time() - float(w.get("t", 0)) > QUEUE_MEMORY or float(w.get("wait", 0)) <= limit:
-        return ""
-    return (f"Kaggle đang đông: phiên GPU gần nhất {'chờ' if w.get('how') == 'got' else 'chờ mà chưa được cấp'} máy "
-            f"{float(w['wait']) / 60:.0f} phút, việc này chỉ chờ được {limit / 60:.0f} phút — làm trên Botkeep, không "
-            "gửi rồi bỏ phiên")
+    """Lý do không gửi việc chỉ chờ máy được `limit` giây ("" = gửi được). Xét số đo MỚI NHẤT còn nói được điều gì: phiên
+    được cấp máy («got») cho biết đúng thời gian chờ; phiên bỏ / giữ chỗ chỉ cho biết hàng chờ ≥ ngần ấy — ngắn hơn hạn
+    thì không kết luận được, bỏ qua (không che mất số đo dài hơn trước đó)."""
+    now = time.time()
+    for w in reversed(_qstate().get("waits") or []):
+        if now - float(w.get("t", 0)) > QUEUE_MEMORY:
+            break
+        wait, how = float(w.get("wait", 0)), w.get("how")
+        if how != "got" and wait <= limit:
+            continue
+        if wait <= limit:
+            return ""
+        return (f"Kaggle đang đông: phiên GPU gần nhất {'chờ' if how == 'got' else 'chờ mà chưa được cấp'} máy "
+                f"{wait / 60:.0f} phút, việc này chỉ chờ được {limit / 60:.0f} phút — làm trên Botkeep, không gửi rồi bỏ "
+                "phiên")
+    return ""
 
 
 def queue_cool() -> float:
@@ -359,17 +365,18 @@ def _unwatch(run: dict):
 
 
 def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None,
-                  park_info: dict | None = None):
+                  park_info: dict | None = None, measure: bool = True):
     """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, chờ máy quá queue_max, mất mạng, bị huỷ, notebook lỗi) thì bỏ phiên:
     phiên chưa chạy tự thoát nhờ hạn `expires_at` (trước đây phiên quá giờ vẫn nằm trong hàng chờ, lát sau tự chạy,
     tốn giờ GPU và chặn lượt kế). park_info (truyện bé): thay vì bỏ, giữ chỗ khi chờ máy quá queue_max hoặc có job khác
-    chờ (ném Parked, kids_auto thu kết quả sau)."""
+    chờ (ném Parked, kids_auto thu kết quả sau). measure=False: gọi lâu sau khi gửi (thu kết quả phiên giữ chỗ) — không đo
+    thời gian chờ máy, không nghỉ gửi GPU (đã đo / đã nghỉ lúc giữ chỗ)."""
     run = _watch(slug)
     run["park_info"] = park_info
-    t_push, seen = time.time(), {"got": False}
+    t_push, seen = time.time(), {"got": False, "queue": False}
 
     def _status(s, secs):                              # lần đầu thấy hết QUEUED: ghi thời gian chờ máy
-        if not seen["got"] and "QUEUED" not in str(s).upper():
+        if measure and not seen["got"] and "QUEUED" not in str(s).upper():
             seen["got"] = True
             note_queue(time.time() - t_push, "got")
         if on_status:
@@ -379,7 +386,10 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue
         qmax = queue_max
 
         def park(secs: float) -> bool:
-            return (qmax is not None and secs > qmax) or (secs > KIDS_PARK_MIN and _others_waiting())
+            if qmax is not None and secs > qmax:       # hàng chờ GPU đông thật
+                seen["queue"] = True
+                return True
+            return secs > KIDS_PARK_MIN and _others_waiting()   # nhường Botkeep cho job khác: Kaggle không có lỗi gì
         queue_max = None
     try:
         kaggle_api.wait(slug, timeout, every=every, on_status=_status, stop=lambda: run["flag"], queue_max=queue_max,
@@ -388,12 +398,12 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue
         e.info = park_info
         if park_info is not None:
             _park(park_info)
-        if "chưa cấp máy" in str(e):                   # hàng chờ GPU đông: không gửi thêm phiên một lúc
+        if seen["queue"] and measure:                  # hàng chờ GPU đông: không gửi thêm phiên một lúc
             note_queue(time.time() - t_push, "parked")
             _cool(queue_cool(), "Kaggle lâu không cấp máy GPU")
         raise
     except KaggleError as e:
-        if "chờ máy quá" in str(e):
+        if "chờ máy quá" in str(e) and measure:
             note_queue(time.time() - t_push, "gave_up")
             _cool(queue_cool(), "Kaggle lâu không cấp máy GPU")
         if run.get("parked"):                          # abort(park=True) đã ghi giữ chỗ: không báo «phiên sẽ tự thoát»
@@ -1014,7 +1024,7 @@ def resources_report(heal: bool = True) -> list[str]:
     if src and src[0] != "dataset" and custom:          # notebook tự đặt (vd chạy tay kids_setup): LoRA nằm trong đó
         try:
             have = any(str(f.get("fileName") or "").endswith(LORA_FILE)
-                       for x in custom for f in kaggle_api.outputs(x).get("files", []))
+                       for x in custom for f in (kaggle_api.outputs(x).get("files") or []))
         except Exception:
             have = None
         out.append(f"✅ LoRA nhân vật: trong notebook {', '.join(custom)}" if have else
@@ -1026,7 +1036,7 @@ def resources_report(heal: bool = True) -> list[str]:
         out.append(f"ℹ️ LoRA nhân vật: không thấy dataset {SLUG_KIDS_LORA}, sẽ dùng bản kids_setup tải vào notebook {src[1]}")
     elif src:
         try:
-            have = any(str(f.get("fileName") or "").endswith(LORA_FILE) for f in kaggle_api.outputs(src[1]).get("files", []))
+            have = any(str(f.get("fileName") or "").endswith(LORA_FILE) for f in (kaggle_api.outputs(src[1]).get("files") or []))
         except Exception:
             have = None
         out.append("✅ LoRA nhân vật: trong notebook " + src[1] if have else
@@ -1084,7 +1094,7 @@ def kids_setup_status() -> str:
 
 def fresh_url(slug: str, name: str) -> str:
     """Link tải mới của một file output (link ký sẵn của Google Storage có hạn; tải chậm trên Botkeep có thể quá hạn)."""
-    for f in kaggle_api.outputs(slug).get("files", []):
+    for f in (kaggle_api.outputs(slug).get("files") or []):
         if f.get("fileName") == name and f.get("url"):
             return f["url"]
     raise KaggleError(f"Kaggle không còn file {name}")
@@ -1311,7 +1321,7 @@ def _collect_sync(park: dict, tmp: str, on_step) -> list:
 
         def st(s, secs):
             on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút, giữ chỗ)")
-        _wait_session(slug, left, st, queue_max=KIDS_TIMEOUT - KIDS_RUN_RESERVE, park_info=park)
+        _wait_session(slug, left, st, queue_max=KIDS_TIMEOUT - KIDS_RUN_RESERVE, park_info=park, measure=False)
     on_step("Kaggle: tải kết quả về")
     return _fetch(slug, [{"token": park.get("token"), "fetch_files": list(park.get("fetch_files") or [])}], False, tmp,
                   on_step, bool(park.get("gpu", True)))
