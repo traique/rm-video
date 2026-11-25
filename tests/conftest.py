@@ -1,3 +1,4 @@
+import pytest
 """Cấu hình chung cho pytest: chạy từ thư mục gốc dự án, không đụng jobs.db / settings.json thật."""
 import os
 import sys
@@ -32,3 +33,19 @@ _OLD_DEFAULTS = {"BRAND_NAME": "0", "BRAND_TAGLINE": "0", "BRAND_CLOSE": "0", "B
 for _k, _v in _OLD_DEFAULTS.items():
     os.environ.setdefault(_k, _v)
 os.environ.setdefault("RM_BRAND_DIR", os.path.join(_TMP, "no_brand_kit"))   # không có logo / âm hiệu mặc định
+
+
+
+@pytest.fixture(autouse=True)
+def _no_kaggle_resource_calls(monkeypatch):
+    """1.4.9: kids_ready / lyria.remote_ok hỏi Kaggle model, dataset còn không. Test không gọi mạng thật: coi như còn;
+    test nào cần trường hợp mất thì tự đặt lại (tests/test_v149.py)."""
+    import time as _t
+    import kaggle_worker as _kw
+    from rmvideo.media import lyria as _ly
+
+    class _Fresh(dict):                       # mọi dataset kho nhạc: «vừa kiểm thấy còn»
+        def get(self, k, d=None):
+            return _t.time()
+    monkeypatch.setattr(_kw, "_READY", {"ok": _t.time()})
+    monkeypatch.setattr(_ly, "_REMOTE", _Fresh())

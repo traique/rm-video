@@ -269,12 +269,14 @@ dialog.reauth h3{margin:0 0 6px;font-size:1.05rem}
 <section class="card" aria-labelledby="h-queue">
   <h2 id="h-queue">Hàng đợi &amp; kết quả <span class="mut" id="qinfo" role="status" aria-live="polite"></span></h2>
   <p class="mut" id="kaggle_quota" hidden></p>
+  <p><button type="button" class="link danger" id="clear_jobs" onclick="clearJobs()">🗑 Xóa tất cả job đã xong</button>
+    <span class="mut" id="clear_msg" role="status" aria-live="polite"></span></p>
   <table>
     <caption class="sr-only">Danh sách job: số thứ tự, trạng thái, chi tiết và file kết quả</caption>
     <thead><tr><th scope="col">#</th><th scope="col">Trạng thái</th><th scope="col">Chi tiết</th><th scope="col">Kết quả</th></tr></thead>
     <tbody id="rows"></tbody>
   </table>
-  <p class="mut">Chỉ giữ vài video gần nhất trên server, tải về ngay khi xong. Video gửi từ Telegram trả kết quả trong chat Telegram.</p>
+  <p class="mut">Chỉ giữ vài video gần nhất trên server, tải về ngay khi xong. Video gửi từ Telegram trả kết quả trong chat Telegram. «Xóa» bỏ job khỏi danh sách và xoá luôn file của nó trên server cho nhẹ (video đang chờ đăng YouTube / TikTok / Fanpage được giữ).</p>
 </section>
 </main>
 <footer>Video Bot · trang riêng của chủ bot, không lập chỉ mục.</footer>
@@ -571,7 +573,8 @@ function render(d){
       '<td class="st-'+esc(j.status)+'">'+esc(j.status_label)+(j.step&&['processing','review'].includes(j.status)?'<div class="mut">'+esc(j.step)+'</div>':'')+
       (j.status=='processing'?'<div class="mut">đã chạy '+Math.floor(j.elapsed/60)+'p'+(j.eta!=null?', còn ~'+Math.ceil(j.eta/60)+'p':'')+'</div>':'')+
       (['queued','processing'].includes(j.status)?'<button type="button" class="link danger" onclick="cancelJob('+j.id+')">Hủy</button>':'')+
-      (j.status=='review'?'<button type="button" class="link" onclick="openReview('+j.id+')">Duyệt kịch bản</button>':'')+'</td>'+
+      (j.status=='review'?'<button type="button" class="link" onclick="openReview('+j.id+')">Duyệt kịch bản</button>':'')+
+      (['queued','processing','review'].includes(j.status)?'':'<button type="button" class="link danger" onclick="deleteJob('+j.id+')" aria-label="Xóa job '+j.id+'">Xóa</button>')+'</td>'+
       '<td>'+(MODE_ICON[j.mode]||'📦')+' '+(j.duration||'gốc')+(j.duration?'s':'')+' · '+esc(j.source)+
       (j.error?'<div class="'+(j.status=='done'?'st-processing':'st-error')+' mut">'+esc(j.error)+'</div>':'')+
       (j.script?'<div class="mut">'+esc(j.script)+'…</div>':'')+phasesHtml(j)+'</td>'+
@@ -594,6 +597,16 @@ function startEvents(){
 const OST=[['new','Lời mới'],['orig','Giữ tiếng gốc (không đọc)'],['both','Đọc lời mới + lót tiếng gốc']];
 window._jobs={};
 async function cancelJob(id){if(!confirm('Hủy job #'+id+'?'))return;const r=await fetch('/api/jobs/'+id+'/cancel',{method:'POST',headers:hdr()});$('msg').textContent=(await r.json()).msg;refresh();}
+// Xóa job + file của nó trên server (video, bản ngắn, ảnh bìa, file tải lên); job đang chạy / chờ đăng thì server từ chối
+async function deleteJob(id){if(!confirm('Xóa job #'+id+' và file của nó trên server? Không khôi phục được.'))return;
+  try{const r=await fetch('/api/jobs/'+id+'/delete',{method:'POST',headers:hdr()});const d=await r.json().catch(()=>({msg:'lỗi '+r.status}));
+    $('clear_msg').textContent=(r.ok?'✅ ':'⚠️ ')+(d.msg||'');}catch(e){$('clear_msg').textContent='⚠️ '+e.message}
+  refresh();}
+async function clearJobs(){if(!confirm('Xóa MỌI job đã xong / lỗi / đã hủy và file của chúng trên server?\nGiữ lại job đang chạy, đang chờ, chờ duyệt và video đang chờ đăng. Không khôi phục được.'))return;
+  $('clear_jobs').disabled=true;$('clear_msg').textContent='Đang xóa…';
+  try{const r=await fetch('/api/jobs/clear',{method:'POST',headers:hdr()});const d=await r.json().catch(()=>({msg:'lỗi '+r.status}));
+    $('clear_msg').textContent=(r.ok?'✅ ':'⚠️ ')+(d.msg||'');}catch(e){$('clear_msg').textContent='⚠️ '+e.message}
+  $('clear_jobs').disabled=false;refresh();}
 function openReview(id){const j=window._jobs[id];if(!j)return;$('review_card').hidden=false;$('review_card').dataset.id=id;
   $('review_info').textContent='— job #'+id+', '+j.approved.length+' đoạn. Sửa trực tiếp rồi bấm Render.';
   const rc=j.recipe||{};$('review_recipe').hidden=!rc.report;

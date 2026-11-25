@@ -515,10 +515,12 @@ def test_lora_wiring(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "KIDS_LORA", "notebook:rmvideo-lora-train/dcn_lora_v1", raising=False)
     assert kaggle_worker.SLUG_LORA_TRAIN in kaggle_worker.kids_sources()[0]
     assert kaggle_worker.lora_source() == ("notebook", "rmvideo-lora-train", "dcn_lora_v1")
-    exists["v"] = False                                                              # tài khoản không có dataset: vẽ không LoRA
+    exists["v"] = False                    # mất dataset (1.4.9): dùng bản LoRA kids_setup tải vào notebook model
     kaggle_worker._LORA_OK.clear()
     monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1", raising=False)
-    assert kaggle_worker.lora_source() is None and kaggle_worker.kids_spec(job, b0, None)["image"]["lora"] == ""
+    assert kaggle_worker.lora_source() == ("notebook", kaggle_worker.SLUG_KIDS_MODELS, "dcn_lora_v1")
+    sp = kaggle_worker.kids_spec(job, b0, None)
+    assert sp["image"]["lora"] == "dcn_lora_v1" and kaggle_worker.SLUG_KIDS_LORA not in sp["dataset_sources"]
     for off in ("", "off"):
         monkeypatch.setattr(config, "KIDS_LORA", off, raising=False)
         assert kaggle_worker.lora_source() is None and kaggle_worker.SLUG_KIDS_LORA not in kaggle_worker.kids_sources()[1]
@@ -1103,7 +1105,7 @@ def test_kaggle_job_kids_end_to_end(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     res = kaggle_job.main(spec, str(out_dir))[0]
-    assert res["ok"] and res["token"] == "t1" and res["story"]["title"] and res["srt"]
+    assert res["ok"] and res["token"] == "t1" and res["story"]["title"] and res["srt"], res.get("error")
     assert "Thục Đoan" in voices and len(set(voices)) >= 2 and res["timings"]["voices"]   # lời thoại đọc giọng nhân vật
     # từ tiếng Anh (câu dạy từ + câu ôn từ) đọc bằng giọng Anh bản xứ, VieNeu không còn thấy chữ tiếng Anh nào (20/11)
     words = [w["en"] for w in res["brief"]["words"]]

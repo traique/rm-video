@@ -127,6 +127,10 @@ def plan_short(end: float, segs: list, facts: recipe.Facts | None, budget: float
     # chỉ để giữ chân người xem — phản hồi 22/11)
     head = 1 if hook_end and pieces and pieces[0].a < 0.05 and abs(pieces[0].b - hook_end) < 0.01 else 0
     at = max(head, len(pieces) - 1)
+    if at <= head and pieces and pieces[-1].b - hero_a >= edl.MIN_PIECE and hero_a - pieces[-1].a >= edl.MIN_PIECE:
+        p = pieces[-1]          # mọi quãng giữ gộp thành một khúc: tách cảnh cuối ra để điểm danh đứng trước nó, không mở video
+        pieces[-1:] = [edl.Piece(p.a, round(hero_a, 3), zoom=style.ZOOMS[0]), edl.Piece(round(hero_a, 3), p.b, zoom=1.0, push=p.push)]
+        at = len(pieces) - 1
     plan = edl.EditPlan(pieces=pieces[:at] + side + pieces[at:], stretch=stretch, level="short")
     if montage:
         t0 = round(sum(p.length for p in pieces[:at]) * stretch, 2)

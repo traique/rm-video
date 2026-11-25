@@ -236,7 +236,7 @@ def _job(tmp_path, monkeypatch):
 
 def test_over_budget_and_shutdown_abort_kaggle_session(tmp_path, monkeypatch):
     aborts = []
-    monkeypatch.setattr(kaggle_worker, "abort", lambda: aborts.append(1))
+    monkeypatch.setattr(kaggle_worker, "abort", lambda park=False: aborts.append(park))
     monkeypatch.setattr(jobs, "job_budget", lambda job: 0)
     started = asyncio.Event()
 
@@ -246,7 +246,7 @@ def test_over_budget_and_shutdown_abort_kaggle_session(tmp_path, monkeypatch):
     monkeypatch.setattr(jobs, "run_job", slow)
     job = _job(tmp_path, monkeypatch)
     asyncio.run(jobs._run_one(job))
-    assert job.status == "error" and "Quá thời gian" in job.error and aborts == [1]
+    assert job.status == "error" and "Quá thời gian" in job.error and aborts == [True]
 
     monkeypatch.setattr(jobs, "job_budget", lambda job: 3600)
     started.clear()
@@ -259,7 +259,7 @@ def test_over_budget_and_shutdown_abort_kaggle_session(tmp_path, monkeypatch):
         with pytest.raises(asyncio.CancelledError):
             await w
     asyncio.run(go())
-    assert job2.status == "processing" and aborts == [1, 1]
+    assert job2.status == "processing" and aborts == [True, True]
 
 
 def test_tiktok_listing_never_uses_generic_extractor(monkeypatch):

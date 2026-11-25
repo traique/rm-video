@@ -344,16 +344,31 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
                 resp = await _one(model)
                 break
             except Exception as e2:
+                if _gone(str(e2)):                                  # model dự phòng đã ngừng (24/11: gemini-2.5-flash-lite):
+                    _GONE.add(model)                               # bỏ khỏi danh sách, lỗi báo ra vẫn là «quá tải» của model chính
+                    logging.warning("Model dự phòng %s không còn (%s): bỏ qua từ giờ, sửa GEMINI_FALLBACK_MODELS trong Cài đặt",
+                                    model, str(e2)[:80])
+                    continue
                 last = e2
-                if not (_overloaded(str(e2)) or "404" in str(e2) or "NOT_FOUND" in str(e2)):
+                if not _overloaded(str(e2)):
                     raise
         else:
             raise last
     return resp.text or ""
 
 
+_GONE: set[str] = set()        # model dự phòng Google đã gỡ (404 lúc chạy): không thử lại trong lần chạy bot này
+
+
+def _gone(err: str) -> bool:
+    """Lỗi «model không còn» (404 / NOT_FOUND / no longer available) — không nhầm số «404» trong «retry in 40.404s» của
+    lỗi 429."""
+    return ("NOT_FOUND" in err or "no longer available" in err.lower()
+            or bool(re.search(r"(?<![\w.])404(?![\w.])", err)))
+
+
 def fallback_models() -> list[str]:
-    return [m for m in re.split(r"[,\s]+", getattr(config, "GEMINI_FALLBACK_MODELS", "") or "") if m]
+    return [m for m in re.split(r"[,\s]+", getattr(config, "GEMINI_FALLBACK_MODELS", "") or "") if m and m not in _GONE]
 
 
 def _overloaded(err: str) -> bool:
@@ -1003,7 +1018,8 @@ def _join(run: list) -> dict:
     p = dict(run[0])
     for s in run[1:]:
         pt, st = (p.get("text") or "").rstrip(), (s.get("text") or "").strip()
-        if len(st) > 1 and st[1:2].islower():
+        nxt = st.split(" ", 1)[1:2]
+        if len(st) > 1 and st[1:2].islower() and not (nxt and nxt[0][:1].isupper()):    # «Hà Nội», «Gấu Nâu»: giữ hoa
             st = st[:1].lower() + st[1:]
         p["text"] = pt.rstrip(",;:") + (", " if pt.endswith(",") else " ") + st
         p["orig"] = f"{(p.get('orig') or '').strip()} {(s.get('orig') or '').strip()}"

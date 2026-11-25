@@ -13,12 +13,15 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 import urllib.parse
 
+from typing import Any
+
 import config
 import kaggle_api
-from kaggle_api import KaggleError
+from kaggle_api import KaggleError, Parked, SessionLimit
 from rmvideo.services import kaggle_bundle
 from rmvideo.media import proc, voiceplan
 
@@ -49,6 +52,12 @@ PIP_ROFORMER = "; pip install -q audio-separator==0.48.0 audioread"
 PIP_KIDS = PIP + " && pip install -q 'diffusers>=0.36' accelerate bitsandbytes sentencepiece protobuf peft 'huggingface_hub<1.0'"  # hub<1.0: transformers 4.57.6 đòi (đo 18/11: hub 2.4 làm diffusers không import được)
 KIDS_TIMEOUT = 125 * 60          # truyện bé: chờ máy (đo 18/11: 16-60 phút, giờ cao điểm) + cài + tải GGUF 20GB + 3 model + viết + vẽ + dựng
 KIDS_RUN_RESERVE = 50 * 60       # giờ chạy cần cho một truyện (đo 18/11: ~20 phút, nạp FLUX từ ổ gắn 7-8 phút): chưa được cấp máy khi chỉ còn ngần này thì bỏ
+# Giữ chỗ (1.4.6, job 3 ngày 24/11: chờ GPU 75 phút rồi bỏ -> mất truyện lẫn chỗ xếp hàng; gửi lại là xếp hàng từ đầu).
+# Phiên truyện bé gửi với hạn bắt đầu KIDS_PARK_MAX: bot thôi chờ (hết queue_max, hoặc có job khác chờ mà đã chờ quá
+# KIDS_PARK_MIN, hoặc bot tắt / job quá hạn) thì phiên VẪN nằm trong hàng chờ; kids_auto hỏi trạng thái mỗi 2 phút, có kết
+# quả thì tạo job thu về (rmvideo/app/flow/kids.py: brief.collect).
+KIDS_PARK_MAX = 4 * 3600
+KIDS_PARK_MIN = 5 * 60
 GPU_MIN_LEFT = 20 * 60           # còn dưới 20 phút GPU trong tuần thì chạy CPU
 TIMEOUT = 50 * 60                # cả hàng chờ máy + chạy (một việc)
 TIMEOUT_PER_EXTRA = 12 * 60      # mỗi việc thêm trong lô
@@ -59,21 +68,157 @@ _LOCK = asyncio.Lock()
 _ABORT = {"run": None}     # phiên đang chờ: {"flag", "slug"} riêng từng lượt (lượt trước kết thúc không xoá cờ lượt sau)
 
 
-def abort():
+def abort(park: bool = False):
     """Huỷ job / quá hạn / bot tắt khi đang chờ Kaggle: dừng vòng chờ ngay. Phiên Kaggle chưa được cấp máy sẽ tự thoát
-    khi được cấp (hạn `expires_at` trong việc gửi đi)."""
+    khi được cấp (hạn `expires_at` trong việc gửi đi). park=True (bot tắt, job quá hạn — KHÔNG phải người dùng huỷ): phiên
+    truyện bé giữ chỗ, kids_auto theo dõi và thu kết quả sau."""
     run = _ABORT["run"]
     if not run:
         return
     run["flag"] = True
-    _cancel_session(run["slug"])
+    if park and run.get("park_info") and _park(run["park_info"]):
+        run["parked"] = True
+        return
+    if run.get("park_info"):                            # người dùng huỷ: bỏ mục giữ chỗ (ghi lúc gửi), không thu kết quả nữa
+        try:
+            import kids_auto
+            kids_auto.unpark(int(run["park_info"]["job"]))
+        except Exception as e:
+            logging.warning("Không bỏ được mục giữ chỗ Kaggle (%s)", str(e)[:120])
+    if run.get("park_info"):
+        _cancel_session(run["slug"], long_expiry=True)
+    else:
+        _cancel_session(run["slug"])
 
 
-def _cancel_session(slug: str):
-    """API công khai của Kaggle chỉ huỷ được phiên theo MÃ PHIÊN mà không có lệnh nào trả mã đó (bản cũ gửi tên
-    notebook nên luôn bị 403 và báo nhầm «token sai», bản 43). Thay vào đó mỗi việc gửi đi mang hạn bắt đầu
-    (`expires_at`): bot đã bỏ chờ thì phiên vừa được cấp máy thoát ngay, không tốn giờ GPU, không giữ chỗ."""
-    logging.info("Bỏ chờ phiên Kaggle %s: phiên chưa chạy sẽ tự thoát khi được cấp máy", slug)
+def _park(info: dict) -> bool:
+    """Ghi phiên truyện bé đang giữ chỗ vào kids_auto (theo dõi, thu kết quả). Trả False nếu không ghi được."""
+    try:
+        import kids_auto
+        kids_auto.park_record(info)
+        logging.info("Giữ chỗ phiên Kaggle %s cho job %s: bot theo dõi, có kết quả thì thu về (tối đa %.0f giờ)",
+                     info.get("slug"), info.get("job"), KIDS_PARK_MAX / 3600)
+        return True
+    except Exception as e:
+        logging.warning("Không ghi được phiên Kaggle giữ chỗ (%s)", str(e)[:160])
+        return False
+
+
+def _parked_other(slug: str, job: Any) -> Any:
+    """Mã job truyện bé KHÁC đang giữ chỗ trên cùng notebook (None nếu không có)."""
+    try:
+        import kids_auto
+        return next((p.get("job") for p in kids_auto.load_state()["parked"] if p.get("slug") == slug and p.get("job") != job),
+                    None)
+    except Exception:
+        return None
+
+
+def _others_waiting() -> bool:
+    """Có job khác đang chờ trong hàng đợi Botkeep (job truyện bé đang giữ worker thì nên nhường)."""
+    try:
+        from state import queue
+        return int(getattr(queue, "pending", 0) or 0) > 1
+    except Exception:
+        return False
+
+
+GPU_SESSIONS = 2           # Kaggle: tối đa chừng này phiên GPU «batch» xếp hàng / chạy cùng lúc (đo thật 24/11 job 4)
+SLOT_WAIT = 120.0          # giây giữa hai lần gửi lại khi Kaggle kín phiên GPU
+GPU_SLUGS = (SLUG, SLUG_KIDS, SLUG_ANALYZE)
+
+
+def _cancel_session(slug: str, long_expiry: bool = False):
+    """Bỏ phiên đã gửi: xoá notebook (kaggle_api.delete_kernel) — API công khai chỉ huỷ phiên theo MÃ PHIÊN mà không lệnh
+    nào trả mã đó (bản 43 bị 403). Trước 1.4.8 chỉ dựa vào hạn bắt đầu `expires_at` (phiên được cấp máy sau hạn tự thoát),
+    nhưng phiên chưa được cấp máy vẫn xếp hàng và CHIẾM một trong GPU_SESSIONS chỗ: job 4 ngày 24/11 bị từ chối «Maximum
+    batch GPU session count of 2 reached» vì hai phiên bot đã bỏ còn xếp hàng. Chỉ xoá khi phiên CÒN xếp hàng / chạy (phiên
+    đã xong / lỗi không chiếm chỗ; xoá là mất đầu ra — tiếng nền đã tách mà lần dựng sau dùng lại — và log để dò lỗi);
+    notebook đang có phiên truyện bé giữ chỗ thì không xoá. Chạy trong luồng nền: nơi gọi (Hủy, quá hạn, tắt bot) ở vòng sự
+    kiện, không được chờ mạng."""
+    if _slug_parked(slug):
+        logging.info("Bỏ chờ phiên Kaggle %s nhưng notebook còn phiên truyện bé giữ chỗ: không xoá", slug)
+        return
+    if not kaggle_api.configured():
+        return
+
+    def run() -> None:
+        try:
+            st, _why = kaggle_api.status(slug)
+            if st.upper() not in ("QUEUED", "RUNNING") or _slug_parked(slug):
+                logging.info("Bỏ chờ phiên Kaggle %s (%s): không cần xoá notebook", slug, st)
+                return
+            kaggle_api.delete_kernel(slug)
+            logging.info("Bỏ phiên Kaggle %s (%s): đã xoá notebook, trả chỗ GPU", slug, st)
+        except Exception as e:
+            logging.info("Bỏ chờ phiên Kaggle %s (không xoá được notebook: %s): phiên chưa chạy sẽ tự thoát khi được cấp "
+                         "máy%s", slug, str(e)[:100], " sau hạn %.0f giờ" % (KIDS_PARK_MAX / 3600) if long_expiry else "")
+    threading.Thread(target=run, name=f"kaggle-cancel-{slug}", daemon=True).start()
+
+
+def _slug_parked(slug: str) -> bool:
+    try:
+        import kids_auto
+        return any(p.get("slug") == slug for p in kids_auto.load_state()["parked"])
+    except Exception:
+        return False
+
+
+def _free_slots(current: str) -> list:
+    """Kaggle kín GPU_SESSIONS phiên GPU: xoá notebook của bot còn phiên xếp hàng / chạy (phiên «ma»: bot đã bỏ chờ mà
+    Kaggle chưa cấp máy; bot chỉ chạy một phiên một lúc nên phiên nào còn đó đều là ma) — trừ notebook có phiên truyện bé
+    giữ chỗ. Trả danh sách slug đã xoá."""
+    freed = []
+    for slug in GPU_SLUGS:              # chỉ notebook công việc (không bao giờ notebook model / nhạc / PhoWhisper)
+        if _slug_parked(slug):
+            continue
+        try:
+            st, _why = kaggle_api.status(slug)
+        except KaggleError:
+            continue
+        if st.upper() in ("QUEUED", "RUNNING"):
+            try:
+                kaggle_api.delete_kernel(slug)
+                freed.append(slug)
+                logging.warning("Kaggle kín %d phiên GPU: đã xoá notebook %s còn phiên %s (bot đã bỏ)", GPU_SESSIONS, slug, st)
+            except Exception as e:
+                logging.warning("Kaggle: không xoá được notebook %s (%s)", slug, str(e)[:120])
+    return freed
+
+
+FREE_SETTLE = 10.0         # giây chờ Kaggle nhả chỗ sau khi xoá phiên ma rồi mới gửi lại
+
+
+def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss: list | None, on_step,
+          wait_max: float = 0.0, stop=None) -> dict:
+    """kaggle_api.push + xử lý «kín phiên GPU»: xoá phiên ma rồi gửi lại; vẫn kín thì chờ (wait_max giây, truyện bé) mỗi
+    SLOT_WAIT gửi lại, hoặc ném SessionLimit (bếp: dựng trên Botkeep). stop() đúng (Hủy / tắt bot / quá hạn) thì thôi
+    chờ ngay (ném KaggleError «đã huỷ»). Chỉ gọi khi giữ _LOCK (bot chạy một phiên một lúc: phiên nào còn đều là ma)."""
+    t0 = time.time()
+    freed = False
+    while True:
+        if stop is not None and stop():
+            raise KaggleError("đã huỷ")
+        kw: dict = {}
+        if sources:
+            kw["kernel_sources"] = sources
+        if dss:
+            kw["dataset_sources"] = dss
+        try:
+            return kaggle_api.push(slug, title, text, gpu=gpu, **kw)
+        except SessionLimit:
+            if gpu and not freed:
+                freed = True
+                if _free_slots(slug):
+                    kaggle_api._sleep(FREE_SETTLE)
+                    continue
+            if time.time() - t0 >= wait_max or (wait_max and _others_waiting()):
+                raise
+            on_step(f"Kaggle: kín {GPU_SESSIONS} phiên GPU, chờ chỗ ({(time.time() - t0) / 60:.0f} phút)")
+            for _ in range(int(SLOT_WAIT // 5)):            # ngủ từng đoạn ngắn để Hủy / tắt bot có tác dụng ngay
+                if stop is not None and stop():
+                    raise KaggleError("đã huỷ") from None
+                kaggle_api._sleep(5)
 
 
 def with_expiry(spec: dict, start_within: float) -> dict:
@@ -98,15 +243,36 @@ def _unwatch(run: dict):
         _ABORT["run"] = None
 
 
-def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None):
+def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue_max: float | None = None,
+                  park_info: dict | None = None):
     """Chờ phiên Kaggle xong. Chờ hỏng (quá giờ, chờ máy quá queue_max, mất mạng, bị huỷ, notebook lỗi) thì bỏ phiên:
     phiên chưa chạy tự thoát nhờ hạn `expires_at` (trước đây phiên quá giờ vẫn nằm trong hàng chờ, lát sau tự chạy,
-    tốn giờ GPU và chặn lượt kế)."""
+    tốn giờ GPU và chặn lượt kế). park_info (truyện bé): thay vì bỏ, giữ chỗ khi chờ máy quá queue_max hoặc có job khác
+    chờ (ném Parked, kids_auto thu kết quả sau)."""
     run = _watch(slug)
+    run["park_info"] = park_info
+    park = None
+    if park_info is not None:
+        qmax = queue_max
+
+        def park(secs: float) -> bool:
+            return (qmax is not None and secs > qmax) or (secs > KIDS_PARK_MIN and _others_waiting())
+        queue_max = None
     try:
-        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"], queue_max=queue_max)
+        kaggle_api.wait(slug, timeout, every=every, on_status=on_status, stop=lambda: run["flag"], queue_max=queue_max,
+                        park=park)
+    except Parked as e:
+        e.info = park_info
+        if park_info is not None:
+            _park(park_info)
+        raise
     except KaggleError:
-        _cancel_session(slug)
+        if run.get("parked"):                          # abort(park=True) đã ghi giữ chỗ: không báo «phiên sẽ tự thoát»
+            pass
+        elif park_info is not None:
+            _cancel_session(slug, long_expiry=True)
+        else:
+            _cancel_session(slug)
         raise
     finally:
         _unwatch(run)
@@ -398,8 +564,8 @@ def kids_sources() -> tuple[list, list]:
         (dss if kind.lower() == "dataset" else nbs).append(slug.strip("/ "))
     nbs = nbs or [SLUG_KIDS_MODELS]
     src = lora_source()
-    if src:                                              # LoRA nhân vật: gắn dataset / notebook chứa file
-        lst = dss if src[0] == "dataset" else nbs
+    if src and not (src[0] == "notebook" and src[1] == SLUG_KIDS_MODELS):   # LoRA nhân vật: gắn dataset / notebook chứa file
+        lst = dss if src[0] == "dataset" else nbs                          # (bản trong notebook model: đã gắn sẵn nếu dùng)
         if src[1] not in lst:
             lst.append(src[1])
     return nbs, dss
@@ -432,9 +598,10 @@ def lora_source() -> tuple[str, str, str] | None:
                 ok = True
             _LORA_OK[slug] = (ok, now)
             if not ok:
-                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, vẽ không LoRA", slug)
-        if not _LORA_OK[slug][0]:
-            return None
+                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, dùng bản trong notebook %s", slug,
+                                SLUG_KIDS_MODELS)
+        if not _LORA_OK[slug][0]:                        # 1.4.9: kids_setup tải LoRA vào đầu ra notebook model
+            return "notebook", SLUG_KIDS_MODELS, name
     return kind, slug, name
 
 
@@ -547,19 +714,184 @@ except Exception as e:
     shutil.rmtree(f"{W}/zimage-turbo-nf4", ignore_errors=True)
 finally:
     shutil.rmtree(os.path.expanduser("~/.cache/huggingface"), ignore_errors=True)
+# 3. LoRA 4 nhân vật (1.4.9): bản lưu trong repo GitHub công khai (Git LFS, 164 MB) -> đầu ra notebook này, phiên dựng tìm
+#    theo tên file trong mọi thứ đã gắn (images.find_lora). Mất dataset rmvideo-kids-lora (lỡ xoá 24/11) vẫn có LoRA.
+try:
+    import hashlib, socket, urllib.request
+    socket.setdefaulttimeout(120)        # kết nối đứng im không giữ phiên GPU tới hạn của Kaggle
+    os.makedirs(f"{W}/lora", exist_ok=True)
+    dst = f"{W}/lora/dcn_lora_v1.safetensors"
+    for k in range(3):
+        try:
+            urllib.request.urlretrieve(__LORA_URL__, dst + ".part")
+            h = hashlib.sha256()
+            with open(dst + ".part", "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+            if h.hexdigest() != __LORA_SHA__:
+                raise RuntimeError("sai mã sha256")
+            os.replace(dst + ".part", dst)
+            done["lora"] = [os.path.basename(dst)]
+            print("đã tải LoRA (%.0f MB)" % (os.path.getsize(dst) / 2**20), flush=True)
+            break
+        except Exception as e:
+            print("!! LoRA lần", k + 1, "lỗi:", str(e)[:300], flush=True)
+            time.sleep(10)
+finally:
+    if os.path.exists(f"{W}/lora/dcn_lora_v1.safetensors.part"):
+        os.remove(f"{W}/lora/dcn_lora_v1.safetensors.part")
 # (model chữ GGUF ~20GB vượt giới hạn đầu ra notebook: phiên dựng tải từ Hugging Face, ~3 phút)
 print("KẾT QUẢ:", {k: len(v) for k, v in done.items()}, "| đầu ra %.1f GB" % used_gb(), flush=True)
 if "llama" not in done or not ({"flux", "zimage"} & set(done)): raise SystemExit("thiếu: " + ", ".join(k for k in ("llama", "flux/zimage") if k not in done and not ({"flux", "zimage"} & set(done))))
 '''
 
 
+LORA_FILE = "dcn_lora_v1.safetensors"
+LORA_SHA = "e5e1d8a5b924c2b2c566dd3f466c8e04ac6c77c8b024c928e96333b3f524a44b"     # = scripts/push_kids_lora.py
+LORA_URL = ("https://media.githubusercontent.com/media/traique/rm-video/95be355cad019a3cc37f648a97e6ce13d1d2d615/lora/"
+            + LORA_FILE)            # ghim theo commit (không theo nhánh: đổi / xoá nhánh vẫn tải được)
+
+
+def kids_models_kernel() -> str:
+    return KIDS_MODELS_KERNEL.replace("__LORA_URL__", repr(LORA_URL)).replace("__LORA_SHA__", repr(LORA_SHA))
+
+
 def kids_setup() -> str:
     """Đẩy notebook chuẩn bị model (chạy một lần). Trả câu báo; lỗi thì ném KaggleError."""
     if not kaggle_api.configured():
         raise KaggleError("chưa điền KAGGLE_API_TOKEN trong Cài đặt")
-    kaggle_api.push(SLUG_KIDS_MODELS, "rmvideo kids models", KIDS_MODELS_KERNEL, gpu=True)
-    return (f"Đã gửi notebook {SLUG_KIDS_MODELS} (biên dịch llama.cpp + lượng tử FLUX.1-schnell, ~45-60 phút GPU). "
-            "Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
+    try:                                 # KHÔNG dọn phiên ma (_free_slots): kids_setup chạy ngoài _LOCK, phiên công việc còn đó
+        kaggle_api.push(SLUG_KIDS_MODELS, "rmvideo kids models", kids_models_kernel(), gpu=True)   # có thể đang có job chờ
+    except SessionLimit:
+        raise KaggleError(f"Kaggle đang kín {GPU_SESSIONS} phiên GPU: chạy kids_setup lại khi các phiên kia xong") from None
+    _READY.clear()
+    return (f"Đã gửi notebook {SLUG_KIDS_MODELS} (biên dịch llama.cpp + lượng tử FLUX.1-schnell + tải LoRA nhân vật, ~45-60 "
+            "phút GPU). Xem tiến độ bằng lệnh kids_setup_status hoặc trên kaggle.com; xong thì làm truyện được.")
+
+
+SETUP_GPU_MIN = 75 * 60     # giây GPU còn trong tuần tối thiểu để tự chạy kids_setup (~45-60 phút)
+
+
+def auto_setup() -> str:
+    """Lúc khởi động: notebook model truyện bé không còn trên Kaggle (404) thì TỰ chạy kids_setup — người dùng yêu cầu
+    24/11 sau khi lỡ xoá hết «Your Work». Chỉ khi thật sự mất (không chạy lại khi đang chạy / lỗi, khỏi đốt giờ GPU lặp
+    lại), còn đủ giờ GPU và đang dùng notebook mặc định. Trả câu báo ("" khi không làm gì)."""
+    if SLUG_KIDS_MODELS not in kids_sources_nb() or not kaggle_api.configured():
+        return ""
+    try:
+        kaggle_api.status(SLUG_KIDS_MODELS)
+        return ""
+    except KaggleError as e:
+        if not _missing(e):
+            return ""
+    try:
+        left = float(kaggle_api.quota()["gpu_left"])
+    except Exception:
+        left = SETUP_GPU_MIN
+    if left < SETUP_GPU_MIN:
+        return (f"thiếu notebook {SLUG_KIDS_MODELS} nhưng chỉ còn {left / 3600:.1f} giờ GPU tuần này: gõ kids_setup khi "
+                "Kaggle làm mới giờ GPU")
+    return "tự chạy kids_setup — " + kids_setup()
+
+
+_READY: dict[str, float] = {}       # {"ok": lúc kiểm thấy model sẵn sàng}
+READY_TTL = 30 * 60
+
+
+def _missing(e: Exception) -> bool:
+    return any(k in str(e) for k in ("404", "403", "NOT_FOUND", "not found", "Not found", "denied"))
+
+
+def kids_ready() -> str:
+    """"" khi notebook model truyện bé (rmvideo-kids-models) đã chạy xong; không thì lý do + cách sửa. Chỉ xét khi dùng
+    notebook mặc định (KIDS_KAGGLE_SOURCES trống hoặc có nó). 24/11: người dùng lỡ xoá hết trên Kaggle -> mọi phiên truyện
+    bé gắn một notebook không còn: thay vì để Kaggle từ chối / phiên lỗi giữa chừng, báo ngay «gõ kids_setup»."""
+    if SLUG_KIDS_MODELS not in kids_sources_nb() or not kaggle_api.configured():
+        return ""
+    if time.time() - _READY.get("ok", 0.0) < READY_TTL:
+        return ""
+    try:
+        st, why = kaggle_api.status(SLUG_KIDS_MODELS)
+    except KaggleError as e:
+        if _missing(e):
+            return (f"chưa có notebook {SLUG_KIDS_MODELS} (model vẽ + viết truyện) trên Kaggle — gõ kids_setup "
+                    "(~45-60 phút GPU, một lần) rồi làm truyện lại")
+        return ""                                       # không hỏi được (mạng): cứ làm, Kaggle sẽ báo nếu sai
+    up = st.upper()
+    if "COMPLETE" in up:
+        _READY["ok"] = time.time()
+        return ""
+    if up in ("QUEUED", "RUNNING"):
+        return f"đang chuẩn bị model truyện bé trên Kaggle ({st}, kids_setup ~45-60 phút): xong mới làm truyện được"
+    return f"lần chuẩn bị model truyện bé trên Kaggle lỗi ({st}: {why[:120]}) — gõ kids_setup lại"
+
+
+def kids_sources_nb() -> list:
+    nbs: list = []
+    for item in re.split(r"[,\s]+", config.KIDS_KAGGLE_SOURCES or ""):
+        kind, _, slug = item.partition(":")
+        if item and (not slug or kind.lower() != "dataset"):
+            nbs.append((slug or kind).strip("/ "))
+    return nbs or [SLUG_KIDS_MODELS]
+
+
+def resources_report(heal: bool = True) -> list[str]:
+    """Kiểm những thứ bot cần trên Kaggle (lệnh console kaggle_check, lúc khởi động): notebook model truyện bé, dataset LoRA,
+    kho nhạc (mất thì tự đẩy lại khi heal), notebook PhoWhisper (nếu chọn). Trả các dòng báo."""
+    from rmvideo.media import lyria
+    out = []
+    why = kids_ready()
+    out.append(("✅" if not why else "⚠️") + f" Model truyện bé ({SLUG_KIDS_MODELS}): " + (why or "sẵn sàng"))
+    src = lora_source()
+    if src and src[0] == "dataset":
+        out.append(f"✅ LoRA nhân vật: dataset {src[1]}")
+    elif src and why:
+        out.append(f"ℹ️ LoRA nhân vật: không thấy dataset {SLUG_KIDS_LORA}, sẽ dùng bản kids_setup tải vào notebook {src[1]}")
+    elif src:
+        try:
+            have = any(str(f.get("fileName") or "").endswith(LORA_FILE) for f in kaggle_api.outputs(src[1]).get("files", []))
+        except Exception:
+            have = None
+        out.append("✅ LoRA nhân vật: trong notebook " + src[1] if have else
+                   (f"⚠️ LoRA nhân vật: notebook {src[1]} không có file LoRA — gõ kids_setup lại (truyện đang vẽ không LoRA)"
+                    if have is False else f"ℹ️ LoRA nhân vật: dùng bản trong notebook {src[1]} (không kiểm được)"))
+    from rmvideo.kids import bgm as kids_bgm
+    import bgm
+    for lib in (kids_bgm._lib(), bgm.lyria_lib()):
+        n = len(lyria.load_library(lib.dir)["tracks"])
+        if not n:
+            out.append(f"ℹ️ Kho nhạc {lib.dataset}: chưa có bài (bgm_kaggle để tạo)")
+            continue
+        ok = lyria.remote_ok(lib, force=True)
+        if ok:
+            out.append(f"✅ Kho nhạc {lib.dataset}: {n} bài")
+        else:
+            out.append(f"⚠️ Kho nhạc {lib.dataset}: dataset không còn trên Kaggle, " + ("đang đẩy lại {n} bài".format(n=n) if heal
+                                                                                       else "lần dựng sau tự đẩy lại"))
+            if heal:
+                try:
+                    lyria.push_dataset_sync(lib, lambda m: logging.info("🎵 %s", m))
+                    out[-1] = f"✅ Kho nhạc {lib.dataset}: đã đẩy lại {n} bài"
+                except Exception as e:
+                    out[-1] = f"⚠️ Kho nhạc {lib.dataset}: đẩy lại lỗi ({str(e)[:120]}), lần dựng sau thử lại"
+    for item in re.split(r"[,\s]+", config.KIDS_KAGGLE_SOURCES or ""):           # nguồn tự đặt (vd dataset llama-server)
+        kind, _, slug = item.partition(":")
+        if not item or (not slug and kind == SLUG_KIDS_MODELS) or slug == SLUG_KIDS_MODELS or "/" in (slug or kind):
+            continue                                     # «user/slug» của người khác: API hỏi theo tài khoản mình, không kiểm
+        try:
+            ok = kaggle_api.dataset_exists(slug) if kind.lower() == "dataset" else bool(kaggle_api.status(slug or kind))
+        except KaggleError as e:
+            ok = not _missing(e)
+        if not ok:
+            out.append(f"⚠️ KIDS_KAGGLE_SOURCES: không còn «{item}» trên Kaggle — xoá khỏi Cài đặt để dùng {SLUG_KIDS_MODELS}")
+    if config.KAGGLE_ASR == "phowhisper":
+        try:
+            kaggle_api.status(SLUG_PHOWHISPER)
+            out.append(f"✅ PhoWhisper ({SLUG_PHOWHISPER})")
+        except KaggleError as e:
+            if _missing(e):
+                out.append(f"ℹ️ Không có notebook {SLUG_PHOWHISPER}: bóc lời tự dùng Whisper large-v3")
+    return out
 
 
 def kids_setup_status() -> str:
@@ -598,12 +930,50 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
     queue_max = total - (KIDS_RUN_RESERVE if kids else RUN_RESERVE) - TIMEOUT_PER_EXTRA * (n - 1)
     slug = spec.get("slug") or SLUG
     sources = list(spec.get("kernel_sources") or []) + ([SLUG_ANALYZE] if reuse else [])
-    kaggle_api.push(slug, spec.get("title") or "rmvideo worker", kernel_text(with_expiry(spec, queue_max)), gpu=gpu,
-                    kernel_sources=sources or None, dataset_sources=list(spec.get("dataset_sources") or []) or None)
+    park_info = None
+    if kids and spec.get("park"):                        # truyện bé: giữ chỗ trong hàng chờ GPU (xem KIDS_PARK_MAX)
+        other = _parked_other(slug, spec["park"].get("job"))
+        if other:                                        # mọi phiên truyện bé cùng notebook: gửi đè là mất phiên đang giữ chỗ
+            raise KaggleError(f"truyện #{other} đang giữ chỗ trên Kaggle (cùng notebook {slug}): chờ nó xong rồi làm truyện mới")
+        park_info = {"slug": slug, "token": spec.get("token"), "fetch_files": list(spec.get("fetch_files") or []),
+                     "gpu": gpu, "since": time.time(), "expires_at": time.time() + KIDS_PARK_MAX - EXPIRY_MARGIN,
+                     "brief": spec.get("brief") or {}, **spec["park"]}
+    sent = {k: v for k, v in spec.items() if k != "park"}
+    text = kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max))
+    dss = list(spec.get("dataset_sources") or []) or None
+    run = _watch(slug)                                   # Hủy / tắt bot lúc đang chờ chỗ GPU: dừng ngay (abort đặt cờ)
+    try:
+        try:
+            _push(slug, spec.get("title") or "rmvideo worker", text, gpu, sources or None, dss, on_step,
+                  wait_max=queue_max if park_info else 0.0, stop=lambda: run["flag"])
+        except SessionLimit:
+            raise
+        except KaggleError as e:
+            if not reuse or SLUG_ANALYZE not in sources or run["flag"]:
+                raise
+            # đầu ra phiên phân tích (tiếng nền đã tách) không còn (notebook đã xoá / ghi đè): gửi lại không gắn, phiên
+            # dựng tự tách lại (kaggle_job.mounted_ambient không thấy đúng mã)
+            logging.warning("Kaggle không nhận notebook kèm %s (%s): gửi lại không dùng lại tiếng nền", SLUG_ANALYZE, str(e)[:120])
+            sources = [x for x in sources if x != SLUG_ANALYZE]
+            _push(slug, spec.get("title") or "rmvideo worker", text, gpu, sources or None, dss, on_step,
+                  wait_max=queue_max if park_info else 0.0, stop=lambda: run["flag"])
+        if run["flag"]:                                  # bị huỷ đúng lúc vừa gửi xong: bỏ phiên vừa gửi
+            _cancel_session(slug)
+            raise KaggleError("đã huỷ")
+    finally:
+        _unwatch(run)
+    if park_info:                                        # ghi ngay từ lúc gửi: bot tắt lúc đang tải kết quả vẫn còn mục để
+        _park(park_info)                                 # chạy lại thu về (rà soát 24/11); xong / lỗi thật thì flow/kids.py bỏ mục
 
     def st(s, secs):
         on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút)")
-    _wait_session(slug, total, st, queue_max=queue_max)
+    _wait_session(slug, total, st, queue_max=queue_max, park_info=park_info)
+    return _fetch(slug, jobs, spec.get("kind") == "batch", tmp, on_step, gpu)
+
+
+def _fetch(slug: str, jobs: list, batch: bool, tmp: str, on_step, gpu: bool) -> list:
+    """Tải kết quả của phiên đã chạy xong về `tmp`: mỗi việc trong `jobs` ({token, fetch_files}) một kết quả / KaggleError."""
+    n = len(jobs)
     d = kaggle_api.outputs(slug)
     files = {f.get("fileName"): f.get("url") for f in d.get("files", []) if f.get("fileName")}
 
@@ -612,7 +982,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
                                    on_progress=on_progress)
     out = []
     for k in range(n):
-        tag = f"_{k}" if spec.get("kind") == "batch" else ""
+        tag = f"_{k}" if batch else ""
         try:
             if f"result{tag}.json" not in files:
                 raise KaggleError("Kaggle không trả kết quả. Log: " + kaggle_api.log_tail(d, 600))
@@ -678,15 +1048,16 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
     src = [SLUG_PHOWHISPER] if spec.get("asr") == "phowhisper" else None
     try:
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True,
-                        kernel_sources=src)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, src, None, on_step)
+    except SessionLimit:
+        raise
     except KaggleError as e:
         if not src:
             raise
         on_step("Kaggle: chưa có notebook PhoWhisper, dùng large-v3")   # tài khoản chưa chạy rmvideo-phowhisper
         logging.warning("Không gắn được notebook %s (%s): bóc lời bằng large-v3", SLUG_PHOWHISPER, str(e)[:120])
         spec = {**spec, "asr": "large-v3"}
-        kaggle_api.push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), gpu=True)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, None, None, on_step)
 
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
@@ -739,6 +1110,35 @@ async def analyze(spec: dict, tmp: str, on_step=None) -> dict:
         release(spec)
         await log_quota()
     logging.info("Kaggle phân tích xong: %s", res.get("timings"))
+    return res
+
+
+def _collect_sync(park: dict, tmp: str, on_step) -> list:
+    """Thu kết quả phiên truyện bé đang giữ chỗ: chưa xong thì chờ tiếp (vẫn giữ chỗ được), xong thì tải về."""
+    slug = park["slug"]
+    st0, _why = kaggle_api.status(slug)
+    if not any(x in st0.upper() for x in kaggle_api.DONE):
+        left = max(120.0, float(park.get("expires_at") or 0) + KIDS_RUN_RESERVE - time.time())
+
+        def st(s, secs):
+            on_step(f"Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} ({secs / 60:.0f} phút, giữ chỗ)")
+        _wait_session(slug, left, st, queue_max=KIDS_TIMEOUT - KIDS_RUN_RESERVE, park_info=park)
+    on_step("Kaggle: tải kết quả về")
+    return _fetch(slug, [{"token": park.get("token"), "fetch_files": list(park.get("fetch_files") or [])}], False, tmp,
+                  on_step, bool(park.get("gpu", True)))
+
+
+async def collect_parked(park: dict, tmp: str, on_step=None) -> dict:
+    """Thu kết quả của phiên truyện bé đã giữ chỗ (kids_auto.park_record). Trả kết quả như produce hoặc ném KaggleError."""
+    on_step = on_step or (lambda s: None)
+    try:
+        async with _LOCK:
+            res = (await asyncio.to_thread(_collect_sync, park, tmp, on_step))[0]
+    finally:
+        await log_quota()
+    if isinstance(res, Exception):
+        raise res
+    logging.info("Kaggle (giữ chỗ) xong: %s", res.get("timings"))
     return res
 
 

@@ -353,7 +353,26 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         except Exception as e:
             return web.json_response({"text": f"không đọc được giờ GPU ({str(e)[:80]})", "configured": True})
 
+    async def delete_job(request):
+        """Nút «Xóa»: xoá job + file của nó trên máy (không xoá job đang chạy / chờ đăng)."""
+        _check(request)
+        import storage
+        try:
+            jid = _int_id(request)
+        except ValueError:
+            raise web.HTTPNotFound() from None
+        ok, msg = storage.delete_job(jid)       # cùng luồng vòng sự kiện: kết nối jobs.db không dùng chung giữa các luồng
+        return web.json_response({"ok": ok, "msg": msg}, status=200 if ok else 409)
+
+    async def clear_jobs(request):
+        """Nút «Xóa tất cả»: xoá mọi job đã xong / lỗi / huỷ + file của chúng, giữ job đang dở và video chờ đăng."""
+        _check(request)
+        import storage
+        return web.json_response(storage.clear_jobs())
+
     app.router.add_get("/api/jobs", list_jobs)
+    app.router.add_post("/api/jobs/clear", clear_jobs)
+    app.router.add_post("/api/jobs/{id}/delete", delete_job)
     app.router.add_get("/api/kaggle/quota", kaggle_quota)
     app.router.add_get("/api/events", events_stream)
     app.router.add_get("/api/jobs/{id}/timeline.json", timeline_json)

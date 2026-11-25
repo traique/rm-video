@@ -23,6 +23,21 @@ class KaggleError(RuntimeError):
     pass
 
 
+class SessionLimit(KaggleError):
+    """Kaggle từ chối nhận notebook: «Maximum batch GPU session count of 2 reached» (đo thật 24/11 job 4). Phiên bot đã
+    bỏ (chờ máy quá lâu rồi dựng trên Botkeep) vẫn xếp hàng và chiếm chỗ tới khi được cấp máy; kaggle_worker xoá các
+    notebook có phiên «ma» rồi gửi lại."""
+
+
+class Parked(KaggleError):
+    """Bot thôi chờ nhưng GIỮ phiên trong hàng chờ Kaggle (truyện bé: hạn bắt đầu dài, kids_auto theo dõi rồi thu kết quả).
+    `info`: mô tả phiên để thu kết quả sau (kaggle_worker gắn)."""
+
+    def __init__(self, msg: str, info: dict | None = None):
+        super().__init__(msg)
+        self.info = info
+
+
 _sleep = time.sleep            # test thay bằng hàm không chờ
 CALL_RETRIES = 2               # hỏi Get* / List* lỗi tạm: hỏi lại chừng này lần
 PUSH_TRIES = 4                 # gửi notebook lỗi tạm: tối đa chừng này lần (kiểm Kaggle đã nhận chưa trước khi gửi lại)
@@ -310,6 +325,8 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
                 logging.warning("Kaggle đã nhận notebook %s dù kết nối lỗi (%s): không gửi lại", slug, st)
                 return {}
     if d.get("error"):
+        if "session count" in str(d["error"]).lower():
+            raise SessionLimit(f"Kaggle không nhận notebook: {d['error']}")
         raise KaggleError(f"Kaggle không nhận notebook: {d['error']}")
     got = _ref_slug(d)
     if got and got != slug:
@@ -318,6 +335,16 @@ def push(slug: str, title: str, text: str, gpu: bool = True, kernel_sources: lis
         _ALIAS[slug] = got
     else:
         _ALIAS.pop(slug, None)
+    return d
+
+
+def delete_kernel(slug: str) -> dict:
+    """Xoá notebook (và phiên đang xếp hàng / đang chạy của nó): cách duy nhất qua API công khai để bỏ một phiên đã gửi
+    (CancelKernelSession cần mã phiên mà không lệnh nào trả về). Notebook bot tạo lại ở lần gửi sau."""
+    d = call("DeleteKernel", {"userName": user(), "kernelSlug": real_slug(slug)})   # kagglesdk 0.1.38: ApiDeleteKernelRequest
+    if d.get("errorMessage"):
+        raise KaggleError(f"Kaggle không xoá được notebook {slug}: {d['errorMessage']}")
+    _ALIAS.pop(slug, None)
     return d
 
 
@@ -428,9 +455,11 @@ DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
 
-def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=time.sleep, stop=None,
-         queue_max: float | None = None) -> str:
-    """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ / chờ máy quá queue_max giây)."""
+def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=None, stop=None,
+         queue_max: float | None = None, park=None) -> str:
+    """Chờ phiên chạy xong. Trả 'COMPLETE' hoặc ném KaggleError (lỗi / quá giờ / chờ máy quá queue_max giây).
+    park(giây đã chờ) -> True: thôi chờ nhưng giữ phiên trong hàng chờ (ném Parked; truyện bé, 1.4.6)."""
+    sleep = sleep or _sleep
     t0 = time.time()
     last = ""
     reported = 0.0
@@ -465,9 +494,13 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=tim
         if any(x in up for x in FAILED):
             raise KaggleError(f"Notebook Kaggle lỗi ({st}): {why[:200]}")
         if time.time() - t0 > timeout:
+            if park is not None:                      # phiên vẫn chạy / chờ: giữ chỗ, kids_auto thu kết quả khi xong
+                raise Parked(f"Kaggle chưa xong sau {timeout / 60:.0f} phút ({st})")
             raise KaggleError(f"Kaggle chạy quá {timeout / 60:.0f} phút ({st})")
         if queue_max is not None and "QUEUED" in up and time.time() - t0 > queue_max:
             raise KaggleError(f"Kaggle chờ máy quá {queue_max / 60:.0f} phút")
+        if park is not None and "QUEUED" in up and park(time.time() - t0):
+            raise Parked(f"Kaggle chưa cấp máy sau {(time.time() - t0) / 60:.0f} phút")
         sleep(every)
 
 

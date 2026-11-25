@@ -110,7 +110,8 @@ def _split_at(pieces: list, t: float) -> int:
         pieces[k:k + 1] = [edl.Piece(p.a, round(t, 3), p.speed, p.zoom, 0.0, p.fx, p.role, p.tag),
                            edl.Piece(round(t, 3), p.b, p.speed, p.zoom, p.push, "", p.role, p.tag)]
         return k + 1
-    return 0
+    return -1                                          # t nằm trong quãng đã bỏ khỏi video (rà soát 24/11: trước đây trả 0 =
+                                                       # chèn lên ĐẦU video, trước cả câu hook, mà R1-R8 không bắt)
 
 
 def _sentence_start(segs: list, t: float) -> float:
@@ -143,26 +144,40 @@ def _cuts_sentence(pieces: list, ins: int, segs: list) -> bool:
 TAIL_TRIES = 8
 
 
+TAIL_PUSH_MIN = 2.0      # khối cuối chen vào cảnh món cuối (câu vắt qua đầu cảnh) thì phần cảnh đứng trước nó phải ≥ chừng này giây
+
+
 def _tail_slot(pieces: list, segs: list, t_in: float, last: int) -> tuple[list, int]:
     """(các khúc, chỉ số) để chèn khối cuối (cảm thán + điểm danh + tóm tắt). Chỗ t_in mà cắt đôi một câu (R8) thì thử
     khoảng lặng sau từng câu kế tiếp. 1.4.2: điểm danh đứng chung khối cuối với tóm tắt, R8 ở chỗ chèn từng làm bỏ lần lượt
-    cả hai phép (job 11 ngày 22/11 mất cả điểm danh lẫn tóm tắt) trong khi lỗi là ở chỗ chèn, không ở phép."""
+    cả hai phép (job 11 ngày 22/11 mất cả điểm danh lẫn tóm tắt) trong khi lỗi là ở chỗ chèn, không ở phép.
+    Rà soát 24/11: không bao giờ đứng trước cảnh mở đầu (mốc rơi vào quãng đã bỏ từng cho chỉ số 0), không để cảnh món
+    cuối loé lên < TAIL_PUSH_MIN giây rồi mới tới khối cuối; hết chỗ hợp lệ thì đứng ngay trước cảnh cuối (R8 xét như cũ)."""
     end_main = pieces[last].b
+    first_main = next((k for k, p in enumerate(pieces) if p.role == "main"), 0)
+    push_a = pieces[last].a if pieces[last].push > 0 else None
     starts = sorted(a for a, _b, _t in segs)
     cands = [t_in]
     for _a, b, _t in sorted(segs, key=lambda s: s[1]):
         if t_in < b < end_main - edl.MIN_PIECE and len(cands) <= TAIL_TRIES:
             nxt = next((a for a in starts if a >= b - 0.01), None)
             cands.append(round((b + nxt) / 2, 3) if nxt is not None and nxt - b < 1.0 else round(b + 0.05, 3))
-    first: tuple[list, int] | None = None
+    fallback = (list(pieces), last + 1 if last == first_main or push_a is None else last)
     for t in cands:
+        if push_a is not None and push_a + 0.05 < t < push_a + TAIL_PUSH_MIN:
+            continue                                   # cảnh món cuối chỉ loé lên rồi tới khối cuối: xấu, thử mốc sau
         trial = list(pieces)
-        ins = _split_at(trial, t) if t < end_main - 0.01 else last + 1
-        if first is None:
-            first = (trial, ins)
+        if t >= end_main - 0.01:
+            ins = last + 1
+        else:
+            ins = _split_at(trial, t)
+            if ins < 0:                                # mốc trong quãng đã bỏ: chèn vào khoảng trống trước khúc main kế tiếp
+                ins = next((k for k, p in enumerate(trial) if p.role == "main" and p.a >= t - 0.05), -1)
+        if ins < 0 or ins <= first_main:               # không đứng trước / thay chỗ cảnh mở đầu (câu hook)
+            continue
         if not _cuts_sentence(trial, ins, segs):
             return trial, ins
-    return first if first is not None else (list(pieces), last + 1)
+    return fallback
 
 
 def _gap_bounds(segs: list, keep: list[bool], a: float, b: float) -> tuple[float, float]:
@@ -218,7 +233,7 @@ STEP_WORDS = 8           # một bước trong lời tóm tắt dài tối đa c
 def _short_step(text: str, kind: str) -> str:
     """Một bước cho lời tóm tắt: vế đầu, tối đa STEP_WORDS chữ ("Chiên lửa nhỏ khoảng 1 phút rưỡi"), không cắt giữa tên
     nguyên liệu (job 9 ngày 22/11, tối đa 6 chữ: «rửa sạch củ cải và cà», «cho củ cải và cà rốt» mất «vào hũ»)."""
-    head = (text or kind).split(",")[0].split(";")[0].strip().rstrip(".")
+    head = (text or "").split(",")[0].split(";")[0].strip().rstrip(".")
     allw = head.split()
     n = min(len(allw), STEP_WORDS)
     while n < len(allw) and n < STEP_WORDS + 2 and \
@@ -243,7 +258,8 @@ OPS = {"B3": "bỏ chào hỏi", "B6": "đổi chỗ bước sơ chế", "B2": "
 _SUSPECTS = (("R5 khúc recap", ("B5",)), ("R5 khúc montage", ("B2",)), ("R8 khúc recap", ("B5",)),
              ("R8 khúc montage", ("B2",)), ("R8 khúc moved", ("B4", "B6")), ("R2 bước nấu", ("B6", "B4")),
              ("R3", ("B6",)), ("R7", ("B9",)), ("R1", ("B9", "B3", "B6", "B4")), ("R4", ("B3", "B6", "B4", "B9")),
-             ("R2", ("B6", "B4", "B2", "B5")), ("", ("B6", "B4", "B3", "B5", "B2", "B9")))
+             ("R2", ("B6", "B4", "B2", "B5")), ("R9", ("B5", "B2", "B4")),
+             ("", ("B6", "B4", "B3", "B5", "B2", "B9")))
 
 
 def plan_strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label_mode: str,
@@ -340,19 +356,21 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
     # B4 + B2 + B5: cảm thán giữa video dời về cuối, điểm danh nguyên liệu, tóm tắt các bước chính, trước cảnh cuối
     tail: list = []
     react_text = recap_text = ""
-    react = [s for s in steps if s.kind == "reaction" and s.t1 < end * 0.8 and 1.5 <= s.t1 - s.t0 <= 5.0
-             and all(chat[k] for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05)]
+    def _chatty(s: recipe.Step) -> bool:                             # mọi câu trong bước đều là lời tán (và có ít nhất một câu)
+        ks = [k for k, (a, b, _) in enumerate(segs) if s.t0 - 0.05 <= a and b <= s.t1 + 0.05]
+        return bool(ks) and all(chat[k] for k in ks)
+    react = [s for s in steps if s.kind == "reaction" and s.t1 < end * 0.8 and 1.5 <= s.t1 - s.t0 <= 5.0 and _chatty(s)]
     if react and "B4" not in skip:
         r = max(react, key=lambda s: s.t1 - s.t0)
         lo, hi = _gap_bounds(segs, keep, r.t0, r.t1)
         pieces = _cut_out(pieces, lo, hi)
         tail.append(edl.Piece(lo, hi, role="side", tag="moved"))
         said = " ".join(t for a, b, t in segs if lo <= a and b <= hi).strip()
-        react_text = said if said[-1:] in ".!?…" else said + "."
+        react_text = said if said[-1] in ".!?…" else said + "."
         did.append("dời đoạn cảm thán về cuối")
     tail += [p for p, _ in montage]
-    core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0
-            and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]
+    core = [s for s in steps if s.kind in ("cook", "plate", "prep") and s.t1 - s.t0 >= 1.0 and (s.text or "").strip()
+            and _kept_at(pieces, s.t0, s.t1, RECAP_LEN) is not None]      # bước không có mô tả: không đọc tên loại («cook»)
     if len(core) >= 3 and "B5" not in skip:
         pick = core[:: max(1, len(core) // RECAP_MAX)][:RECAP_MAX]
         for s in pick:
@@ -406,7 +424,7 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
 
 
 def check_rules(plan: edl.EditPlan, segs: list, steps: list, chat: list[bool]) -> list[str]:
-    """Luật cứng R1-R8 (rỗng = đạt)."""
+    """Luật cứng R1-R9 (rỗng = đạt)."""
     errs = list(plan.validate())                                              # R6
     starts = plan.starts()
 
@@ -484,6 +502,9 @@ def check_rules(plan: edl.EditPlan, segs: list, steps: list, chat: list[bool]) -
             cut = next(((a, b) for a, b, _ in segs if a + 0.1 < prev.b < b - 0.1), None)
             if cut:
                 errs.append(f"R8 khúc {p.tag} chèn giữa câu ở giây {cut[0]:.1f}")
+    fm = next((k for k, p in enumerate(plan.pieces) if p.role == "main"), None)     # R9
+    if fm is not None and any(p.tag in ("montage", "recap", "moved") for p in plan.pieces[:fm]):
+        errs.append("R9 khối cuối đứng trước cảnh mở đầu")
     for p in plan.pieces:                                                     # R7
         if p.tag == "skip":
             for (a, b, _), c in zip(segs, chat):

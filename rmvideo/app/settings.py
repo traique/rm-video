@@ -164,7 +164,7 @@ SCHEMA: tuple[Setting, ...] = (
       link="https://aistudio.google.com/apikey", need="must", secret=True, live=True),
     S("GEMINI_MODEL", "gemini-3.5-flash-lite", "advanced", "Model Gemini viết lời",
       validate=_model("GEMINI_MODEL"), live=True),        # live: lỗi 404 tự đổi model giữa job
-    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-2.5-flash-lite", "advanced",
+    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite", "advanced",
       "Model Gemini dự phòng (khi quá tải / hết lượt)",
       help="Model chính báo quá tải (503) hay hết lượt trong ngày thì thử lần lượt các model này (cách nhau dấu phẩy, "
            "để trống = không thử). Mỗi model có hạn mức riêng.",

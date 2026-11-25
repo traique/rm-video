@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import random
+import threading
 import time
 import wave
 from collections.abc import Awaitable, Callable
@@ -24,6 +25,8 @@ MODEL = "models/lyria-realtime-exp"
 RATE, CH = 48000, 2                    # Lyria trả PCM 16-bit 48 kHz stereo
 LIB_FILE = "library.json"
 DATASET_WAIT = 900
+_LIB_LOCK = threading.Lock()           # chọn tên bài + ghi library.json: luồng notebook Kaggle (lyria_kaggle.run_sync), tạo nền
+                                       # của bếp và job đang chọn bài cùng ghi một file (rà soát 24/11)
 Log = Callable[[str], Any]
 
 
@@ -38,7 +41,8 @@ class Lib:
     per_mood: int = 3
     tag: str = "Nhạc"                  # đầu dòng log («Nhạc bé», «Nhạc bếp»)
     timeout: float = 240.0             # giây cho một bài (tạo theo thời gian thật + dự phòng)
-    stall: float = 30.0                # thêm cho bắt tay / dừng phiên ngoài timeout
+    stall: float = 60.0                # thêm cho bắt tay / dừng phiên ngoài timeout (> CHUNK_STALL + HANDSHAKE: phiên đứng im
+                                       # do _session ngắt, giữ phần đã nhận; hạn ngoài chỉ là lưới cuối)
     fade_out: float = 4.0
 
 
@@ -84,7 +88,7 @@ def client() -> Any:
     return genai.Client(api_key=config.GEMINI_API_KEY, http_options={"api_version": "v1beta"})
 
 
-async def stream(m: dict, secs: float, cl: Any, log: Log = logging.info, timeout: float = 240.0, stall: float = 30.0,
+async def stream(m: dict, secs: float, cl: Any, log: Log = logging.info, timeout: float = 240.0, stall: float = 60.0,
                  tag: str = "Nhạc") -> bytes:
     """PCM 16-bit 48 kHz stereo dài ≥ secs giây từ Lyria RealTime (thời gian thật) theo màu `m`. Giới hạn cả phiên
     timeout + stall giây: vòng nhận chỉ xét timeout khi có gói gửi về, kết nối đứng im (không gửi, không đóng) thì treo mãi
@@ -102,9 +106,15 @@ SESSIONS = 4                           # phiên Lyria tối đa cho một bài (
 # (~190 KB/s, gửi dạng base64 còn nặng hơn) mà mạng Botkeep chỉ ~80-100 KB/s (pip, tải video Kaggle): máy chủ không đẩy kịp
 # thì cắt kết nối. Nhận chậm hơn SLOW_RATE x thời gian thật thì thôi luôn (khỏi nối 4 phiên x 2 lần ≈ 7 phút mỗi job) và
 # nghỉ Lyria SLOW_COOLDOWN giây.
-SLOW_RATE = 0.3
+SLOW_RATE = 0.3                        # 0: không xét chậm (notebook nhạc trên Kaggle: không có đường lùi, cứ nối phiên)
 SLOW_MIN = 20.0                        # phiên ngắn hơn chừng này giây chưa đủ để kết luận chậm
 SLOW_COOLDOWN = 6 * 3600
+CHUNK_STALL = 30.0                     # giây không nhận gói nào: coi phiên đứng im, ngắt (giữ phần đã nhận), nối phiên mới
+HANDSHAKE = 15.0                       # giây dự phòng cho bắt tay (connect, set prompt, play) ngoài hạn của phiên
+
+
+class Stall(RuntimeError):
+    """Phiên Lyria đứng im (không gửi gói nào trong CHUNK_STALL giây / quá hạn): không phải mạng chậm, không xét «chậm»."""
 _SLOW: dict[str, Any] = {"until": 0.0, "why": ""}
 
 
@@ -150,8 +160,13 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
         part: list[bytes] = []
         ts = time.time()
         try:
-            await _session(m, cl, log, tag, part, need - len(pcm) + (int(XFADE * RATE) * CH * 2 if pcm else 0),
-                           t0 + timeout)
+            # hạn riêng từng phiên (kể cả bắt tay): phiên treo thì ngắt tại đây, phần đã nhận (part) còn nguyên; hạn
+            # ngoài ở stream() (timeout + stall) chỉ là lưới cuối, không được tới trước (stall > CHUNK_STALL + HANDSHAKE)
+            await asyncio.wait_for(_session(m, cl, log, tag, part,
+                                            need - len(pcm) + (int(XFADE * RATE) * CH * 2 if pcm else 0), t0 + timeout),
+                                   max(5.0, t0 + timeout - time.time()) + CHUNK_STALL + HANDSHAKE)
+        except asyncio.TimeoutError:
+            err = Stall("phiên Lyria quá hạn (đứng im)")
         except Exception as e:
             err = e
         got = b"".join(part)
@@ -160,7 +175,7 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
         if len(pcm) >= need or time.time() - t0 > timeout:
             break
         dt, gs = time.time() - ts, len(got) / (RATE * CH * 2)
-        if dt >= SLOW_MIN and gs < SLOW_RATE * dt:
+        if SLOW_RATE > 0 and dt >= SLOW_MIN and gs < SLOW_RATE * dt and not isinstance(err, Stall):
             why = f"chỉ nhận {gs:.0f} giây nhạc trong {dt:.0f} giây — mạng không theo kịp luồng nhạc Lyria"
             _mark_slow(why)
             if len(pcm) >= need * MIN_PART:
@@ -179,15 +194,24 @@ async def _stream(m: dict, secs: float, cl: Any, log: Log, timeout: float, tag: 
 
 
 async def _session(m: dict, cl: Any, log: Log, tag: str, part: list[bytes], need: int, deadline: float) -> None:
-    """Một phiên Lyria: ghi dần khúc PCM vào `part` (lỗi giữa chừng thì phần đã ghi vẫn còn)."""
+    """Một phiên Lyria: ghi dần khúc PCM vào `part` (lỗi giữa chừng thì phần đã ghi vẫn còn). Không có gói nào trong
+    CHUNK_STALL giây (notebook nhạc 24/11: một bài «kết nối đứng im» 250 giây, mất cả phần đã nhận) hay nhận chậm rõ
+    rệt (mạng Botkeep) thì ngắt ngay để _stream nối phiên mới / kết luận chậm."""
     from google.genai import types
-    got = 0
+    got, t0 = 0, time.time()
     async with cl.aio.live.music.connect(model=MODEL) as session:
         await session.set_weighted_prompts(prompts=[types.WeightedPrompt(text=m["prompt"], weight=1.0)])
         await session.set_music_generation_config(config=types.LiveMusicGenerationConfig(
             bpm=m["bpm"], temperature=1.0, density=m["density"], brightness=m["brightness"]))
         await session.play()
-        async for msg in session.receive():
+        it = session.receive().__aiter__()
+        while True:
+            try:
+                msg = await asyncio.wait_for(it.__anext__(), CHUNK_STALL)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                raise Stall(f"Lyria không gửi gói nào trong {CHUNK_STALL:.0f} giây") from None
             fp = getattr(msg, "filtered_prompt", None)
             if fp:
                 log(f"{tag}: Lyria lọc prompt ({str(fp)[:80]})")
@@ -196,8 +220,11 @@ async def _session(m: dict, cl: Any, log: Log, tag: str, part: list[bytes], need
                 if ch.data:
                     part.append(ch.data)
                     got += len(ch.data)
+            el = time.time() - t0
             if got >= need or time.time() > deadline:
                 break
+            if SLOW_RATE > 0 and el >= SLOW_MIN and got < SLOW_RATE * el * RATE * CH * 2:
+                raise RuntimeError(f"nhận {got / RATE / CH / 2:.0f} giây nhạc trong {el:.0f} giây")
         try:
             await session.stop()
         except Exception:
@@ -212,7 +239,7 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
     d = lib.dir
     secs = float(secs or lib.track_secs)
     os.makedirs(d, exist_ok=True)
-    name = next_names(d, mood, 1)[0]
+    name = next_names(d, mood, 1)[0]                   # tên dự kiến (chỉ để log); tên thật chốt lúc ghi vào kho (place_track)
     t0 = time.time()
     m = lib.moods[mood]
     if slow_left():                                    # vừa thấy mạng không theo kịp: khỏi mở phiên, khỏi ghi log «tạo bài»
@@ -220,17 +247,21 @@ async def generate(lib: Lib, mood: str, secs: float | None = None, cl: Any = Non
     log(f"{lib.tag}: Lyria tạo bài {name} ({m['vi']}, {secs:.0f} giây)...")
     pcm = await stream(m, secs + 2, cl or factory(), log, lib.timeout, lib.stall, lib.tag)
     secs = min(secs, len(pcm) / (RATE * CH * 2))       # phiên đứt sớm: bài ngắn hơn (nhạc nền tự lặp khi dựng)
-    raw = os.path.join(d, name + ".wav")
-    with wave.open(raw, "wb") as w:
-        w.setnchannels(CH)
-        w.setsampwidth(2)
-        w.setframerate(RATE)
-        w.writeframes(pcm)
-    out = os.path.join(d, name)
-    await ff._run_ffmpeg(*encode_args(raw, out, secs, lib.fade_out))
-    os.remove(raw)
-    item = add_track(d, name, mood, secs, m["prompt"])
-    log(f"{lib.tag}: xong {name} trong {time.time() - t0:.0f} giây")
+    tmp = os.path.join(d, f".tmp_{mood}_{os.getpid()}_{int(t0)}")
+    raw, out = tmp + ".wav", tmp + ".m4a"
+    try:
+        with wave.open(raw, "wb") as w:
+            w.setnchannels(CH)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(pcm)
+        await ff._run_ffmpeg(*encode_args(raw, out, secs, lib.fade_out))
+        item = place_track(d, out, mood, secs, m["prompt"])
+    finally:
+        for f in (raw, out):
+            if os.path.exists(f):
+                os.remove(f)
+    log(f"{lib.tag}: xong {item['file']} trong {time.time() - t0:.0f} giây")
     return item
 
 
@@ -245,6 +276,11 @@ def encode_args(raw: str, out: str, secs: float, fade_out: float) -> list[str]:
 
 def add_track(d: str, name: str, mood: str, secs: float, prompt: str, **extra: Any) -> dict:
     """Ghi một bài (file đã nằm trong kho `d`) vào library.json; trả mục vừa ghi."""
+    with _LIB_LOCK:
+        return _add_track(d, name, mood, secs, prompt, **extra)
+
+
+def _add_track(d: str, name: str, mood: str, secs: float, prompt: str, **extra: Any) -> dict:
     item = {"file": name, "mood": mood, "secs": round(secs, 1), "prompt": prompt,
             "created": time.strftime("%Y-%m-%dT%H:%M:%S"), **extra}
     data = load_library(d)
@@ -253,10 +289,26 @@ def add_track(d: str, name: str, mood: str, secs: float, prompt: str, **extra: A
     return item
 
 
+def place_track(d: str, src: str, mood: str, secs: float, prompt: str, **extra: Any) -> dict:
+    """Đưa file m4a `src` (đã mã hoá xong, nằm cùng ổ) vào kho dưới tên kế tiếp của màu `mood` và ghi library.json — tên
+    chốt NGAY LÚC GHI, trong khoá: Botkeep tạo nền và notebook Kaggle cùng làm một màu thì không đè bài nhau (rà soát
+    24/11: cả hai chọn «cozy_2» lúc bắt đầu, bài về sau đè bài trước)."""
+    with _LIB_LOCK:
+        name = next_names(d, mood, 1)[0]
+        os.replace(src, os.path.join(d, name))
+        return _add_track(d, name, mood, secs, prompt, **extra)
+
+
 def next_names(d: str, mood: str, n: int) -> list[str]:
-    """Tên `n` bài kế tiếp của màu `mood` trong kho (mood_<số>.m4a, số tiếp theo số lớn nhất đang có)."""
+    """Tên `n` bài kế tiếp của màu `mood` trong kho (mood_<số>.m4a, số tiếp theo số lớn nhất đang có — kể cả file có trên
+    đĩa mà chưa vào library)."""
     nums = [int(t["file"].rsplit("_", 1)[1].split(".")[0]) for t in tracks(load_library(d), mood)
             if t["file"].rsplit("_", 1)[1].split(".")[0].isdigit()]
+    try:
+        nums += [int(f[len(mood) + 1:-4]) for f in os.listdir(d)
+                 if f.startswith(mood + "_") and f.endswith(".m4a") and f[len(mood) + 1:-4].isdigit()]
+    except OSError:
+        pass
     top = max(nums or [0])
     return [f"{mood}_{top + i}.m4a" for i in range(1, n + 1)]
 
@@ -280,22 +332,55 @@ def push_dataset_sync(lib: Lib, log: Log = logging.info) -> dict:
     log(f"{lib.tag}: đẩy {len(files)} bài lên Kaggle (dataset {lib.dataset})...")
     kaggle_api.dataset_push(lib.dataset, lib.title, files, notes=f"{len(files)} bài Lyria")
     kaggle_api.dataset_wait(lib.dataset, timeout=DATASET_WAIT)
-    data = load_library(lib.dir)
-    data["pushed"] = sorted(t["file"] for t in data["tracks"])
-    data["dataset"] = lib.dataset
-    save_library(data, lib.dir)
+    with _LIB_LOCK:
+        data = load_library(lib.dir)
+        data["pushed"] = sorted(os.path.basename(f) for f in files)     # đúng các bài đã đẩy (bài thêm trong lúc đẩy: lần sau)
+        data["dataset"] = lib.dataset
+        save_library(data, lib.dir)
     log(f"{lib.tag}: dataset sẵn sàng")
     return data
 
 
+_REMOTE: dict[str, float] = {}         # {dataset: lúc kiểm thấy còn trên Kaggle}
+REMOTE_TTL = 3600
+
+
+def remote_ok(lib: Lib, force: bool = False) -> bool:
+    """Dataset kho nhạc còn trên Kaggle (nhớ REMOTE_TTL giây). Không còn (24/11: người dùng lỡ xoá hết trên Kaggle) mà
+    library.json vẫn ghi «pushed» thì xoá «pushed» -> lần đẩy kế (pick / fill_later / kaggle_check) đẩy lại cả kho, phiên
+    dựng không gắn một dataset không tồn tại. Không hỏi được (mạng, chưa có token): coi như còn."""
+    import kaggle_api
+    data = load_library(lib.dir)
+    if not data.get("pushed") or not kaggle_api.configured():
+        return bool(data.get("pushed"))
+    if not force and time.time() - _REMOTE.get(lib.dataset, 0.0) < REMOTE_TTL:
+        return True
+    try:
+        ok = kaggle_api.dataset_exists(lib.dataset)
+    except Exception:                       # Kaggle / mạng lỗi: coi như còn, 5 phút sau mới hỏi lại (chọn nhạc không bị chặn)
+        _REMOTE[lib.dataset] = time.time() - REMOTE_TTL + 300
+        return True
+    if ok:
+        _REMOTE[lib.dataset] = time.time()
+        return True
+    with _LIB_LOCK:
+        data = load_library(lib.dir)
+        data["pushed"] = []
+        save_library(data, lib.dir)
+    _REMOTE.pop(lib.dataset, None)
+    logging.warning("%s: dataset %s không còn trên Kaggle, sẽ đẩy lại kho", lib.tag, lib.dataset)
+    return False
+
+
 def choose(lib: Lib, have: list[dict], rnd: random.Random | None = None, avoid: int = 2) -> dict:
     """Một bài trong `have`, tránh `avoid` bài vừa dùng; ghi vào «recent» của kho."""
-    data = load_library(lib.dir)
-    recent = data.get("recent") or []
-    fresh = [t for t in have if t["file"] not in recent[-avoid:]] or have
-    t = (rnd or random.Random()).choice(fresh)
-    data["recent"] = [f for f in recent if f != t["file"]][-20:] + [t["file"]]
-    save_library(data, lib.dir)
+    with _LIB_LOCK:
+        data = load_library(lib.dir)
+        recent = data.get("recent") or []
+        fresh = [t for t in have if t["file"] not in recent[-avoid:]] or have
+        t = (rnd or random.Random()).choice(fresh)
+        data["recent"] = [f for f in recent if f != t["file"]][-20:] + [t["file"]]
+        save_library(data, lib.dir)
     return t
 
 

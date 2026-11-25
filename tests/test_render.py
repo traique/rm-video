@@ -16,6 +16,7 @@ from transcribe import transcribe  # noqa: E402
 import subs as subs_mod  # noqa: E402
 import beat  # noqa: E402
 import prompt_engine  # noqa: E402
+_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "DejaVuSans-Bold.ttf")
 
 
 def make_fake_inputs(tmp):
@@ -112,7 +113,7 @@ async def run():
         vid = os.path.join(tmp, "hard.mp4")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=0x6a8f5c:duration=6:size=360x640:rate=24",
                         "-f", "lavfi", "-i", "sine=d=6",
-                        "-vf", "drawtext=fontfile=/home/claude/project/assets/DejaVuSans-Bold.ttf:text='PHU DE GOC':fontsize=28:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.15",
+                        "-vf", "drawtext=fontfile=" + _FONT + ":text='PHU DE GOC':fontsize=28:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=h*0.15",
                         "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", vid], check=True, capture_output=True)
         bands = await textzone.detect_text_bands(vid)
         assert bands and abs((bands[0][0] + bands[0][1]) / 2 - 0.17) < 0.04, f"dò sai: {bands}"

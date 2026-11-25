@@ -326,7 +326,7 @@ def sfx_wanted() -> bool:
     if os.environ.get("SEP_DEVICE") != "cuda":
         return False
     import config
-    return str(getattr(config, "SFX_SEP", "0")) == "1"
+    return str(config.SFX_SEP) == "1"
 
 
 def _strip_music(ambient_wav: str) -> str:

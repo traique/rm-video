@@ -34,6 +34,21 @@ async def _kaggle_quota_log():
         logging.info("Kaggle: %s", kaggle_api.quota_text(q))
     except Exception as e:
         logging.info("Kaggle: không đọc được giờ GPU còn lại (%s)", str(e)[:120])
+        return
+    import kaggle_worker
+    try:                                          # 1.4.9: mất model truyện bé thì tự chạy kids_setup trước (GPU lâu nhất)
+        msg = await asyncio.to_thread(kaggle_worker.auto_setup)
+        if msg:
+            logging.warning("Kaggle: %s", msg)
+    except Exception as e:                        # lỗi ở đây không được bỏ qua bước kiểm / đẩy lại kho nhạc dưới
+        logging.warning("Kaggle: không tự chạy được kids_setup (%s) — gõ kids_setup", str(e)[:160])
+    try:                                          # model / LoRA / kho nhạc còn trên Kaggle không (lỡ xoá 24/11)
+        lines = await asyncio.to_thread(kaggle_worker.resources_report)
+        for line in lines:
+            if not line.startswith("✅"):
+                logging.warning("Kaggle: %s", line)
+    except Exception as e:
+        logging.info("Kaggle: không kiểm được model / kho nhạc (%s)", str(e)[:120])
 
 
 async def main():

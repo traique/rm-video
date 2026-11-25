@@ -46,6 +46,13 @@ voice_bank.json
 voice_bank.json.tmp
 zoom_targets.json
 .version_announced.json
+kids_auto.json
+hooks.json
+brand_state.json
+assets/bgm_kaggle.json
+assets/kids_bgm/
+*.json.tmp
+*.json.bad
 
 # bản sao git tạm của agent Claude Code (tự xoá khi xong)
 .claude/worktrees/

@@ -1,9 +1,9 @@
 # Thay đổi so với bản botkeep_7
 
 Làm theo "Kế hoạch nâng cấp Video Bot (botkeep_7) — Bản hoàn thiện". Mỗi giai đoạn là một commit riêng trên nhánh.
-Kiểm tra: `ruff check .` sạch, `pytest -q` 131 test xanh + 5 test chỉ chạy khi có key Gemini / model offline (có model: 133 xanh)
-(Python 3.13 cục bộ; CI chạy 3.11 và 3.12). Đã chạy trọn một job với dịch vụ thật (Gemini bóc lời + viết kịch bản,
-edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
+Kiểm tra: `ruff check .`, `mypy` sạch, `pytest -q` (hơn 900 test, Python 3.13 — bản Botkeep và Kaggle chạy; CI cũng 3.13,
+3.11–3.12 vẫn chạy được nhưng không còn được kiểm). Đã chạy trọn job với dịch vụ thật (Gemini bóc lời + viết kịch bản,
+edge-tts, tách giọng, render) và các model offline thật.
 
 ## Cần làm khi cập nhật lên Botkeep
 
@@ -12,6 +12,120 @@ edge-tts, tách giọng Kim_Vocal_2, render) và các model offline thật.
 3. Đặt `WEB_PASSWORD` (thiếu là web khoá), `ALLOWED_USERS` (thiếu là bot Telegram từ chối mọi người; nhắn bot một tin
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
+
+## 1.4.10 — Nút «Xóa» / «Xóa tất cả» trong Hàng đợi & kết quả (25/11/2026)
+
+- **Xóa từng job** (nút «Xóa» ở cột Trạng thái) và **«🗑 Xóa tất cả job đã xong»**: bỏ job khỏi danh sách VÀ xoá luôn trên
+  máy cho nhẹ — video kết quả, bản ngắn, ảnh bìa, file tải lên của job, dòng trong jobs.db (bảng jobs + steps; nhật ký
+  nguồn để xử lý khiếu nại bản quyền vẫn giữ). «Xóa tất cả» còn dọn job cũ chỉ còn trong jobs.db, video mồ côi trong
+  outputs/ và file tải lên không job nào dùng, rồi thu nhỏ jobs.db.
+- **Không xoá**: job đang chờ / chạy / chờ duyệt (bấm Hủy trước), video đang chờ đăng YouTube / gửi gói TikTok / tự động
+  đăng Fanpage (bếp, truyện bé), truyện bé đang giữ chỗ Kaggle (Xóa tất cả bỏ qua; Xóa từng job thì bỏ luôn mục giữ chỗ),
+  file vừa ghi (< 10 phút kết quả, < 1 giờ tải lên: có thể đang giao / đang tải). Chỉ xoá file trong outputs/, uploads_in/,
+  work/ của bot. Cả hai nút đều hỏi lại trước khi xoá.
+- API: `POST /api/jobs/{id}/delete` (409 kèm lý do khi không xoá được), `POST /api/jobs/clear`.
+- Không xoá file mà job đang dở khác còn dùng (duyệt kịch bản: job render mới dùng chung file nguồn với job gốc); mã job
+  không bao giờ cấp lại sau khi xoá (YouTube / TikTok chống đăng trùng theo mã job); không đọc được danh sách video chờ
+  đăng thì không xoá gì; xoá truyện bé đang giữ chỗ thì bỏ luôn phiên Kaggle đó.
+
+**Rà soát 1.4.8–1.4.10 (25/11):**
+- Bỏ phiên Kaggle chỉ xoá notebook khi phiên CÒN xếp hàng / chạy (phiên đã xong giữ đầu ra — tiếng nền đã tách mà lần dựng
+  sau dùng lại — và log), xoá trong luồng nền (Hủy / tắt bot không phải chờ mạng); gắn đầu ra phân tích mà Kaggle từ chối
+  thì gửi lại không gắn (phiên dựng tự tách lại) thay vì đổ về Botkeep.
+- `kids_setup` (nút web, lệnh, tự chạy lúc khởi động) không bao giờ dọn phiên của job khác; Kaggle kín phiên thì báo chạy
+  lại sau. Dọn phiên ma chỉ đụng 3 notebook công việc và đợi 10 giây cho Kaggle nhả chỗ rồi mới gửi lại.
+- Hủy / tắt bot lúc truyện bé đang chờ chỗ GPU có tác dụng ngay (trước đây luồng nền vẫn gửi notebook và giữ chỗ cho
+  truyện đã huỷ).
+- LoRA tải theo mã commit (không theo nhánh), có thời hạn kết nối; `kaggle_check` kiểm file LoRA có thật trong notebook.
+- Model Gemini bị coi là «đã gỡ» chỉ khi lỗi đúng là 404 / NOT_FOUND (không nhầm «retry in 40.404s» của lỗi 429).
+- Khởi động: tự chạy kids_setup lỗi không làm bỏ qua bước đẩy lại kho nhạc; nút «setup» trên web không chặn vòng sự kiện;
+  Kaggle lỗi lúc hỏi dataset kho nhạc thì 5 phút sau mới hỏi lại.
+
+## 1.4.9 — Tự nhận ra và tự khôi phục khi tài nguyên trên Kaggle bị xoá (24/11/2026)
+
+Người dùng lỡ xoá hết «Your Work» trên Kaggle (notebook + có thể cả dataset).
+- **Notebook công việc** (`rmvideo-worker`, `rmvideo-kids`, `rmvideo-analyze`, `rmvideo-music`): bot tự tạo lại ở lần gửi
+  sau, không cần làm gì.
+- **Model truyện bé** (`rmvideo-kids-models`): không tự tạo lại được vì tốn ~1 giờ GPU, cần người gõ `kids_setup`. Thiếu
+  model thì job truyện bé dừng NGAY với lời nhắc «gõ kids_setup» (không viết truyện / gửi Kaggle vô ích), lượt tự động
+  không tạo job (khỏi 3 lần lỗi liền -> dừng tự động); đang chạy kids_setup thì báo «đang chuẩn bị model».
+- **LoRA nhân vật**: `kids_setup` giờ tải luôn file LoRA từ repo GitHub công khai (Git LFS, 164 MB, kiểm sha256) vào đầu
+  ra notebook model; mất dataset `rmvideo-kids-lora` thì phiên dựng dùng bản đó (trước đây vẽ không LoRA). Không cần token
+  Kaggle ngoài Botkeep, không cần chạy `scripts/push_kids_lora.py`.
+- **Kho nhạc** (`rmvideo-kids-bgm`, `rmvideo-cook-bgm`): dataset mất mà library.json vẫn ghi «đã đẩy» thì phiên dựng gắn một
+  dataset không còn. Giờ bot hỏi Kaggle (nhớ 1 giờ), mất thì tự đẩy lại kho từ bản trên Botkeep.
+- **Lệnh `kaggle_check`**: kiểm model truyện bé, LoRA, kho nhạc, nguồn tự đặt trong KIDS_KAGGLE_SOURCES, PhoWhisper (nếu
+  chọn) và tự đẩy lại kho nhạc bị mất. Lúc khởi động bot cũng kiểm và ghi cảnh báo nếu thiếu.
+- **Khởi động mà notebook model truyện bé không còn thì TỰ chạy `kids_setup`** (người dùng nhờ ngày 24/11): chỉ khi thật sự
+  mất (đang chạy / lỗi thì không gửi lại), còn ≥ 75 phút GPU trong tuần, đang dùng notebook mặc định.
+
+## 1.4.8 — Kaggle kín 2 phiên GPU thì xoá phiên «ma» rồi gửi lại; model Gemini đã gỡ không chặn bước nghĩ ý (24/11/2026)
+
+Theo log tối 24/11 (job 4 truyện bé hỏng sau 3,5 phút).
+- **«Maximum batch GPU session count of 2 reached»**: Kaggle chỉ cho 2 phiên GPU xếp hàng / chạy cùng lúc. Phiên bot đã bỏ
+  (chờ máy quá lâu rồi dựng trên Botkeep, hay bị huỷ) vẫn nằm trong hàng chờ và chiếm chỗ tới khi được cấp máy — giờ cao
+  điểm là nhiều giờ. Giờ (1) khi bỏ một phiên bot **xoá notebook** đó (`DeleteKernel`, cách duy nhất qua API công khai để
+  bỏ phiên; notebook được tạo lại ở lần gửi sau), trừ notebook đang có phiên truyện bé giữ chỗ; (2) gửi mà bị từ chối vì kín
+  phiên thì xoá các notebook của bot còn phiên xếp hàng / chạy (đều là phiên ma: bot chỉ chạy một phiên một lúc) rồi gửi
+  lại; truyện bé vẫn kín thì chờ tới 75 phút (2 phút gửi lại một lần), bếp thì dựng trên Botkeep như khi chờ máy quá lâu.
+- **Model dự phòng Google đã gỡ không làm hỏng bước**: `gemini-2.5-flash-lite` (mặc định cũ trong GEMINI_FALLBACK_MODELS)
+  trả 404 «no longer available» → bước nghĩ ý truyện bỏ dù lỗi thật là quá tải. Giờ model 404 bị bỏ khỏi danh sách dự
+  phòng cho tới khi bot khởi động lại (và ghi log để sửa Cài đặt), lỗi báo ra là «quá tải» của model chính; mặc định chỉ
+  còn `gemini-3.1-flash-lite`. Ai đã lưu Cài đặt với giá trị cũ thì sửa ô «Model Gemini dự phòng».
+
+## 1.4.7 — Rà soát toàn bộ mã (4 tổ kiểm song song) (24/11/2026)
+
+Sửa theo kết quả rà soát: giữ chỗ Kaggle, nhạc Lyria, dựng bếp, cấu hình / đóng gói.
+- **Giữ chỗ Kaggle (truyện bé):**
+  - Mọi phiên truyện bé dùng chung một notebook: đang có phiên giữ chỗ mà gửi truyện mới là mất phiên đó (và tốn GPU gấp
+    đôi). Giờ `kids_now` / lượt tự động từ chối làm truyện mới khi còn phiên giữ chỗ; gửi lên Kaggle cũng chặn ở tầng dưới.
+  - Mục giữ chỗ giữ tới khi job thu kết quả XONG (trước đây xoá ngay khi tạo job thu: job thu đứt mạng là mất video đã dựng).
+    Job thu lỗi thì lượt sau thu lại, tối đa 3 lần rồi báo admin.
+  - Mục giữ chỗ ghi ngay từ lúc gửi phiên (bot tắt lúc đang tải kết quả 15–20 phút vẫn còn mục để chạy lại thu về); lỗi
+    thật sau khi gửi (video không đạt, sai mã) thì bỏ mục.
+  - Người dùng bấm Hủy thì bỏ cả mục giữ chỗ (trước đây bot vẫn làm tiếp và giao truyện đã huỷ); log ghi đúng là phiên có
+    thể vẫn chạy nếu được cấp máy trước hạn (Kaggle không có lệnh huỷ).
+  - Phiên đang chạy mà hỏi trạng thái lỗi mạng sau hạn thì không bị bỏ nhầm; job quá hạn khi đang giữ chỗ báo «⏳ … giữ chỗ»
+    thay vì «❌ … thử chất lượng fast»; thông báo giữ chỗ nêu đúng lý do (chưa cấp máy / chưa xong).
+  - Ghi `kids_auto.json` có khoá (luồng Kaggle và vòng tick không ghi đè nhau).
+- **Nhạc Lyria:**
+  - Tên bài chốt lúc ghi vào kho (trong khoá), không phải lúc bắt đầu tạo: Botkeep tạo nền và notebook Kaggle cùng làm một màu
+    không còn đè bài nhau; mã hoá ra file tạm rồi mới đưa vào kho, wav / m4a dở được dọn.
+  - Notebook nhạc: bot khởi động lại giữa chừng thì lần sau **nối lại** phiên đã gửi (lưu mã lần gửi), không gửi lại từ đầu;
+    không gửi đè khi phiên cũ còn chạy; bot tắt thì luồng chờ Kaggle dừng trong 30 giây (trước đây giữ tiến trình tới 5 phút).
+  - Phiên đứng im không bị tính là «mạng chậm» (khỏi nghỉ Lyria 6 giờ oan); hạn riêng từng phiên nên phần đã nhận không mất
+    khi hết giờ; `kids_bgm` / `cook_bgm` / nút web tự chuyển sang Kaggle khi Kaggle đã tạo được nhạc.
+- **Dựng bếp:** khối cuối (cảm thán + điểm danh + tóm tắt) không bao giờ đứng trước cảnh mở đầu nữa (mốc chèn rơi vào quãng
+  đã bỏ từng cho chỉ số 0 — chèn lên đầu video, trước câu hook, mà R1–R8 không bắt; thêm luật R9 làm lưới cuối); không để
+  cảnh món cuối loé lên < 2 giây rồi mới tới khối cuối; bản ngắn mà mọi quãng giữ gộp thành một khúc thì tách cảnh cuối ra
+  để điểm danh không mở video; bước cảm thán không có lời không bị dời; bước không có mô tả không đọc tên loại («cook»)
+  trong tóm tắt; nối mẩu câu giữ chữ hoa tên riêng («Hà Nội», «Gấu Nâu»).
+- **Cấu hình / đóng gói:** README phần nhạc bé theo cách mới; `.gitignore` thêm file trạng thái bot tự ghi; `pydantic` ghi
+  trong requirements; gói Botkeep bỏ tài liệu / ảnh Fanpage không dùng lúc chạy (còn 1,16 MB); lệnh `kids_tick` có trong help.
+
+## 1.4.6 — Truyện bé giữ chỗ trong hàng chờ GPU Kaggle; Lyria đứng im theo gói; ý truyện dài không bị loại hết (24/11/2026)
+
+Theo log tối 24/11 (job 3 truyện bé hỏng sau 77 phút «Kaggle chờ máy quá 75 phút»; notebook nhạc 17/18 bài).
+- **Chờ GPU quá lâu không làm hỏng truyện nữa.** Trước đây bot bỏ phiên sau 75 phút chờ máy: mất truyện đã viết, mất chỗ
+  xếp hàng (gửi lại là xếp hàng từ đầu, giờ cao điểm không bao giờ tới lượt). Giờ phiên truyện bé gửi với hạn bắt đầu
+  4 giờ; bot thôi chờ khi quá 75 phút, khi có job khác đang chờ (nhường worker sau 5 phút), khi job quá hạn hay bot tắt /
+  khởi động lại — nhưng phiên **vẫn giữ chỗ**. `kids_auto` hỏi trạng thái mỗi 2 phút (kể cả khi KIDS_AUTO tắt, job
+  `kids_now` cũng được theo dõi); Kaggle dựng xong thì tạo job thu kết quả (cùng nguồn / chat với job cũ, truyện ghi dưới mã
+  job cũ); notebook lỗi hay quá 4 giờ chưa được cấp máy thì bỏ và báo admin. Job bị dừng vì bot tắt lúc đang giữ chỗ, khi
+  chạy lại sau khởi động sẽ tự thu kết quả thay vì nghĩ truyện mới. Người dùng bấm Hủy thì vẫn huỷ hẳn, không giữ chỗ.
+  Lệnh `kids` liệt kê các phiên đang giữ chỗ.
+- **Lyria: không có gói nào trong 30 giây thì ngắt phiên, giữ phần đã nhận, nối phiên mới** (notebook nhạc 24/11: một bài
+  «kết nối đứng im» 250 giây, mất cả phần đã nhận). Trên Botkeep nhận chậm rõ rệt thì ngắt ngay trong phiên (~20 giây)
+  thay vì đợi máy chủ cắt sau 51 giây. Notebook nhạc trên Kaggle không bao giờ «nghỉ vì chậm» (chỉ nối phiên), có hạn bắt
+  đầu như các notebook khác; ước lượng thời gian theo số đo thật (17 bài hết 68 phút).
+- **Kaggle đã tạo được nhạc thì kho thiếu bài nhờ Kaggle luôn** (14 ngày), khỏi mất ~1 phút thử Lyria trên Botkeep mỗi job;
+  tự chạy lại tối đa 3 giờ một lần (bài còn thiếu được bổ sung dần).
+- **Ý truyện dài quá không bị loại hết nữa.** Job 3: cả 4 ý 98-110 chữ bị LOẠI (giới hạn 90) nên viết truyện không có ý
+  (mất màu nhạc, đồ vật đã chọn). Giới hạn lên 120 chữ, lời nhắc xin 2-3 câu ngắn (tối đa 70 chữ), ý chỉ dài quá vẫn
+  được chấm khi không còn ý nào khác.
+- **Tiêu đề có từ trừu tượng («bí mật», «điều kỳ lạ», «bất ngờ», «phép màu», «giấc mơ») không bị báo lạc đề** (job 3: «Bí
+  mật dưới cái mền» bị báo thiếu «bí», «mật» -> mất một lượt viết lại).
+- Nhỏ: log truyện bé không lặp «Truyện bé: Truyện bé:»; không ghi dòng bước rỗng «Job N [ 3s] » lúc bắt đầu.
 
 ## 1.4.5 — Kho nhạc nền tạo trên Kaggle (mạng Botkeep quá chậm cho Lyria) (24/11/2026)
 
