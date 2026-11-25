@@ -636,8 +636,8 @@ def lora_source() -> tuple[str, str, str] | None:
                 ok = True
             _LORA_OK[slug] = (ok, now)
             if not ok:
-                logging.warning("Truyện bé: không thấy dataset LoRA %s trên Kaggle, dùng bản trong notebook %s", slug,
-                                SLUG_KIDS_MODELS)
+                logging.info("Truyện bé: không có dataset LoRA %s, dùng bản trong notebook model (%s)", slug,
+                             ", ".join(kids_sources_nb()))
         if not _LORA_OK[slug][0]:                        # 1.4.9: kids_setup tải LoRA vào đầu ra notebook model
             return "notebook", SLUG_KIDS_MODELS, name
     return kind, slug, name
@@ -912,7 +912,17 @@ def resources_report(heal: bool = True) -> list[str]:
     why = kids_ready()
     out.append(("✅" if not why else "⚠️") + f" Model truyện bé ({SLUG_KIDS_MODELS}): " + (why or "sẵn sàng"))
     src = lora_source()
-    if src and src[0] == "dataset":
+    custom = [x for x in kids_sources_nb() if "/" not in x and x != SLUG_KIDS_MODELS]
+    if src and src[0] != "dataset" and custom:          # notebook tự đặt (vd chạy tay kids_setup): LoRA nằm trong đó
+        try:
+            have = any(str(f.get("fileName") or "").endswith(LORA_FILE)
+                       for x in custom for f in kaggle_api.outputs(x).get("files", []))
+        except Exception:
+            have = None
+        out.append(f"✅ LoRA nhân vật: trong notebook {', '.join(custom)}" if have else
+                   (f"⚠️ LoRA nhân vật: notebook {', '.join(custom)} không có file LoRA — truyện vẽ không LoRA" if have is False
+                    else f"ℹ️ LoRA nhân vật: dùng bản trong notebook {', '.join(custom)} (không kiểm được)"))
+    elif src and src[0] == "dataset":
         out.append(f"✅ LoRA nhân vật: dataset {src[1]}")
     elif src and why:
         out.append(f"ℹ️ LoRA nhân vật: không thấy dataset {SLUG_KIDS_LORA}, sẽ dùng bản kids_setup tải vào notebook {src[1]}")

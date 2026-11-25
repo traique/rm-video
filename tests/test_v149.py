@@ -267,3 +267,17 @@ def test_custom_notebook_source_ready_by_outputs(monkeypatch):
     assert kaggle_worker.kids_ready() == "" and kaggle_worker.auto_setup() == ""
     lines = kaggle_worker.resources_report(heal=False)
     assert lines[0].startswith("✅") and any("notebook234d68765b" in x and x.startswith("✅") for x in lines)
+
+
+
+def test_lora_report_checks_custom_notebook(monkeypatch):
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "notebookd0f466fb59")
+    monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1")
+    monkeypatch.setattr(kaggle_worker, "_OUT_OK", {})
+    monkeypatch.setattr(kaggle_worker, "_LORA_OK", {})
+    monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: slug != "rmvideo-kids-lora")
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": [{"fileName": "lora/dcn_lora_v1.safetensors"},
+                                                                       {"fileName": "flux-schnell-nf4/x"}]})
+    lines = kaggle_worker.resources_report(heal=False)
+    assert "✅ LoRA nhân vật: trong notebook notebookd0f466fb59" in lines
