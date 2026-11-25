@@ -245,3 +245,25 @@ def test_gone_detection_not_fooled_by_retry_delay():
     assert pe._gone("Kaggle 404 Not found") and pe._gone("This model is no longer available")
     assert not pe._gone("429 RESOURCE_EXHAUSTED. Please retry in 40.404129s.")
     assert not pe._gone("retry in 12.404s")
+
+
+
+def test_manual_setup_script_matches_kernel():
+    """scripts/kids_setup_manual.py (dán 2 dòng vào notebook chạy tay trên Kaggle, 25/11) phải đúng bằng mã kids_setup."""
+    import os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "kids_setup_manual.py")
+    assert open(path, encoding="utf-8").read() == kaggle_worker.kids_models_kernel()
+
+
+def test_custom_notebook_source_ready_by_outputs(monkeypatch):
+    """Notebook chạy tay (Quick Save kèm output) không có phiên chạy nền: xét có đầu ra hay chưa."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "notebook234d68765b")
+    monkeypatch.setattr(kaggle_worker, "_OUT_OK", {})
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: (_ for _ in ()).throw(kaggle_api.KaggleError("404 Not found")))
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": []})
+    assert "Quick Save" in kaggle_worker.kids_ready()
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": [{"fileName": "flux-schnell-nf4/x"}]})
+    assert kaggle_worker.kids_ready() == "" and kaggle_worker.auto_setup() == ""
+    lines = kaggle_worker.resources_report(heal=False)
+    assert lines[0].startswith("✅") and any("notebook234d68765b" in x and x.startswith("✅") for x in lines)

@@ -802,11 +802,37 @@ def _missing(e: Exception) -> bool:
     return any(k in str(e) for k in ("404", "403", "NOT_FOUND", "not found", "Not found", "denied"))
 
 
+_OUT_OK: dict[str, float] = {}
+
+
+def _custom_ready(slug: str) -> str:
+    """Notebook tự đặt trong KIDS_KAGGLE_SOURCES (vd notebook chạy tay kids_setup, 25/11): có đầu ra chưa. "" = có / không
+    hỏi được. Notebook chạy tay rồi «Quick Save» thì không có phiên chạy nền (hỏi trạng thái báo 404) nhưng vẫn có đầu ra."""
+    if time.time() - _OUT_OK.get(slug, 0.0) < READY_TTL:
+        return ""
+    try:
+        files = kaggle_api.outputs(slug).get("files") or []
+    except KaggleError as e:
+        return f"không thấy notebook {slug} trên Kaggle" if _missing(e) else ""
+    if not files:
+        return (f"notebook {slug} chưa có đầu ra — chạy xong thì Save Version → Quick Save, mở Advanced Settings chọn "
+                "lưu output («Always save outputs»)")
+    _OUT_OK[slug] = time.time()
+    return ""
+
+
 def kids_ready() -> str:
     """"" khi notebook model truyện bé (rmvideo-kids-models) đã chạy xong; không thì lý do + cách sửa. Chỉ xét khi dùng
     notebook mặc định (KIDS_KAGGLE_SOURCES trống hoặc có nó). 24/11: người dùng lỡ xoá hết trên Kaggle -> mọi phiên truyện
     bé gắn một notebook không còn: thay vì để Kaggle từ chối / phiên lỗi giữa chừng, báo ngay «gõ kids_setup»."""
-    if SLUG_KIDS_MODELS not in kids_sources_nb() or not kaggle_api.configured():
+    if not kaggle_api.configured():
+        return ""
+    if SLUG_KIDS_MODELS not in kids_sources_nb():          # nguồn tự đặt: notebook của mình phải có đầu ra
+        for slug in kids_sources_nb():
+            if "/" not in slug:
+                why = _custom_ready(slug)
+                if why:
+                    return why
         return ""
     if time.time() - _READY.get("ok", 0.0) < READY_TTL:
         return ""
@@ -878,12 +904,16 @@ def resources_report(heal: bool = True) -> list[str]:
         kind, _, slug = item.partition(":")
         if not item or (not slug and kind == SLUG_KIDS_MODELS) or slug == SLUG_KIDS_MODELS or "/" in (slug or kind):
             continue                                     # «user/slug» của người khác: API hỏi theo tài khoản mình, không kiểm
-        try:
-            ok = kaggle_api.dataset_exists(slug) if kind.lower() == "dataset" else bool(kaggle_api.status(slug or kind))
-        except KaggleError as e:
-            ok = not _missing(e)
-        if not ok:
-            out.append(f"⚠️ KIDS_KAGGLE_SOURCES: không còn «{item}» trên Kaggle — xoá khỏi Cài đặt để dùng {SLUG_KIDS_MODELS}")
+        if kind.lower() == "dataset":
+            try:
+                ok = kaggle_api.dataset_exists(slug)
+            except KaggleError as e:
+                ok = not _missing(e)
+            if not ok:
+                out.append(f"⚠️ KIDS_KAGGLE_SOURCES: không còn «{item}» trên Kaggle — xoá khỏi Cài đặt để dùng {SLUG_KIDS_MODELS}")
+            continue
+        why2 = _custom_ready(slug or kind)                # notebook: xét đầu ra (notebook chạy tay không có phiên chạy nền)
+        out.append(f"⚠️ KIDS_KAGGLE_SOURCES «{item}»: {why2}" if why2 else f"✅ KIDS_KAGGLE_SOURCES «{item}»: có đầu ra")
     if config.KAGGLE_ASR == "phowhisper":
         try:
             kaggle_api.status(SLUG_PHOWHISPER)
