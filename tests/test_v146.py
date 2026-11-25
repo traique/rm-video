@@ -149,17 +149,17 @@ def test_watch_parked_drops_failed_or_expired(monkeypatch, clean_parked):
         sent.append(text)
     monkeypatch.setattr(state, "notify_admin", notify)
     now = time.time()
-    kids_auto.park_record({"job": 11, "slug": "rmvideo-kids", "token": "a", "since": now - 5 * 3600,
+    kids_auto.park_record({"job": 987011, "slug": "rmvideo-kids", "token": "a", "since": now - 5 * 3600,
                            "expires_at": now - 3600, "brief": {}})
-    kids_auto.park_record({"job": 12, "slug": "rmvideo-kids", "token": "b", "since": now - 60, "expires_at": now + 3600,
+    kids_auto.park_record({"job": 987012, "slug": "rmvideo-kids", "token": "b", "since": now - 60, "expires_at": now + 3600,
                            "brief": {}})
     monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
     msgs = asyncio.run(kids_auto.watch_parked(now))
-    assert len(msgs) == 1 and "không làm xong truyện #11" in msgs[0] and kids_auto.parked_info(11) is None
-    assert kids_auto.parked_info(12) and len(sent) == 1
+    assert len(msgs) == 1 and "không làm xong truyện #987011" in msgs[0] and kids_auto.parked_info(987011) is None
+    assert kids_auto.parked_info(987012) and len(sent) == 1
     monkeypatch.setattr(kaggle_api, "status", lambda slug: ("ERROR", "CUDA out of memory"))
     msgs = asyncio.run(kids_auto.watch_parked(now))
-    assert "truyện #12 lỗi" in msgs[0] and kids_auto.parked_info(12) is None and len(sent) == 2
+    assert "truyện #987012 lỗi" in msgs[0] and kids_auto.parked_info(987012) is None and len(sent) == 2
 
 
 def test_finish_pending_keeps_parked_job(monkeypatch, clean_parked):
