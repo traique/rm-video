@@ -496,3 +496,80 @@ def test_lora_report_handles_null_files(monkeypatch):
     lines = kaggle_worker.resources_report(heal=False)
     lora = [x for x in lines if "LoRA" in x]
     assert lora and "không kiểm được" not in lora[0] and "không có file" in lora[0]
+
+
+# ---------------- job 9 (25/11 tối): Gemini quá tải 503 -> video đọc kịch bản mẫu ----------------
+
+@pytest.mark.parametrize("attempt,want", [(0, 3.0), (1, 6.0), (2, 12.0), (3, 24.0)])
+def test_503_backs_off_longer(attempt, want):
+    import prompt_engine
+    assert prompt_engine.retry_delay("503 UNAVAILABLE high demand", attempt) == want
+    assert prompt_engine._tries("503 UNAVAILABLE") == 5 and prompt_engine._tries("500 INTERNAL") == 3
+
+
+@pytest.mark.skipif(__import__("prompt_engine").genai is None, reason="cần google-genai")
+def test_overloaded_model_retried_five_times_before_backup(monkeypatch):
+    import asyncio
+    import prompt_engine
+    from test_ban43 import _Resp, _fake_genai
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "main-lite")
+    monkeypatch.setattr(config, "GEMINI_FALLBACK_MODELS", "backup-1")
+    monkeypatch.setattr(prompt_engine, "_GONE", set())
+    calls: list = []
+
+    def behaviour(model):
+        if model == "backup-1":
+            return _Resp("ok")
+        raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    _fake_genai(monkeypatch, behaviour, calls)
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok"
+    assert [m for m, _ in calls] == ["main-lite"] * 5 + ["backup-1"]
+
+
+def test_provider_error_logs_one_line_for_overload(caplog):
+    import logging
+    import prompt_engine
+    from types import SimpleNamespace
+    p = SimpleNamespace(name="Gemini")
+    with caplog.at_level(logging.WARNING):
+        prompt_engine.provider_error("Viết kịch bản", p, RuntimeError("503 UNAVAILABLE. high demand"))
+        prompt_engine.provider_error("Viết kịch bản", p, RuntimeError("400 INVALID_ARGUMENT schema"))
+    recs = [r for r in caplog.records if "Viết kịch bản" in r.getMessage()]
+    assert len(recs) == 2 and recs[0].levelno == logging.WARNING and recs[0].exc_info is None   # không traceback
+    assert recs[1].levelno == logging.ERROR and recs[1].exc_info                                # lỗi lạ: có traceback
+
+
+def test_oneshot_stops_instead_of_rendering_template_when_ai_overloaded(monkeypatch):
+    import asyncio
+    import prompt_engine
+    from rmvideo.app.flow import remake as remake_mod
+    from rmvideo.services import llm as llm_mod
+
+    async def busy(prompt):
+        raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    monkeypatch.setattr(prompt_engine, "_chain", lambda call: [llm_mod.Provider("Gemini", busy)])
+    pack = asyncio.run(prompt_engine.generate("Kho quẹt", "", "cook", "lời gốc", 60))
+    assert pack["fallback"] and pack["temporary"] and "503" in pack["why"]
+
+    async def broken(prompt):
+        raise RuntimeError("400 INVALID_ARGUMENT API key not valid")
+    monkeypatch.setattr(prompt_engine, "_chain", lambda call: [llm_mod.Provider("Gemini", broken)])
+    pack = asyncio.run(prompt_engine.generate("Kho quẹt", "", "cook", "lời gốc", 60))
+    assert pack["fallback"] and not pack.get("temporary")                   # cấu hình sai: vẫn dựng + cảnh báo như cũ
+
+    class J:
+        mode, subs, voice, source = "cook", True, "v", "web"
+        script = post = ""
+        notes: list = []
+
+        def note(self, t):
+            self.notes.append(t)
+    r = remake_mod.Remake.__new__(remake_mod.Remake)
+    r.job, r.title, r.desc, r.text, r.target, r.tmp = J(), "Kho quẹt", "", "lời", 60, "/tmp"
+
+    async def gen(*a, **k):
+        return {**prompt_engine._fallback("Kho quẹt", "cook"), "temporary": True, "why": "503 UNAVAILABLE"}
+    monkeypatch.setattr(prompt_engine, "generate", gen)
+    with pytest.raises(RuntimeError, match="quá tải.*gửi lại link"):
+        asyncio.run(r.render_oneshot())

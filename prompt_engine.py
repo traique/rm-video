@@ -10,7 +10,7 @@ import re
 import time
 import unicodedata
 from collections import Counter
-from typing import Literal
+from typing import Any, Literal
 
 import aiohttp
 
@@ -255,13 +255,37 @@ def retry_delay(err: str, attempt: int) -> float | None:
         m = re.search(r"retry(?:Delay|\s+in)\W*([0-9.]+)\s*s", err, re.IGNORECASE)
         wait = float(m.group(1)) + 1 if m else 10.0 * (attempt + 1)
         return wait if wait <= MAX_QUOTA_WAIT else None
-    if "503" in err or "UNAVAILABLE" in err or "500" in err or "INTERNAL" in err:
+    if "503" in err or "UNAVAILABLE" in err:
+        return 3.0 * 2 ** attempt            # 3, 6, 12, 24s: cơn quá tải thường vài phút (job 9 ngày 25/11), 9s là bỏ cuộc quá sớm
+    if "500" in err or "INTERNAL" in err:
         return 3.0 * (attempt + 1)
     return None
 
 
 GEMINI_TRIES = 3
+OVERLOAD_TRIES = 5             # 503 quá tải: 5 lần, nghỉ 3+6+12+24 = 45s mỗi model (rồi mới sang model dự phòng)
 MAX_QUOTA_WAIT = 45.0
+
+
+def _tries(err: str) -> int:
+    return OVERLOAD_TRIES if ("503" in err or "UNAVAILABLE" in err) else GEMINI_TRIES
+
+
+def _temporary(err: str) -> bool:
+    """Lỗi tạm thời của dịch vụ AI (quá tải / hết lượt / quá giờ): lát sau gửi lại là được, không phải cấu hình sai."""
+    return bool(err) and (retry_delay(err, 0) is not None or is_quota_error(err) or "high demand" in err
+                          or "DEADLINE" in err or "Timeout" in err or "timed out" in err.lower())
+
+
+def provider_error(what: str, p: Any, e: BaseException) -> None:
+    """Ghi log khi một nhà cung cấp AI lỗi. Quá tải / hết lượt (đã thử lại, hiểu rõ): một dòng cảnh báo — trước đây in cả
+    chuỗi traceback dài hàng trăm dòng (job 9 ngày 25/11). Lỗi lạ mới kèm traceback để dò."""
+    err = str(e)
+    if _temporary(err):
+        logging.warning("%s: %s %s (%s), thử nhà cung cấp kế", what, p.name,
+                        "hết lượt" if is_quota_error(err) else "quá tải / quá giờ", err[:160])
+    else:
+        logging.error("%s: %s lỗi, thử nhà cung cấp kế", what, p.name, exc_info=e)
 
 
 def is_quota_error(err: str) -> bool:
@@ -296,13 +320,13 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
 
     async def _gen(model: str, cfg):
         cfg = _with_thinking(cfg, model, thinking)
-        for attempt in range(GEMINI_TRIES):
+        for attempt in range(OVERLOAD_TRIES):
             try:
                 return await asyncio.wait_for(
                     client.aio.models.generate_content(model=model, contents=contents, config=cfg), timeout)
             except Exception as e1:
                 wait = retry_delay(str(e1), attempt)
-                if wait is None or attempt == GEMINI_TRIES - 1:
+                if wait is None or attempt >= _tries(str(e1)) - 1:
                     raise
                 logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", str(e1)[:80], wait)
                 await asyncio.sleep(wait)
@@ -501,13 +525,21 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
         pack = parse_pack(await p.call(prompt), title)
         pack["script"] = dialect.south(strip_sub_cta(pack.get("script") or ""))   # không kêu gọi đăng ký kênh
         return pack
-    pack = await llm.first_success(
-        _chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt, record=metrics.record,
-        on_error=lambda p, e: logging.error("Provider %s lỗi, thử provider kế tiếp", p.name, exc_info=e))
+    errors: list[str] = []
+
+    def on_error(p, e):
+        errors.append(str(e))
+        provider_error("Viết kịch bản", p, e)
+    pack = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt,
+                                   record=metrics.record, on_error=on_error)
     if pack is not None:
         return pack
     metrics.record("llm", "template", fallback=True)
-    return _fallback(title, mode)
+    out = _fallback(title, mode)
+    if errors and all(_temporary(x) for x in errors):      # mọi nhà cung cấp chỉ quá tải / hết lượt: lát sau gửi lại là được
+        out["temporary"] = True
+        out["why"] = errors[-1][:160]
+    return out
 
 
 POST_PROMPT = """Viết nội dung đăng cho một {mode} KHÔNG CÓ LỜI THOẠI (chỉ có hình và nhạc nền, không ai nói gì). Chỉ dựa vào tiêu đề và mô tả gốc dưới đây; KHÔNG bịa thêm nguyên liệu, số liệu, địa điểm, giá tiền hay chi tiết nào không có trong đó. Viết lại bằng lời của mình, không chép nguyên câu. Không kêu gọi đăng ký / theo dõi / like / share kênh, không lời bán hàng của người gốc (giỏ hàng, link, mã giảm giá).
@@ -1446,7 +1478,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
                 "caption": dialect.south(d.get("caption") or script).strip(),
                 "hashtags": (d.get("hashtags") or "#viral #xuhuong #fyp").strip()}
     return await llm.first_success(chain, attempt, record=metrics.record,
-                                   on_error=lambda p, e: logging.error("generate_timed: provider %s lỗi", p.name, exc_info=e))
+                                   on_error=lambda p, e: provider_error("Viết lời theo mốc", p, e))
 
 
 PROOF_PROMPT = """Bạn là biên tập viên soát lời đọc cho video nấu ăn tiếng Việt (giọng miền Nam). Dưới đây là các câu sẽ được đọc lên, mỗi dòng «số | câu».
@@ -1539,7 +1571,7 @@ async def shorten(items: list) -> dict:
         return {int(x["i"]): dialect.south(strip_sub_cta(x["text"].strip())) for x in d.get("segments", [])
                 if x.get("text")}
     out = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ShortOut)), attempt,
-                                  on_error=lambda p, e: logging.error("shorten lỗi", exc_info=e))
+                                  on_error=lambda p, e: provider_error("Rút gọn lời", p, e))
     return out if out is not None else {}
 
 

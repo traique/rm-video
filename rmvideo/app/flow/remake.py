@@ -895,6 +895,11 @@ class Remake:
         job.step = "Viết kịch bản + content (AI)"
         pack = await prompt_engine.generate(title, desc, job.mode, text, target)
         if pack.get("fallback"):
+            if pack.get("temporary"):
+                # job 9 (25/11): Gemini quá tải (503) cả model chính lẫn dự phòng -> bot dựng 5-10 phút một video đọc kịch
+                # bản mẫu «Bạn sẽ không tin nổi video này đâu…» vô dụng. Dịch vụ chỉ quá tải tạm: dừng, bảo gửi lại sau.
+                raise RuntimeError(f"AI viết kịch bản không được: {pack.get('why') or 'dịch vụ AI quá tải'}. "
+                                   "Dịch vụ AI đang quá tải / hết lượt tạm thời — gửi lại link sau vài phút.")
             job.note("⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt. ")
             job.no_autopost = "AI viết kịch bản lỗi, video dùng kịch bản mẫu"
         job.script = pack["script"]

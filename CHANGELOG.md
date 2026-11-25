@@ -42,6 +42,11 @@ token.
   tắt bot trong 5 giây; mục giữ chỗ truyện bé giữ tới khi làm xong bài đăng (bot tắt lúc đang kiểm video thì chạy lại thu
   kết quả, không gửi lại cả phiên); `kaggle_check` xử lý notebook chưa có đầu ra; lệnh console giữ nguyên chữ hoa ở link.
   Security review: không phát hiện lỗ hổng mới.
+- **Gemini quá tải (503) không còn cho ra video đọc kịch bản mẫu** (job 9, 25/11 tối: model chính lẫn dự phòng 503 trong
+  ~20 giây thử lại → bot dựng 5-10 phút một video đọc «Bạn sẽ không tin nổi video này đâu…» vô dụng, log in hai traceback
+  dài). Giờ: 503 thử lại 5 lần với 3+6+12+24 giây mỗi model (cơn quá tải thường vài phút); vẫn không được thì job dừng với
+  «Dịch vụ AI đang quá tải / hết lượt tạm thời — gửi lại link sau vài phút» thay vì dựng kịch bản mẫu (key / model sai
+  vẫn dùng mẫu + cảnh báo như cũ); lỗi quá tải / hết lượt ghi một dòng cảnh báo, chỉ lỗi lạ mới kèm traceback.
 
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 
