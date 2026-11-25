@@ -23,7 +23,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(storage, "WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setattr(config, "UPLOAD_DIR", str(up))
     monkeypatch.setattr(storage, "queue", q)
-    monkeypatch.setattr(storage, "_awaiting_post", lambda: set())
+    monkeypatch.setattr(storage, "_awaiting_post", lambda strict=False: set())
     monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids_auto.json"))
     monkeypatch.setattr(autopost, "STATE_FILE", str(tmp_path / "autopost.json"))
     return q, out, up
@@ -71,10 +71,10 @@ def test_delete_refuses_active_job(env, status):
 def test_delete_refuses_video_waiting_to_post(env, monkeypatch):
     q, out, _ = env
     j = _job(q, "done", out, 0)
-    monkeypatch.setattr(storage, "_awaiting_post", lambda: {os.path.abspath(j.output)})
+    monkeypatch.setattr(storage, "_awaiting_post", lambda strict=False: {os.path.abspath(j.output)})
     ok, msg = storage.delete_job(j.id)
     assert not ok and "chờ đăng YouTube" in msg and os.path.exists(j.output)
-    monkeypatch.setattr(storage, "_awaiting_post", lambda: set())
+    monkeypatch.setattr(storage, "_awaiting_post", lambda strict=False: set())
     st = kids_auto.load_state()
     st["pending"] = {"job": j.id, "slot_ts": time.time() + 3600, "slot": "19:00"}
     kids_auto.save_state(st)
@@ -105,7 +105,7 @@ def test_clear_all_keeps_active_waiting_parked(env, monkeypatch):
     orphan_old = _file(out / "out_1_0.mp4", age=7200)
     orphan_new = _file(out / "out_999_0.mp4")                    # đang giao kết quả: chưa thuộc job nào
     up_old, up_new = _file(up / "up_old", age=7200), _file(up / "up_new")
-    monkeypatch.setattr(storage, "_awaiting_post", lambda: {os.path.abspath(wait.output)})
+    monkeypatch.setattr(storage, "_awaiting_post", lambda strict=False: {os.path.abspath(wait.output)})
     res = storage.clear_jobs()
     assert res["deleted"] == 4 and res["kept"] == 4 and "Đã xoá 4 job" in res["msg"]
     gone = {done.id, err.id, canc.id, old.id}
@@ -148,3 +148,62 @@ def test_web_routes_delete_and_clear(env, monkeypatch, tmp_path):
     html = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "index.html"),
                 encoding="utf-8").read()
     assert "deleteJob(" in html and "clearJobs()" in html and "/api/jobs/clear" in html
+
+
+
+# ---------------- rà soát 25/11 ----------------
+
+def test_delete_approved_job_keeps_source_of_render_job(env):
+    """Duyệt kịch bản: job render mới dùng chung file nguồn với job gốc «approved». Xoá job gốc (một / tất cả) không được
+    xoá file nguồn đó."""
+    q, out, up = env
+    src = _file(up / "review_10.mp4")
+    orig = _job(q, "approved", out, 0, local=src)
+    render = Job(url="https://x", mode="cook", duration=0, voice="v", status="queued", local=src)
+    q.jobs[render.id] = render
+    q.save(render)
+    ok, _ = storage.delete_job(orig.id)
+    assert ok and os.path.exists(src) and not os.path.exists(orig.output)
+    orig2 = _job(q, "approved", out, 1, local=src)
+    storage.clear_jobs()
+    assert os.path.exists(src) and orig2.id not in q.jobs and render.id in q.jobs
+
+
+def test_job_ids_not_reused_after_clear(env, tmp_path):
+    from queue_manager import JobQueue
+    q, out, _ = env
+    jobs = [_job(q, "done", out, k) for k in range(3)]
+    storage.clear_jobs()
+    q2 = JobQueue(db_path=str(tmp_path / "jobs.db"))        # bot khởi động lại
+    new = Job(url="https://y", mode="cook", duration=0, voice="v")
+    assert new.id > max(j.id for j in jobs)
+    assert q2._max_issued() >= max(j.id for j in jobs)
+
+
+def test_deleted_job_not_resurrected_by_late_save(env):
+    q, out, _ = env
+    j = _job(q, "error", out, 0)
+    storage.delete_job(j.id)
+    q.save(j)                                                # finally của worker ghi lại sau khi đã bấm Xóa
+    assert q.saved(j.id) is None
+
+
+def test_bad_rows_in_db_do_not_break_clear(env):
+    q, _, _ = env
+    q._db.execute("INSERT INTO jobs (id, data) VALUES (?, ?)", (900, "null"))
+    q._db.execute("INSERT INTO jobs (id, data) VALUES (?, ?)", (901, "{hỏng"))
+    q._db.commit()
+    res = storage.clear_jobs()
+    assert res["deleted"] == 2 and q.saved(900) is None
+
+
+def test_delete_refuses_when_post_list_unreadable(env, monkeypatch):
+    q, out, _ = env
+    j = _job(q, "done", out, 0)
+
+    def boom(strict=False):
+        raise RuntimeError("youtube.json hỏng")
+    monkeypatch.setattr(storage, "_awaiting_post", boom)
+    ok, msg = storage.delete_job(j.id)
+    assert not ok and "không đọc được" in msg and os.path.exists(j.output)
+    assert "Chưa xoá gì" in storage.clear_jobs()["msg"] and os.path.exists(j.output)

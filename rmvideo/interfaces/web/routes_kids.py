@@ -1,4 +1,5 @@
 """🧸 Truyện bé: trạng thái, làm 1 truyện ngay, thử token Fanpage riêng, chuẩn bị model trên Kaggle, chạy lại sau lỗi."""
+import asyncio
 
 from aiohttp import web
 
@@ -36,7 +37,7 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
                 msg = "✅ Token dùng được cho Fanpage truyện bé: " + await autopost.check_token(
                     page=config.KIDS_FB_PAGE_ID, token=config.KIDS_FB_PAGE_TOKEN)
             elif act == "setup":
-                msg = "✅ " + kaggle_worker.kids_setup()
+                msg = "✅ " + await asyncio.to_thread(kaggle_worker.kids_setup)     # gọi mạng: không chặn vòng sự kiện
             elif act == "setup_status":
                 msg = "ℹ️ " + kaggle_worker.kids_setup_status()
             elif act == "resume":

@@ -75,13 +75,16 @@ def warn_low_disk(log=logging.warning):
     return free
 
 
-def _awaiting_post() -> set:
+def _awaiting_post(strict: bool = False) -> set:
     """File kết quả còn chờ tải lên YouTube / gửi gói đăng TikTok (1.2.0; gói TikTok chờ tới giờ vàng, có khi hơn một
-    ngày sau, trong khi OUT_MAX_MB chỉ giữ ~10 video): không xoá."""
+    ngày sau, trong khi OUT_MAX_MB chỉ giữ ~10 video): không xoá. strict (nút Xóa trên web): đọc lỗi thì ném, không coi
+    như «không có gì chờ»."""
     try:
         from rmvideo.app import tiktok_kit, youtube
         return {os.path.abspath(p) for p in youtube.pending_paths() | tiktok_kit.pending_paths()}
     except Exception as e:                       # đọc trạng thái lỗi: dọn như cũ, không làm hỏng job
+        if strict:
+            raise
         logging.warning("Không đọc được danh sách video chờ đăng: %s", str(e)[:120])
         return set()
 
@@ -202,23 +205,39 @@ def _parked(jid) -> bool:
         return False
 
 
+def _in_use() -> set:
+    """File của mọi job còn dở trong bộ nhớ (chờ / chạy / chờ duyệt): không xoá dù thuộc job khác. Duyệt kịch bản tạo job
+    render MỚI dùng chung file nguồn (uploads_in/review_<id>.*) với job gốc «approved» — xoá job gốc mà xoá file đó là job
+    render hỏng (rà soát 25/11)."""
+    from dataclasses import asdict
+    from queue_manager import ACTIVE
+    return {f for j in queue.jobs.values() if j.status in ACTIVE for f in _job_files(asdict(j))}
+
+
 def delete_job(jid: int) -> tuple[bool, str]:
     """Nút «Xóa» một job: xoá file của nó trên máy + bỏ khỏi danh sách và jobs.db. Truyện bé đang giữ chỗ Kaggle thì bỏ
-    luôn mục giữ chỗ (không thu kết quả về nữa). Trả (xoá được không, câu báo)."""
-    d = next((x for x in queue.all_saved() if x.get("id") == jid), None)
+    luôn mục giữ chỗ (không thu kết quả về nữa) và bỏ phiên Kaggle. Trả (xoá được không, câu báo)."""
     job = queue.jobs.get(jid)
-    if d is None and job is None:
-        return False, f"Không thấy job #{jid}."
     if job is not None:
         from dataclasses import asdict
-        d = asdict(job)
-    why = _held(d, _awaiting_post())
+        d: dict | None = asdict(job)
+    else:
+        d = queue.saved(jid)
+    if d is None:
+        return False, f"Không thấy job #{jid}."
+    try:
+        why = _held(d, _awaiting_post(strict=True))
+    except Exception as e:
+        why = f"không đọc được danh sách video chờ đăng ({str(e)[:80]})"
     if why:
         return False, f"Không xoá job #{jid}: {why}."
     if _parked(jid):
+        import kaggle_worker
         import kids_auto
+        slug = (kids_auto.parked_info(int(jid)) or {}).get("slug") or kaggle_worker.SLUG_KIDS
         kids_auto.unpark(int(jid))
-    freed = _remove(_job_files(d))
+        kaggle_worker._cancel_session(slug, long_expiry=True)      # phiên đó không ai thu nữa: trả chỗ GPU
+    freed = _remove([f for f in _job_files(d) if f not in _in_use()])
     queue.forget([jid])
     logging.info("Đã xoá job #%s (%dMB)", jid, freed >> 20)
     return True, f"Đã xoá job #{jid}" + (f", giải phóng {freed / 2**20:.0f}MB" if freed >= 2**20 else "") + "."
@@ -228,9 +247,13 @@ def clear_jobs() -> dict:
     """Nút «Xóa tất cả»: xoá mọi job đã xong / lỗi / đã huỷ (kể cả job cũ chỉ còn trong jobs.db) cùng file của chúng, rồi
     xoá video mồ côi trong outputs/ và file tải lên không job nào dùng. GIỮ: job đang chờ / chạy / chờ duyệt, video đang
     chờ đăng, truyện bé đang giữ chỗ Kaggle. Trả {deleted, kept, freed_mb, msg}."""
-    waiting = _awaiting_post()
+    try:
+        waiting = _awaiting_post(strict=True)
+    except Exception as e:
+        return {"deleted": 0, "kept": 0, "freed_mb": 0.0,
+                "msg": f"Chưa xoá gì: không đọc được danh sách video chờ đăng ({str(e)[:80]})."}
     ids, kept, freed = [], 0, 0
-    keep_files: set[str] = set(waiting)
+    keep_files: set[str] = set(waiting) | _in_use()
     for d in queue.all_saved():
         jid = d.get("id")
         if jid in queue.jobs:                                  # bản trong bộ nhớ mới hơn bản trong DB
@@ -240,8 +263,12 @@ def clear_jobs() -> dict:
             kept += 1
             keep_files.update(_job_files(d))
             continue
-        freed += _remove(_job_files(d))
         ids.append(jid)
+    for d in queue.all_saved():                                # xoá file SAU khi biết hết file còn cần (của job giữ lại)
+        if d.get("id") in ids:
+            from dataclasses import asdict
+            dd = asdict(queue.jobs[d["id"]]) if d["id"] in queue.jobs else d
+            freed += _remove([f for f in _job_files(dd) if f not in keep_files])
     for jid, job in list(queue.jobs.items()):                  # job chỉ có trong bộ nhớ (chưa kịp lưu): giữ file
         if jid not in ids:
             from dataclasses import asdict

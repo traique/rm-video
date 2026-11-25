@@ -177,8 +177,10 @@ class JobQueue:
         self._db.execute("CREATE TABLE IF NOT EXISTS steps (job_id INTEGER, step TEXT, start REAL, end REAL)")
         self._db.execute("CREATE TABLE IF NOT EXISTS sources (job_id INTEGER, created REAL, source_url TEXT, "
                          "uploader TEXT, output TEXT, label TEXT)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)")
         self._db.commit()
         self.restored: list[Job] = []    # job được đưa lại vào hàng đợi lúc khởi động (để báo người dùng)
+        self._forgotten: set[int] = set()  # job đã xoá bằng nút Xóa trên web
         self._load()
 
     def _rows(self) -> list:
@@ -221,7 +223,7 @@ class JobQueue:
                     self.save(job)                # trạng thái mới (lỗi) phải vào DB, không thì lần sau lại xét lại
             except Exception:
                 continue
-        _ids = itertools.count(max_id + 1)
+        _ids = itertools.count(max(max_id, self._max_issued()) + 1)
         for job in sorted(again, key=lambda j: j.id):
             self.pending += 1
             self._q.put_nowait(job)
@@ -229,6 +231,8 @@ class JobQueue:
         self.restored = again
 
     def save(self, job: Job):
+        if job.id in self._forgotten:            # vừa bấm Xóa lúc job lỗi / huỷ đang gửi thông báo: không ghi lại dòng
+            return
         try:
             self._db.execute("INSERT OR REPLACE INTO jobs (id, data) VALUES (?, ?)",
                              (job.id, json.dumps(asdict(job), ensure_ascii=False)))
@@ -281,15 +285,33 @@ class JobQueue:
                 out.append(job)
         return out
 
+    def _max_issued(self) -> int:
+        """Mã job lớn nhất từng cấp (kể cả job đã xoá bằng nút Xóa): mã mới không bao giờ trùng mã cũ — YouTube / TikTok
+        chống đăng trùng theo «kênh:mã job», nhật ký nguồn bản quyền ghi theo mã job (rà soát 25/11)."""
+        try:
+            got = [self._db.execute(q).fetchone()[0] or 0 for q in (
+                "SELECT v FROM meta WHERE k = 'max_id'", "SELECT MAX(id) FROM jobs", "SELECT MAX(job_id) FROM sources",
+                "SELECT MAX(job_id) FROM steps")]
+            return max(int(x) for x in got)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _parse(jid: int, data) -> dict:
+        try:
+            d = json.loads(data) if data else None
+        except (TypeError, ValueError):
+            d = None
+        return d if isinstance(d, dict) else {"id": jid, "status": "error"}
+
     def all_saved(self) -> list[dict]:
-        """Mọi job trong jobs.db (kể cả job cũ không còn trong bộ nhớ), mới nhất trước."""
-        out = []
-        for _jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC").fetchall():
-            try:
-                out.append(json.loads(data))
-            except ValueError:
-                out.append({"id": _jid, "status": "error"})
-        return out
+        """Mọi job trong jobs.db (kể cả job cũ không còn trong bộ nhớ), mới nhất trước; dòng hỏng thành {id, error}."""
+        return [{**self._parse(jid, data), "id": jid}
+                for jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC").fetchall()]
+
+    def saved(self, jid: int) -> dict | None:
+        row = self._db.execute("SELECT id, data FROM jobs WHERE id = ?", (jid,)).fetchone()
+        return {**self._parse(row[0], row[1]), "id": row[0]} if row else None
 
     def forget(self, ids: list[int]) -> None:
         """Bỏ job khỏi danh sách web và jobs.db (bảng jobs + steps). Nhật ký nguồn (sources) giữ lại để xử lý khiếu nại
@@ -298,7 +320,10 @@ class JobQueue:
             return
         for jid in ids:
             self.jobs.pop(jid, None)
+        self._forgotten.update(ids)
         try:
+            top = max(self._max_issued(), *ids)
+            self._db.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('max_id', ?)", (top,))
             marks = ",".join("?" * len(ids))
             self._db.execute(f"DELETE FROM jobs WHERE id IN ({marks})", ids)
             self._db.execute(f"DELETE FROM steps WHERE job_id IN ({marks})", ids)

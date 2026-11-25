@@ -24,6 +24,22 @@ edge-tts, tách giọng, render) và các model offline thật.
   file vừa ghi (< 10 phút kết quả, < 1 giờ tải lên: có thể đang giao / đang tải). Chỉ xoá file trong outputs/, uploads_in/,
   work/ của bot. Cả hai nút đều hỏi lại trước khi xoá.
 - API: `POST /api/jobs/{id}/delete` (409 kèm lý do khi không xoá được), `POST /api/jobs/clear`.
+- Không xoá file mà job đang dở khác còn dùng (duyệt kịch bản: job render mới dùng chung file nguồn với job gốc); mã job
+  không bao giờ cấp lại sau khi xoá (YouTube / TikTok chống đăng trùng theo mã job); không đọc được danh sách video chờ
+  đăng thì không xoá gì; xoá truyện bé đang giữ chỗ thì bỏ luôn phiên Kaggle đó.
+
+**Rà soát 1.4.8–1.4.10 (25/11):**
+- Bỏ phiên Kaggle chỉ xoá notebook khi phiên CÒN xếp hàng / chạy (phiên đã xong giữ đầu ra — tiếng nền đã tách mà lần dựng
+  sau dùng lại — và log), xoá trong luồng nền (Hủy / tắt bot không phải chờ mạng); gắn đầu ra phân tích mà Kaggle từ chối
+  thì gửi lại không gắn (phiên dựng tự tách lại) thay vì đổ về Botkeep.
+- `kids_setup` (nút web, lệnh, tự chạy lúc khởi động) không bao giờ dọn phiên của job khác; Kaggle kín phiên thì báo chạy
+  lại sau. Dọn phiên ma chỉ đụng 3 notebook công việc và đợi 10 giây cho Kaggle nhả chỗ rồi mới gửi lại.
+- Hủy / tắt bot lúc truyện bé đang chờ chỗ GPU có tác dụng ngay (trước đây luồng nền vẫn gửi notebook và giữ chỗ cho
+  truyện đã huỷ).
+- LoRA tải theo mã commit (không theo nhánh), có thời hạn kết nối; `kaggle_check` kiểm file LoRA có thật trong notebook.
+- Model Gemini bị coi là «đã gỡ» chỉ khi lỗi đúng là 404 / NOT_FOUND (không nhầm «retry in 40.404s» của lỗi 429).
+- Khởi động: tự chạy kids_setup lỗi không làm bỏ qua bước đẩy lại kho nhạc; nút «setup» trên web không chặn vòng sự kiện;
+  Kaggle lỗi lúc hỏi dataset kho nhạc thì 5 phút sau mới hỏi lại.
 
 ## 1.4.9 — Tự nhận ra và tự khôi phục khi tài nguyên trên Kaggle bị xoá (24/11/2026)
 

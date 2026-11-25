@@ -357,7 +357,8 @@ def remote_ok(lib: Lib, force: bool = False) -> bool:
         return True
     try:
         ok = kaggle_api.dataset_exists(lib.dataset)
-    except Exception:
+    except Exception:                       # Kaggle / mạng lỗi: coi như còn, 5 phút sau mới hỏi lại (chọn nhạc không bị chặn)
+        _REMOTE[lib.dataset] = time.time() - REMOTE_TTL + 300
         return True
     if ok:
         _REMOTE[lib.dataset] = time.time()
