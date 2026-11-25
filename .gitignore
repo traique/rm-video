@@ -56,3 +56,4 @@ assets/kids_bgm/
 
 # bản sao git tạm của agent Claude Code (tự xoá khi xong)
 .claude/worktrees/
+kaggle_queue.json

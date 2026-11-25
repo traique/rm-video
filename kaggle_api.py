@@ -451,6 +451,23 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_prog
 WAIT_NET_RETRIES = 6       # ~2 phút mạng hỏng liên tục (every=20s) mới coi là lỗi
 NOT_FOUND_GRACE = 180      # vừa SaveKernel xong, GetKernelSessionStatus có thể 404 (phiên chưa tạo): coi là đang chờ
 REFRESH = 300              # giây: báo lại "đang chờ máy / đang làm (N phút)" dù trạng thái không đổi
+# Hỏi trạng thái thưa dần (25/11): trước đây hỏi mỗi 20 giây suốt cả lúc chờ máy — job 7 chờ 42 phút là ~130 lần hỏi.
+# Chờ máy lâu thì vài phút mới có thay đổi; đang chạy thì kết quả cần sớm hơn một chút.
+POLL_QUEUED = ((120, 60.0), (600, 120.0))   # (đã chờ quá ngần này giây, hỏi cách ngần này giây) khi QUEUED
+POLL_RUNNING = 30.0
+
+
+def poll_every(every: float, state: str, waited: float) -> float:
+    """Khoảng nghỉ giữa hai lần hỏi trạng thái. every <= 0 (test) giữ nguyên."""
+    if every <= 0:
+        return every
+    if "QUEUED" in state.upper():
+        pause = every
+        for after, gap in POLL_QUEUED:
+            if waited > after:
+                pause = max(every, gap)
+        return pause
+    return max(every, POLL_RUNNING) if waited > 120 else every
 DONE = ("COMPLETE",)
 FAILED = ("ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED", "CANCELLED")
 
@@ -501,7 +518,7 @@ def wait(slug: str, timeout: float, every: float = 20, on_status=None, sleep=Non
             raise KaggleError(f"Kaggle chờ máy quá {queue_max / 60:.0f} phút")
         if park is not None and "QUEUED" in up and park(time.time() - t0):
             raise Parked(f"Kaggle chưa cấp máy sau {(time.time() - t0) / 60:.0f} phút")
-        sleep(every)
+        sleep(poll_every(every, up, time.time() - t0))
 
 
 def log_tail(d: dict, n: int = 1500) -> str:

@@ -293,3 +293,104 @@ def test_too_long_video_not_counted_as_download_failure(monkeypatch, tmp_path):
     with pytest.raises(fetch.TooBig):
         fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path), 300)
     assert rec == []
+
+
+# ---------------- 25/11 tối: gửi Kaggle từ tốn như người dùng bình thường ----------------
+
+def test_status_polling_backs_off_while_queued():
+    p = kaggle_api.poll_every
+    assert p(20, "QUEUED", 30) == 20 and p(20, "QUEUED", 300) == 60 and p(20, "QUEUED", 1200) == 120
+    assert p(20, "RUNNING", 30) == 20 and p(20, "RUNNING", 900) == 30
+    assert p(0, "QUEUED", 5000) == 0                                   # test: every=0 giữ nguyên
+    assert p(200, "QUEUED", 5000) == 200
+
+
+def test_wait_polls_about_three_times_less_than_before(monkeypatch):
+    """Job 7: chờ máy 42 phút rồi chạy 14 phút. Trước: ~170 lần hỏi (mỗi 20 giây); giờ ~60."""
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+    calls = [0]
+
+    def status(slug):
+        calls[0] += 1
+        return ("QUEUED", "") if now[0] < 42 * 60 else (("RUNNING", "") if now[0] < 56 * 60 else ("COMPLETE", ""))
+    monkeypatch.setattr(kaggle_api, "status", status)
+
+    def sleep(s):
+        now[0] += s
+    assert kaggle_api.wait("x", 125 * 60, every=20, sleep=sleep) == "COMPLETE" and calls[0] <= 62
+
+
+def test_short_jobs_not_sent_while_queue_is_long(monkeypatch):
+    """Phiên gần nhất chờ máy 42 phút: việc bếp (chờ được 8 phút) không gửi rồi bỏ nữa mà làm trên Botkeep; truyện bé
+    (không có hạn ngắn) vẫn gửi. Phiên sau được cấp máy nhanh -> gửi lại bình thường. Số đo cũ quá 3 giờ thì thử lại."""
+    pushed = []
+    monkeypatch.setattr(kaggle_api, "push", lambda slug, *a, **k: pushed.append(slug) or {})
+    monkeypatch.setattr(kaggle_worker, "_free_slots", lambda cur: [])
+    kaggle_worker.note_queue(42 * 60, "got")
+    with pytest.raises(kaggle_worker.Busy, match="đang đông.*42 phút.*8 phút"):
+        kaggle_worker._push("rmvideo-analyze", "t", "x", True, None, None, lambda s: None, queue_limit=8 * 60)
+    assert pushed == []
+    kaggle_worker._push("rmvideo-kids", "t", "x", True, None, None, lambda s: None)          # truyện bé: vẫn gửi
+    assert pushed == ["rmvideo-kids"]
+    kaggle_worker.note_queue(20, "got")
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+    kaggle_worker.note_queue(42 * 60, "got")
+    real = time.time
+    monkeypatch.setattr(kaggle_worker.time, "time", lambda: real() + kaggle_worker.QUEUE_MEMORY + 60)
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+    monkeypatch.setattr(kaggle_worker.time, "time", real)
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_khac")                # đổi tài khoản: số đo bắt đầu lại
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+
+
+def test_wait_session_records_queue_time_and_escalates_cooldown(monkeypatch):
+    monkeypatch.setattr(kaggle_worker, "_cancel_session", lambda *a, **k: None)
+
+    def got(slug, timeout, every=20, on_status=None, **k):
+        on_status("QUEUED", 0)
+        on_status("RUNNING", 600)
+        on_status("COMPLETE", 900)
+        return "COMPLETE"
+    monkeypatch.setattr(kaggle_api, "wait", got)
+    kaggle_worker._wait_session("rmvideo-worker", 100, None)
+    w = kaggle_worker._qstate()["waits"]
+    assert len(w) == 1 and w[0]["how"] == "got"
+
+    def too_long(*a, **k):
+        raise kaggle_api.KaggleError("Kaggle chờ máy quá 8 phút")
+    monkeypatch.setattr(kaggle_api, "wait", too_long)
+    cools = []
+    for _ in range(4):
+        kaggle_worker._COOL.update(until=0.0, why="")
+        with pytest.raises(kaggle_api.KaggleError):
+            kaggle_worker._wait_session("rmvideo-analyze", 100, None, queue_max=480)
+        cools.append(round((kaggle_worker._COOL["until"] - time.time()) / 3600))
+    assert cools == [1, 2, 4, 6]
+    assert kaggle_worker._qstate()["waits"][-1]["how"] == "gave_up"
+
+
+def test_analysis_busy_does_not_retry_push(monkeypatch, tmp_path):
+    """Đang đông: phân tích không gửi lần nào (trước đây lỗi gửi đầu tiên còn làm bot gửi lại lần hai không PhoWhisper)."""
+    pushes = []
+    monkeypatch.setattr(kaggle_api, "quota", lambda: {"gpu_left": 3600 * 20})
+    monkeypatch.setattr(kaggle_api, "push", lambda *a, **k: pushes.append(a) or {})
+    kaggle_worker.note_queue(30 * 60, "got")
+    with pytest.raises(kaggle_worker.Busy):
+        kaggle_worker._run_analysis_sync({"asr": "phowhisper", "token": "t"}, str(tmp_path), lambda s: None)
+    assert pushes == []
+
+
+def test_busy_is_not_counted_as_kaggle_failure(monkeypatch, tmp_path):
+    import asyncio
+    from queue_manager import Job
+    from rmvideo.app.flow import backends
+    rec = []
+    monkeypatch.setattr(backends.metrics, "record", lambda *a, **k: rec.append((a, k)))
+
+    async def busy(*a, **k):
+        raise kaggle_worker.Busy("Kaggle đang đông: phiên GPU gần nhất chờ máy 42 phút")
+    monkeypatch.setattr(kaggle_worker, "produce", busy)
+    job = Job(url="https://x", mode="cook", duration=0, voice="v")
+    assert asyncio.run(backends.try_produce(job, {}, str(tmp_path))) is None
+    assert rec == [] and "đang đông" in job.error and "Kaggle lỗi" not in job.error

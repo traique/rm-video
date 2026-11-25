@@ -838,6 +838,10 @@ class Remake:
                 job.note(f"ℹ️ Bản ngắn: Kaggle lỗi ({str(sh)[:120]}), dựng lại sau bản đầy đủ. ")
             if isinstance(main, dict):
                 return await finish(main, self.pre_cover)
+            if isinstance(main, kaggle_worker.Busy):     # bot chủ động không gửi (đang nghỉ / hàng chờ đông)
+                logging.info("Làm trên Botkeep: %s", main)
+                job.note(f"ℹ️ {str(main)[:200]}. ")
+                return None
             logging.warning("Kaggle lỗi, làm tiếp trên Botkeep: %s", main)
             metrics.record("kaggle", "kaggle", ok=False, detail=str(main))
             job.note(f"ℹ️ Kaggle lỗi ({str(main):.160}): đọc giọng + dựng trên Botkeep. ")

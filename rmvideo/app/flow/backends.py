@@ -35,6 +35,10 @@ async def try_produce(job: Job, spec: dict, tmp: str, fail_note: str = FAIL_NOTE
     (phần của video dài ghi lúc nhận kết quả lô)."""
     try:
         return await kaggle_worker.produce(spec, tmp, on_step=lambda s: setattr(job, "step", s))
+    except kaggle_worker.Busy as e:              # bot chủ động không gửi (đang nghỉ / hàng chờ đông): không phải lỗi
+        logging.info("Làm trên Botkeep%s: %s", f" ({what})" if what else "", e)
+        job.note(f"ℹ️ {str(e)[:200]}. ")
+        return None
     except Exception as e:
         logging.warning("Kaggle lỗi%s, làm tiếp trên Botkeep: %s", f" ({what})" if what else "", e)
         metrics.record("kaggle", "kaggle", ok=False, detail=str(e))

@@ -26,6 +26,15 @@ token.
 - **Truyện bé không còn bị thu kết quả hai lần**: job 7 (truyện đầu tiên trên traique: chờ máy 42 phút, chạy 14 phút, tải
   78 MB về mất 16 phút) tự thu được video nhưng mục giữ chỗ ghi từ lúc gửi (1.4.11) không được xoá, nên vòng tự động tạo
   job 8 tải lại cùng video thêm 15 phút. Có kết quả trong tay là bỏ mục giữ chỗ ngay.
+- **Gửi việc lên Kaggle từ tốn như người dùng bình thường** (tài khoản quetrai bị kẹt hàng chờ sau một ngày bot gửi rồi
+  xoá nhiều notebook; không giả làm trình duyệt — bot vẫn xưng đúng là client API):
+  - Hỏi trạng thái thưa dần: chờ máy quá 2 phút hỏi mỗi phút, quá 10 phút mỗi 2 phút; đang chạy mỗi 30 giây. Job 7
+    (chờ 42 phút + chạy 14 phút) từ ~170 lần hỏi còn ~60.
+  - Nhớ thời gian chờ máy của phiên GPU gần nhất (3 giờ, theo từng tài khoản, tệp `kaggle_queue.json`): lâu hơn hạn của
+    việc sắp gửi (bóc lời bếp 8 phút, dựng bếp) thì không gửi, làm thẳng trên Botkeep — hết cảnh gửi, chờ, rồi xoá
+    notebook. Truyện bé (chờ được lâu, giữ chỗ) vẫn gửi và cập nhật số đo; phiên sau được cấp máy nhanh là gửi lại.
+  - Phải bỏ phiên vì chờ quá lâu nhiều lần trong 24 giờ thì nghỉ dài dần: 1, 2, 4, tối đa 6 giờ (trước: luôn 1 giờ).
+  - Bot chủ động không gửi thì ghi «Kaggle đang đông…», không tính là lỗi Kaggle trong `health`.
 
 ## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
 
