@@ -48,4 +48,5 @@ def _no_kaggle_resource_calls(monkeypatch):
         def get(self, k, d=None):
             return _t.time()
     monkeypatch.setattr(_kw, "_READY", {"ok": _t.time()})
+    monkeypatch.setattr(_kw, "_COOL", {"until": 0.0, "why": ""})        # 1.4.11: không nghỉ gửi GPU lây sang test khác
     monkeypatch.setattr(_ly, "_REMOTE", _Fresh())

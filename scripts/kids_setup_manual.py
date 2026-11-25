@@ -10,6 +10,8 @@ def run(cmd, env=None, check=True):
 def used_gb(path=W):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs) / 2**30
 done = {}
+if subprocess.run("nvidia-smi -L", shell=True, capture_output=True).returncode:
+    raise SystemExit("Kaggle không cấp GPU cho phiên này (chạy bằng CPU, thường do tài khoản chưa xác minh số điện thoại)")
 run("nvidia-smi -L; df -h / /kaggle/working /tmp | tail -3; python -c 'import torch;print(torch.__version__, torch.cuda.is_available())'; "
     "ls /usr/local/cuda/lib64/stubs /usr/local/cuda/targets/x86_64-linux/lib/stubs 2>/dev/null | head; find / -name 'libcuda.so*' 2>/dev/null | head",
     check=False)

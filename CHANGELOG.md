@@ -13,6 +13,20 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.11 — Không «dồn» phiên lên Kaggle; phát hiện Kaggle không cấp GPU (25/11/2026)
+
+Tài khoản quetrai kẹt hàng chờ chạy nền GPU hơn 20 giờ (notebook mở tay vẫn có GPU ngay) sau một ngày bot gửi rồi bỏ nhiều
+phiên; người dùng chuyển sang tài khoản khác và nhờ «đóng hết notebook đang chạy rồi mới chạy notebook tiếp theo».
+- **Trước MỖI lần gửi phiên GPU, đóng hết phiên công việc còn xếp hàng / chạy** (`rmvideo-worker`, `rmvideo-kids`,
+  `rmvideo-analyze` — bot chạy một phiên một lúc nên phiên nào còn đó đều là ma), trừ truyện bé đang giữ chỗ. Không đụng
+  notebook model / nhạc / PhoWhisper.
+- **Kaggle lâu không cấp máy thì nghỉ gửi phiên GPU mới 1 giờ** (một phiên phải bỏ hoặc giữ chỗ vì chờ máy quá lâu): bếp
+  làm trên Botkeep, truyện bé không tạo job (lượt tự động báo «tạm nghỉ… thêm N phút»), thay vì job sau lại gửi, lại chờ,
+  lại bỏ. Thu kết quả phiên đang giữ chỗ vẫn chạy bình thường.
+- **Kaggle không cấp GPU** (tài khoản chưa xác minh số điện thoại: phiên chạy ngay nhưng bằng CPU, không có internet — đo
+  thật 25/11): notebook thấy không có GPU thì ghi lỗi rõ ràng rồi thoát ngay (trước đây chạy hàng chục phút trên CPU rồi
+  hỏng), bot nghỉ gửi phiên GPU 6 giờ và báo «tài khoản đã xác minh số điện thoại chưa?». `kids_setup` cũng dừng ngay.
+
 ## 1.4.10 — Nút «Xóa» / «Xóa tất cả» trong Hàng đợi & kết quả (25/11/2026)
 
 - **Xóa từng job** (nút «Xóa» ở cột Trạng thái) và **«🗑 Xóa tất cả job đã xong»**: bỏ job khỏi danh sách VÀ xoá luôn trên

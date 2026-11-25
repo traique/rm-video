@@ -187,6 +187,29 @@ def _free_slots(current: str) -> list:
 
 
 FREE_SETTLE = 10.0         # giây chờ Kaggle nhả chỗ sau khi xoá phiên ma rồi mới gửi lại
+# 25/11: tài khoản quetrai kẹt hàng chờ chạy nền GPU hơn 20 giờ sau một ngày bot gửi rồi bỏ nhiều phiên (chờ quá lâu -> bỏ ->
+# job sau gửi tiếp). Để không «dồn» phiên lên Kaggle: (1) trước mỗi lần gửi phiên GPU, đóng hết phiên công việc còn xếp
+# hàng / chạy (bot chạy một phiên một lúc: phiên nào còn là ma); (2) một phiên phải bỏ vì chờ máy quá lâu thì NGHỈ gửi phiên
+# GPU mới QUEUE_COOL giây (bếp làm trên Botkeep, truyện bé chờ); (3) Kaggle không cấp GPU (tài khoản chưa xác minh số điện
+# thoại: phiên chạy ngay nhưng bằng CPU, không internet — đo thật 25/11 tài khoản traique002) thì nghỉ NOGPU_COOL giây.
+QUEUE_COOL = 60 * 60
+NOGPU_COOL = 6 * 3600
+NO_GPU_MARK = "Kaggle không cấp GPU"
+_COOL: dict[str, Any] = {"until": 0.0, "why": ""}
+
+
+def gpu_cool() -> str:
+    """Lý do đang nghỉ gửi phiên GPU mới ("" = gửi được)."""
+    left = _COOL["until"] - time.time()
+    if left <= 0:
+        return ""
+    return f"tạm nghỉ gửi việc GPU lên Kaggle thêm {left / 60:.0f} phút ({_COOL['why']})"
+
+
+def _cool(secs: float, why: str) -> None:
+    if time.time() + secs > _COOL["until"]:
+        _COOL["until"], _COOL["why"] = time.time() + secs, why
+        logging.warning("Kaggle: %s", gpu_cool())
 
 
 def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss: list | None, on_step,
@@ -194,6 +217,11 @@ def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss
     """kaggle_api.push + xử lý «kín phiên GPU»: xoá phiên ma rồi gửi lại; vẫn kín thì chờ (wait_max giây, truyện bé) mỗi
     SLOT_WAIT gửi lại, hoặc ném SessionLimit (bếp: dựng trên Botkeep). stop() đúng (Hủy / tắt bot / quá hạn) thì thôi
     chờ ngay (ném KaggleError «đã huỷ»). Chỉ gọi khi giữ _LOCK (bot chạy một phiên một lúc: phiên nào còn đều là ma)."""
+    if gpu:
+        why = gpu_cool()
+        if why:
+            raise KaggleError(why)
+        _free_slots(slug)                     # đóng hết phiên công việc còn xếp hàng / chạy rồi mới gửi phiên mới
     t0 = time.time()
     freed = False
     while True:
@@ -207,11 +235,11 @@ def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss
         try:
             return kaggle_api.push(slug, title, text, gpu=gpu, **kw)
         except SessionLimit:
-            if gpu and not freed:
+            if gpu and not freed:              # vừa đóng ở trên mà Kaggle chưa kịp nhả chỗ: đóng lại lần nữa, chờ rồi gửi
                 freed = True
-                if _free_slots(slug):
-                    kaggle_api._sleep(FREE_SETTLE)
-                    continue
+                _free_slots(slug)
+                kaggle_api._sleep(FREE_SETTLE)
+                continue
             if time.time() - t0 >= wait_max or (wait_max and _others_waiting()):
                 raise
             on_step(f"Kaggle: kín {GPU_SESSIONS} phiên GPU, chờ chỗ ({(time.time() - t0) / 60:.0f} phút)")
@@ -265,8 +293,12 @@ def _wait_session(slug: str, timeout: float, on_status, every: float = 20, queue
         e.info = park_info
         if park_info is not None:
             _park(park_info)
+        if "chưa cấp máy" in str(e):                   # hàng chờ GPU đông: không gửi thêm phiên một lúc
+            _cool(QUEUE_COOL, "Kaggle lâu không cấp máy GPU")
         raise
-    except KaggleError:
+    except KaggleError as e:
+        if "chờ máy quá" in str(e):
+            _cool(QUEUE_COOL, "Kaggle lâu không cấp máy GPU")
         if run.get("parked"):                          # abort(park=True) đã ghi giữ chỗ: không báo «phiên sẽ tự thoát»
             pass
         elif park_info is not None:
@@ -369,7 +401,7 @@ def is_enabled() -> bool:
 
 def usable(job, local_path: str | None = None) -> str:
     """'' nếu job remake này chạy được trên Kaggle; không thì lý do (để ghi chú cho người dùng)."""
-    why = enabled()
+    why = enabled() or gpu_cool()
     if why:
         return why
     if not job.remote_src and not can_ref(local_path or job.local, job.url):
@@ -418,6 +450,12 @@ def kernel_text(spec: dict) -> str:
 import base64, io, json, subprocess, sys, time, zipfile
 if time.time() > {float(spec.get("expires_at") or 0)!r} > 0:
     print("rm-video: bot đã thôi chờ việc này (chờ máy quá lâu / đã huỷ), thoát ngay để khỏi tốn giờ GPU")
+    sys.exit(0)
+if {bool(spec.get("need_gpu"))!r} and subprocess.run("nvidia-smi -L", shell=True, capture_output=True).returncode:
+    _e = "{NO_GPU_MARK} cho phiên này (chạy bằng CPU, thường do tài khoản chưa xác minh số điện thoại)"
+    for _t in {[f"_{k}" for k in range(len(spec["jobs"]))] if spec.get("kind") == "batch" else [""]!r}:
+        json.dump({{"ok": False, "error": _e, "token": None}}, open(f"/kaggle/working/result{{_t}}.json", "w"))
+    print("rm-video:", _e)
     sys.exit(0)
 APP = "/tmp/rm_app"
 zipfile.ZipFile(io.BytesIO(base64.b64decode("{bundle_b64()}"))).extractall(APP)
@@ -650,6 +688,8 @@ def run(cmd, env=None, check=True):
 def used_gb(path=W):
     return sum(os.path.getsize(os.path.join(d, f)) for d, _, fs in os.walk(path) for f in fs) / 2**30
 done = {}
+if subprocess.run("nvidia-smi -L", shell=True, capture_output=True).returncode:
+    raise SystemExit("Kaggle không cấp GPU cho phiên này (chạy bằng CPU, thường do tài khoản chưa xác minh số điện thoại)")
 run("nvidia-smi -L; df -h / /kaggle/working /tmp | tail -3; python -c 'import torch;print(torch.__version__, torch.cuda.is_available())'; "
     "ls /usr/local/cuda/lib64/stubs /usr/local/cuda/targets/x86_64-linux/lib/stubs 2>/dev/null | head; find / -name 'libcuda.so*' 2>/dev/null | head",
     check=False)
@@ -827,6 +867,9 @@ def kids_ready() -> str:
     bé gắn một notebook không còn: thay vì để Kaggle từ chối / phiên lỗi giữa chừng, báo ngay «gõ kids_setup»."""
     if not kaggle_api.configured():
         return ""
+    cool = gpu_cool()
+    if cool:
+        return cool
     if SLUG_KIDS_MODELS not in kids_sources_nb():          # nguồn tự đặt: notebook của mình phải có đầu ra
         for slug in kids_sources_nb():
             if "/" not in slug:
@@ -968,7 +1011,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
         park_info = {"slug": slug, "token": spec.get("token"), "fetch_files": list(spec.get("fetch_files") or []),
                      "gpu": gpu, "since": time.time(), "expires_at": time.time() + KIDS_PARK_MAX - EXPIRY_MARGIN,
                      "brief": spec.get("brief") or {}, **spec["park"]}
-    sent = {k: v for k, v in spec.items() if k != "park"}
+    sent = {**{k: v for k, v in spec.items() if k != "park"}, "need_gpu": gpu}
     text = kernel_text(with_expiry(sent, KIDS_PARK_MAX if park_info else queue_max))
     dss = list(spec.get("dataset_sources") or []) or None
     run = _watch(slug)                                   # Hủy / tắt bot lúc đang chờ chỗ GPU: dừng ngay (abort đặt cờ)
@@ -1020,6 +1063,8 @@ def _fetch(slug: str, jobs: list, batch: bool, tmp: str, on_step, gpu: bool) -> 
             get(f"result{tag}.json", rj, 5 << 20)
             res = json.load(open(rj, encoding="utf-8"))
             if not res.get("ok"):
+                if NO_GPU_MARK in str(res.get("error") or ""):
+                    _cool(NOGPU_COOL, "Kaggle không cấp GPU — tài khoản đã xác minh số điện thoại chưa?")
                 raise KaggleError("Việc trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
             if "token" in res and jobs[k].get("token") and res["token"] != jobs[k]["token"]:
                 raise KaggleError("kết quả trên Kaggle không phải của việc này (notebook bị việc khác ghi đè)")
@@ -1078,7 +1123,8 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     on_step("Bóc lời + phân tích hình trên Kaggle: gửi việc (GPU)")
     src = [SLUG_PHOWHISPER] if spec.get("asr") == "phowhisper" else None
     try:
-        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, src, None, on_step)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry({**spec, "need_gpu": True}, QUEUE_ANALYZE)), True, src,
+              None, on_step)
     except SessionLimit:
         raise
     except KaggleError as e:
@@ -1087,7 +1133,8 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
         on_step("Kaggle: chưa có notebook PhoWhisper, dùng large-v3")   # tài khoản chưa chạy rmvideo-phowhisper
         logging.warning("Không gắn được notebook %s (%s): bóc lời bằng large-v3", SLUG_PHOWHISPER, str(e)[:120])
         spec = {**spec, "asr": "large-v3"}
-        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry(spec, QUEUE_ANALYZE)), True, None, None, on_step)
+        _push(SLUG_ANALYZE, "rmvideo analyze", kernel_text(with_expiry({**spec, "need_gpu": True}, QUEUE_ANALYZE)), True,
+              None, None, on_step)
 
     def st(s, secs):
         on_step(f"Bóc lời + phân tích hình trên Kaggle: {'đang chờ máy' if 'QUEUED' in s.upper() else 'đang làm'} "
@@ -1101,6 +1148,8 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
     kaggle_api.download(files["result.json"], rj, 20 << 20, refresh=lambda: fresh_url(SLUG_ANALYZE, "result.json"))
     res = json.load(open(rj, encoding="utf-8"))
     if not res.get("ok"):
+        if NO_GPU_MARK in str(res.get("error") or ""):
+            _cool(NOGPU_COOL, "Kaggle không cấp GPU — tài khoản đã xác minh số điện thoại chưa?")
         raise KaggleError("Phân tích trên Kaggle lỗi: " + (res.get("error") or "?")[-600:])
     if res.get("token") != spec.get("token"):
         raise KaggleError("kết quả phân tích không phải của job này (notebook bị việc khác ghi đè)")
