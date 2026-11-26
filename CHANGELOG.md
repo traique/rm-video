@@ -13,6 +13,28 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.5.1 — Gộp hai bản sửa chưa từng vào nhánh chính: 1.4.16 (Gemini quá giờ) và 1.0.2 (soát video mực) (26/11/2026)
+
+Hai nhánh làm việc được đẩy thêm commit SAU khi PR của chúng đã gộp (1.4.16 trên nhánh PR #27 ngày 26/11, 1.0.2 trên nhánh
+PR #12 ngày 18/11), nên các sửa này chưa bao giờ vào nhánh chính và không có trong zip Botkeep nào từ 18/11 tới 1.5.0.
+- **1.4.16 — Gemini quá giờ cũng dừng job thay vì dựng kịch bản mẫu** (góp ý Codex PR #27): lỗi quá giờ của Gemini
+  (TimeoutError) có lời lỗi rỗng nên không được coi là lỗi tạm thời — mọi nhà cung cấp quá giờ thì video «đọc một mạch»
+  vẫn dựng kịch bản mẫu (như job 9 ngày 25/11 với 503), và log in cả traceback. Giờ quá giờ đi cùng đường với 503 / hết
+  lượt: job dừng, báo «gửi lại link sau vài phút», log một dòng.
+- **1.0.2 — sửa theo soát video mực của job 2 (18/11), ghép vào mã hiện tại** (mục «## 1.0.2» bên dưới ghi chi tiết; 26 test
+  của bản đó chạy nguyên trên mã 1.5.1):
+  - Không còn đọc một định lượng hai lần: đoạn nói trước «định lượng + nguyên liệu» của đoạn khác (`anticipated_items`,
+    đọc từng cặp định lượng, nguyên liệu bằng `ingredients.spans`) bị bắt viết lại, vẫn còn thì bỏ vế đó; video dài chia lô
+    soát thêm một lượt sau khi ghép.
+  - Không nhắc nguyên liệu khi chưa cho vào (`early_items`: lời gốc tới ≥ 15 giây sau mới nói tới lần đầu; không tính đuôi
+    tên món, câu sơ chế, câu hook, khúc điểm danh / tóm tắt); vẫn còn thì bỏ tên đứng ngay sau động từ nấu.
+  - Không gọi «dĩa mực» khi mực còn trong nồi kể cả khi bản ngắn bỏ câu «trút ra dĩa»: `Remake.plate_kw` lấy mốc món lên dĩa
+    trên toàn bộ lời gốc + bước «bày món» AI thấy (lấy mốc muộn hơn), gửi cho AI mọi lô.
+  - Bản ngắn: thẻ điểm danh 1,2 giây mỗi món như bản đầy đủ; thiếu chỗ thì bớt món ít quan trọng thay vì bỏ cả khúc.
+  - Câu chốt cuối video được lùi tới 1,5 giây để dứt trước màn kết (khúc tóm tắt thì không); phụ đề chữ cuối theo tới hết
+    giọng thay vì tắt giữa chữ (`assemble.subtitle_until`).
+  - Bắt thêm cụm 2 chữ lặp ở hai đoạn liền nhau («thơm lừng» 2 lần cách 7 giây); định lượng không tính là ý lặp.
+
 ## 1.5.0 — Tiếng gốc không lọt khi không tách giọng; truyện bé: từ khoá, CTA, giờ YouTube riêng (26/11/2026)
 
 Video 13 (trứng kho quẹt, 26/11): Kaggle không cấp GPU trong 8 phút, máy Botkeep quá chậm nên không tách giọng; cổng tắt

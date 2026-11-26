@@ -36,6 +36,15 @@ VOICE_LAST = 1.10          # đoạn vẫn tràn sau khi AI đã rút gọn: nha
 VOICE_HARD = 1.25          # chỉ khi đụng mốc cứng (cửa sổ giữ tiếng gốc / hết video): thà nhanh còn hơn đè tiếng
 
 
+VOICE_BACK = 0.5           # đoạn dài được bắt đầu sớm hơn mốc của nó tối đa chừng này (khi đoạn trước đã đọc xong)
+
+
+# ... đoạn CUỐI (câu chốt kênh nối vào, phải dứt trước màn kết, không lấn sang đâu được): tới 1,5 giây. Bản 1.0.2, job 2:
+# «Cho mấy điểm nè. Đong đủ là ngon, cả nhà nấu thử nha.» chỉ được lùi 0,5s dù trước đó lặng 0,6s, nhanh tối đa vẫn
+# lố mốc 0,4s -> chữ «thử nha» đọc lấn vào màn kết, phụ đề của nó bị cắt sau 0,1 giây.
+VOICE_BACK_LAST = 1.5
+
+
 VOICE_SPILL = 0.35         # đoạn dài được lấn sang khe đoạn sau tối thiểu chừng này (đoạn sau lùi theo)
 
 
@@ -205,7 +214,9 @@ def plan_voice(durs: list, segs: list, total_dur: float):
         start = max(s["start"] + delay, prev_end + 0.12)
         f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
-            start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))
+            # lùi xa chỉ cho câu cuối thường, không cho khúc tóm tắt (thẻ TÓM TẮT hiện đúng mốc theo hình)
+            back = VOICE_BACK_LAST if last and not side_orig(s.get("orig")) else VOICE_BACK
+            start = max(prev_end + 0.12, s["start"] - back, min(start, nxt - d / f))
         limit = total_dur - 0.05 if last else nxt + (0.0 if hard or pin else _spill(durs, segs, i, base, total_dur))
         if start + d / f > limit:                   # (2) đã lấn hết phần cho phép -> (3) nhanh hơn tốc độ chung chút
             f = max(base, min(d / max(0.3, limit - start), base * VOICE_DEV))   # không bao giờ chậm hơn tốc độ chung

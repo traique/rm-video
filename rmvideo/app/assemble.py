@@ -84,6 +84,16 @@ async def _durations(clips: Sequence[dict]) -> list[float]:
     return list(await asyncio.gather(*[one(c) for c in clips]))
 
 
+def subtitle_until(words: list, speak_end: float, out_dur: float) -> float | None:
+    """Giây phụ đề phải tắt: lúc lời đọc phải dứt trước màn kết (bản 47), None nếu không có màn kết. Giọng vẫn lố mốc
+    (câu cuối dài, đã đọc nhanh hết mức cho phép) thì phụ đề theo tới hết giọng, không tắt giữa chữ: job 2 (bản 1.0.1)
+    «thử nha.» chỉ hiện 0,1 giây trong khi giọng còn đọc 0,4 giây. words: [(bắt đầu, kết thúc, chữ, ...)]."""
+    if speak_end >= out_dur:
+        return None
+    last = max((float(w[1]) for w in words), default=0.0)
+    return speak_end if last <= speak_end else round(min(out_dur, last + 0.15), 3)
+
+
 async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float, render_dur: float, synth: Synth,
                    ambient: Ambient, subs: bool, pos_y: int | None, sub_style: str, bands: Any, allow_hd: bool,
                    title: str, stretch: float, teaser: dict | None, shorten: Shorten | None = None,
@@ -120,7 +130,7 @@ async def assemble(inp: str, tmp: str, *, mode: str, segs: list, out_dur: float,
                                                 filtergraph.subtitle_texts(segs, teaser, title_shown=bool(title),
                                                                            quiet=filtergraph.montage_windows(edit, teaser)))
         if words:
-            until = speak_end if speak_end < out_dur else None
+            until = subtitle_until(words, speak_end, out_dur)
             srt = subs_mod.to_srt(words, until)
             ass = os.path.join(tmp, "subs.ass")
             subs_mod.write_ass(words, ass, pos_y, sub_style, until)
