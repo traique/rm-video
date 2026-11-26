@@ -13,6 +13,13 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.16 — Gemini quá giờ cũng dừng job thay vì dựng kịch bản mẫu (26/11/2026)
+
+- Góp ý Codex trên PR #27: lỗi quá giờ của Gemini (TimeoutError) có lời lỗi rỗng nên không được coi là lỗi tạm thời —
+  mọi nhà cung cấp quá giờ thì video «đọc một mạch» vẫn dựng kịch bản mẫu (như job 9 ngày 25/11 với 503), và log in cả
+  traceback. Giờ quá giờ đi cùng đường với 503 / hết lượt: job dừng, báo «gửi lại link sau vài phút», log một dòng.
+- PR #27 (1.4.11–1.4.15) đã gộp vào nhánh chính; CI GitHub xanh.
+
 ## 1.4.15 — Tải video Kaggle song song; Facebook lỗi không kéo YouTube theo (26/11/2026)
 
 Log 26/11, truyện #10 (lần đầu sau khi kết nối YouTube kênh Kể Bé Nghe): Kaggle vẽ + dựng 15 phút, nhưng tải video

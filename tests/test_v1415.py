@@ -271,3 +271,20 @@ def test_other_platforms_note():
     finally:
         youtube.after_facebook, tiktok_kit.after_facebook = old
     assert calls == ["yt", "tk"]
+
+
+def test_all_providers_timing_out_counts_as_temporary(monkeypatch):
+    """Góp ý Codex PR #27: asyncio.wait_for hết giờ ném TimeoutError có str() rỗng -> trước đây không coi là lỗi tạm,
+    video một mạch vẫn dựng kịch bản mẫu thay vì dừng job để gửi lại."""
+    import prompt_engine
+    from rmvideo.services import llm as llm_mod
+
+    async def slow(prompt):
+        raise TimeoutError()
+    monkeypatch.setattr(prompt_engine, "_chain", lambda call: [llm_mod.Provider("Gemini", slow)])
+    logged = []
+    monkeypatch.setattr(prompt_engine.logging, "error", lambda *a, **k: logged.append(a))
+    pack = asyncio.run(prompt_engine.generate("Kho quẹt", "", "cook", "lời gốc", 60))
+    assert pack["fallback"] and pack["temporary"] and pack["why"] == "TimeoutError"
+    assert logged == []                                             # quá giờ: một dòng cảnh báo, không traceback
+    assert prompt_engine.err_text(RuntimeError("503 x")) == "503 x"
