@@ -55,6 +55,8 @@ SEP_MAX_SPEECH = 45      # giây có lời tối đa để tách giọng AI (má
 SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
 NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") = video KHÔNG LỜI
+PLATE_SKIP = 3.0         # mốc món lên dĩa: bỏ mấy giây đầu (câu hook khoe món đã bày xong)
+PLATE_TOL = 3.0          # ... câu «trút ra dĩa» nói sớm hơn lúc bước «bày món» bắt đầu chừng này vẫn tính
 FULL_GATE = [(0.0, 99999.0)]   # không có mốc lời: tắt tiếng nền cả bài
 
 
@@ -317,7 +319,7 @@ class Remake:
             job.step = f"Bản ngắn: AI viết lời {len(segs)} đoạn"
             timed = await self.polish(await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, scenes.snap_to_cuts(segs, cuts) if len(segs) >= 2 else segs,
-                self.content_end, images_for=self.keyframes_for, **self._timed_kw(T)))
+                self.content_end, images_for=self.keyframes_for, **self._timed_kw(T), **self.plate_kw(T)))
             if not timed:
                 job.note("ℹ️ Bản ngắn: AI viết lời lỗi, bỏ bản ngắn. ")
                 return None
@@ -676,10 +678,11 @@ class Remake:
             self.segs = scenes.snap_to_cuts(self.segs, self.cuts)     # câu mới vang lên đúng lúc chuyển cảnh
             job.step = (f"Viết lại {len(self.segs)} đoạn theo mốc lời"
                         + (f" + {len(self.cuts)} điểm chuyển cảnh" if self.cuts else "") + " (AI)")
+            T = float(self.tz["dur"]) if self.tz else 0.0
             timed = await prompt_engine.generate_timed_any(
                 self.title, self.desc, job.mode, self.segs, self.content_end,
                 images_for=self.keyframes_for,            # AI nhìn ảnh từng đoạn để lời khớp hình
-                **self._timed_kw(float(self.tz["dur"]) if self.tz else 0.0))
+                **self._timed_kw(T), **self.plate_kw(T))   # mốc món lên dĩa (bản 1.0.2)
             await self.pick_hook(timed)
             return await self.polish(timed)
         if len(self.cuts) >= 2 or (not self.cuts and scenes.mode() == "light" and await self.late_cuts()):
@@ -1001,6 +1004,27 @@ class Remake:
         if hook and (tip := self.hook_tip()):
             kw["hook_tip"] = tip
         return kw
+
+    def plate_kw(self, teaser: float) -> dict[str, Any]:
+        """{"plate_at": giây video ra món lên dĩa} cho AI viết lời (bản 1.0.2), {} nếu không biết. Tìm trên TOÀN BỘ lời
+        gốc phần được dựng (bản ngắn hay bỏ câu «trút ra dĩa»: job 2, bản ngắn 1:05 «nhìn dĩa mực bóng bẩy» khi mực còn
+        trong nồi): có bước «bày món» AI xem video thấy thì lấy câu gốc nói đổ / bày ra ĐẦU TIÊN từ lúc bước đó bắt đầu
+        (câu khớp sớm hơn có khi là nghe nhầm: video mực giây 58 «nở ra» thành «đổ ra» lúc mực đang luộc; câu muộn hơn có
+        khi là múc nước chấm ra chén), không có câu nào thì lấy chính bước đó; không có bước thì lấy câu gốc cuối cùng.
+        Bỏ PLATE_SKIP giây đầu (câu hook khoe món xong). Quy ra trục video ra theo kế hoạch dựng đang dùng: nằm ở quãng đã
+        bỏ thì lấy đầu khúc kế tiếp."""
+        end = getattr(self, "end_src", 0.0) or float("inf")
+        said = [a for a, _b, t in (self.raw_segs or []) if PLATE_SKIP <= a < end and prompt_engine.plating_said(t)]
+        facts = getattr(self, "facts", None)
+        seen = [s.t0 for s in (facts.steps if facts is not None else []) if s.kind == "plate" and PLATE_SKIP <= s.t0 < end]
+        if seen:
+            src: float | None = next((a for a in said if a >= seen[0] - PLATE_TOL), seen[0])
+        else:
+            src = said[-1] if said else None
+        if src is None:
+            return {}
+        out = self.edit.to_out(src) if self.edit else src * self.stretch
+        return {"plate_at": round(out + teaser, 2)}
 
     def hook_tip(self) -> str:
         """Mẹo chính của video cho câu hook (bản 50): mẹo người gốc nói (đã đối chiếu lời gốc), ưu tiên mẹo đầu tiên.
