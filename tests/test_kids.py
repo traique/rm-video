@@ -849,7 +849,9 @@ def test_prompts_and_schema():
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
     assert any("hỏi dồn dập" in q for q in story.validate(spam, brief, DATA))
     title, desc, tags = prompts.post_pack(story.normalize(_good_story(brief), DATA), brief, kids_auto.channel(), DATA)
-    assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#kebenghe") and "#bexinloi" in tags
+    # 1.5.0: 2 thẻ cố định đầu, rồi thẻ theo truyện, rồi các thẻ cố định còn lại; tiêu đề nối đuôi từ khoá
+    assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#truyenchobe #hoctienganhchobe #")
+    assert tags.split()[2] == "#bexinloi" and "#kebenghe" in tags and title.endswith("| Truyện kể bé nghe, học tiếng Anh")
 
 
 # ---------------- kế hoạch cảnh + dựng thật ----------------
@@ -1354,7 +1356,9 @@ def test_english_words_native_voice(tmp_path, monkeypatch):
     from rmvideo.media import ff
     one = 0.8 + 0.3                                                            # mỗi mẩu VieNeu giả 1,1 s, mẩu Anh 0,7 s
     assert asyncio.run(ff.probe_duration(merged[beat_scene]["path"])) > 2 * one   # nhiều mẩu đã nối thành một clip
-    assert merged[-1][1] == story.recap_text(brief) and asyncio.run(ff.probe_duration(merged[-1][0]["path"])) > 3 * one
+    # 1.5.0: câu ôn từ kết bằng CTA của kênh (kids_auto.channel()["cta"]) thay câu hẹn gặp
+    assert merged[-1][1] == story.recap_text(brief, cta=kids_auto.channel()["cta"]) and merged[-1][1].endswith("truyện mới nha!")
+    assert asyncio.run(ff.probe_duration(merged[-1][0]["path"])) > 3 * one
     # giọng Anh lỗi: không mất tiếng, VieNeu đọc nguyên đoạn có từ đó, ghi chú lý do
     EN_CALLS.clear()
     seen.clear()
@@ -1392,6 +1396,7 @@ def _ts(day, hm):
 def test_free_slots_and_tick(monkeypatch, tmp_path):
     from state import queue
     monkeypatch.setattr(config, "KIDS_AUTO", "1")
+    monkeypatch.setattr(config, "KIDS_TIMES", "08:00,19:00")                  # khung của test (mặc định 1.5.0: 11:30, 19:30)
     monkeypatch.setattr(config, "KIDS_FB_PAGE_ID", "222")
     monkeypatch.setattr(config, "KIDS_FB_PAGE_TOKEN", "tok-kids")
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
@@ -1558,7 +1563,7 @@ def test_web_routes(monkeypatch, tmp_path):
             assert (await c.get("/api/kids")).status == 401
             assert (await c.post("/api/login", json={"password": "pw-123"})).status == 200
             d = await (await c.get("/api/kids")).json()
-            assert "Truyện bé" in d["text"] and d["times"] == ["08:00", "19:00"]
+            assert "Truyện bé" in d["text"] and d["times"] == ["11:30", "19:30"]      # mặc định 1.5.0
             d = await (await c.post("/api/kids/test")).json()
             assert d["text"].startswith("❌")                                  # chưa có token Fanpage truyện bé
     asyncio.run(go())

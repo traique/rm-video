@@ -686,12 +686,16 @@ def add_beats(story: dict, brief: dict, data: dict) -> list[tuple[str, int]]:
     return out
 
 
-def recap_text(brief: dict) -> str:
-    """Câu ôn từ cuối truyện (mã viết, đọc trong màn kết): «Hôm nay mình học: turn là lượt, wait là chờ... Bé nhớ nha!»"""
+def recap_text(brief: dict, cta: str = "") -> str:
+    """Câu ôn từ cuối truyện (mã viết, đọc trong màn kết): «Hôm nay mình học: turn là lượt, wait là chờ... Hẹn gặp lại bé ở
+    chuyện sau!». cta (1.5.0): lời kêu gọi theo dõi kênh đọc THAY câu hẹn gặp (không đọc thêm: video tối đa 88 giây)."""
     ws = brief.get("words", [])
     if not ws:
         return ""
-    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". Hẹn gặp lại bé ở chuyện sau!"
+    tail = (cta or "").strip() or "Hẹn gặp lại bé ở chuyện sau!"
+    if tail[-1] not in ".!?…":
+        tail += "!"
+    return "Hôm nay mình học: " + ", ".join(f"{w['en']} là {w['vi']}" for w in ws) + ". " + tail
 
 
 def script_text(story: dict) -> str:

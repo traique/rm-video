@@ -56,6 +56,17 @@ SEP_MAX_VIDEO = 120      # và video không dài quá 2 phút
 REEL_MAX = 90            # Facebook Reels <= 90 giây: đoạn mở đầu không được đẩy video ra khỏi Reels
 NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc chỉ "ừm", "ngon quá") = video KHÔNG LỜI
 FULL_GATE = [(0.0, 99999.0)]   # không có mốc lời: tắt tiếng nền cả bài
+
+
+def src_windows_to_out(edit: edl.EditPlan | None, stretch: float, teaser_T: float, wins: list) -> list:
+    """Quãng [(a, b)] trên trục video GỐC -> trục video ra: qua kế hoạch dựng (cắt / tua / khúc phụ; tự nhân hệ số làm
+    chậm) hoặc chỉ hệ số làm chậm, rồi lùi sau đoạn mở đầu — đúng các phép self.speech đã đi qua (place / restyle /
+    apply_teaser)."""
+    if edit is not None:
+        out = edit.map_windows(wins)
+    else:
+        out = [(round(a * stretch, 2), round(b * stretch, 2)) for a, b in wins]
+    return [(round(a + teaser_T, 2), round(b + teaser_T, 2)) for a, b in out] if teaser_T else out
 SHORT_LABEL = "Bản ngắn"
 # job.id -> hàm làm bản ngắn (SHORT_VERSION): dispatch.run_job gọi SAU khi đã giao bản đầy đủ
 SHORT_AFTER: dict[int, Callable[[], Awaitable[str | None]]] = {}
@@ -126,6 +137,7 @@ class Remake:
         self.inpainted: list = []       # dải đã được LaMa vẽ lại nền
         self.render_src: str = inp      # nguồn để dựng: video gốc, hoặc bản đã xoá chữ (Kaggle trả về)
         self.speech: list = []              # lúc người gốc đang nói (trục video ra)
+        self.teaser_T = 0.0                 # giây đoạn mở đầu đã lùi mọi mốc (apply_teaser); 0 = chưa / không có
         self.pos_y: int | None = None
         self.sep = Separation()
         # ảnh bìa: thời gian theo video GỐC (trước khi lùi mốc cho đoạn mở đầu); cover_at = khung AI đã chọn sẵn
@@ -563,8 +575,8 @@ class Remake:
         # lời cho nó), cộng lời "gốc" do mã viết cho khúc lặp / đảo chỗ (điểm danh nguyên liệu, tóm tắt...)
         mapped = plan.map_segments(segs_src)
         if plan.level == "strong":
-            mapped = [(oa, ob, t) for a, b, t in segs_src
-                      for oa, ob in [(round(plan.to_out(a), 2), round(plan.to_out(b), 2))]
+            mapped = [(round(oa, 2), round(ob, 2), t) for a, b, t in segs_src
+                      for oa, ob in [plan.seg_out(a, b)]
                       if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
         side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts if x.get("text")]
         self.segs = sorted(mapped + side)
@@ -619,6 +631,7 @@ class Remake:
         self.segs = [(round(a + T, 2), round(b + T, 2), t) for a, b, t in self.segs]
         self.cuts = [T] + [round(c + T, 2) for c in self.cuts]   # đoạn mở đầu -> video chính cũng là một lần chuyển cảnh
         self.speech = [(a + T, b + T) for a, b in self.speech]
+        self.teaser_T = T
         self.render_dur = total if (self.render_dur or total < full - 0.01) else 0
         self.out_dur = job.out_dur = total
         job.note(f"ℹ️ Mở đầu bằng {T:g} giây cảnh thành phẩm (giây {tz['t']:.0f} video gốc"
@@ -1028,7 +1041,24 @@ class Remake:
                     return p, None
                 metrics.record("sep", "onnx" if engine == "kim" else "spleeter", ok=False, fallback=k_eng > 0)
             metrics.record("sep", "gate", fallback=True)
-        return None, (self.speech or FULL_GATE)
+        return None, await self.gate_windows()
+
+    async def gate_windows(self) -> list:
+        """Cổng tắt tiếng gốc khi không tách giọng: mốc lời máy nghe GỘP với quãng có tiếng người do Silero VAD nghe thẳng
+        tiếng gốc (1.5.0). Job 13 ngày 26/11: máy nghe bỏ câu cuối «Và đây là series…» nên giọng người gốc lọt 2 giây cuối
+        video; VAD không cần hiểu lời nên bắt được. Không có mốc lời mà VAD nghe được thì cổng theo VAD (tiếng nền chỗ
+        không ai nói vẫn còn, trước đây tắt cả bài)."""
+        base = list(self.speech or [])
+        from rmvideo.media import vad
+        heard = await vad.speech_windows(self.inp)
+        if heard:
+            merged = vad.merge(base, src_windows_to_out(self.edit, self.stretch, self.teaser_T, heard))
+            extra = sum(b - a for a, b in merged) - sum(b - a for a, b in base)
+            if extra >= 0.5:
+                self.job.note(f"ℹ️ Tắt thêm {extra:.0f} giây tiếng gốc có người nói mà máy nghe không ghi lời (VAD). ")
+                logging.info("VAD: tắt thêm %.1fs tiếng gốc ngoài mốc lời máy nghe (%d quãng nghe được)", extra, len(heard))
+            base = merged
+        return base or FULL_GATE
 
     def local_ambient(self) -> asyncio.Task:
         """Việc tách giọng trên Botkeep (tạo một lần; Kaggle lỗi / không dùng thì tạo lúc cần)."""

@@ -159,16 +159,20 @@ def nvenc() -> list | None:
     return _NVENC["args"]
 
 
-def encode_args(H: int, fps: float = 30.0) -> list:
+def encode_args(H: int, fps: float = 30.0, quality: str | None = None) -> list:
     """Thông số x264/AAC theo QUALITY và độ phân giải. high = chuẩn TVC: preset medium, crf 18,
     1080p ~10 Mbps; balanced = veryfast/crf 20; fast = superfast/crf 23. Luôn: High 4.1, bt709,
-    GOP 2s (60 khung) cho phát trực tuyến, AAC 192k 48 kHz."""
-    q = config.QUALITY
-    preset, crf = {"fast": ("superfast", 22), "high": ("medium", 18)}.get(q, ("veryfast", 20))
+    GOP 2s (60 khung) cho phát trực tuyến, AAC 192k 48 kHz.
+    quality: ép profile thay cho QUALITY. "kids" (1.5.0): ảnh hoạt hình màu phẳng nén rất tốt, Facebook / YouTube mã hoá lại
+    nên trần 5,5 Mbps đủ — video truyện bé 77 MB / 87 giây (7 Mbps, tải từ Kaggle về mất 10 phút) còn chừng một nửa."""
+    q = quality or config.QUALITY
+    preset, crf = {"fast": ("superfast", 22), "high": ("medium", 18), "kids": ("veryfast", 21)}.get(q, ("veryfast", 20))
     if H >= 1920:
-        maxrate, buf = {"fast": ("5000k", "8000k"), "high": ("12000k", "20000k")}.get(q, ("9000k", "14000k"))
+        maxrate, buf = {"fast": ("5000k", "8000k"), "high": ("12000k", "20000k"),
+                        "kids": ("5500k", "9000k")}.get(q, ("9000k", "14000k"))
     else:
-        maxrate, buf = {"fast": ("2500k", "4000k"), "high": ("6000k", "10000k")}.get(q, ("4500k", "7000k"))
+        maxrate, buf = {"fast": ("2500k", "4000k"), "high": ("6000k", "10000k"),
+                        "kids": ("3000k", "5000k")}.get(q, ("4500k", "7000k"))
     # -threads ở đây là luồng của bộ mã hoá x264 (tuỳ chọn đầu ra); để mặc định x264 tự lấy theo số lõi MÁY CHỦ
     # (container 1.5 vCPU vẫn thấy hàng chục lõi -> tốn RAM lookahead, tranh CPU)
     gpu = nvenc()

@@ -114,21 +114,43 @@ def _split_at(pieces: list, t: float) -> int:
                                                        # chèn lên ĐẦU video, trước cả câu hook, mà R1-R8 không bắt)
 
 
+_SENT_END = (".", "!", "?", "…")
+TAIL_BACK_MAX = 6.0      # _sentence_start lùi tối đa chừng này giây (một câu dài nhất); máy nghe (Whisper qua Groq) cắt đoạn
+                         # LIỀN NHAU không có khoảng lặng nên lùi mãi là về tận đầu video: job 13 ngày 26/11 khối điểm danh +
+                         # tóm tắt nhảy lên giây 4, trước cả các bước nấu
+
+
 def _sentence_start(segs: list, t: float) -> float:
     """t nằm giữa (hoặc sát đầu) một câu -> chỗ chèn ngay TRƯỚC câu đó, trong khoảng lặng với câu trước (không cắt đôi
     câu, và câu không bị tính là bắt đầu trước khúc chèn). Bản 47: bước bày món AI ghi hết 188,9s, nằm giữa câu Kaggle
     gộp "Rất là ngon luôn nè Vậy là đã xong..." (188,2-192,0s): khúc tóm tắt chen vào giữa, câu đó (tính từ đầu tới
-    cuối trên video ra) phủ lên khúc tóm tắt, AI viết một câu đọc đè -> thẻ TÓM TẮT chiếu mà không có lời tóm tắt."""
+    cuối trên video ra) phủ lên khúc tóm tắt, AI viết một câu đọc đè -> thẻ TÓM TẮT chiếu mà không có lời tóm tắt.
+    1.5.0: chỉ lùi qua đoạn liền trước khi đoạn đó CHƯA kết câu (không có dấu chấm) và không lùi quá TAIL_BACK_MAX."""
     a = next((x for x, y, _ in segs if x - 0.1 <= t < y - 0.1), None)
     if a is None:
         return t
+    punct = any((tx or "").rstrip().endswith(_SENT_END) for _, _, tx in segs)
     while True:                                    # câu nối liền câu trước (không có khoảng lặng): lùi tiếp
-        prev = [x for x, y, _ in segs if x < a - 0.01 and abs(y - a) <= 0.05]
+        prev = [(x, tx) for x, y, tx in segs if x < a - 0.01 and abs(y - a) <= 0.05]
         if not prev:
             break
-        a = min(prev)
+        x, tx = min(prev)
+        if (punct and (tx or "").rstrip().endswith(_SENT_END)) or t - x > TAIL_BACK_MAX:
+            break                                  # đoạn trước đã kết câu trọn -> a là đầu câu thật; hoặc lùi quá xa
+        a = x
     pe = max((y for x, y, _ in segs if y <= a + 0.01), default=0.0)
     return round(max((pe + a) / 2, a - 0.4, 0.0), 3)
+
+
+def _sentence_end(segs: list, t: float) -> float:
+    """Cuối câu đang nói tại t (chỗ chèn ngay SAU câu đó, đúng ranh giới: câu sau liền kề vẫn nằm SAU khúc chèn nhờ
+    edl.EditPlan.seg_out); t không nằm trong câu nào thì trả t."""
+    y = next((y for x, y, _ in segs if x - 0.1 <= t < y - 0.1), None)
+    return t if y is None else round(y, 3)
+
+
+def _sentence_text(segs: list, t: float) -> str:
+    return next((tx for x, y, tx in segs if x - 0.1 <= t < y - 0.1), "")
 
 
 def _cuts_sentence(pieces: list, ins: int, segs: list) -> bool:
@@ -196,6 +218,10 @@ def montage_times(items: list, end: float, length: float) -> list[tuple]:
     out = []
     for it in items:
         cands = [t for t in (it.seen_at, it.said_at) if t >= 0]
+        if 0 <= it.seen_at < HOOK_MAX and it.said_at >= it.seen_at + 2.0:
+            # 1.5.0: «thấy» ngay mấy giây đầu = cảnh món thành phẩm chiếu trước (món nào cũng có đủ nguyên liệu trong đó —
+            # job 13: thẻ «Hành tím» đè lên nồi trứng đã xong) -> lấy lúc nói tới nguyên liệu đó
+            cands = [it.said_at, it.seen_at]
         t = next((c for c in cands if all(abs(c - u) >= length for u in used)), cands[0] if cands else -1.0)
         while any(abs(t - u) < length for u in used) and t + length < end:
             t += length
@@ -386,7 +412,16 @@ def _strong(end: float, segs: list, cuts: list, mot: list, stretch: float, label
         done = max((s.t1 for s in steps if s.kind in CORE_KINDS), default=end)
         if done < pieces[last].a - edl.MIN_PIECE:
             t_in = done
+        raw = t_in
         t_in = _sentence_start(segs, t_in)                   # không cắt đôi câu (bản 47)
+        if t_in < raw - TAIL_BACK_MAX or t_in < end * 0.5 \
+                or (t_in < done - 1.0 and recipe.parse(_sentence_text(segs, raw))):
+            # 1.5.0: đầu câu lùi quá xa (máy nghe cắt đoạn liền nhau), về nửa đầu video, hay câu đang nói chính là lời
+            # của bước nấu cuối (có định lượng / thời gian, bắt đầu trước khi bước xong): khối cuối chèn SAU câu đó thay
+            # vì trước — không bao giờ đứng trước các bước nấu. Câu cảm thán / chào kết («Rất là ngon luôn nè Vậy là đã
+            # xong công thức mực hấp gừng…», bản 47: AI ghi bước bày món hết tận lời chào; chỉ nhắc tên món, không có số)
+            # thì vẫn chèn TRƯỚC câu.
+            t_in = _sentence_end(segs, raw)
         pieces, ins = _tail_slot(pieces, segs, t_in, last)
         pieces[ins:ins] = tail
     out = edl.EditPlan(pieces=pieces, stretch=stretch, level="strong")

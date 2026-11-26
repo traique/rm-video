@@ -409,14 +409,26 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
             world.pop()                        # cuối cùng mới bỏ câu tả thế giới chung (bối cảnh cảnh vẫn còn)
 
 
+YT_TITLE_MAX = 100          # tiêu đề YouTube tối đa (rmvideo/app/youtube.TITLE_MAX), kể cả « #Shorts» nối sau
+
+
 def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str, str, str]:
-    """(tiêu đề, mô tả, hashtag) cho bài đăng: mô tả model viết + khối từ vựng + bài học + tagline; hashtag cố định của
-    kênh + hashtag theo bài học model gợi ý."""
+    """(tiêu đề, mô tả, hashtag) cho bài đăng: mô tả model viết + khối từ vựng + bài học + tagline + CTA + dòng từ khoá tìm
+    kiếm; hashtag: 2 thẻ cố định đầu, thẻ theo truyện (model gợi ý), rồi các thẻ cố định còn lại (Facebook chỉ lấy 3 thẻ đầu).
+    1.5.0: tiêu đề nối đuôi từ khoá (channel["title_tag"]) khi còn chỗ trong 100 ký tự của YouTube."""
     lesson = story_mod.by_id(data["lessons"], brief["lesson"])
     words = "\n".join(f"🔤 {w['en']} = {w['vi']}" for w in brief["words"])
+    kw = [str(k).strip() for k in (channel.get("keywords") or []) if str(k).strip()]
+    cta = str(channel.get("cta") or "").strip()
     desc = (f"{story.get('description', '').strip()}\n\n{words}\n\n📖 Bài học: {lesson.get('vi', '')}."
-            + (f"\n{channel['tagline']}" if channel.get("tagline") else ""))
+            + (f"\n{channel['tagline']}" if channel.get("tagline") else "")
+            + (f"\n👉 {cta}" if cta else "")
+            + (f"\n\n🔎 {', '.join(kw)}." if kw else ""))
     import re
     fixed = [t for t in re.split(r"[,\s]+", str(channel.get("hashtags") or "")) if t.startswith("#")]
-    tags = fixed + [t for t in story.get("hashtags", []) if t not in fixed]
-    return story.get("title", ""), desc.strip(), " ".join(tags)
+    tags = list(dict.fromkeys(fixed[:2] + [t for t in story.get("hashtags", []) if t.startswith("#")] + fixed[2:]))
+    title = str(story.get("title", "")).strip()
+    tag = str(channel.get("title_tag") or "").strip()
+    if title and tag and len(f"{title} | {tag} #Shorts") <= YT_TITLE_MAX:
+        title = f"{title} | {tag}"
+    return title, desc.strip(), " ".join(tags)

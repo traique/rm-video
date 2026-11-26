@@ -36,6 +36,10 @@ TEASER_MAX = 4.0                # giây: đoạn mở đầu dài tối đa ch�
 FALLBACK_SECS = 3.0             # chưa chọn được câu hook trước: đoạn mở đầu dài chừng này (câu ~8 chữ)
 TIMEOUT = 45.0
 KEEP = 400                      # số job gần nhất giữ trong hooks.json
+ASK_SLACK = 2                   # xin AI ít hơn trần chừng này chữ: AI hay viết dài hơn mức xin 2-3 chữ (job 13 ngày 26/11: xin
+                                # 7-11, cả 8 câu 13-14 chữ bị loại, tốn thêm một lượt)
+_STAPLES = {"cơm"}              # món mặn nào cũng ăn với cơm: câu hook nói «đưa cơm» không phải bịa nguyên liệu (câu viết cùng
+                                # kịch bản vẫn được «ăn với cơm trắng» — hai bộ kiểm từng lệch nhau, job 13)
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 STATE_FILE = os.environ.get("HOOK_STATE") or os.path.join(_ROOT, "hooks.json")
 # người đọc lời không phải người nấu: «mình thử công thức 5 triệu view» là nói sai (và con số thường là bịa)
@@ -183,11 +187,13 @@ def problems(text: str, mx: int, orig_all: str, orig0: str, dish: str = "", titl
     if (dish or title) and not names_dish(text, dish, title):
         why.append("không nêu tên món")
     added_n = ingredients.check_numbers(orig_all, text)[1]
-    added_i = prompt_engine._not_in_glossary(ingredients.check_rewrite(orig_all, text)[1])
+    added_i = [x for x in prompt_engine._not_in_glossary(ingredients.check_rewrite(orig_all, text)[1]) if x not in _STAPLES]
     if added_n or added_i:
         why.append("bịa " + ", ".join(added_n + added_i))
     if orig0:
-        miss = ingredients.check_rewrite(orig0, text)[0] + ingredients.check_numbers(orig0, text)[0]
+        # 1.5.0: «một người bạn gọn» (máy nghe nhầm «người bận rộn») không phải số liệu phải giữ (ingredients.soft)
+        miss = ingredients.check_rewrite(orig0, text)[0] + [x for x in ingredients.check_numbers(orig0, text)[0]
+                                                              if not ingredients.soft(x)]
         if miss:
             why.append("mất " + ", ".join(miss) + " của lời gốc đoạn 0")
         if prompt_engine.copy_ratio(text, orig0) >= 0.45:
@@ -221,7 +227,8 @@ async def _pick(*, title: str, tip: str, dish: str, orig_all: str, after: str, t
     try:
         raw = await prompt_engine.call_gemini(
             GEN_PROMPT.format(n=N_HOOKS, scene=scene, title=title or "(không có)", tip=tip_txt, dish=dish_txt,
-                              orig=orig_all[:1500], after=after[:200] or "(không có)", seg0=seg0_rule, mx=mx, mn=mn),
+                              orig=orig_all[:1500], after=after[:200] or "(không có)", seg0=seg0_rule,
+                              mx=max(mn, mx - ASK_SLACK), mn=mn),
             schema=HooksOut, timeout=TIMEOUT)
         pool = _parse_hooks(raw)
     except Exception as e:

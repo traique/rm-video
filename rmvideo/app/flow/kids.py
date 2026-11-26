@@ -137,8 +137,9 @@ async def _finish_kids(job: Job, brief: dict, res: dict, col: dict | None, st0: 
     for name in ("cover.jpg", "thumb.jpg"):                 # delivery tìm ảnh bìa cạnh file video
         if files.get(name) and os.path.exists(files[name]):
             shutil.move(files[name], os.path.join(os.path.dirname(video), name))
-    title, desc, tags = prompts.post_pack(st, brief, kids_auto.channel(), data)
+    title, desc, tags = prompts.post_pack(st, brief, kids_auto.channel(), data)   # tiêu đề bài đăng có đuôi từ khoá (1.5.0)
     job.post = prompt_engine.platform_post(title, desc, tags)
+    title = str(st.get("title") or title).strip() or title               # tên truyện trần cho hook / kịch bản / log
     job.hook = title
     job.srt = res.get("srt") or ""
     job.out_dur = float(res.get("duration") or 0.0)

@@ -1351,7 +1351,7 @@ async def generate_timed(title: str, desc: str, mode: str, segments: list, out_d
             Đoạn giữ nguyên tiếng gốc: người xem vẫn nghe lời gốc nên tính như đã nhắc đủ."""
             new_all = " ".join(tx if osts.get(k) == "orig" else g.get(k, "") for k, st, slot, mx, tx, span in slots)
             miss, added = ingredients.check_rewrite(orig_all, new_all)
-            mn, an = ingredients.check_numbers(orig_all, new_all)
+            mn, an = ingredients.check_numbers_for(orig_all, new_all, mode)   # 1.5.0: bếp không bắt giữ «1.5 đồng» nghe nhầm
             return _bad(g, osts), miss + mn, _not_in_glossary(added) + an
 
         bad, miss, added = _score(got, d["_ost"])
@@ -1556,8 +1556,10 @@ async def proofread(segments: list) -> list:
         old = seg["text"]
         # số và nguyên liệu phải giữ ĐÚNG THỨ TỰ (Codex PR #9: tráo «2 muỗng nước mắm, 1 muỗng đường» thành «1 muỗng
         # nước mắm, 2 muỗng đường» thì tập số / tập nguyên liệu vẫn y nguyên mà công thức đã đổi)
+        # 1.5.0: đổi đơn vị thì chỉ nhận khi đơn vị cũ không phải định lượng nấu ăn (job 13 ngày 26/11: máy nghe «1.5 đồng»,
+        # soát lời sửa «1.5 phút» mà bị bỏ vì tập số khác nhau -> video đọc «nấu chừng 1.5 đồng là ăn được»)
         if new == old or not _minor_edit(old, new) or _ingredient_seq(new) != _ingredient_seq(old) \
-                or ingredients.numbers(new) != ingredients.numbers(old) \
+                or not ingredients.unit_swap_ok(ingredients.numbers(old), ingredients.numbers(new)) \
                 or copy_ratio(new, seg.get("orig") or "") >= 0.45:
             logging.info("Soát lời: bỏ chỗ sửa đoạn %d («%s» -> «%s»)", n, old, new)
             continue

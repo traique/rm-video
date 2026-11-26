@@ -3,9 +3,11 @@
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
 import asyncio
 import logging
+import re
 
 import align
 import config
+import ingredients
 from rmvideo.media import ff, proc
 
 
@@ -59,6 +61,96 @@ def side_orig(orig) -> bool:
     return str(orig or "").lstrip().startswith(SIDE_MARKS)
 
 
+# ---------------- lời mới bám theo lúc người gốc nói tới việc đó (1.5.0) ----------------
+# Lời gốc hay mở câu bằng đệm dài («Sau khi nguyên liệu đã hòa tan thì mọi người đập vô cho mình 4 quả trứng gà»: chữ «đập»
+# ở giây thứ 2 của câu, lúc trứng mới hiện trên hình), lời mới bỏ đệm nên nói việc ngay đầu khe («Rồi mình đập trực tiếp 4
+# trái trứng gà…»): lời đi trước hình 1-2 giây dù mốc câu đúng (video 13 ngày 26/11). Tìm chữ NỘI DUNG đầu tiên của câu gốc
+# (động từ nấu / nguyên liệu / con số) và chữ tương ứng trong lời mới, ước mốc từng chữ theo vị trí trong câu, rồi lùi lời mới
+# cho hai chữ ấy vang lên cùng lúc (chỉ lùi, không bao giờ đọc sớm hơn mốc câu; tối đa DELAY_MAX và không quá khe còn trống).
+DELAY_MAX = 2.5
+_VERBS = frozenset(("đập", "cho", "thêm", "nêm", "phi", "đảo", "xào", "chiên", "rán", "luộc", "hấp", "nấu", "đun", "kho",
+                    "nướng", "đậy", "mở", "vớt", "trộn", "ướp", "băm", "cắt", "thái", "xắt", "rửa", "bắc", "đổ", "rưới",
+                    "bày", "múc", "lột", "bóc", "gọt", "ngâm", "lăn", "chấm", "rắc", "quết", "tắt", "bật", "vặn", "hạ",
+                    "khuấy", "quậy", "lật", "nhấc", "vắt", "rây", "nhồi", "cán", "nặn", "gói", "cuốn", "chần", "om", "hầm",
+                    "nhúng", "lọc", "đánh", "tráng", "xếp", "ép", "xay", "giã", "dầm", "phết", "áp", "chiết", "tưới"))
+_TOK_RE = re.compile(r"[\w.,/]+", re.UNICODE)
+
+
+def _tokens(text: str) -> list[str]:
+    return [t.strip(".,!?;:").lower() for t in _TOK_RE.findall(text or "") if t.strip(".,!?;:")]
+
+
+def _num_key(tok: str, nxt: str) -> str:
+    """Chữ là con số ("4", "1.5", "một" đứng trước đơn vị) -> khoá chuẩn ("4", "1.5", "1"); không phải thì ""."""
+    if re.fullmatch(r"\d+(?:[.,]\d+)?(?:-\d+(?:[.,]\d+)?)?", tok):
+        return tok.replace(",", ".")
+    if tok in ingredients._WORDNUM and nxt in ingredients._MEASURE:     # «một phút», «nửa muỗng»; «một lát» thì không
+        return ingredients._WORDNUM[tok]
+    return ""
+
+
+def content_anchor(text: str) -> tuple[int, int, str, str] | None:
+    """(chỉ số chữ, số chữ, loại, khoá) của chữ NỘI DUNG đầu tiên: "num" con số, "ing" nguyên liệu (khoá = nhóm trong
+    ingredients.GROUPS, chỉ số là chữ cuối của tên), "verb" động từ nấu. Không có thì None."""
+    toks = _tokens(text)
+    if not toks:
+        return None
+    seen: set = set()
+    for i, tok in enumerate(toks):
+        nk = _num_key(tok, toks[i + 1] if i + 1 < len(toks) else "")
+        if nk:
+            return i, len(toks), "num", nk
+        groups = ingredients.find(" ".join(toks[: i + 1]))
+        new = groups - seen
+        if new:
+            return i, len(toks), "ing", str(min(new))
+        seen |= groups
+        if tok in _VERBS:
+            return i, len(toks), "verb", tok
+    return None
+
+
+def _match_index(text: str, kind: str, key: str) -> tuple[int, int] | None:
+    """(chỉ số, số chữ) của chữ trong lời mới ứng với khoá của lời gốc; động từ không có thì lấy động từ nấu đầu tiên."""
+    toks = _tokens(text)
+    if not toks:
+        return None
+    seen: set = set()
+    first_verb = None
+    for i, tok in enumerate(toks):
+        if kind == "num" and _num_key(tok, toks[i + 1] if i + 1 < len(toks) else "") == key:
+            return i, len(toks)
+        if kind == "ing":
+            groups = ingredients.find(" ".join(toks[: i + 1]))
+            if int(key) in groups - seen:
+                return i, len(toks)
+            seen |= groups
+        if kind == "verb" and tok in _VERBS:
+            if tok == key:
+                return i, len(toks)
+            if first_verb is None:
+                first_verb = i
+    return (first_verb, len(toks)) if kind == "verb" and first_verb is not None else None
+
+
+def content_delay(orig: str, text: str, span: float, dur: float, max_delay: float = DELAY_MAX) -> float:
+    """Giây lùi lời mới để chữ nội dung đầu tiên vang lên đúng lúc người gốc nói chữ ấy. span: giây người gốc nói câu
+    này; dur: giây lời mới đọc ra. 0 khi không tìm được chữ chung, hay lời mới đã nói việc đó muộn hơn gốc."""
+    if not orig or not text or span <= 0 or dur <= 0 or side_orig(orig):
+        return 0.0
+    a = content_anchor(orig)
+    if a is None:
+        return 0.0
+    i, n, kind, key = a
+    m = _match_index(text, kind, key)
+    if m is None:
+        return 0.0
+    j, k = m
+    t_orig = span * i / max(1, n)             # mốc ước theo vị trí chữ trong câu (câu gốc nói đều trong span)
+    t_new = dur * j / max(1, k)
+    return round(max(0.0, min(max_delay, t_orig - t_new)), 3)
+
+
 def voice_base_factor(durs: list, segs: list, total_dur: float) -> float:
     """MỘT tốc độ đọc cho cả video: phân vị 80% của tốc độ từng đoạn cần để vừa khe (cho lấn nhẹ 0.35s), kẹp trong
     [1.0, VOICE_MAX_BASE]. Trước đây mỗi đoạn co giãn riêng 0.92x-1.35x -> nghe lúc nhanh lúc chậm (Botkeep 11/2026)."""
@@ -107,7 +199,10 @@ def plan_voice(durs: list, segs: list, total_dur: float):
         last = i + 1 >= len(segs)
         hard = last or segs[i + 1].get("ost") == "orig"   # không lấn sang đoạn tiếng gốc / quá hết video
         pin = _side_next(segs, i)                          # ... hay khúc điểm danh / tóm tắt
-        start = max(s["start"], prev_end + 0.12)
+        # 1.5.0: lùi lời mới cho chữ nội dung đầu tiên vang đúng lúc người gốc nói tới (không lấn khe sau)
+        delay = content_delay(str(s.get("orig") or ""), str(s.get("text") or ""), float(s.get("span") or 0.0), d / base)
+        delay = min(delay, max(0.0, nxt - s["start"] - d / base - 0.15))
+        start = max(s["start"] + delay, prev_end + 0.12)
         f = base
         if start + d / f > nxt:                     # (1) mượn khoảng lặng phía trước
             start = max(prev_end + 0.12, s["start"] - 0.5, min(start, nxt - d / f))

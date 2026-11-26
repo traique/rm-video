@@ -45,9 +45,18 @@ def data() -> dict:
     return d
 
 
+def _off(v: str) -> str:
+    v = (v or "").strip()
+    return "" if v.lower() in ("0", "off", "tắt") else v
+
+
 def channel() -> dict:
-    return {"name": config.KIDS_CHANNEL_NAME, "world": data()["world"]["name"], "tagline": config.KIDS_TAGLINE,
-            "hashtags": config.KIDS_HASHTAGS}
+    """Nhận diện kênh cho bài đăng + màn kết (1.5.0: thêm CTA đọc / in cuối video, từ khoá tìm kiếm, đuôi tiêu đề)."""
+    name = config.KIDS_CHANNEL_NAME
+    return {"name": name, "world": data()["world"]["name"], "tagline": config.KIDS_TAGLINE,
+            "hashtags": config.KIDS_HASHTAGS, "cta": _off(getattr(config, "KIDS_CTA", "")).replace("{name}", name),
+            "keywords": [k.strip() for k in _off(getattr(config, "KIDS_KEYWORDS", "")).split(",") if k.strip()],
+            "title_tag": _off(getattr(config, "KIDS_TITLE_TAG", ""))}
 
 
 # ---------------- trạng thái ----------------
@@ -101,7 +110,7 @@ def save_tick(st: dict) -> None:
 
 
 def times() -> list:
-    return sorted({t.strip() for t in (config.KIDS_TIMES or "08:00,19:00").split(",") if t.strip()})
+    return sorted({t.strip() for t in (config.KIDS_TIMES or "11:30,19:30").split(",") if t.strip()})
 
 
 def enabled(st: dict | None = None) -> str:
