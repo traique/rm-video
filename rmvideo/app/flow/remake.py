@@ -834,10 +834,14 @@ class Remake:
                                                          on_step=lambda st: setattr(job, "step", st))
             if isinstance(sh, dict):
                 self.short_out = sh
-            else:
+            elif not isinstance(sh, kaggle_worker.Busy):     # Busy: bản đầy đủ đã ghi chú lý do bên dưới
                 job.note(f"ℹ️ Bản ngắn: Kaggle lỗi ({str(sh)[:120]}), dựng lại sau bản đầy đủ. ")
             if isinstance(main, dict):
                 return await finish(main, self.pre_cover)
+            if isinstance(main, kaggle_worker.Busy):     # bot chủ động không gửi (đang nghỉ / hàng chờ đông)
+                logging.info("Làm trên Botkeep: %s", main)
+                job.note(f"ℹ️ {str(main)[:200]}. ")
+                return None
             logging.warning("Kaggle lỗi, làm tiếp trên Botkeep: %s", main)
             metrics.record("kaggle", "kaggle", ok=False, detail=str(main))
             job.note(f"ℹ️ Kaggle lỗi ({str(main):.160}): đọc giọng + dựng trên Botkeep. ")
@@ -891,6 +895,11 @@ class Remake:
         job.step = "Viết kịch bản + content (AI)"
         pack = await prompt_engine.generate(title, desc, job.mode, text, target)
         if pack.get("fallback"):
+            if pack.get("temporary"):
+                # job 9 (25/11): Gemini quá tải (503) cả model chính lẫn dự phòng -> bot dựng 5-10 phút một video đọc kịch
+                # bản mẫu «Bạn sẽ không tin nổi video này đâu…» vô dụng. Dịch vụ chỉ quá tải tạm: dừng, bảo gửi lại sau.
+                raise RuntimeError(f"AI viết kịch bản không được: {pack.get('why') or 'dịch vụ AI quá tải'}. "
+                                   "Dịch vụ AI đang quá tải / hết lượt tạm thời — gửi lại link sau vài phút.")
             job.note("⚠️ AI viết kịch bản lỗi (xem log), đang dùng kịch bản mẫu. Kiểm tra key/model trong Cài đặt. ")
             job.no_autopost = "AI viết kịch bản lỗi, video dùng kịch bản mẫu"
         job.script = pack["script"]

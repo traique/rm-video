@@ -1,5 +1,6 @@
 """Quản trị: lệnh gõ vào console Botkeep (stdin) và vòng bảo trì định kỳ (hết hạn duyệt, dọn cache, kiểm tra dịch vụ)."""
 import asyncio
+import difflib
 import logging
 import os
 import sys
@@ -34,6 +35,27 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "kids_bgm / cook_bgm tự chuyển sang đây khi Kaggle đã tạo được nhạc)")
 
 
+COMMANDS = ("help", "status", "health", "update_ytdlp", "setup_offline", "remove_offline", "setup_youtube",
+            "remove_youtube", "setup_potoken", "remove_potoken", "clean", "yt_test", "cancel", "golden", "auto",
+            "auto_now", "auto_resume", "fb_test", "kaggle_test", "kaggle_check", "kids", "kids_now", "kids_setup",
+            "kids_setup_status", "kids_bgm", "kids_fb_test", "kids_resume", "kids_tick", "cook_bgm", "bgm_kaggle")
+
+
+def normalize(cmd: str) -> str:
+    """Chữ thường; tên lệnh gõ «-» thay «_» vẫn nhận (25/11: «kids_setup-status»). Phần sau tên lệnh (link…) giữ nguyên."""
+    head, sep, rest = cmd.strip().partition(" ")
+    return head.lower().replace("-", "_") + sep + rest
+
+
+def unknown(cmd: str) -> str:
+    """Gõ sai lệnh: gợi ý lệnh gần nhất thay vì in cả trang trợ giúp (25/11: «kid_setup», «kids_check»)."""
+    head = normalize(cmd).split(" ")[0]
+    near = difflib.get_close_matches(head, COMMANDS, n=3, cutoff=0.6)
+    if near:
+        return f"Không hiểu lệnh «{cmd[:40]}». Có phải ý bạn là: {' / '.join(near)} ? (gõ help để xem mọi lệnh)"
+    return f"Không hiểu lệnh «{cmd[:40]}». {CONSOLE_HELP}"
+
+
 def _stdin_queue(loop) -> asyncio.Queue:
     """Đọc stdin trong luồng DAEMON riêng, đẩy từng dòng vào hàng đợi asyncio ("" = hết stdin).
     Trước đây đọc bằng run_in_executor: lúc tắt bot, asyncio.run chờ luồng executor đang kẹt ở readline (console
@@ -66,7 +88,7 @@ async def console():
         if not line:                       # không có stdin (chạy nền) -> thôi
             return
         cmd = line.strip()
-        low = cmd.lower()
+        low = normalize(cmd)
         try:
             if not cmd:
                 continue
@@ -200,7 +222,7 @@ async def console():
             elif low.startswith("cancel "):
                 logging.info(cancel_job(int(low.split()[1])))
             else:
-                logging.info("Không hiểu lệnh «%s». %s", cmd[:40], CONSOLE_HELP)
+                logging.info("%s", unknown(cmd))
         except Exception as e:
             logging.warning("Lệnh console lỗi: %s", e)
 

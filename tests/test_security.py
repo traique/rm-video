@@ -329,3 +329,19 @@ def test_login_page_gates_dashboard(monkeypatch, tmp_path):
             assert (await c.get("/login")).status == 200
             assert (await c.get("/", allow_redirects=False)).status == 302
     asyncio.run(go())
+
+
+def test_privacy_and_terms_pages_are_public(monkeypatch, tmp_path):
+    """Google bắt có link chính sách quyền riêng tư / điều khoản (trang Branding) mới mở nút «Publish app» cho OAuth
+    YouTube: hai trang này công khai, không cần đăng nhập, nói rõ quyền YouTube dùng vào việc gì và cách thu hồi."""
+    async def go():
+        async with _client(monkeypatch, tmp_path, "pw-123") as c:
+            for path in ("/privacy", "/terms"):
+                r = await c.get(path, allow_redirects=False)
+                assert r.status == 200, path
+                text = await r.text()
+                for must in ("youtube.upload", "myaccount.google.com/permissions", "Limited Use", "youtube.com/t/terms",
+                             "policies.google.com/privacy", 'id="dieu-khoan"'):
+                    assert must in text, (path, must)
+            assert (await c.get("/api/jobs")).status == 401          # các API khác vẫn đòi đăng nhập
+    asyncio.run(go())

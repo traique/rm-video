@@ -582,6 +582,12 @@ def test_gemini_backend_routing(monkeypatch):
     assert prompt_engine._with_thinking({"a": 1}, "gemini-4-hydrogen", "low") == {"a": 1, "thinking_config": {"thinking_level": "low"}}
     assert prompt_engine._with_thinking({"a": 1}, "gemini-3.5-flash-lite", "low") == {"a": 1}
     assert prompt_engine._with_thinking(None, "gemini-4-hydrogen", "") is None
+    # Gemini 3.x flash thường: không truyền mức thì «low» (mặc định Google nghĩ dài, 20-40s); -lite / khác: giữ nguyên
+    assert prompt_engine._with_thinking(None, "gemini-3.6-flash", "") == {"thinking_config": {"thinking_level": "low"}}
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-3.5-flash", "high") == {"a": 1, "thinking_config": {"thinking_level": "high"}}
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-3.1-flash-lite", "") == {"a": 1}
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-3.5-transcribe", "") == {"a": 1}
+    assert prompt_engine._with_thinking({"a": 1}, "gemini-3.1-flash-image", "") == {"a": 1}
 
 
 class _FakeLyria:

@@ -440,20 +440,57 @@ def _page(page: str = "", token: str = "") -> tuple:
     return (page or config.FB_PAGE_ID).strip(), (token or config.FB_PAGE_TOKEN).strip()
 
 
+POST_SCOPES = ("pages_show_list", "pages_read_engagement", "pages_manage_posts")   # đăng Reels / video lên Page
+
+
 async def check_token(session=None, page: str = "", token: str = "") -> str:
-    """Tên Page nếu token dùng được cho Page đó (mặc định FB_PAGE_ID); không thì ném FBError."""
+    """Tên Page nếu token ĐĂNG được lên Page đó (mặc định FB_PAGE_ID); không thì ném FBError.
+    Trước 1.4.15 chỉ đọc tên Page — token người dùng hay token thiếu quyền cũng đọc được nên «Thử token» báo ✅, rồi đăng
+    thật mới lỗi «(#200) Subject does not have permission to post videos on this target» (26/11, Fanpage truyện bé)."""
     own = session is None
     session = session or aiohttp.ClientSession()
     pid, tok = _page(page, token)
+    t = aiohttp.ClientTimeout(total=30)
     try:
-        async with session.get(f"{GRAPH}/{API_VER}/{pid}",
-                               params={"fields": "id,name", "access_token": tok},
-                               timeout=aiohttp.ClientTimeout(total=30)) as r:
+        async with session.get(f"{GRAPH}/{API_VER}/{pid}", params={"fields": "id,name", "access_token": tok},
+                               timeout=t) as r:
             d = await _json(r)
-        return d.get("name") or d.get("id", "")
+        name = d.get("name") or d.get("id", "")
+        async with session.get(f"{GRAPH}/{API_VER}/me", params={"fields": "id,name", "access_token": tok},
+                               timeout=t) as r:
+            me = await _json(r)
+        if str(me.get("id") or "") != pid:
+            raise FBError(f"Token đọc được Page «{name}» nhưng KHÔNG phải token của Page này: token đang là của "
+                          f"«{me.get('name') or me.get('id')}» (token người dùng, hoặc token của Page khác). Trong Graph API "
+                          f"Explorer chọn đúng Page «{name}» ở ô «User or Page» rồi chép token mới.", 200)
+        missing = await _missing_scopes(session, tok, pid, t)
+        if missing:
+            raise FBError(f"Token của Page «{name}» thiếu quyền {', '.join(missing)}: tạo lại token, tick đủ "
+                          f"{', '.join(POST_SCOPES)} và chọn Page này khi Facebook hỏi.", 200)
+        return name
     finally:
         if own:
             await session.close()
+
+
+async def _missing_scopes(session, tok: str, pid: str, timeout) -> list:
+    """Quyền đăng bài còn thiếu theo debug_token. Facebook không cho tự kiểm (lỗi / không trả quyền) thì [] — không chặn."""
+    try:
+        async with session.get(f"{GRAPH}/{API_VER}/debug_token", params={"input_token": tok, "access_token": tok},
+                               timeout=timeout) as r:
+            data = (await _json(r)).get("data") or {}
+    except Exception as e:
+        logging.info("Facebook: không tự kiểm được quyền của token (%s)", str(e)[:120])
+        return []
+    scopes = set(data.get("scopes") or [])
+    if not scopes:
+        return []
+    missing = [x for x in POST_SCOPES if x not in scopes]
+    for g in data.get("granular_scopes") or []:
+        ids = [str(i) for i in g.get("target_ids") or []]
+        if g.get("scope") == "pages_manage_posts" and ids and pid not in ids and "pages_manage_posts" not in missing:
+            missing.append("pages_manage_posts (cho Page này)")
+    return missing
 
 
 async def _upload_reel(session, path: str, description: str, when: float | None, page: str = "",
@@ -617,6 +654,21 @@ async def views_of(video_id: str, session, token: str = "") -> int | None:
 
 
 # ---------------- vòng chạy ----------------
+
+def other_platforms(ch: str, job, video: str, title: str, desc: str, when: float | None) -> str:
+    """Xếp video lên YouTube Shorts (kênh đã kết nối) và gói đăng TikTok cùng giờ hẹn `when` — sau khi Fanpage nhận bài,
+    HOẶC khi Facebook dừng hẳn vì lỗi cấu hình (token / quyền / id Page): Facebook hỏng không kéo YouTube theo (26/11:
+    token Fanpage truyện bé thiếu quyền, video 19:00 không lên YouTube dù vừa kết nối kênh). Mỗi job chỉ xếp một lần
+    (Facebook sửa xong đăng lại thì không xếp trùng). Trả câu ghi thêm vào tin báo admin («» nếu không xếp gì mới)."""
+    from rmvideo.app import tiktok_kit, youtube
+    yt = youtube.after_facebook(ch, job, video, title, desc, when)
+    tk = tiktok_kit.after_facebook(ch, job, video, desc, when)
+    got = [x for x, ok in (("YouTube", yt), ("gói TikTok", tk)) if ok]
+    if not got:
+        return ""
+    at = datetime.fromtimestamp(when, VN).strftime("%H:%M %d/%m") if when else "ngay"
+    return f"\n▶️ {' và '.join(got)} vẫn theo lịch ({at})."
+
 
 def _post_text(job) -> tuple:
     """(tiêu đề, mô tả) đăng Fanpage: chỉ phần «▶ Facebook» của gói nội dung (prompt_engine.platform_post). Trước đây
@@ -911,8 +963,9 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         code = e.code if isinstance(e, FBError) else 0
         if code in PAUSE_CODES or p["tries"] >= 5:
             st["paused"] = str(e)[:200]
+            others = other_platforms("cook", job, video, title, desc, when)
             await notify_admin(f"⛔ Tự động đăng Facebook đã dừng: {str(e)[:200]}. Kiểm tra FB_PAGE_ID / FB_PAGE_TOKEN "
-                               f"trong Cài đặt rồi gõ  auto_resume  (video #{job.id} vẫn giữ để đăng lại).")
+                               f"trong Cài đặt rồi gõ  auto_resume  (video #{job.id} vẫn giữ để đăng lại)." + others)
         raise
     rec = {"fb_id": fb_id, "kind": kind, "job": job.id, "vid": p["vid"], "source": p["source"],
            "slot": p["slot"], "time": when or now, "views": None}
@@ -925,10 +978,7 @@ async def _finish_pending(st: dict, now: float, rnd: random.Random) -> str:
         save_state(st)                          # ghi ngay, không đợi cuối lượt
     except OSError as e:
         logging.error("Tự động đăng: đã đăng %s nhưng không ghi được autopost.json (%s)", fb_id, e)
-    from rmvideo.app import youtube
-    youtube.after_facebook("cook", job, video, title, desc, when)     # ▶️ YouTube Shorts cùng giờ (kênh đã kết nối)
-    from rmvideo.app import tiktok_kit
-    tiktok_kit.after_facebook("cook", job, video, desc, when)        # 🎵 gói đăng TikTok gửi admin đúng giờ
+    other_platforms("cook", job, video, title, desc, when)            # ▶️ YouTube Shorts + 🎵 gói TikTok cùng giờ
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Tự động đăng: %s %s lên Page, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"📅 Đã {'hẹn đăng' if when else 'đăng'} video #{job.id} lên Fanpage lúc {at}: {title[:80]}")

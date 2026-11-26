@@ -1,0 +1,575 @@
+"""1.4.11 (25/11): không «dồn» phiên lên Kaggle — đóng hết phiên công việc còn xếp hàng / chạy trước khi gửi phiên GPU mới,
+nghỉ gửi khi Kaggle lâu không cấp máy, phát hiện Kaggle không cấp GPU (tài khoản chưa xác minh số điện thoại)."""
+import json
+import os
+import time
+
+import pytest
+
+import config
+import kaggle_api
+import kaggle_worker
+
+
+def test_header_stops_when_no_gpu(tmp_path):
+    """Tài khoản chưa xác minh số điện thoại: phiên chạy ngay nhưng bằng CPU (đo thật traique002 25/11). Notebook ghi kết
+    quả lỗi rõ ràng cho mọi việc trong lô rồi thoát, không chạy hàng chục phút trên CPU."""
+    text = kaggle_worker.kernel_text({"kind": "batch", "jobs": [{}, {}], "need_gpu": True})
+    text = text.replace("/kaggle/working", str(tmp_path))
+    with pytest.raises(SystemExit):
+        exec(compile(text, "kernel.py", "exec"), {"__name__": "__main__"})     # máy test không có nvidia-smi
+    for t in ("_0", "_1"):
+        res = json.load(open(tmp_path / f"result{t}.json"))
+        assert res["ok"] is False and kaggle_worker.NO_GPU_MARK in res["error"]
+    cpu = kaggle_worker.kernel_text({"kind": "remake", "need_gpu": False})
+    assert "if False and subprocess" in cpu                                     # việc CPU: không xét
+
+
+def test_kids_setup_kernel_stops_without_gpu():
+    assert "Kaggle không cấp GPU" in kaggle_worker.kids_models_kernel()
+
+
+def test_push_closes_ghosts_first_and_respects_cooldown(monkeypatch):
+    calls = []
+    monkeypatch.setattr(kaggle_worker, "_free_slots", lambda cur: calls.append(("free", cur)) or [])
+    monkeypatch.setattr(kaggle_api, "push", lambda slug, *a, **k: calls.append(("push", slug)) or {})
+    kaggle_worker._push("rmvideo-worker", "t", "x", True, None, None, lambda s: None)
+    assert calls == [("free", "rmvideo-worker"), ("push", "rmvideo-worker")]
+    calls.clear()
+    kaggle_worker._push("rmvideo-music", "t", "x", False, None, None, lambda s: None)      # CPU: không đụng phiên khác
+    assert calls == [("push", "rmvideo-music")]
+    kaggle_worker._cool(3600, "Kaggle lâu không cấp máy GPU")
+    calls.clear()
+    with pytest.raises(kaggle_api.KaggleError, match="tạm nghỉ gửi việc GPU"):
+        kaggle_worker._push("rmvideo-kids", "t", "x", True, None, None, lambda s: None)
+    assert calls == []
+
+
+def test_cooldown_blocks_new_jobs_not_collect(monkeypatch):
+    from queue_manager import Job
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "")
+    kaggle_worker._cool(3600, "Kaggle lâu không cấp máy GPU")
+    assert "tạm nghỉ" in kaggle_worker.kids_ready()
+    job = Job(url="https://www.youtube.com/watch?v=x", mode="cook", duration=0, voice="v")
+    assert "tạm nghỉ" in kaggle_worker.usable(job)
+    assert kaggle_worker.enabled() == ""                       # thu kết quả phiên đang giữ chỗ vẫn được
+
+
+def test_queue_timeout_starts_cooldown(monkeypatch):
+    monkeypatch.setattr(kaggle_worker, "_cancel_session", lambda *a, **k: None)
+
+    def wait(*a, **k):
+        raise kaggle_api.KaggleError("Kaggle chờ máy quá 35 phút")
+    monkeypatch.setattr(kaggle_api, "wait", wait)
+    with pytest.raises(kaggle_api.KaggleError):
+        kaggle_worker._wait_session("rmvideo-worker", 100, lambda *a: None, queue_max=10)
+    assert "lâu không cấp máy" in kaggle_worker.gpu_cool() and kaggle_worker._COOL["until"] > time.time() + 3000
+
+
+def test_no_gpu_result_starts_long_cooldown(monkeypatch, tmp_path):
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": [{"fileName": "result.json", "url": "r"}]})
+
+    def dl(url, dst, *a, **k):
+        json.dump({"ok": False, "error": kaggle_worker.NO_GPU_MARK + " cho phiên này"}, open(dst, "w"))
+        return 1
+    monkeypatch.setattr(kaggle_api, "download", dl)
+    out = kaggle_worker._fetch("rmvideo-worker", [{"token": "t"}], False, str(tmp_path), lambda s: None, True)
+    assert isinstance(out[0], kaggle_api.KaggleError) and "xác minh số điện thoại" in kaggle_worker.gpu_cool()
+    assert kaggle_worker._COOL["until"] > time.time() + 5 * 3600
+    assert os.path.exists(tmp_path / "kaggle_result.json")
+
+
+# ---------------- 25/11 chiều: link TikTok dài hơn chế độ đã chọn ----------------
+
+def test_tiktok_too_long_reports_limit_not_download_failure(monkeypatch, tmp_path):
+    """Job 5 (25/11): TikTok 365s ở chế độ «remake nguyên ≤5 phút». Trước báo «Không tải được video TikTok … tải về máy
+    rồi upload» (sai — tải được, chỉ dài quá) và còn gọi tikwm vô ích. Giờ báo thẳng giới hạn + nút cần bấm."""
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    calls = []
+
+    def long_video(url, tmpdir, max_duration):
+        raise fetch.TooBig(f"Video dài 365s, vượt giới hạn {max_duration}s. " + fetch._long_hint(365, max_duration))
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", long_video)
+    monkeypatch.setattr(fetch, "_tikwm_sync", lambda *a, **k: calls.append(a))
+    with pytest.raises(RuntimeError) as ei:
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path), config.LONG_MAX)
+    msg = str(ei.value)
+    assert msg.startswith("Video dài 365s") and "Cắt thành phần" in msg and "Không tải được" not in msg
+    assert calls == []
+
+
+def test_tiktok_blocked_still_falls_back_to_tikwm(monkeypatch, tmp_path):
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+
+    def blocked(url, tmpdir, max_duration):
+        raise RuntimeError("TikTok chặn tải từ máy chủ.")
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", blocked)
+    monkeypatch.setattr(fetch, "_tikwm_sync", lambda url, d, m: ("p", "t", "t", {}))
+    assert fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path))[0] == "p"
+
+    def tikwm_long(url, d, m):
+        raise fetch.TooBig("Video dài 400s, vượt giới hạn 90s.")
+    monkeypatch.setattr(fetch, "_tikwm_sync", tikwm_long)
+    with pytest.raises(fetch.TooBig, match="^Video dài 400s"):
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path))
+
+
+# ---------------- job 6 (25/11): tải 14MB mất 10 phút không thấy gì, ffmpeg dựng bị hệ thống dừng (hết RAM) ----------------
+
+def _media(tmp_path):
+    import subprocess
+    src, voice = str(tmp_path / "s.mp4"), str(tmp_path / "v.wav")
+    for args in (["-f", "lavfi", "-i", "testsrc2=s=360x640:d=6:r=25", "-f", "lavfi", "-i", "sine=f=300:d=6",
+                  "-shortest", src], ["-f", "lavfi", "-i", "sine=f=500:d=4", voice]):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", *args], check=True, capture_output=True, timeout=120)
+    return src, voice
+
+
+@pytest.fixture
+def render_env(tmp_path, monkeypatch):
+    for k, d in config.EDITABLE.items():
+        monkeypatch.setattr(config, k, d)
+    monkeypatch.setattr(config, "QUALITY", "fast")
+    monkeypatch.setattr(config, "BRAND_LOGO", "0")
+    return tmp_path, *_media(tmp_path)
+
+
+def _oom_on_final(monkeypatch, out, times):
+    from rmvideo.media import ff, proc
+    real, seen = ff._run_ffmpeg, []
+
+    async def fake(*args, tool="ffmpeg"):
+        if args and args[-1] == out:
+            seen.append(ff.ffmpeg_threads())
+            if len(seen) <= times:
+                raise proc.ProcError(["ffmpeg"], -9, "frame= 1135 fps=6.5")
+        return await real(*args, tool=tool)
+    monkeypatch.setattr(ff, "_run_ffmpeg", fake)
+    return seen
+
+
+def test_render_retries_once_in_low_memory_mode_after_oom_kill(render_env, monkeypatch):
+    import asyncio
+    from rmvideo.media import ff, renderer
+    tmp, src, voice = render_env
+    monkeypatch.setattr(config, "FFMPEG_THREADS", 2)
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 1)
+    notes: list = []
+    asyncio.run(renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp),
+                                notes=notes))
+    assert seen == [2, 1] and os.path.getsize(out) > 0          # lần 2: 1 luồng
+    assert any("tiết kiệm RAM" in n for n in notes) and ff.ffmpeg_threads() == 2      # hết khối: trả lại như cũ
+
+
+def test_render_gives_clear_error_when_retry_also_oom(render_env, monkeypatch):
+    import asyncio
+    from rmvideo.media import renderer
+    tmp, src, voice = render_env
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 2)
+    with pytest.raises(RuntimeError, match="hết RAM.*RAM trống"):
+        asyncio.run(renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp)))
+    assert len(seen) == 2
+
+
+def test_cancelled_job_is_not_rerendered(render_env, monkeypatch):
+    """Huỷ job cũng giết ffmpeg bằng SIGKILL (-9) — không được hiểu là hết RAM rồi dựng lại."""
+    import asyncio
+    from rmvideo.media import proc, renderer
+    tmp, src, voice = render_env
+    out = str(tmp / "o.mp4")
+    seen = _oom_on_final(monkeypatch, out, 1)
+
+    async def go():
+        with proc.owned_by("job-x") as ev:
+            ev.set()
+            await renderer.render(src, voice, out, "cook", 0, None, None, None, None, allow_hd=False, tmp=str(tmp))
+    with pytest.raises(proc.ProcError):
+        asyncio.run(go())
+    assert len(seen) == 1
+
+
+def test_free_memory_drops_onnx_sessions(monkeypatch):
+    import ocr_text
+    import vocal_sep
+    from rmvideo.media import ff, talking
+    monkeypatch.setattr(ff, "on_kaggle", lambda: False)
+    monkeypatch.setattr(ocr_text, "_session", object())
+    monkeypatch.setattr(vocal_sep, "_session", object())
+    monkeypatch.setitem(talking._SESSION, "s", object())
+    ff.free_memory()
+    assert ocr_text._session is None and vocal_sep._session is None and not talking._SESSION
+    assert "RAM trống" in ff.mem_report(top=3) and "bot giữ" in ff.mem_report()
+
+
+def test_download_progress_shown_every_30s(monkeypatch):
+    from rmvideo.media import fetch
+    now = [100.0]
+    monkeypatch.setattr(fetch.time, "monotonic", lambda: now[0])
+    got: list = []
+    hook = fetch._progress_hook(got.append)
+    for t, b in ((110, 1 << 20), (131, 6 << 20), (140, 7 << 20), (162, 10 << 20)):
+        now[0] = t
+        hook({"status": "downloading", "downloaded_bytes": b, "total_bytes": 14 << 20, "speed": 23 * 1024})
+    hook({"status": "finished"})
+    assert got == ["42% của 14MB · 23 KB/s", "71% của 14MB · 23 KB/s"]
+
+
+def test_download_progress_reaches_ytdlp_thread(monkeypatch, tmp_path):
+    """dispatch đặt ON_PROGRESS rồi gọi fetch.download (asyncio.to_thread): hook của yt-dlp phải thấy được."""
+    import asyncio
+    from rmvideo.media import fetch
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    monkeypatch.setattr(fetch, "_has_video", lambda p: True)
+    monkeypatch.setattr(fetch, "PROGRESS_EVERY", 0.0)
+
+    class YDL:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def extract_info(self, url, download):
+            for h in self.opts.get("progress_hooks", []):
+                h({"status": "downloading", "downloaded_bytes": 5, "total_bytes": 10})
+            open(os.path.join(str(tmp_path), "input.mp4"), "wb").write(b"x" * 10)
+            return {"title": "t", "duration": 5}
+    monkeypatch.setattr(fetch.yt_dlp, "YoutubeDL", YDL)
+    monkeypatch.setattr(fetch, "_progress_hook", lambda cb, every=0.0: (lambda d: cb("50%")))
+    steps: list = []
+
+    async def go():
+        tok = fetch.ON_PROGRESS.set(steps.append)
+        try:
+            return await fetch.download("https://www.tiktok.com/@a/video/1", str(tmp_path))
+        finally:
+            fetch.ON_PROGRESS.reset(tok)
+    assert asyncio.run(go())[0].endswith("input.mp4") and steps == ["50%"]
+
+
+# ---------------- 25/11 chiều: đổi sang tài khoản traique ----------------
+
+def test_switching_kaggle_account_live_resets_cooldown_and_ready(monkeypatch):
+    """Bot khởi động với token quetrai (kẹt hàng chờ -> nghỉ gửi GPU 1 giờ), người dùng đổi sang traique trong Cài đặt:
+    tài khoản mới không được mang giờ nghỉ / kết quả «model sẵn sàng» của tài khoản cũ."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_cu")
+    kaggle_worker._cool(kaggle_worker.QUEUE_COOL, "Kaggle lâu không cấp máy GPU")
+    kaggle_worker._OUT_OK["notebookd0f466fb59"] = time.time()
+    assert kaggle_worker.gpu_cool()
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_moi")
+    assert kaggle_worker.gpu_cool() == "" and not kaggle_worker._READY and not kaggle_worker._OUT_OK
+    kaggle_worker._cool(60, "x")
+    assert kaggle_worker.gpu_cool()                                     # cùng tài khoản: vẫn nghỉ như cũ
+
+
+def test_console_typos_suggest_or_accept(monkeypatch):
+    import admin
+    assert admin.normalize("kids_setup-status") == "kids_setup_status"
+    assert admin.normalize("YT-test https://a-b.com/x-Y") == "yt_test https://a-b.com/x-Y"   # phần sau tên lệnh giữ nguyên
+    assert "kids_setup" in admin.unknown("kid_setup") and "Lệnh console" not in admin.unknown("kid_setup")
+    assert "kaggle_check" in admin.unknown("kids_check")
+    assert "Lệnh console" in admin.unknown("xin chào")
+    for c in admin.COMMANDS:                                            # danh sách gợi ý khớp trang trợ giúp
+        assert c in admin.CONSOLE_HELP
+
+
+def test_too_long_video_not_counted_as_download_failure(monkeypatch, tmp_path):
+    from rmvideo.media import fetch
+    rec = []
+    monkeypatch.setattr(fetch, "resolve_url", lambda u: u)
+    monkeypatch.setattr(fetch.metrics, "record", lambda *a, **k: rec.append((a, k)))
+
+    def long_video(url, tmpdir, max_duration):
+        raise fetch.TooBig("Video dài 365s, vượt giới hạn 300s.")
+    monkeypatch.setattr(fetch, "_ytdlp_video_sync", long_video)
+    with pytest.raises(fetch.TooBig):
+        fetch._download_sync("https://vt.tiktok.com/ZSx/", str(tmp_path), 300)
+    assert rec == []
+
+
+# ---------------- 25/11 tối: gửi Kaggle từ tốn như người dùng bình thường ----------------
+
+def test_status_polling_backs_off_while_queued():
+    p = kaggle_api.poll_every
+    assert p(20, "QUEUED", 30) == 20 and p(20, "QUEUED", 300) == 60 and p(20, "QUEUED", 1200) == 120
+    assert p(20, "RUNNING", 30) == 20 and p(20, "RUNNING", 900) == 30
+    assert p(0, "QUEUED", 5000) == 0                                   # test: every=0 giữ nguyên
+    assert p(200, "QUEUED", 5000) == 200
+
+
+def test_wait_polls_about_three_times_less_than_before(monkeypatch):
+    """Job 7: chờ máy 42 phút rồi chạy 14 phút. Trước: ~170 lần hỏi (mỗi 20 giây); giờ ~60."""
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+    calls = [0]
+
+    def status(slug):
+        calls[0] += 1
+        return ("QUEUED", "") if now[0] < 42 * 60 else (("RUNNING", "") if now[0] < 56 * 60 else ("COMPLETE", ""))
+    monkeypatch.setattr(kaggle_api, "status", status)
+
+    def sleep(s):
+        now[0] += s
+    assert kaggle_api.wait("x", 125 * 60, every=20, sleep=sleep) == "COMPLETE" and calls[0] <= 62
+
+
+def test_short_jobs_not_sent_while_queue_is_long(monkeypatch):
+    """Phiên gần nhất chờ máy 42 phút: việc bếp (chờ được 8 phút) không gửi rồi bỏ nữa mà làm trên Botkeep; truyện bé
+    (không có hạn ngắn) vẫn gửi. Phiên sau được cấp máy nhanh -> gửi lại bình thường. Số đo cũ quá 3 giờ thì thử lại."""
+    pushed = []
+    monkeypatch.setattr(kaggle_api, "push", lambda slug, *a, **k: pushed.append(slug) or {})
+    monkeypatch.setattr(kaggle_worker, "_free_slots", lambda cur: [])
+    kaggle_worker.note_queue(42 * 60, "got")
+    with pytest.raises(kaggle_worker.Busy, match="đang đông.*42 phút.*8 phút"):
+        kaggle_worker._push("rmvideo-analyze", "t", "x", True, None, None, lambda s: None, queue_limit=8 * 60)
+    assert pushed == []
+    kaggle_worker._push("rmvideo-kids", "t", "x", True, None, None, lambda s: None)          # truyện bé: vẫn gửi
+    assert pushed == ["rmvideo-kids"]
+    kaggle_worker.note_queue(20, "got")
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+    kaggle_worker.note_queue(42 * 60, "got")
+    real = time.time
+    monkeypatch.setattr(kaggle_worker.time, "time", lambda: real() + kaggle_worker.QUEUE_MEMORY + 60)
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+    monkeypatch.setattr(kaggle_worker.time, "time", real)
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_khac")                # đổi tài khoản: số đo bắt đầu lại
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+
+
+def test_wait_session_records_queue_time_and_escalates_cooldown(monkeypatch):
+    monkeypatch.setattr(kaggle_worker, "_cancel_session", lambda *a, **k: None)
+
+    def got(slug, timeout, every=20, on_status=None, **k):
+        on_status("QUEUED", 0)
+        on_status("RUNNING", 600)
+        on_status("COMPLETE", 900)
+        return "COMPLETE"
+    monkeypatch.setattr(kaggle_api, "wait", got)
+    kaggle_worker._wait_session("rmvideo-worker", 100, None)
+    w = kaggle_worker._qstate()["waits"]
+    assert len(w) == 1 and w[0]["how"] == "got"
+
+    def too_long(*a, **k):
+        raise kaggle_api.KaggleError("Kaggle chờ máy quá 8 phút")
+    monkeypatch.setattr(kaggle_api, "wait", too_long)
+    cools = []
+    for _ in range(4):
+        kaggle_worker._COOL.update(until=0.0, why="")
+        with pytest.raises(kaggle_api.KaggleError):
+            kaggle_worker._wait_session("rmvideo-analyze", 100, None, queue_max=480)
+        cools.append(round((kaggle_worker._COOL["until"] - time.time()) / 3600))
+    assert cools == [1, 2, 4, 6]
+    assert kaggle_worker._qstate()["waits"][-1]["how"] == "gave_up"
+
+
+def test_analysis_busy_does_not_retry_push(monkeypatch, tmp_path):
+    """Đang đông: phân tích không gửi lần nào (trước đây lỗi gửi đầu tiên còn làm bot gửi lại lần hai không PhoWhisper)."""
+    pushes = []
+    monkeypatch.setattr(kaggle_api, "quota", lambda: {"gpu_left": 3600 * 20})
+    monkeypatch.setattr(kaggle_api, "push", lambda *a, **k: pushes.append(a) or {})
+    kaggle_worker.note_queue(30 * 60, "got")
+    with pytest.raises(kaggle_worker.Busy):
+        kaggle_worker._run_analysis_sync({"asr": "phowhisper", "token": "t"}, str(tmp_path), lambda s: None)
+    assert pushes == []
+
+
+def test_busy_is_not_counted_as_kaggle_failure(monkeypatch, tmp_path):
+    import asyncio
+    from queue_manager import Job
+    from rmvideo.app.flow import backends
+    rec = []
+    monkeypatch.setattr(backends.metrics, "record", lambda *a, **k: rec.append((a, k)))
+
+    async def busy(*a, **k):
+        raise kaggle_worker.Busy("Kaggle đang đông: phiên GPU gần nhất chờ máy 42 phút")
+    monkeypatch.setattr(kaggle_worker, "produce", busy)
+    job = Job(url="https://x", mode="cook", duration=0, voice="v")
+    assert asyncio.run(backends.try_produce(job, {}, str(tmp_path))) is None
+    assert rec == [] and "đang đông" in job.error and "Kaggle lỗi" not in job.error
+
+
+# ---------------- rà soát 25/11 tối (code-review) ----------------
+
+def test_yielding_to_other_job_does_not_start_cooldown(monkeypatch, tmp_path):
+    """Truyện bé nhường Botkeep cho job khác (giữ chỗ sau 5 phút vì có job chờ) — Kaggle không hề chậm: không ghi số đo
+    «parked», không nghỉ gửi GPU (trước: job bếp vừa tới bị dồn lên Botkeep cả giờ)."""
+    import kids_auto
+    monkeypatch.setattr(kids_auto, "STATE_FILE", str(tmp_path / "kids_auto.json"))
+    monkeypatch.setattr(kaggle_worker, "_others_waiting", lambda: True)
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+
+    def sleep(s):
+        now[0] += s
+    monkeypatch.setattr(kaggle_api, "_sleep", sleep)
+    park = {"slug": "rmvideo-kids", "job": 70, "token": "t", "since": 0, "expires_at": 9999}
+    with pytest.raises(kaggle_api.Parked):
+        kaggle_worker._wait_session("rmvideo-kids", 7200, None, queue_max=3600, park_info=park)
+    assert kaggle_worker.gpu_cool() == "" and kaggle_worker._qstate()["waits"] == []
+    # còn chờ máy quá hạn thật thì vẫn ghi số đo + nghỉ
+    monkeypatch.setattr(kaggle_worker, "_others_waiting", lambda: False)
+    now[0] = 0.0
+    with pytest.raises(kaggle_api.Parked):
+        kaggle_worker._wait_session("rmvideo-kids", 7200, None, queue_max=600, park_info=park)
+    assert "lâu không cấp máy" in kaggle_worker.gpu_cool() and kaggle_worker._qstate()["waits"][-1]["how"] == "parked"
+
+
+def test_wait_notices_cancel_within_seconds_despite_long_poll_gap(monkeypatch):
+    """Hỏi thưa (tới 120 giây) nhưng Hủy / tắt bot phải được thấy trong vài giây: nghỉ theo khúc STOP_CHECK."""
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
+    now = [0.0]
+    monkeypatch.setattr(kaggle_api.time, "time", lambda: now[0])
+    naps = []
+
+    def sleep(s):
+        naps.append(s)
+        now[0] += s
+    monkeypatch.setattr(kaggle_api, "_sleep", sleep)
+    flag = {"stop": False}
+
+    def stop():
+        if now[0] >= 700:
+            flag["stop"] = True
+        return flag["stop"]
+    with pytest.raises(kaggle_api.KaggleError, match="đã huỷ"):
+        kaggle_api.wait("x", 7200, every=20, stop=stop)
+    assert max(naps) <= kaggle_api.STOP_CHECK and now[0] < 700 + 2 * kaggle_api.STOP_CHECK
+
+
+def test_collect_of_parked_session_does_not_record_queue_time(monkeypatch, tmp_path):
+    """Thu kết quả phiên giữ chỗ (lâu sau khi gửi): phiên đang chạy ở lần hỏi đầu không được ghi thành «chờ 0 phút» che
+    mất số đo thật, cũng không nghỉ gửi GPU lần nữa."""
+    kaggle_worker.note_queue(42 * 60, "parked")
+    states = iter([("RUNNING", ""), ("RUNNING", ""), ("COMPLETE", "")])
+    monkeypatch.setattr(kaggle_api, "status", lambda slug: next(states))
+    monkeypatch.setattr(kaggle_api, "_sleep", lambda s: None)
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": [{"fileName": "result.json", "url": "r"}]})
+
+    def dl(url, dst, *a, **k):
+        json.dump({"ok": True, "token": "t"}, open(dst, "w"))
+        return 1
+    monkeypatch.setattr(kaggle_api, "download", dl)
+    monkeypatch.setattr(kaggle_worker, "_fetch", lambda *a, **k: [{"ok": True}])
+    park = {"slug": "rmvideo-kids", "job": 70, "token": "t", "since": time.time() - 3000,
+            "expires_at": time.time() + 3600, "fetch_files": []}
+    kaggle_worker._collect_sync(park, str(tmp_path), lambda s: None)
+    waits = kaggle_worker._qstate()["waits"]
+    assert len(waits) == 1 and waits[0]["how"] == "parked"
+    assert kaggle_worker.queue_busy(8 * 60)                             # số đo 42 phút vẫn còn hiệu lực
+
+
+def test_queue_busy_uses_latest_informative_entry():
+    """Phiên bỏ / giữ chỗ sớm (ngắn hơn hạn) chỉ nói «hàng chờ ≥ ngần ấy», không che mất số đo dài trước đó; phiên được
+    cấp máy nhanh sau đó mới cho biết hàng chờ đã ngắn lại."""
+    kaggle_worker.note_queue(42 * 60, "got")
+    kaggle_worker.note_queue(5 * 60, "parked")
+    assert "42 phút" in kaggle_worker.queue_busy(8 * 60)
+    kaggle_worker.note_queue(9 * 60, "gave_up")                        # bỏ sau 9 phút: hàng chờ ≥ 9 phút > hạn 8
+    assert "9 phút" in kaggle_worker.queue_busy(8 * 60)
+    kaggle_worker.note_queue(3 * 60, "got")
+    assert kaggle_worker.queue_busy(8 * 60) == ""
+
+
+def test_console_argument_case_preserved():
+    import admin
+    assert admin.normalize("YT-test https://Youtu.be/AbC") == "yt_test https://Youtu.be/AbC"
+
+
+def test_lora_report_handles_null_files(monkeypatch):
+    """Kaggle trả files: null cho notebook chưa có đầu ra: báo «không có file LoRA», không phải «không kiểm được»."""
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "notebookabc")
+    monkeypatch.setattr(config, "KIDS_LORA", "dcn_lora_v1")
+    monkeypatch.setattr(kaggle_worker, "_OUT_OK", {})
+    monkeypatch.setattr(kaggle_worker, "_LORA_OK", {})
+    monkeypatch.setattr(kaggle_api, "dataset_exists", lambda slug: slug != "rmvideo-kids-lora")
+    monkeypatch.setattr(kaggle_api, "outputs", lambda slug: {"files": None})
+    lines = kaggle_worker.resources_report(heal=False)
+    lora = [x for x in lines if "LoRA" in x]
+    assert lora and "không kiểm được" not in lora[0] and "không có file" in lora[0]
+
+
+# ---------------- job 9 (25/11 tối): Gemini quá tải 503 -> video đọc kịch bản mẫu ----------------
+
+@pytest.mark.parametrize("attempt,want", [(0, 3.0), (1, 6.0), (2, 12.0), (3, 24.0)])
+def test_503_backs_off_longer(attempt, want):
+    import prompt_engine
+    assert prompt_engine.retry_delay("503 UNAVAILABLE high demand", attempt) == want
+    assert prompt_engine._tries("503 UNAVAILABLE") == 5 and prompt_engine._tries("500 INTERNAL") == 3
+
+
+@pytest.mark.skipif(__import__("prompt_engine").genai is None, reason="cần google-genai")
+def test_overloaded_model_retried_five_times_before_backup(monkeypatch):
+    import asyncio
+    import prompt_engine
+    from test_ban43 import _Resp, _fake_genai
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "k")
+    monkeypatch.setattr(config, "GEMINI_MODEL", "main-lite")
+    monkeypatch.setattr(config, "GEMINI_FALLBACK_MODELS", "backup-1")
+    monkeypatch.setattr(prompt_engine, "_GONE", set())
+    calls: list = []
+
+    def behaviour(model):
+        if model == "backup-1":
+            return _Resp("ok")
+        raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    _fake_genai(monkeypatch, behaviour, calls)
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok"
+    assert [m for m, _ in calls] == ["main-lite"] * 5 + ["backup-1"]
+
+
+def test_provider_error_logs_one_line_for_overload(caplog):
+    import logging
+    import prompt_engine
+    from types import SimpleNamespace
+    p = SimpleNamespace(name="Gemini")
+    with caplog.at_level(logging.WARNING):
+        prompt_engine.provider_error("Viết kịch bản", p, RuntimeError("503 UNAVAILABLE. high demand"))
+        prompt_engine.provider_error("Viết kịch bản", p, RuntimeError("400 INVALID_ARGUMENT schema"))
+    recs = [r for r in caplog.records if "Viết kịch bản" in r.getMessage()]
+    assert len(recs) == 2 and recs[0].levelno == logging.WARNING and recs[0].exc_info is None   # không traceback
+    assert recs[1].levelno == logging.ERROR and recs[1].exc_info                                # lỗi lạ: có traceback
+
+
+def test_oneshot_stops_instead_of_rendering_template_when_ai_overloaded(monkeypatch):
+    import asyncio
+    import prompt_engine
+    from rmvideo.app.flow import remake as remake_mod
+    from rmvideo.services import llm as llm_mod
+
+    async def busy(prompt):
+        raise RuntimeError("503 UNAVAILABLE. This model is currently experiencing high demand.")
+    monkeypatch.setattr(prompt_engine, "_chain", lambda call: [llm_mod.Provider("Gemini", busy)])
+    pack = asyncio.run(prompt_engine.generate("Kho quẹt", "", "cook", "lời gốc", 60))
+    assert pack["fallback"] and pack["temporary"] and "503" in pack["why"]
+
+    async def broken(prompt):
+        raise RuntimeError("400 INVALID_ARGUMENT API key not valid")
+    monkeypatch.setattr(prompt_engine, "_chain", lambda call: [llm_mod.Provider("Gemini", broken)])
+    pack = asyncio.run(prompt_engine.generate("Kho quẹt", "", "cook", "lời gốc", 60))
+    assert pack["fallback"] and not pack.get("temporary")                   # cấu hình sai: vẫn dựng + cảnh báo như cũ
+
+    class J:
+        mode, subs, voice, source = "cook", True, "v", "web"
+        script = post = ""
+        notes: list = []
+
+        def note(self, t):
+            self.notes.append(t)
+    r = remake_mod.Remake.__new__(remake_mod.Remake)
+    r.job, r.title, r.desc, r.text, r.target, r.tmp = J(), "Kho quẹt", "", "lời", 60, "/tmp"
+
+    async def gen(*a, **k):
+        return {**prompt_engine._fallback("Kho quẹt", "cook"), "temporary": True, "why": "503 UNAVAILABLE"}
+    monkeypatch.setattr(prompt_engine, "generate", gen)
+    with pytest.raises(RuntimeError, match="quá tải.*gửi lại link"):
+        asyncio.run(r.render_oneshot())

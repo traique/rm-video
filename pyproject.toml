@@ -1,7 +1,8 @@
 [tool.ruff]
 line-length = 130
 target-version = "py311"
-extend-exclude = ["static", "rmvideo/media/bandit"]   # mã Bandit chép nguyên văn (Apache-2.0)
+extend-exclude = ["static", "rmvideo/media/bandit",   # mã Bandit chép nguyên văn (Apache-2.0)
+                  "scripts/kids_setup_manual.py"]     # sinh từ kaggle_worker.kids_models_kernel() (test so khớp)
 
 [tool.ruff.lint]
 # F: lỗi thật (biến/import thừa, tên chưa định nghĩa); E9: lỗi cú pháp; B: bẫy hay gặp (closure trong vòng lặp...)

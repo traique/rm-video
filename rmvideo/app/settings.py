@@ -164,10 +164,10 @@ SCHEMA: tuple[Setting, ...] = (
       link="https://aistudio.google.com/apikey", need="must", secret=True, live=True),
     S("GEMINI_MODEL", "gemini-3.5-flash-lite", "advanced", "Model Gemini viết lời",
       validate=_model("GEMINI_MODEL"), live=True),        # live: lỗi 404 tự đổi model giữa job
-    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite", "advanced",
+    S("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-3.6-flash", "advanced",
       "Model Gemini dự phòng (khi quá tải / hết lượt)",
       help="Model chính báo quá tải (503) hay hết lượt trong ngày thì thử lần lượt các model này (cách nhau dấu phẩy, "
-           "để trống = không thử). Mỗi model có hạn mức riêng.",
+           "để trống = không thử). Mỗi model có hạn mức riêng. gemini-3.6-flash bot tự đặt mức suy nghĩ «low» cho nhanh.",
       validate=_each(lambda v: _model("GEMINI_FALLBACK_MODELS")(v) if v else v), live=True),
     S("OPENROUTER_API_KEY", "", "api", "Key OpenRouter",
       help="Dự phòng viết lời khi Gemini lỗi/hết hạn mức (model miễn phí).", link="https://openrouter.ai/settings/keys",
@@ -473,9 +473,11 @@ SCHEMA: tuple[Setting, ...] = (
     # ----- ▶️ YouTube Shorts (1.2.0, rmvideo/app/youtube.py): một OAuth client cho cả hai kênh -----
     S("YT_CLIENT_ID", "", "api", "YouTube · Client ID",
       help="Đăng YouTube Shorts cùng giờ với Fanpage. Google Cloud Console: tạo dự án, bật «YouTube Data API v3», tạo "
-           "OAuth client loại «Web application» với địa chỉ chuyển hướng = PUBLIC_URL + /youtube/callback; màn hình "
-           "đồng ý OAuth chuyển sang «In production» (để «Testing» thì 7 ngày phải kết nối lại). Một client dùng cho cả "
-           "kênh bếp và kênh bé; xong bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự động đăng / 🧸 Truyện bé.",
+           "OAuth client loại «Web application» với địa chỉ chuyển hướng = PUBLIC_URL + /youtube/callback. Trang "
+           "Branding: trang chủ = PUBLIC_URL, chính sách = PUBLIC_URL + /privacy, điều khoản = PUBLIC_URL + /terms, "
+           "KHÔNG tải logo (có logo là phải chờ Google xác minh); rồi Audience → «Publish app» (để «Testing» thì 7 ngày "
+           "phải kết nối lại). Một client dùng cho cả kênh bếp và kênh bé; xong bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự "
+           "động đăng / 🧸 Truyện bé (gặp «Google chưa xác minh ứng dụng này»: bấm «Nâng cao» → «Chuyển tới…»).",
       link="https://console.cloud.google.com/apis/credentials", need="optional",
       validate=_regex(r"[\w.-]+\.apps\.googleusercontent\.com", "YT_CLIENT_ID dạng …apps.googleusercontent.com"),
       reauth=True, live=True),

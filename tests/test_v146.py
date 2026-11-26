@@ -149,17 +149,17 @@ def test_watch_parked_drops_failed_or_expired(monkeypatch, clean_parked):
         sent.append(text)
     monkeypatch.setattr(state, "notify_admin", notify)
     now = time.time()
-    kids_auto.park_record({"job": 11, "slug": "rmvideo-kids", "token": "a", "since": now - 5 * 3600,
+    kids_auto.park_record({"job": 987011, "slug": "rmvideo-kids", "token": "a", "since": now - 5 * 3600,
                            "expires_at": now - 3600, "brief": {}})
-    kids_auto.park_record({"job": 12, "slug": "rmvideo-kids", "token": "b", "since": now - 60, "expires_at": now + 3600,
+    kids_auto.park_record({"job": 987012, "slug": "rmvideo-kids", "token": "b", "since": now - 60, "expires_at": now + 3600,
                            "brief": {}})
     monkeypatch.setattr(kaggle_api, "status", lambda slug: ("QUEUED", ""))
     msgs = asyncio.run(kids_auto.watch_parked(now))
-    assert len(msgs) == 1 and "không làm xong truyện #11" in msgs[0] and kids_auto.parked_info(11) is None
-    assert kids_auto.parked_info(12) and len(sent) == 1
+    assert len(msgs) == 1 and "không làm xong truyện #987011" in msgs[0] and kids_auto.parked_info(987011) is None
+    assert kids_auto.parked_info(987012) and len(sent) == 1
     monkeypatch.setattr(kaggle_api, "status", lambda slug: ("ERROR", "CUDA out of memory"))
     msgs = asyncio.run(kids_auto.watch_parked(now))
-    assert "truyện #12 lỗi" in msgs[0] and kids_auto.parked_info(12) is None and len(sent) == 2
+    assert "truyện #987012 lỗi" in msgs[0] and kids_auto.parked_info(987012) is None and len(sent) == 2
 
 
 def test_finish_pending_keeps_parked_job(monkeypatch, clean_parked):
@@ -556,3 +556,30 @@ def test_delete_kernel_request_and_error(monkeypatch):
     with pytest.raises(kaggle_api.KaggleError, match="không xoá được"):
         kaggle_api.delete_kernel("rmvideo-kids")
     assert set(kaggle_worker.GPU_SLUGS) == {"rmvideo-worker", "rmvideo-kids", "rmvideo-analyze"}   # không bao giờ xoá notebook giữ model
+
+
+def test_flow_kids_normal_run_clears_park_record(tmp_path, monkeypatch, clean_parked):
+    """Job 7 (25/11): phiên giữ chỗ ghi từ lúc gửi (1.4.11); job tự thu được video sau 42 phút chờ máy nhưng mục giữ chỗ
+    còn đó -> watch_parked tạo job 8 tải lại cùng video (78 MB, 15 phút). Có kết quả là phải bỏ mục ngay."""
+    import pipeline
+    from rmvideo.kids import job as kids_job
+    monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
+    monkeypatch.setattr(config, "KAGGLE_USERNAME", "u")
+    monkeypatch.setattr(config, "PUBLIC_URL", "")
+    calls: list = []
+    fake = _fake_produce(tmp_path, calls)
+
+    async def produce(spec, tmp, on_step=None):
+        p = spec["park"]                                         # _run_sync ghi mục giữ chỗ lúc gửi
+        kids_auto.park_record({"slug": "rmvideo-kids", "token": spec.get("token"), "job": p["job"],
+                               "since": time.time(), "expires_at": time.time() + 3600, "brief": spec.get("brief")})
+        return await fake(spec, tmp, on_step)
+    monkeypatch.setattr(kaggle_worker, "produce", produce)
+    monkeypatch.setattr(kids_job, "qa_video", _qa_small)
+    from state import queue
+    monkeypatch.setattr(queue, "pending", 0)
+    job = kids_auto.make_now("web")
+    (tmp_path / "w").mkdir()
+    out = asyncio.run(pipeline.process(job, str(tmp_path / "w")))
+    assert os.path.exists(out) and len(calls) == 1 and kids_auto.parked_info(job.id) is None
+    assert kids_auto.load_state()["parked"] == []

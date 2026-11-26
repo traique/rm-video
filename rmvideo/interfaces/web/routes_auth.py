@@ -1,4 +1,4 @@
-"""Trang + đăng nhập / đăng xuất / tình trạng (công khai: /health, /login)."""
+"""Trang + đăng nhập / đăng xuất / tình trạng (công khai: /health, /login, /privacy, /terms)."""
 import asyncio
 import os
 
@@ -25,6 +25,7 @@ from rmvideo.version import VERSION
 _DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # gốc bot
 INDEX_HTML = os.path.join(_DIR, "static", "index.html")
 LOGIN_HTML = os.path.join(_DIR, "static", "login.html")
+POLICY_HTML = os.path.join(_DIR, "static", "privacy.html")
 
 
 def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
@@ -38,6 +39,11 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
         if _authed(request):
             raise web.HTTPFound("/")
         return web.FileResponse(LOGIN_HTML, headers={"Cache-Control": "no-cache"})
+
+    async def policy(_):
+        """Chính sách quyền riêng tư + điều khoản, công khai: Google bắt điền hai link này ở trang Branding mới cho chuyển
+        ứng dụng OAuth YouTube sang «In production» (26/11: nút «Publish app» khoá tới khi có link)."""
+        return web.FileResponse(POLICY_HTML, headers={"Cache-Control": "no-cache"})
 
     async def health(_):
         # công khai cho uptime-check nên không lộ gì ngoài "còn sống" và số job chờ
@@ -83,6 +89,8 @@ def add_routes(app: web.Application, queue: JobQueue, hooks: dict) -> None:
     app.router.add_get("/", index)
     app.router.add_get("/login", login_page)
     app.router.add_get("/health", health)
+    app.router.add_get("/privacy", policy)
+    app.router.add_get("/terms", policy)
     app.router.add_get("/api/me", me)
     app.router.add_post("/api/login", login)
     app.router.add_post("/api/logout", logout)

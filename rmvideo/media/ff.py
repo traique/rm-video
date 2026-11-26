@@ -1,6 +1,8 @@
 """Chạy ffmpeg/ffprobe (huỷ theo job, giết cả nhóm) + thăm dò (độ dài, có tiếng, khung khoá, chỗ im lặng), cắt / đóng gói lại, tự kiểm bộ lọc lúc khởi động, số lõi / RAM của container, đường dẫn tài nguyên (font, logo).
 
 Tách từ core_video.py (Phase 6); core_video.py còn là mặt tiền tương thích."""
+import contextvars
+import gc
 import logging
 import math
 import os
@@ -8,6 +10,7 @@ from collections.abc import Sequence
 import re
 import shutil
 import subprocess
+import sys
 
 import config
 import subs as subs_mod
@@ -271,6 +274,79 @@ def cgroup_cpus() -> float:
     return float(os.cpu_count() or 1)
 
 
+def on_kaggle() -> bool:
+    return bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE")) or os.path.isdir("/kaggle/working")
+
+
+def _rss_mb(pid: int | str = "self") -> int:
+    try:
+        for line in open(f"/proc/{pid}/status"):
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) >> 10
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def mem_report(top: int = 0) -> str:
+    """Một dòng cho log: RAM trống / giới hạn container / bot đang giữ (+ top tiến trình chiếm RAM nhất)."""
+    lim = None
+    for p in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            v = open(p).read().strip()
+            if v != "max" and int(v) < (1 << 50):
+                lim = int(v) >> 20
+                break
+        except (OSError, ValueError):
+            continue
+    free = mem_available_mb()
+    out = (f"RAM trống {free if free is not None else '?'}MB"
+           + (f" / giới hạn {lim}MB" if lim else "") + f", bot giữ {_rss_mb()}MB")
+    if top:
+        procs = []
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    name = open(f"/proc/{pid}/comm").read().strip()
+                except OSError:
+                    continue
+                mb = _rss_mb(pid)
+                if mb >= 20:
+                    procs.append((mb, f"{name}#{pid}"))
+        procs.sort(reverse=True)
+        if procs:
+            out += " | nhiều nhất: " + ", ".join(f"{n} {mb}MB" for mb, n in procs[:top])
+    return out
+
+
+def free_memory() -> None:
+    """Trả RAM trước bước dựng trên Botkeep (máy ~2 GB): bỏ các phiên ONNX đã dùng xong (dò chữ, tách giọng, dò mặt —
+    cần lại thì tự mở lại), dọn rác Python rồi trả phần bộ nhớ trống về hệ điều hành (glibc malloc_trim; không có thì
+    thôi). Trên Kaggle (RAM dư, các job trong lô dùng lại phiên) không làm gì."""
+    if on_kaggle():
+        return
+    for name in ("ocr_text", "vocal_sep"):
+        m = sys.modules.get(name)
+        if m is not None and getattr(m, "_session", None) is not None:
+            m._session = None                                  # type: ignore[attr-defined]
+    t = sys.modules.get("rmvideo.media.talking")
+    if t is not None and isinstance(getattr(t, "_SESSION", None), dict):
+        t._SESSION.clear()                                     # type: ignore[attr-defined]
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
+def oom_killed(e: BaseException) -> bool:
+    """ffmpeg bị hệ thống giết bằng tín hiệu 9 (SIGKILL: hết RAM) — không phải lỗi bộ lọc / file hỏng, cũng không phải
+    người dùng huỷ job / tắt bot (cũng giết bằng SIGKILL nhưng bật cờ huỷ trước)."""
+    code = getattr(e, "code", None)
+    return isinstance(e, proc.ProcError) and code in (-9, 137) and not proc.cancelled()
+
+
 def mem_available_mb() -> int | None:
     """RAM còn dùng được (MB): giới hạn cgroup trừ phần đang dùng, và MemAvailable của máy; lấy số nhỏ hơn.
     Không đọc được gì thì None."""
@@ -295,9 +371,15 @@ def mem_available_mb() -> int | None:
     return min(vals) if vals else None
 
 
+# dựng lại sau khi ffmpeg bị hệ thống giết vì hết RAM: mọi lệnh ffmpeg trong ngữ cảnh này chạy 1 luồng
+LOW_MEM: contextvars.ContextVar[bool] = contextvars.ContextVar("ff_low_mem", default=False)
+
+
 def ffmpeg_threads() -> int:
     """FFMPEG_THREADS > 0 thì dùng đúng số đó; 0 = theo số lõi container, làm tròn lên (1.5 vCPU -> 2), tối đa 8.
-    Trước đây viết cứng -threads 1: sang máy nhiều lõi vẫn chạy một lõi."""
+    Trước đây viết cứng -threads 1: sang máy nhiều lõi vẫn chạy một lõi. LOW_MEM: 1 luồng."""
+    if LOW_MEM.get():
+        return 1
     if config.FFMPEG_THREADS > 0:
         return config.FFMPEG_THREADS
     return max(1, min(8, math.ceil(cgroup_cpus() - 0.01)))

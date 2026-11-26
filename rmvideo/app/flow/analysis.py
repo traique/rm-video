@@ -66,6 +66,10 @@ async def kaggle_analysis(job: Job, inp: str, tmp: str, title: str, desc: str, s
             spec = kaggle_worker.analyze_spec(job, inp, title, desc, want_gray,
                                               config.LONG_MAX if job.long_mode == "full" else config.MAX_DURATION)
             res = await kaggle_worker.analyze(spec, tmp, on_step=lambda st: setattr(job, "step", st))
+        except kaggle_worker.Busy as e:          # bot chủ động không gửi (đang nghỉ / hàng chờ đông): không phải lỗi
+            logging.info("Bóc lời trên Botkeep: %s", e)
+            job.note(f"ℹ️ {str(e)[:200]}. ")
+            return None
         except Exception as e:
             logging.warning("Bóc lời trên Kaggle lỗi, làm trên Botkeep: %s", e)
             metrics.record("kaggle", "analyze", ok=False, detail=str(e))

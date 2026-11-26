@@ -37,7 +37,7 @@ os.environ.setdefault("RM_BRAND_DIR", os.path.join(_TMP, "no_brand_kit"))   # kh
 
 
 @pytest.fixture(autouse=True)
-def _no_kaggle_resource_calls(monkeypatch):
+def _no_kaggle_resource_calls(monkeypatch, tmp_path):
     """1.4.9: kids_ready / lyria.remote_ok hỏi Kaggle model, dataset còn không. Test không gọi mạng thật: coi như còn;
     test nào cần trường hợp mất thì tự đặt lại (tests/test_v149.py)."""
     import time as _t
@@ -48,4 +48,7 @@ def _no_kaggle_resource_calls(monkeypatch):
         def get(self, k, d=None):
             return _t.time()
     monkeypatch.setattr(_kw, "_READY", {"ok": _t.time()})
+    monkeypatch.setattr(_kw, "_COOL", {"until": 0.0, "why": ""})        # 1.4.11: không nghỉ gửi GPU lây sang test khác
+    monkeypatch.setattr(_kw, "_ACCT", {"tok": None})                     # 1.4.12: lần đầu thấy token không xoá _READY
+    monkeypatch.setattr(_kw, "QUEUE_FILE", str(tmp_path / "kaggle_queue.json"))   # số đo hàng chờ riêng từng test
     monkeypatch.setattr(_ly, "_REMOTE", _Fresh())

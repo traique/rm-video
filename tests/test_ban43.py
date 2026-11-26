@@ -123,7 +123,7 @@ def test_overloaded_model_falls_back_to_backup_model(monkeypatch):
         return _Resp("ok")
     _fake_genai(monkeypatch, behaviour, calls)
     assert asyncio.run(prompt_engine.call_gemini("viết", [b"jpg"])) == "ok"
-    assert [m for m, _ in calls] == ["main-lite"] * 3 + ["backup-1"] * 3 + ["backup-2"]
+    assert [m for m, _ in calls] == ["main-lite"] * 5 + ["backup-1"] * 5 + ["backup-2"]   # 503: 5 lần mỗi model
     assert all(img for _, img in calls)                                        # ảnh vẫn gửi kèm ở mọi lượt
 
 
@@ -147,7 +147,7 @@ def test_overload_is_not_an_image_problem():
     assert not prompt_engine._image_rejected("429 RESOURCE_EXHAUSTED")
     assert not prompt_engine._image_rejected("")                               # quá giờ
     assert prompt_engine._image_rejected("400 INVALID_ARGUMENT: Unable to process input image")
-    assert prompt_engine.fallback_models() == ["gemini-3.1-flash-lite"] or \
+    assert prompt_engine.fallback_models() == ["gemini-3.1-flash-lite", "gemini-3.6-flash"] or \
         config.GEMINI_FALLBACK_MODELS != schema.BY_KEY["GEMINI_FALLBACK_MODELS"].default
 
 

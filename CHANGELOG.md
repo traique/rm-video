@@ -13,6 +13,111 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.15 — Tải video Kaggle song song; Facebook lỗi không kéo YouTube theo (26/11/2026)
+
+Log 26/11, truyện #10 (lần đầu sau khi kết nối YouTube kênh Kể Bé Nghe): Kaggle vẽ + dựng 15 phút, nhưng tải video
+80 MB về Botkeep mất 48 phút — mỗi kết nối chỉ được 0,5-4 MB rồi đứt, nối lại 53 lần; rồi Fanpage truyện bé từ chối
+«(#200) Subject does not have permission to post videos on this target», truyện tự động dừng và video 19:00 không lên
+YouTube.
+- **Tải video từ Kaggle bằng 4 kết nối song song** (mỗi kết nối một đoạn, đứt đoạn nào nối lại đoạn đó): mạng Botkeep
+  giới hạn từng kết nối nên nhiều kết nối cộng dồn tốc độ. File nhỏ (< 8 MB) hay máy chủ không cho tải theo đoạn thì
+  tải một luồng như cũ. Log gọn: thay ~50 dòng «tải output đứt…» bằng một dòng «tải xong N MB trong M phút (4 luồng,
+  nối lại K lần)».
+- **Bỏ trần 60 lần nối lại** khi lần nào cũng tải thêm được (truyện #10 xong ở lần thứ 54 — chậm thêm chút là hỏng cả
+  phiên Kaggle 1 giờ); vẫn bỏ cuộc khi 6 lần liền không thêm được byte nào, hoặc quá 3 giờ.
+- **Facebook dừng vì lỗi cấu hình (token / quyền / id Page) thì YouTube và gói TikTok vẫn theo lịch** — cả kênh bếp lẫn
+  truyện bé; tin báo admin ghi «YouTube vẫn theo lịch (19:00 26/11)». Truyện đã dừng từ bản cũ (như #10) được xếp
+  YouTube ngay lượt kế sau khi cài bản này. Sửa token xong gõ `kids_resume` thì chỉ đăng Fanpage, không đăng YouTube trùng.
+- **«Thử token» kiểm thật quyền đăng**: trước chỉ đọc tên Page nên token người dùng / token thiếu quyền vẫn báo ✅. Giờ
+  báo rõ khi token không phải của chính Page đó, hoặc thiếu `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_posts` (Facebook không cho tự kiểm quyền thì không chặn).
+
+## 1.4.14 — Trang chính sách quyền riêng tư công khai để kết nối YouTube (26/11/2026)
+
+- **Trang `/privacy` và `/terms` công khai** (không cần đăng nhập): Google Auth Platform giờ khoá nút «Publish app» tới
+  khi trang Branding có link trang chủ và link chính sách quyền riêng tư, nên ứng dụng OAuth YouTube kẹt ở «Testing» và
+  tài khoản Kể Bé Nghe bị chặn «Lỗi 403: access_denied». Trang nói rõ bot chỉ dùng quyền tải video lên và đọc tên kênh /
+  lượt xem, token lưu trên máy chủ riêng, cách thu hồi quyền, tuân thủ Limited Use và điều khoản YouTube API.
+- Chú thích ô «YouTube · Client ID» trong Cài đặt ghi đủ các ô cần điền ở Branding (trang chủ, chính sách, điều khoản,
+  không tải logo) và cách qua trang «Google chưa xác minh ứng dụng này».
+
+## 1.4.13 — Đổi tài khoản Kaggle lúc đang chạy; gõ sai lệnh console được gợi ý (25/11/2026)
+
+Chuyển sang tài khoản traique (đo thật: cấp máy GPU 20 giây, 2×T4, có internet; kids_setup chờ 15 phút + chạy 45 phút,
+0,7 giờ GPU). Bot khởi động lúc 14:40 còn token quetrai nên tự gửi kids_setup lên quetrai (kẹt hàng chờ ở đó) rồi mới đổi
+token.
+- **Đổi tài khoản Kaggle trong Cài đặt lúc bot đang chạy**: giờ nghỉ gửi GPU và kết quả «model truyện bé sẵn sàng» của
+  tài khoản cũ bị bỏ, tài khoản mới được xét lại từ đầu (trước đây có thể mang theo 1–6 giờ nghỉ của tài khoản cũ).
+- **Gõ sai lệnh console**: «kids_setup-status» (gạch ngang) chạy luôn; «kid_setup», «kids_check» được gợi ý lệnh gần nhất
+  thay vì in cả trang trợ giúp.
+- Video dài hơn chế độ đã chọn không còn tính là «lỗi tải video» trong `health`.
+- **Truyện bé không còn bị thu kết quả hai lần**: job 7 (truyện đầu tiên trên traique: chờ máy 42 phút, chạy 14 phút, tải
+  78 MB về mất 16 phút) tự thu được video nhưng mục giữ chỗ ghi từ lúc gửi (1.4.11) không được xoá, nên vòng tự động tạo
+  job 8 tải lại cùng video thêm 15 phút. Có kết quả trong tay là bỏ mục giữ chỗ ngay.
+- **Gửi việc lên Kaggle từ tốn như người dùng bình thường** (tài khoản quetrai bị kẹt hàng chờ sau một ngày bot gửi rồi
+  xoá nhiều notebook; không giả làm trình duyệt — bot vẫn xưng đúng là client API):
+  - Hỏi trạng thái thưa dần: chờ máy quá 2 phút hỏi mỗi phút, quá 10 phút mỗi 2 phút; đang chạy mỗi 30 giây. Job 7
+    (chờ 42 phút + chạy 14 phút) từ ~170 lần hỏi còn ~60.
+  - Nhớ thời gian chờ máy của phiên GPU gần nhất (3 giờ, theo từng tài khoản, tệp `kaggle_queue.json`): lâu hơn hạn của
+    việc sắp gửi (bóc lời bếp 8 phút, dựng bếp) thì không gửi, làm thẳng trên Botkeep — hết cảnh gửi, chờ, rồi xoá
+    notebook. Truyện bé (chờ được lâu, giữ chỗ) vẫn gửi và cập nhật số đo; phiên sau được cấp máy nhanh là gửi lại.
+  - Phải bỏ phiên vì chờ quá lâu nhiều lần trong 24 giờ thì nghỉ dài dần: 1, 2, 4, tối đa 6 giờ (trước: luôn 1 giờ).
+  - Bot chủ động không gửi thì ghi «Kaggle đang đông…», không tính là lỗi Kaggle trong `health` (cả phần của video dài
+    và bản ngắn).
+- Rà soát (code-review + security-review, 25/11 tối): truyện bé nhường Botkeep cho job khác (giữ chỗ sau 5 phút) không bị
+  tính là «Kaggle chậm» (trước: job bếp vừa tới bị dồn lên Botkeep cả giờ); thu kết quả phiên giữ chỗ không ghi nhầm «chờ 0
+  phút» che số đo thật; số đo hàng chờ xét mục mới nhất còn có ý nghĩa; nghỉ giữa hai lần hỏi (tới 2 phút) vẫn thấy Hủy /
+  tắt bot trong 5 giây; mục giữ chỗ truyện bé giữ tới khi làm xong bài đăng (bot tắt lúc đang kiểm video thì chạy lại thu
+  kết quả, không gửi lại cả phiên); `kaggle_check` xử lý notebook chưa có đầu ra; lệnh console giữ nguyên chữ hoa ở link.
+  Security review: không phát hiện lỗ hổng mới.
+- **Gemini quá tải (503) không còn cho ra video đọc kịch bản mẫu** (job 9, 25/11 tối: model chính lẫn dự phòng 503 trong
+  ~20 giây thử lại → bot dựng 5-10 phút một video đọc «Bạn sẽ không tin nổi video này đâu…» vô dụng, log in hai traceback
+  dài). Giờ: 503 thử lại 5 lần với 3+6+12+24 giây mỗi model (cơn quá tải thường vài phút); vẫn không được thì job dừng với
+  «Dịch vụ AI đang quá tải / hết lượt tạm thời — gửi lại link sau vài phút» thay vì dựng kịch bản mẫu (key / model sai
+  vẫn dùng mẫu + cảnh báo như cũ); lỗi quá tải / hết lượt ghi một dòng cảnh báo, chỉ lỗi lạ mới kèm traceback.
+- **Kiểm tra lại API Gemini theo tài liệu Google (25/11)**: key dạng mới «AQ.…» (Google AI Studio cấp mặc định từ
+  28/5/2026, gọi là auth key, chỉ dùng được cho Gemini API) chạy bình thường với bot — bot gửi key qua SDK google-genai
+  3.6.1 (bản mới nhất), không cần sửa. Model bot dùng đều còn: gemini-3.5-flash-lite (viết lời), gemini-3.5-transcribe
+  (bóc lời), gemini-4-hydrogen (nháp truyện bé, GA 12/11); gemini-3.1-flash-lite (dự phòng) Google hẹn tắt 7/5/2027;
+  gemini-2.5-flash / 2.5-pro bị chuyển hướng từ 1/12/2026 (bot không dùng). Đo thật tối 25/11: 3.1-flash-lite, 3.8-flash
+  và 4-hydrogen 503 «high demand» liên tục nhiều phút, 3.5-flash-lite thỉnh thoảng 503 — nên **thêm gemini-3.6-flash vào
+  danh sách dự phòng mặc định** (1,2-1,7 giây khi đặt mức suy nghĩ «low»; để Google tự chọn thì 22-42 giây vì nghĩ dài).
+  Gemini 3.x flash thường (3.5 / 3.6 / 3.8-flash) không truyền mức suy nghĩ thì bot đặt «low»; model -lite không nhận
+  thinking_config nên giữ nguyên. gemini-3.5-flash giờ chỉ là tên cũ chuyển hướng sang 3.6-flash. Ai đã lưu ô «Model
+  Gemini dự phòng» trong Cài đặt thì tự thêm `,gemini-3.6-flash`.
+
+## 1.4.12 — Dựng hết RAM thì tự dựng lại; thấy tiến độ tải nguồn (25/11/2026)
+
+Job 6 (TikTok 75s, 14MB): tải nguồn mất ~10 phút (các job trước 42–85 giây) mà chỉ thấy «Tải video (yt-dlp)»; Kaggle vẫn
+không cấp máy GPU nên bóc lời trên Botkeep; tới bước dựng 720p thì ffmpeg bị hệ thống giết (tín hiệu 9, hết RAM) sau 27
+phút làm job. Đo lại trên máy thật với đúng video đó: ffmpeg dựng chỉ cần 330–455 MB, bước phân tích hình ~110 MB — không
+phải mã mới làm phình RAM (bộ dựng không đổi từ 21/11), nhưng máy Botkeep ~2 GB lúc đó không còn đủ.
+- **ffmpeg dựng bị giết vì hết RAM → tự dựng lại một lần** ở chế độ 1 luồng (sau khi trả RAM), ghi chú cho người dùng; lần
+  hai vẫn hết RAM thì báo rõ kèm số RAM. Huỷ job / tắt bot (cũng giết bằng tín hiệu 9) không bị hiểu nhầm là hết RAM.
+- **Trước khi dựng trả RAM**: bỏ các phiên ONNX đã dùng xong (dò chữ, tách giọng, dò mặt — cần lại thì tự mở), dọn rác,
+  trả bộ nhớ trống về hệ điều hành. Log ghi «Trước khi dựng: RAM trống … / giới hạn … , bot giữ …»; bị giết thì ghi thêm 5
+  tiến trình chiếm RAM nhất để biết ai giữ.
+- **Tải nguồn hiện tiến độ** «Tải video (yt-dlp) 42% của 14MB · 23 KB/s» (30 giây một lần) và ghi «Tải nguồn xong: 14MB
+  trong 600s» — quá 2 phút thì cảnh báo mạng tới nền tảng video đang chậm.
+
+## 1.4.11 — Không «dồn» phiên lên Kaggle; phát hiện Kaggle không cấp GPU (25/11/2026)
+
+Tài khoản quetrai kẹt hàng chờ chạy nền GPU hơn 20 giờ (notebook mở tay vẫn có GPU ngay) sau một ngày bot gửi rồi bỏ nhiều
+phiên; người dùng chuyển sang tài khoản khác và nhờ «đóng hết notebook đang chạy rồi mới chạy notebook tiếp theo».
+- **Trước MỖI lần gửi phiên GPU, đóng hết phiên công việc còn xếp hàng / chạy** (`rmvideo-worker`, `rmvideo-kids`,
+  `rmvideo-analyze` — bot chạy một phiên một lúc nên phiên nào còn đó đều là ma), trừ truyện bé đang giữ chỗ. Không đụng
+  notebook model / nhạc / PhoWhisper.
+- **Kaggle lâu không cấp máy thì nghỉ gửi phiên GPU mới 1 giờ** (một phiên phải bỏ hoặc giữ chỗ vì chờ máy quá lâu): bếp
+  làm trên Botkeep, truyện bé không tạo job (lượt tự động báo «tạm nghỉ… thêm N phút»), thay vì job sau lại gửi, lại chờ,
+  lại bỏ. Thu kết quả phiên đang giữ chỗ vẫn chạy bình thường.
+- **Kaggle không cấp GPU** (tài khoản chưa xác minh số điện thoại: phiên chạy ngay nhưng bằng CPU, không có internet — đo
+  thật 25/11): notebook thấy không có GPU thì ghi lỗi rõ ràng rồi thoát ngay (trước đây chạy hàng chục phút trên CPU rồi
+  hỏng), bot nghỉ gửi phiên GPU 6 giờ và báo «tài khoản đã xác minh số điện thoại chưa?». `kids_setup` cũng dừng ngay.
+- `kaggle_check` kiểm LoRA đúng trong notebook chạy tay (KIDS_KAGGLE_SOURCES), không còn báo nhầm `rmvideo-kids-models`.
+- **Video dài hơn chế độ đã chọn** (job 5: TikTok 365s ở «remake nguyên ≤5 phút»): báo thẳng «Video dài 365s, vượt giới hạn
+  300s» + nút cần bấm, không còn gói thành «Không tải được video TikTok… tải về máy rồi upload» (tải được, chỉ dài quá) và
+  không gọi tikwm vô ích. Phần tải video không đổi từ 16/11.
+
 ## 1.4.10 — Nút «Xóa» / «Xóa tất cả» trong Hàng đợi & kết quả (25/11/2026)
 
 - **Xóa từng job** (nút «Xóa» ở cột Trạng thái) và **«🗑 Xóa tất cả job đã xong»**: bỏ job khỏi danh sách VÀ xoá luôn trên
