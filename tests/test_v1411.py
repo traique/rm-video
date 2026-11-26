@@ -50,10 +50,12 @@ def test_cooldown_blocks_new_jobs_not_collect(monkeypatch):
     monkeypatch.setattr(config, "KAGGLE_API_TOKEN", "KGAT_x")
     monkeypatch.setattr(config, "KIDS_KAGGLE_SOURCES", "")
     kaggle_worker._cool(3600, "Kaggle lâu không cấp máy GPU")
-    assert "tạm nghỉ" in kaggle_worker.kids_ready()
+    assert kaggle_worker.kids_ready() == ""                   # 1.5.0: truyện bé giữ chỗ được, hàng chờ đông không chặn
     job = Job(url="https://www.youtube.com/watch?v=x", mode="cook", duration=0, voice="v")
     assert "tạm nghỉ" in kaggle_worker.usable(job)
     assert kaggle_worker.enabled() == ""                       # thu kết quả phiên đang giữ chỗ vẫn được
+    kaggle_worker._cool(7200, kaggle_worker.NO_GPU_MARK + " — tài khoản đã xác minh số điện thoại chưa?")
+    assert "tạm nghỉ" in kaggle_worker.kids_ready()           # Kaggle không cấp GPU: truyện bé cũng nghỉ
 
 
 def test_queue_timeout_starts_cooldown(monkeypatch):

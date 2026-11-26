@@ -194,7 +194,8 @@ def test_choose_then_apply_into_teaser_slot(on, monkeypatch):
                                    "Nguyên liệu gồm 1 kg cà rốt. Trộn với muối không cần bỏ nước.",
                                    "Nguyên liệu gồm 1 kg cà rốt.", 3.1))
     assert got["kind"] == "ket_qua" and got["secs"] == 3.9 and got["screen"] == "ĐỒ CHUA GIÒN CẢ THÁNG"
-    assert "Món: đồ chua" in calls[0] and "Câu ngay SAU câu hook" in calls[0] and "7-11 chữ" in calls[0]
+    # 1.5.0: xin AI ít hơn trần ASK_SLACK chữ (trần kiểm vẫn 11): AI hay viết dài hơn mức xin 2-3 chữ
+    assert "Món: đồ chua" in calls[0] and "Câu ngay SAU câu hook" in calls[0] and "7-9 chữ" in calls[0]
     assert "Đồ chua bị hăng?" not in calls[1] and "tối đa 4 điểm" in calls[1]
     timed = _timed()
     assert hooks.apply(timed, got) and timed["segments"][0]["text"] == got["text"]

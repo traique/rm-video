@@ -208,16 +208,69 @@ def scheduled(when: float | None, now: float) -> bool:
     return bool(when) and float(when or 0) >= now + MIN_LEAD
 
 
-def video_body(ch: str, title: str, desc: str, when: float | None, now: float) -> dict:
+TAG_MAX, TAGS_MAX_CHARS = 30, 450    # YouTube: mỗi thẻ ≤ 30 ký tự (thẻ có dấu cách bị tính thêm dấu nháy), cả bộ ≤ 500 ký tự
+
+
+def video_tags(ch: str, desc: str) -> list[str]:
+    """Thẻ (snippet.tags, 1.5.0) cho tìm kiếm: hashtag trong mô tả (bỏ #) + từ khoá kênh (kênh bé: KIDS_KEYWORDS, tên kênh).
+    Trước đây không gửi thẻ nên YouTube chỉ có tiêu đề / mô tả để hiểu video."""
+    raw: list[str] = [t[1:] for t in re.findall(r"#[\w]+", desc or "") if len(t) > 2]
+    if ch == "kids":
+        raw += [k.strip() for k in str(getattr(config, "KIDS_KEYWORDS", "") or "").split(",") if k.strip()]
+        raw += [str(getattr(config, "KIDS_CHANNEL_NAME", "") or "").strip()]
+    out: list[str] = []
+    total = 0
+    for t in raw:
+        t = " ".join(t.replace("<", "").replace(">", "").split())[:TAG_MAX].strip()
+        if not t or t.lower() in ("0", "off", "tắt") or t.lower() in {x.lower() for x in out}:
+            continue
+        cost = len(t) + (2 if " " in t else 0) + 1
+        if total + cost > TAGS_MAX_CHARS:
+            break
+        out.append(t)
+        total += cost
+    return out
+
+
+def _times(raw: str) -> list[str]:
+    out = sorted({t.strip() for t in (raw or "").split(",") if re.fullmatch(r"\s*([01]\d|2[0-3]):[0-5]\d\s*", t)})
+    return out
+
+
+def slot_for(ch: str, when: float | None, now: float | None = None) -> float | None:
+    """Giờ đăng YouTube cho bài Facebook hẹn lúc `when` (1.5.0): kênh bé có KIDS_YT_TIMES thì khung Facebook thứ k (theo
+    KIDS_TIMES) đi với khung YouTube thứ k cùng ngày — hai nền tảng lệch giờ; bài ngoài khung (trễ khung Kaggle) lấy khung
+    YouTube gần giờ Facebook nhất. KIDS_YT_TIMES trống / kênh bếp / đăng ngay: cùng giờ Facebook. Giờ YouTube đã qua (video
+    xong trễ) thì đăng ngay (None)."""
+    if not when or ch != "kids":
+        return when
+    yt = _times(str(getattr(config, "KIDS_YT_TIMES", "") or ""))
+    if not yt:
+        return when
+    fb = _times(str(getattr(config, "KIDS_TIMES", "") or ""))
+    d = datetime.fromtimestamp(float(when), VN)
+    hm = d.strftime("%H:%M")
+    if hm in fb and fb.index(hm) < len(yt):
+        pick = yt[fb.index(hm)]
+    else:
+        pick = min(yt, key=lambda t: abs(int(t[:2]) * 60 + int(t[3:]) - (d.hour * 60 + d.minute)))
+    ts = datetime(d.year, d.month, d.day, int(pick[:2]), int(pick[3:]), tzinfo=VN).timestamp()
+    now = time.time() if now is None else now
+    return round(ts, 2) if ts >= now + MIN_LEAD else None
+
+
+def video_body(ch: str, title: str, desc: str, when: float | None, now: float, tags: list | None = None) -> dict:
     """Thân videos.insert (snippet + status). Hẹn giờ: riêng tư + publishAt (YouTube chỉ nhận publishAt với video riêng
-    tư); không thì công khai ngay."""
+    tư); không thì công khai ngay. tags: thẻ tìm kiếm (video_tags), không có thì bỏ trường."""
     c = CHANNELS[ch]
     status: dict[str, Any] = {"privacyStatus": "public", "selfDeclaredMadeForKids": bool(c["kids"]), "embeddable": True}
     if scheduled(when, now):
         status.update(privacyStatus="private", publishAt=_iso(float(when or 0)))
-    return {"snippet": {"title": clean_title(title), "description": clean_desc(desc), "categoryId": c["category"],
-                        "defaultLanguage": "vi", "defaultAudioLanguage": "vi"},
-            "status": status}
+    snippet: dict[str, Any] = {"title": clean_title(title), "description": clean_desc(desc), "categoryId": c["category"],
+                               "defaultLanguage": "vi", "defaultAudioLanguage": "vi"}
+    if tags:
+        snippet["tags"] = [str(t) for t in tags][:60]
+    return {"snippet": snippet, "status": status}
 
 
 # ---------------- HTTP ----------------
@@ -302,7 +355,7 @@ async def _session_state(s: aiohttp.ClientSession, loc: str, tok: str, size: int
 async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
                  session: aiohttp.ClientSession | None = None, now: float | None = None,
                  info: dict | None = None, resume_url: str = "",
-                 on_session: Callable[[str], Any] | None = None) -> str:
+                 on_session: Callable[[str], Any] | None = None, tags: list | None = None) -> str:
     """Tải video lên kênh `ch` (resumable: POST metadata -> địa chỉ phiên tải -> PUT file). Trả id video YouTube; info:
     nhận phần status YouTube trả về (privacyStatus, uploadStatus…) để soát. resume_url: phiên của lượt trước — hỏi YouTube
     đã nhận tới đâu: đã đủ (mạng rớt đúng lúc YouTube trả kết quả, bot dừng ngay sau khi tải xong) thì lấy luôn id, KHÔNG tải
@@ -324,7 +377,7 @@ async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
                 loc = ""
         if d is None and not loc:
             async with s.post(UPLOAD, params={"uploadType": "resumable", "part": "snippet,status"},
-                              json=video_body(ch, title, desc, when, now),
+                              json=video_body(ch, title, desc, when, now, tags=tags),
                               headers={**_auth(tok), "X-Upload-Content-Type": "video/mp4",
                                        "X-Upload-Content-Length": str(size)}) as r:
                 await _json(r)
@@ -491,7 +544,8 @@ async def disconnect(ch: str, session: aiohttp.ClientSession | None = None) -> N
 
 # ---------------- hàng chờ ----------------
 
-def enqueue(ch: str, job: int, path: str, title: str, desc: str, when: float | None, now: float | None = None) -> bool:
+def enqueue(ch: str, job: int, path: str, title: str, desc: str, when: float | None, now: float | None = None,
+            tags: list | None = None) -> bool:
     """Thêm video vào hàng chờ tải lên kênh `ch` (một lần mỗi job). False: kênh chưa kết nối hoặc đã có."""
     if ch not in CHANNELS or missing(ch):
         return False
@@ -501,18 +555,21 @@ def enqueue(ch: str, job: int, path: str, title: str, desc: str, when: float | N
         return False
     st["items"].append({"key": key, "ch": ch, "job": job, "path": path, "title": clean_title(title),
                         "desc": clean_desc(desc), "when": when, "status": "pending", "tries": 0, "next_try": 0,
-                        "created": time.time() if now is None else now})
+                        "created": time.time() if now is None else now, "tags": list(tags or [])})
     save_state(st)
     return True
 
 
 def after_facebook(ch: str, job: Any, path: str, title: str, desc: str, when: float | None) -> bool:
-    """Gọi sau khi Fanpage đã nhận bài: xếp video lên YouTube cùng giờ hẹn. Lỗi gì cũng không làm hỏng bài Facebook."""
+    """Gọi sau khi Fanpage đã nhận bài: xếp video lên YouTube theo giờ của kênh (slot_for: kênh bé có khung YouTube riêng,
+    không thì cùng giờ hẹn Facebook) kèm thẻ tìm kiếm. Lỗi gì cũng không làm hỏng bài Facebook."""
     try:
         t, d = texts(str(getattr(job, "post", "") or ""), title, desc)
-        ok = enqueue(ch, int(job.id), path, t, d, when)
+        at = slot_for(ch, when)
+        ok = enqueue(ch, int(job.id), path, t, d, at, tags=video_tags(ch, d))
         if ok:
-            logging.info("YouTube: xếp video #%s lên %s", job.id, CHANNELS[ch]["vi"])
+            logging.info("YouTube: xếp video #%s lên %s%s", job.id, CHANNELS[ch]["vi"],
+                         f" lúc {_at(at)}" if at else (" (đăng ngay)" if when else ""))
         return ok
     except Exception as e:
         logging.warning("YouTube: không xếp được video #%s (%s)", getattr(job, "id", "?"), str(e)[:150])
@@ -580,7 +637,8 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
         fresh = float(it.get("session_at") or 0) > now - SESSION_TTL
         vid = await upload(ch, it["path"], it["title"], it.get("desc") or "", it.get("when"), s, now, info,
                            resume_url=str(it.get("session_url") or "") if fresh else "",
-                           on_session=lambda url: _patch(key, session_url=url, session_at=now))
+                           on_session=lambda url: _patch(key, session_url=url, session_at=now),
+                           tags=list(it.get("tags") or []))
     except Exception as e:
         t = max(now, time.time())                   # lùi giờ thử lại tính từ lúc lỗi (một lượt tải có thể mất 30 phút)
         why = (str(e) or type(e).__name__)[:200]

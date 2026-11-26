@@ -80,7 +80,8 @@ async def run(spec: dict, tmp: str, log: Log | None = None) -> dict:
     t0 = time.time()
     notes: list[str] = []
     synth = kaggle_job.make_synth(spec, None)
-    recap = story_mod.recap_text(brief)             # câu ôn từ (mã viết) đọc trong màn kết: mỗi từ chắc chắn được nghe kèm nghĩa
+    chan = spec.get("channel") or {}
+    recap = story_mod.recap_text(brief, cta=str(chan.get("cta") or ""))   # câu ôn từ (mã viết) đọc trong màn kết + CTA
     hook = (st.get("hook") or "").strip()           # câu móc 3 giây đầu (đọc trước truyện)
     narrator = (spec.get("voice") or {}).get("name") or ""
     multi = bool((spec.get("voice") or {}).get("multi", True))

@@ -13,6 +13,43 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.5.0 — Tiếng gốc không lọt khi không tách giọng; truyện bé: từ khoá, CTA, giờ YouTube riêng (26/11/2026)
+
+Video 13 (trứng kho quẹt, 26/11): Kaggle không cấp GPU trong 8 phút, máy Botkeep quá chậm nên không tách giọng; cổng tắt
+tiếng gốc chạy theo mốc lời của Groq Whisper mà máy nghe bỏ câu cuối «Và đây là series…» -> giọng người gốc lọt nguyên 2 giây
+cuối (42,8-44,9s). Cùng job: khối điểm danh nguyên liệu + TÓM TẮT chiếu ở giây 4-16, trước cả các bước nấu; lời đọc «nấu chừng
+1.5 đồng là ăn được» (máy nghe nhầm, soát lời sửa «1.5 phút» bị bỏ); 14/16 câu hook bị loại vì «mất 1 người», «bịa cơm», dài
+hơn mức xin.
+- **Cổng tắt tiếng gốc gộp thêm quãng có tiếng người do Silero VAD nghe thẳng tiếng gốc** (`rmvideo/media/vad.py`, model ONNX
+  2,3MB tải một lần về `models/`, kiểm SHA-256, chạy onnxruntime CPU 0,2 giây cho 47 giây audio): câu máy nghe bỏ sót vẫn bị
+  tắt; không có mốc lời mà VAD nghe được thì cổng theo VAD (trước đây tắt cả bài). Ghi chú job «Tắt thêm N giây tiếng gốc…».
+  VAD lỗi / không tải được model thì cổng theo mốc lời như cũ.
+- **Khối điểm danh + tóm tắt không còn nhảy lên đầu video**: Whisper qua Groq cắt đoạn LIỀN NHAU (đoạn sau bắt đầu đúng lúc
+  đoạn trước hết) nên `_sentence_start` lùi mãi về đầu video. Giờ chỉ lùi qua đoạn trước khi đoạn đó chưa kết câu, tối đa 6
+  giây; câu đang nói chính là lời bước nấu cuối (có định lượng / thời gian) thì khối cuối chèn SAU câu đó (ngay trước cảnh
+  món cuối), không bao giờ đứng ở nửa đầu video; câu cảm thán / chào kết vẫn chèn trước như bản 47. Đoạn máy nghe liền
+  nhau: khúc side chèn đúng ranh giới làm đoạn sau «phủ» lên khối (đầu đoạn sau rơi về khúc trước) -> `EditPlan.seg_out`
+  lùi mốc vào trong đoạn một chút khi thấy đoạn dài ra bất thường.
+- **Số liệu máy nghe nhầm không còn chặn**: «1.5 đồng», «một người» (tiền / người / tuổi) ở video bếp không bắt lời mới phải
+  giữ; soát lời được đổi đơn vị tiền sang đơn vị đo («1.5 đồng» -> «1.5 phút»), đổi giữa hai đơn vị đo (giọt -> muỗng) vẫn
+  bị bỏ. Câu hook: không bắt giữ «1 người» của câu mở đầu nghe nhầm; «đưa cơm» không tính là bịa nguyên liệu (câu viết cùng kịch
+  bản vẫn được «ăn với cơm trắng»); xin AI ít hơn trần 2 chữ vì AI hay viết dài hơn mức xin (job 13: xin 7-11, cả 8 câu 13-14).
+- **Truyện bé không bị lệnh nghỉ GPU «Kaggle lâu không cấp máy» chặn** (job bếp chờ 8 phút rồi bỏ -> nghỉ 120 phút -> truyện
+  bé trễ một giờ dù phiên kế được cấp máy sau 14 phút): truyện bé giữ chỗ được tới 4 giờ nên vẫn gửi; chỉ nghỉ khi Kaggle không
+  cấp GPU (tài khoản chưa xác minh).
+- **Video truyện bé nhẹ hơn**: profile mã hoá riêng (crf 21, trần 5,5 Mbps ở 1080p; ảnh hoạt hình màu phẳng, Facebook / YouTube
+  mã hoá lại) thay cho balanced 9 Mbps: 77 MB / 87 giây (tải từ Kaggle về mất 10 phút) còn chừng một nửa.
+- **Truyện bé dễ được tìm thấy hơn**: tiêu đề nối đuôi `KIDS_TITLE_TAG` («… | Truyện kể bé nghe, học tiếng Anh») khi còn chỗ
+  trong 100 ký tự của YouTube; mô tả có dòng từ khoá `KIDS_KEYWORDS` và lời kêu gọi `KIDS_CTA`; YouTube nhận thẻ (tags) từ
+  hashtag + từ khoá + tên kênh (trước đây không gửi thẻ; kênh bếp cũng nhận thẻ từ hashtag); `KIDS_HASHTAGS` mặc định xếp theo
+  mức quan trọng (Facebook chỉ lấy 3 thẻ đầu: 2 cố định + 1 theo truyện). `KIDS_CTA` («Theo dõi {name} để mai nghe truyện mới
+  nha!») được người kể đọc THAY câu «Hẹn gặp lại bé» sau phần ôn từ (không thêm giây) và in cam dưới bảng «Hôm nay bé học».
+- **Giờ đăng YouTube tách khỏi Facebook** (`KIDS_YT_TIMES`, mặc định 07:30, 20:30; `KIDS_TIMES` Facebook mặc định mới 11:30,
+  19:30): khung Facebook thứ k đi với khung YouTube thứ k cùng ngày (video làm trước một ngày nên giờ YouTube sớm hơn vẫn kịp);
+  bài ngoài khung lấy khung YouTube gần nhất; giờ YouTube đã qua lúc video xong thì đăng ngay; trống = cùng giờ Facebook.
+  Không nền tảng nào phạt đăng cùng giờ, nhưng lệch giờ thì mỗi bài có một «giờ ra mắt» riêng theo thói quen xem từng nơi (Shorts:
+  bé xem lúc ăn sáng / sau bữa tối; Reels: ba mẹ lướt giờ nghỉ trưa / giờ kể chuyện) và so lượt xem hai bên được.
+
 ## 1.4.15 — Tải video Kaggle song song; Facebook lỗi không kéo YouTube theo (26/11/2026)
 
 Log 26/11, truyện #10 (lần đầu sau khi kết nối YouTube kênh Kể Bé Nghe): Kaggle vẽ + dựng 15 phút, nhưng tải video

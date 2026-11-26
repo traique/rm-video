@@ -109,9 +109,13 @@ def end_card(words: Sequence[dict], channel: dict, W: int, H: int, path: str) ->
     d0 = ImageDraw.Draw(tmp)
     tag = (channel.get("tagline") or channel.get("name") or "").strip()
     tag_lines = _wrap(d0, tag, tf, pw - int(80 * k))[:2] if tag else []
+    cf = _font(int(36 * k))
+    cta = (channel.get("cta") or "").strip()                  # 1.5.0: lời kêu gọi theo dõi kênh, cam đậm dưới tagline
+    cta_lines = _wrap(d0, cta, cf, pw - int(80 * k))[:2] if cta else []
     row_h = int(96 * k)
     ph = (int(40 * k) + int(56 * k * 1.3) + int(20 * k) + row_h * max(1, len(words)) + int(16 * k)
-          + (len(tag_lines) * int(32 * k * 1.35) + int(16 * k) if tag_lines else 0) + int(28 * k))
+          + (len(tag_lines) * int(32 * k * 1.35) + int(16 * k) if tag_lines else 0)
+          + (len(cta_lines) * int(36 * k * 1.35) + int(14 * k) if cta_lines else 0) + int(28 * k))
     im, pad = _panel((pw, ph), int(44 * k), WHITE, int(12 * k))
     d = ImageDraw.Draw(im)
     y = pad + int(40 * k)
@@ -142,6 +146,12 @@ def end_card(words: Sequence[dict], channel: dict, W: int, H: int, path: str) ->
             tw = d.textlength(ln, font=tf)
             d.text((pad + (pw - tw) / 2, y), ln, font=tf, fill=BLUE)
             y += int(32 * k * 1.35)
+    if cta_lines:
+        y += int(14 * k)
+        for ln in cta_lines:
+            tw = d.textlength(ln, font=cf)
+            d.text((pad + (pw - tw) / 2, y), ln, font=cf, fill=ORANGE)
+            y += int(36 * k * 1.35)
     im.save(path)
     return path
 

@@ -497,7 +497,7 @@ async def render(images: Sequence[str], clips: Sequence[dict], texts: Sequence[s
                  total, f"{gain:+.0f} dB" if music_idx is not None else "không", fx, len(hits),
                  sum(len(v) for v in events.values()))
     await ff._run_ffmpeg("-y", *ff.thread_args(), *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "[a]",
-                         *renderer.encode_args(H, fps), "-t", f"{total:.3f}", out)
+                         *renderer.encode_args(H, fps, quality="kids"), "-t", f"{total:.3f}", out)
     return {"length": total, "plan": pl, "srt": srt, "ass": ass, "music_gain_db": gain if music_idx is not None else None,
             "hits": hits, "sfx": {k: len(v) for k, v in events.items()}, "fx": fx, "subs": subs}
 

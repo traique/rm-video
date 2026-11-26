@@ -215,11 +215,13 @@ def _sync_account() -> None:
         _ACCT["tok"] = tok
 
 
-def gpu_cool() -> str:
-    """Lý do đang nghỉ gửi phiên GPU mới ("" = gửi được)."""
+def gpu_cool(kind: str = "") -> str:
+    """Lý do đang nghỉ gửi phiên GPU mới ("" = gửi được). kind="kids": truyện bé GIỮ CHỖ được trong hàng chờ (KIDS_PARK_MAX)
+    nên «Kaggle lâu không cấp máy» không chặn nó — chỉ nghỉ khi Kaggle không cấp GPU (1.5.0; 26/11 job bếp chờ 8 phút rồi
+    bỏ làm truyện bé trễ một giờ, dù phiên kế được cấp máy sau 14 phút)."""
     _sync_account()
     left = _COOL["until"] - time.time()
-    if left <= 0:
+    if left <= 0 or (kind == "kids" and NO_GPU_MARK not in _COOL["why"]):
         return ""
     return f"tạm nghỉ gửi việc GPU lên Kaggle thêm {left / 60:.0f} phút ({_COOL['why']})"
 
@@ -306,12 +308,12 @@ def queue_cool() -> float:
 
 
 def _push(slug: str, title: str, text: str, gpu: bool, sources: list | None, dss: list | None, on_step,
-          wait_max: float = 0.0, stop=None, queue_limit: float | None = None) -> dict:
+          wait_max: float = 0.0, stop=None, queue_limit: float | None = None, kind: str = "") -> dict:
     """kaggle_api.push + xử lý «kín phiên GPU»: xoá phiên ma rồi gửi lại; vẫn kín thì chờ (wait_max giây, truyện bé) mỗi
     SLOT_WAIT gửi lại, hoặc ném SessionLimit (bếp: dựng trên Botkeep). stop() đúng (Hủy / tắt bot / quá hạn) thì thôi
     chờ ngay (ném KaggleError «đã huỷ»). Chỉ gọi khi giữ _LOCK (bot chạy một phiên một lúc: phiên nào còn đều là ma)."""
     if gpu:
-        why = gpu_cool() or (queue_busy(queue_limit) if queue_limit else "")
+        why = gpu_cool(kind) or (queue_busy(queue_limit) if queue_limit else "")
         if why:
             raise Busy(why)
         _free_slots(slug)                     # đóng hết phiên công việc còn xếp hàng / chạy rồi mới gửi phiên mới
@@ -769,8 +771,7 @@ def kids_spec(job, brief: dict, music: dict | None = None, story: dict | None = 
                       "lora": (lora_source() or ("", "", ""))[2]},
             "llm": {"pattern": config.KIDS_LLM_PATTERN, "hf_repo": config.KIDS_LLM_HF,
                     "think": int(config.KIDS_LLM_THINK or 0)},
-            "channel": {"name": config.KIDS_CHANNEL_NAME, "world": data["world"]["name"], "tagline": config.KIDS_TAGLINE,
-                        "hashtags": config.KIDS_HASHTAGS},
+            "channel": __import__("kids_auto").channel(),          # tên, thế giới, tagline, hashtag, CTA cuối video (1.5.0)
             "music": music, "fx": config.KIDS_FX, "subs": str(getattr(config, "KIDS_SUBS", "1")) != "0",
             "kernel_sources": nbs, "dataset_sources": dss,
             "fetch_files": ["cover.jpg", "thumb.jpg", "story.json"]}
@@ -975,7 +976,7 @@ def kids_ready() -> str:
     bé gắn một notebook không còn: thay vì để Kaggle từ chối / phiên lỗi giữa chừng, báo ngay «gõ kids_setup»."""
     if not kaggle_api.configured():
         return ""
-    cool = gpu_cool()
+    cool = gpu_cool("kids")
     if cool:
         return cool
     if SLUG_KIDS_MODELS not in kids_sources_nb():          # nguồn tự đặt: notebook của mình phải có đầu ra
@@ -1137,7 +1138,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
         try:
             _push(slug, spec.get("title") or "rmvideo worker", text, gpu, sources or None, dss, on_step,
                   wait_max=queue_max if park_info else 0.0, stop=lambda: run["flag"],
-                  queue_limit=None if park_info else queue_max)
+                  queue_limit=None if park_info else queue_max, kind="kids" if kids else "")
         except (SessionLimit, Busy):
             raise
         except KaggleError as e:
@@ -1149,7 +1150,7 @@ def _run_sync(spec: dict, tmp: str, on_step) -> list:
             sources = [x for x in sources if x != SLUG_ANALYZE]
             _push(slug, spec.get("title") or "rmvideo worker", text, gpu, sources or None, dss, on_step,
                   wait_max=queue_max if park_info else 0.0, stop=lambda: run["flag"],
-                  queue_limit=None if park_info else queue_max)
+                  queue_limit=None if park_info else queue_max, kind="kids" if kids else "")
         if run["flag"]:                                  # bị huỷ đúng lúc vừa gửi xong: bỏ phiên vừa gửi
             _cancel_session(slug)
             raise KaggleError("đã huỷ")

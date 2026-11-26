@@ -419,6 +419,43 @@ def _family(u: str) -> str:
     return "muỗng" if u.startswith("muỗng") else u          # muỗng canh / muỗng cà phê / muỗng: cùng một loại
 
 
+# đơn vị KHÔNG phải định lượng nấu ăn (tiền, người, tuổi — sau _norm_num: đ -> đồng, k / ngàn -> nghìn). Máy nghe hay nghe
+# nhầm «1,5 phút» thành «1.5 đồng», «sinh viên hay người bận rộn» thành «một người bạn gọn» (job 13 ngày 26/11): ở video bếp
+# không bắt lời mới phải giữ, và soát lời được đổi sang đơn vị đo thật (1.5.0).
+SOFT_UNITS = {"đồng", "nghìn", "triệu", "người", "tuổi"}
+
+
+def soft(x: str) -> bool:
+    """«1.5 đồng», «1 người», «50 nghìn»: số có đơn vị không phải định lượng nấu ăn."""
+    _n, _, u = _norm_num(x).partition(" ")
+    return _family(u) in SOFT_UNITS
+
+
+def unit_swap_ok(old: list, new: list) -> bool:
+    """Soát lời đổi ĐƠN VỊ của một con số có được không: cùng dãy số theo thứ tự, và chỉ đổi từ đơn vị không phải định
+    lượng («1.5 đồng» máy nghe nhầm) sang đơn vị khác («1.5 phút»); đổi giữa hai đơn vị đo (giọt -> muỗng), đổi số hay thêm
+    bớt số thì không."""
+    if len(old) != len(new):
+        return False
+    for a, b in zip(old, new):
+        if a == b:
+            continue
+        na, _, ua = _norm_num(a).partition(" ")
+        nb, _, _ub = _norm_num(b).partition(" ")
+        if na != nb or _family(ua) not in SOFT_UNITS:
+            return False
+    return True
+
+
+def check_numbers_for(orig: str, new: str, mode: str) -> tuple:
+    """check_numbers theo chế độ: video bếp không bắt giữ số có đơn vị tiền / người / tuổi (thường là máy nghe nhầm; mẫu
+    «bỏ số liệu vô lý do nghe nhầm» của lời nhắc trước đây bị chính bộ kiểm bắt viết lại). Số bịa / đổi vẫn tính đủ."""
+    missing, added = check_numbers(orig, new)
+    if mode == "cook":
+        missing = [x for x in missing if not soft(x)]
+    return missing, added
+
+
 def _family_key(x: str) -> str:
     n, _, u = x.partition(" ")
     return f"{n} {_family(u)}" if u else n

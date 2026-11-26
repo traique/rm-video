@@ -102,11 +102,25 @@ class EditPlan:
                 return p.a + min(max(x - s, 0.0), p.length * self.stretch) / self.stretch * p.speed
         return 0.0
 
+    def seg_out(self, a: float, b: float) -> tuple[float, float]:
+        """(đầu, cuối) trục ra của một đoạn lời [a, b] trục gốc. Máy nghe (Whisper qua Groq) cắt đoạn LIỀN NHAU: khúc side
+        chèn đúng ranh giới thì đầu đoạn sau (= cuối đoạn trước) rơi về khúc TRƯỚC khối chèn (to_out lấy khúc đầu tiên chứa
+        mốc) và đoạn sau «phủ» lên cả khối (1.5.0). Đoạn dài ra bất thường thì lùi mốc vào trong đoạn một chút rồi đổi lại."""
+        oa, ob = self.to_out(a), self.to_out(b)
+        want = (b - a) * self.stretch + 0.25
+        if ob - oa > want:
+            for a2, b2 in ((a + 0.02, b), (a, b - 0.02), (a + 0.02, b - 0.02)):
+                if a2 < b2:
+                    x, y = self.to_out(a2), self.to_out(b2)
+                    if y - x <= want:
+                        return x, y
+        return oa, ob
+
     def map_segments(self, segs: list) -> list:
         """[(a, b, lời)] trục gốc -> trục ra. Đoạn nằm hẳn trong quãng bỏ (lời tán gẫu đã duyệt bỏ) thì mất."""
         out = []
         for a, b, t in segs:
-            oa, ob = self.to_out(a), self.to_out(b)
+            oa, ob = self.seg_out(a, b)
             if ob - oa >= 0.05:
                 out.append((round(oa, 2), round(ob, 2), t))
         return out

@@ -58,6 +58,15 @@ def _regex(pattern: str, msg: str) -> Validator:
     return check
 
 
+def _times_opt(key: str) -> Validator:
+    """Danh sách giờ HH:MM cách nhau dấu phẩy, hoặc trống."""
+    inner = _regex(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*", f"{key} dạng 07:30,20:30 (giờ Việt Nam) hoặc trống")
+
+    def check(v: str) -> str:
+        return "" if not v.strip() else inner(v)
+    return check
+
+
 def _max_len(key: str, n: int) -> Validator:
     def check(v: str) -> str:
         if len(v) > n:
@@ -490,9 +499,17 @@ SCHEMA: tuple[Setting, ...] = (
       options=(("0", "Tắt (làm tay bằng nút «Làm 1 truyện ngay»)"),
                ("1", "Bật: làm trước cho các khung giờ trong 36 giờ tới, đăng Fanpage truyện bé")),
       choices=ON_OFF, live=True),
-    S("KIDS_TIMES", "08:00,19:00", "kids", "Giờ đăng truyện bé", help="Giờ Việt Nam, cách nhau dấu phẩy.",
+    S("KIDS_TIMES", "11:30,19:30", "kids", "Giờ đăng Facebook truyện bé",
+      help="Giờ Việt Nam, cách nhau dấu phẩy. Mặc định 1.5.0: 11:30 (ba mẹ lướt giờ nghỉ trưa) và 19:30 (giờ kể chuyện trước "
+           "khi ngủ, đỉnh Reels buổi tối); trước là 08:00, 19:00.",
       validate=_regex(r"\s*([01]\d|2[0-3]):[0-5]\d(\s*,\s*([01]\d|2[0-3]):[0-5]\d)*\s*",
                       "KIDS_TIMES dạng 08:00,19:00 (giờ Việt Nam)"), live=True),
+    S("KIDS_YT_TIMES", "07:30,20:30", "kids", "Giờ đăng YouTube truyện bé",
+      help="Giờ Việt Nam, cùng số khung với KIDS_TIMES: khung Facebook thứ nhất đi với khung YouTube thứ nhất cùng ngày (video "
+           "làm trước một ngày nên giờ YouTube sớm hơn Facebook vẫn kịp). Hai nền tảng lệch giờ để mỗi bài có một «giờ ra "
+           "mắt» riêng và so lượt xem được; Shorts bé xem lúc ăn sáng (07:30) và sau bữa tối (20:30). Trống = cùng giờ "
+           "Facebook. Giờ YouTube đã qua lúc video xong thì đăng ngay.",
+      validate=_times_opt("KIDS_YT_TIMES"), live=True),
     S("KIDS_FB_PAGE_ID", "", "api", "ID Fanpage truyện bé",
       help="Fanpage RIÊNG của kênh truyện bé (khác Fanpage kênh bếp). Lấy id + token như FB_PAGE_TOKEN: me/accounts liệt "
            "kê cả hai Page.", validate=_digits("KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_ID là dãy số id của Fanpage"),
@@ -568,8 +585,21 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_max_len("KIDS_WORLD_NAME", 60)),
     S("KIDS_TAGLINE", "Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh", "kids",
       "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
-    S("KIDS_HASHTAGS", "#kebenghe,#doiconon,#truyenchobe,#hoctienganhchobe,#kidsstory", "kids", "Hashtag cố định", help="Cách nhau dấu phẩy.",
-      validate=_max_len("KIDS_HASHTAGS", 300), live=True),
+    S("KIDS_HASHTAGS", "#truyenchobe,#hoctienganhchobe,#kebenghe,#truyenthieunhi,#truyenkechobe,#hoathinhthieunhi,#doiconon,#kidsstory",
+      "kids", "Hashtag cố định",
+      help="Cách nhau dấu phẩy, quan trọng xếp trước: Facebook lấy 3 thẻ đầu (2 thẻ cố định + 1 thẻ theo truyện), YouTube 8, "
+           "TikTok 6.", validate=_max_len("KIDS_HASHTAGS", 400), live=True),
+    S("KIDS_KEYWORDS", "truyện cho bé, truyện kể bé nghe, truyện thiếu nhi, học tiếng Anh cho bé, hoạt hình thiếu nhi, "
+      "truyện ngủ ngon, kể chuyện bé nghe", "kids", "Từ khoá tìm kiếm",
+      help="Cách nhau dấu phẩy: thành dòng từ khoá cuối mô tả bài đăng (Facebook / YouTube tìm theo chữ trong mô tả) và thẻ "
+           "(tags) YouTube. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
+    S("KIDS_TITLE_TAG", "Truyện kể bé nghe, học tiếng Anh", "kids", "Đuôi tiêu đề (từ khoá)",
+      help="Nối sau tiêu đề truyện khi còn chỗ: «Thỏ Trắng và chiếc mền nảy tưng tưng | Truyện kể bé nghe, học tiếng Anh» (tiêu đề "
+           "YouTube tối đa 100 ký tự kể cả #Shorts). 0 = không nối.", validate=_max_len("KIDS_TITLE_TAG", 60), live=True),
+    S("KIDS_CTA", "Theo dõi {name} để mai nghe truyện mới nha!", "kids", "Lời kêu gọi cuối video",
+      help="Người kể đọc thay câu «Hẹn gặp lại bé ở chuyện sau» sau phần ôn từ, in dưới bảng «Hôm nay bé học» và vào mô tả bài "
+           "đăng. {name} = tên kênh. Ngắn thôi: video tối đa 88 giây. 0 = tắt (đọc câu hẹn gặp như cũ).",
+      validate=_max_len("KIDS_CTA", 90)),
     S("KIDS_FX", "full", "kids", "Hiệu ứng động cho truyện bé",
       options=(("full", "Đầy đủ (mặc định): Ken Burns mạnh + nảy/rung khi có tiếng động, hạt bokeh, whoosh + ting"),
                ("motion", "Chỉ chuyển động + phụ đề bật lên (không hạt, không tiếng động)"),
@@ -627,12 +657,12 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT", "TIKTOK_KIT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_YT_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
     "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",
     "KIDS_TAGLINE",
-    "KIDS_HASHTAGS", "KIDS_FX", "KIDS_SUBS", "KIDS_BGM_LINKS", "KIDS_BGM",
+    "KIDS_HASHTAGS", "KIDS_KEYWORDS", "KIDS_TITLE_TAG", "KIDS_CTA", "KIDS_FX", "KIDS_SUBS", "KIDS_BGM_LINKS", "KIDS_BGM",
     "GEMINI_MODEL", "GEMINI_FALLBACK_MODELS", "GEMINI_ASR_MODEL", "OPENROUTER_MODEL", "GROQ_WHISPER_MODEL", "ASR_ORDER",
     "ASR_VOCAB",
 )

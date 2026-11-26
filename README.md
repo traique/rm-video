@@ -34,7 +34,9 @@ Nhận link video → tải (yt-dlp) → Groq Whisper bóc lời thoại → Gem
    - `ALLOWED_DOMAINS` — thêm tên miền được phép gửi link (mặc định: TikTok, Douyin, YouTube, Facebook, Instagram, SoundCloud)
    - `FFMPEG_THREADS` (0 = theo số lõi container), `CACHE_MAX_MB` (mặc định 500), `HEALTH_CHECK_HOURS` (mặc định 6, 0 = tắt)
    - `PORT` — Botkeep thường tự cấp; mặc định 8080
-4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần).
+4. ffmpeg: dùng bản có sẵn trên máy; không có thì static-ffmpeg tự tải ~70MB (1 lần). Model dò tiếng người Silero VAD (~2MB,
+   `models/`, kiểm SHA-256) tự tải lần đầu khi video bếp phải tắt tiếng gốc theo cổng (không tách giọng được): câu máy nghe
+   bỏ sót vẫn bị tắt (1.5.0).
 
 ### Lỗi `No space left on device` khi cài thư viện
 
@@ -298,7 +300,15 @@ Cài một lần:
    phiên (~3 phút) vì vượt giới hạn 20GB đầu ra notebook.
 3. Bấm **🧸 Làm 1 truyện ngay** (hoặc `kids_now`): job vào hàng đợi như job thường, xong thì tải về soát (video, phụ đề `.srt`, ảnh
    bìa; `job.script` có cả kịch bản). Vài video đầu ưng rồi mới bật `KIDS_AUTO=1`: bot tự làm trước cho các khung `KIDS_TIMES`
-   (mặc định 08:00, 19:00) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+   (mặc định 11:30, 19:30 từ 1.5.0) trong 36 giờ tới và hẹn đăng Reels đúng giờ; 3 truyện lỗi liên tiếp thì dừng và báo admin (`kids_resume`).
+   **YouTube có khung giờ riêng** `KIDS_YT_TIMES` (mặc định 07:30, 20:30): khung Facebook thứ k đi với khung YouTube thứ k cùng
+   ngày, nên cùng một truyện lên YouTube lúc bé ăn sáng / sau bữa tối và lên Facebook lúc ba mẹ nghỉ trưa / giờ kể chuyện; trống =
+   cùng giờ Facebook. Hai nền tảng không có luật phạt đăng cùng giờ, nhưng lệch giờ thì mỗi bài có một «giờ ra mắt» riêng theo thói
+   quen xem của từng nơi và so lượt xem hai bên được.
+   **Tìm kiếm (1.5.0)**: tiêu đề nối đuôi `KIDS_TITLE_TAG` («… | Truyện kể bé nghe, học tiếng Anh») khi còn chỗ trong 100 ký tự
+   của YouTube; mô tả có dòng từ khoá `KIDS_KEYWORDS` và lời kêu gọi `KIDS_CTA`; YouTube nhận thêm thẻ (tags) từ hashtag + từ khoá
+   + tên kênh; hashtag cố định xếp theo mức quan trọng (Facebook chỉ lấy 3 thẻ đầu: 2 cố định + 1 theo truyện). `KIDS_CTA` còn được
+   người kể đọc thay câu «Hẹn gặp lại bé» sau phần ôn từ và in dưới bảng «Hôm nay bé học» (video vẫn ≤ 88 giây).
    Kaggle lâu cấp GPU (giờ cao điểm 30–90 phút) thì job thôi chờ nhưng **phiên vẫn giữ chỗ** tới 4 giờ: bot hỏi trạng thái mỗi 2
    phút, dựng xong thì tạo job thu kết quả về (kể cả job `kids_now`, kể cả sau khi bot khởi động lại); `kids` liệt kê phiên đang
    giữ chỗ. Nhạc nền do Lyria tạo trên Kaggle (`bgm_kaggle`, xem phần nhạc bếp) vì mạng Botkeep không theo kịp luồng Lyria.
