@@ -286,3 +286,49 @@ def test_settings_new_keys_validate():
     import kids_auto
     assert kids_auto.channel()["cta"].startswith("Theo dõi " + config.KIDS_CHANNEL_NAME)
     assert "truyện cho bé" in kids_auto.channel()["keywords"] and kids_auto.channel()["title_tag"]
+
+
+# ---------------- lời bám hình: lùi lời mới tới lúc người gốc nói tới việc đó ----------------
+
+def test_content_delay_follows_original_action_word():
+    from rmvideo.media import voiceplan as vp
+    o = "Sau khi nguyên liệu đã hòa tan thì mọi người đập vô cho mình 4 quả trứng gà."
+    n = "Rồi mình đập trực tiếp 4 trái trứng gà vào nồi luôn."
+    assert vp.content_anchor(o)[2:] == ("verb", "đập") and vp.content_anchor(n)[2:] == ("verb", "đập")
+    assert 1.2 <= vp.content_delay(o, n, 3.64, 3.5) <= 1.6          # «đập» gốc ở giây ~2 của câu, lời mới nói ngay
+    # con số / nguyên liệu: khớp theo khoá; lời mới nói việc đó muộn hơn gốc thì không lùi; không có chữ chung: 0
+    assert vp.content_anchor("Cho 2 muỗng nước mắm vào.")[2:] == ("verb", "cho")        # chữ nội dung ĐẦU TIÊN
+    assert vp.content_anchor("Khoảng 2 muỗng nước mắm là vừa.")[2:] == ("num", "2")
+    assert vp.content_anchor("Đợi một lát cho ráo")[2:] == ("verb", "cho")              # «một lát» không phải con số
+    assert vp.content_delay("Nêm 2 muỗng nước mắm vào", "Giờ thì mình nêm 2 muỗng nước mắm", 2.0, 2.0) == 0.0
+    assert vp.content_delay("Giờ nêm 2 muỗng nước mắm", "Nêm 2 muỗng nước mắm vô nha", 2.0, 2.0) == pytest.approx(2.0 / 6, abs=0.01)
+    assert vp.content_delay("Nếu bạn bận rộn thì làm thử món này", "Món kho quẹt này thơm nức mũi", 4.4, 3.0) == 0.0
+    assert vp.content_delay("Nguyên liệu gồm: trứng gà", "Nguyên liệu gồm trứng gà", 4.8, 4.0) == 0.0
+    assert vp.content_delay("Lúc này mình cho hành tím vào nha", "Hành tím băm nhỏ cho vào chảo", 3.0, 3.0) == 0.0
+    assert vp.content_delay("", "x", 1.0, 1.0) == 0.0 and vp.content_delay("x", "", 1.0, 1.0) == 0.0
+    assert vp.content_delay("Rồi mình đợi một lát rồi mới đập trứng vào", "Đập trứng vào", 10.0, 1.0) == vp.DELAY_MAX
+
+
+def test_plan_voice_applies_delay_within_slot():
+    from rmvideo.media import voiceplan as vp
+    o = "Sau khi nguyên liệu đã hòa tan thì mọi người đập vô cho mình 4 quả trứng gà."
+    n = "Rồi mình đập trực tiếp 4 trái trứng gà vào nồi luôn."
+    segs = [{"start": 0.5, "slot": 3.5, "span": 3.0, "orig": "Mình chào cả nhà nha", "text": "Chào cả nhà"},
+            {"start": 4.0, "slot": 8.0, "span": 3.64, "orig": o, "text": n},
+            {"start": 12.0, "slot": 4.0, "span": 3.0, "orig": "Rồi mình đậy nắp lại nấu thêm xíu", "text": "Đậy nắp nấu thêm xíu"}]
+    plan, _ = vp.plan_voice([2.0, 3.5, 2.0], segs, 16.0)
+    assert plan[0]["start"] == 0.5 and 5.2 <= plan[1]["start"] <= 5.6          # lùi ~1.4s, khe 8s còn chỗ
+    assert plan[1]["end"] <= 12.0 - 0.1 and plan[2]["start"] == pytest.approx(12.0 + vp.content_delay(
+        segs[2]["orig"], segs[2]["text"], 3.0, 2.0), abs=0.01)
+    tight = [dict(segs[1], slot=4.5)] + [dict(segs[2], start=8.5, slot=7.5)]
+    plan2, _ = vp.plan_voice([3.5, 2.0], tight, 16.0)
+    assert plan2[0]["start"] <= 4.0 + 4.5 - 3.5 - 0.15 + 0.01                # khe chật: lùi ít hơn, không lấn khe sau
+    plain = [{"start": 4.0, "slot": 8.0, "span": 3.64, "text": n}]           # không có lời gốc (bản cũ): như trước
+    assert vp.plan_voice([3.5], plain, 16.0)[0][0]["start"] == 4.0
+
+
+def test_montage_prefers_said_time_over_intro_dish_shot():
+    items = [r.Item("hành tím", None, "", "ok", seen_at=2.5, said_at=4.9), r.Item("tỏi", None, "", "ok", seen_at=7.4, said_at=9.0),
+             r.Item("trứng gà", 4.0, "quả", "ok", seen_at=2.6, said_at=-1.0)]
+    got = style_b.montage_times(items, 36.0, 1.2)
+    assert [t for _, t in got] == [4.9, 7.4, 2.6]        # mở đầu là món xong: lấy lúc nói; không nói tới thì vẫn lấy ảnh

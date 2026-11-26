@@ -30,6 +30,13 @@ hơn mức xin.
   món cuối), không bao giờ đứng ở nửa đầu video; câu cảm thán / chào kết vẫn chèn trước như bản 47. Đoạn máy nghe liền
   nhau: khúc side chèn đúng ranh giới làm đoạn sau «phủ» lên khối (đầu đoạn sau rơi về khúc trước) -> `EditPlan.seg_out`
   lùi mốc vào trong đoạn một chút khi thấy đoạn dài ra bất thường.
+- **Lời bám hình hơn**: lời gốc hay mở câu bằng đệm dài («Sau khi nguyên liệu đã hòa tan thì mọi người đập vô cho mình 4
+  quả trứng gà»: chữ «đập» ở giây thứ 2 của câu, lúc trứng mới hiện trên hình), lời mới bỏ đệm nên nói việc ngay đầu khe —
+  lời đi trước hình 1-2 giây dù mốc câu đúng (video 13: «đập trứng» đọc xong trứng mới hiện, «đậy nắp» lúc còn đang đập
+  trứng). Giờ `voiceplan.content_delay` tìm chữ nội dung đầu tiên của câu gốc (động từ nấu / nguyên liệu / con số) và chữ
+  ấy trong lời mới, lùi lời mới cho hai chữ vang cùng lúc (chỉ lùi, tối đa 2,5 giây, không lấn khe sau). Thẻ điểm danh
+  nguyên liệu không lấy cảnh «thấy» ở mấy giây đầu khi đó là món thành phẩm chiếu trước (thẻ «Hành tím» đè lên nồi trứng
+  đã xong): lấy lúc nói tới nguyên liệu.
 - **Số liệu máy nghe nhầm không còn chặn**: «1.5 đồng», «một người» (tiền / người / tuổi) ở video bếp không bắt lời mới phải
   giữ; soát lời được đổi đơn vị tiền sang đơn vị đo («1.5 đồng» -> «1.5 phút»), đổi giữa hai đơn vị đo (giọt -> muỗng) vẫn
   bị bỏ. Câu hook: không bắt giữ «1 người» của câu mở đầu nghe nhầm; «đưa cơm» không tính là bịa nguyên liệu (câu viết cùng kịch

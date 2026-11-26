@@ -218,6 +218,10 @@ def montage_times(items: list, end: float, length: float) -> list[tuple]:
     out = []
     for it in items:
         cands = [t for t in (it.seen_at, it.said_at) if t >= 0]
+        if 0 <= it.seen_at < HOOK_MAX and it.said_at >= it.seen_at + 2.0:
+            # 1.5.0: «thấy» ngay mấy giây đầu = cảnh món thành phẩm chiếu trước (món nào cũng có đủ nguyên liệu trong đó —
+            # job 13: thẻ «Hành tím» đè lên nồi trứng đã xong) -> lấy lúc nói tới nguyên liệu đó
+            cands = [it.said_at, it.seen_at]
         t = next((c for c in cands if all(abs(c - u) >= length for u in used)), cands[0] if cands else -1.0)
         while any(abs(t - u) < length for u in used) and t + length < end:
             t += length
