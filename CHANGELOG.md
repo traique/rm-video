@@ -13,6 +13,15 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.14 — Trang chính sách quyền riêng tư công khai để kết nối YouTube (26/11/2026)
+
+- **Trang `/privacy` và `/terms` công khai** (không cần đăng nhập): Google Auth Platform giờ khoá nút «Publish app» tới
+  khi trang Branding có link trang chủ và link chính sách quyền riêng tư, nên ứng dụng OAuth YouTube kẹt ở «Testing» và
+  tài khoản Kể Bé Nghe bị chặn «Lỗi 403: access_denied». Trang nói rõ bot chỉ dùng quyền tải video lên và đọc tên kênh /
+  lượt xem, token lưu trên máy chủ riêng, cách thu hồi quyền, tuân thủ Limited Use và điều khoản YouTube API.
+- Chú thích ô «YouTube · Client ID» trong Cài đặt ghi đủ các ô cần điền ở Branding (trang chủ, chính sách, điều khoản,
+  không tải logo) và cách qua trang «Google chưa xác minh ứng dụng này».
+
 ## 1.4.13 — Đổi tài khoản Kaggle lúc đang chạy; gõ sai lệnh console được gợi ý (25/11/2026)
 
 Chuyển sang tài khoản traique (đo thật: cấp máy GPU 20 giây, 2×T4, có internet; kids_setup chờ 15 phút + chạy 45 phút,

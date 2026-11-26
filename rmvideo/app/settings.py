@@ -473,9 +473,11 @@ SCHEMA: tuple[Setting, ...] = (
     # ----- ▶️ YouTube Shorts (1.2.0, rmvideo/app/youtube.py): một OAuth client cho cả hai kênh -----
     S("YT_CLIENT_ID", "", "api", "YouTube · Client ID",
       help="Đăng YouTube Shorts cùng giờ với Fanpage. Google Cloud Console: tạo dự án, bật «YouTube Data API v3», tạo "
-           "OAuth client loại «Web application» với địa chỉ chuyển hướng = PUBLIC_URL + /youtube/callback; màn hình "
-           "đồng ý OAuth chuyển sang «In production» (để «Testing» thì 7 ngày phải kết nối lại). Một client dùng cho cả "
-           "kênh bếp và kênh bé; xong bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự động đăng / 🧸 Truyện bé.",
+           "OAuth client loại «Web application» với địa chỉ chuyển hướng = PUBLIC_URL + /youtube/callback. Trang "
+           "Branding: trang chủ = PUBLIC_URL, chính sách = PUBLIC_URL + /privacy, điều khoản = PUBLIC_URL + /terms, "
+           "KHÔNG tải logo (có logo là phải chờ Google xác minh); rồi Audience → «Publish app» (để «Testing» thì 7 ngày "
+           "phải kết nối lại). Một client dùng cho cả kênh bếp và kênh bé; xong bấm «▶️ Kết nối YouTube» ở mục 🤖 Tự "
+           "động đăng / 🧸 Truyện bé (gặp «Google chưa xác minh ứng dụng này»: bấm «Nâng cao» → «Chuyển tới…»).",
       link="https://console.cloud.google.com/apis/credentials", need="optional",
       validate=_regex(r"[\w.-]+\.apps\.googleusercontent\.com", "YT_CLIENT_ID dạng …apps.googleusercontent.com"),
       reauth=True, live=True),

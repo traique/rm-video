@@ -22,7 +22,8 @@ def test_web_app_registers_every_route(tmp_path):
     app = web_panel.build_app(JobQueue(db_path=str(tmp_path / "q.db")), {})
     paths = {r.resource.canonical for r in app.router.routes()}
     for p in ("/", "/login", "/health", "/api/login", "/api/jobs", "/api/events", "/api/upload", "/api/settings",
-              "/api/autopost/{act}", "/api/bgm", "/kin/{token}/{name}", "/download/{id}/{k}", "/api/voice_ref"):
+              "/api/autopost/{act}", "/api/bgm", "/kin/{token}/{name}", "/download/{id}/{k}", "/api/voice_ref",
+              "/privacy", "/terms"):
         assert p in paths, p
     assert len(list(app.router.routes())) >= 29
 
