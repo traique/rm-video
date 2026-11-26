@@ -1172,7 +1172,7 @@ def _fetch(slug: str, jobs: list, batch: bool, tmp: str, on_step, gpu: bool) -> 
 
     def get(name: str, dst: str, max_bytes: int = 1 << 31, on_progress=None) -> int:
         return kaggle_api.download(files[name], dst, max_bytes, refresh=lambda: fresh_url(slug, name),
-                                   on_progress=on_progress)
+                                   on_progress=on_progress, parts=kaggle_api.DL_PARTS)
     out = []
     for k in range(n):
         tag = f"_{k}" if batch else ""
@@ -1278,7 +1278,8 @@ def _run_analysis_sync(spec: dict, tmp: str, on_step) -> dict:
         if name in files:
             p = os.path.join(tmp, f"kaggle_{name}")
             try:
-                kaggle_api.download(files[name], p, 400 << 20, refresh=lambda name=name: fresh_url(SLUG_ANALYZE, name))
+                kaggle_api.download(files[name], p, 400 << 20, refresh=lambda name=name: fresh_url(SLUG_ANALYZE, name),
+                                    parts=kaggle_api.DL_PARTS)
                 res[key] = p
             except Exception as e:                  # thiếu ảnh / tiếng nền: vẫn dùng được lời đã bóc
                 logging.warning("Không tải được %s từ Kaggle: %s", name, e)

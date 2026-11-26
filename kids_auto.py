@@ -357,6 +357,27 @@ async def _fail(st: dict, p: dict, now: float, why: str) -> str:
     return why
 
 
+def _keep_others(st: dict, now: float) -> None:
+    """Fanpage đang dừng vì lỗi: truyện đã làm xong vẫn lên YouTube / gói TikTok đúng khung (đã xếp rồi thì thôi). Bản
+    trước 1.4.15 dừng Fanpage là dừng luôn YouTube — truyện #10 ngày 26/11 không lên kênh YouTube vừa kết nối."""
+    p = st.get("pending")
+    if not p or p.get("publishing"):
+        return
+    try:
+        from state import queue
+        job = queue.jobs.get(p["job"])
+        if job is None or job.status != "done":
+            return
+        video, _thumb = autopost._output_files(job)
+        if not video:
+            return
+        title, desc = autopost._post_text(job)
+        when = p.get("slot_ts")
+        autopost.other_platforms("kids", job, video, title, desc, when if when and when > now + LEAD else None)
+    except Exception as e:                                     # không bao giờ làm hỏng vòng truyện bé
+        logging.warning("Truyện bé: không xếp được YouTube / TikTok lúc Fanpage dừng (%s)", str(e)[:150])
+
+
 async def _finish_pending(st: dict, now: float) -> str:
     from state import notify_admin, queue
     p = st["pending"]
@@ -402,8 +423,10 @@ async def _finish_pending(st: dict, now: float) -> str:
         code = e.code if isinstance(e, autopost.FBError) else 0
         if code in autopost.PAUSE_CODES or p["tries"] >= 5:
             st["paused"] = str(e)[:200]
+            others = autopost.other_platforms("kids", job, video, title, desc, when)
             await notify_admin(f"⛔ Truyện bé: đăng Fanpage lỗi, đã dừng: {str(e)[:200]}. Kiểm KIDS_FB_PAGE_ID / "
-                               f"KIDS_FB_PAGE_TOKEN rồi gõ  kids_resume  (truyện #{job.id} vẫn giữ để đăng lại).")
+                               f"KIDS_FB_PAGE_TOKEN (bấm «Thử token» ở mục 🧸 Truyện bé) rồi gõ  kids_resume  (truyện "
+                               f"#{job.id} vẫn giữ để đăng lại)." + others)
         raise
     rec = {"fb_id": fb_id, "kind": kind, "job": job.id, "slot": p["slot"], "time": when or now, "views": None,
            "title": title[:120]}
@@ -413,10 +436,7 @@ async def _finish_pending(st: dict, now: float) -> str:
     st["pending"] = None
     st["streak"] = 0
     save_tick(st)
-    from rmvideo.app import youtube
-    youtube.after_facebook("kids", job, video, title, desc, when)     # ▶️ YouTube Shorts kênh bé (đã kết nối)
-    from rmvideo.app import tiktok_kit
-    tiktok_kit.after_facebook("kids", job, video, desc, when)        # 🎵 gói đăng TikTok gửi admin đúng giờ
+    autopost.other_platforms("kids", job, video, title, desc, when)  # ▶️ YouTube Shorts + 🎵 gói TikTok cùng giờ
     at = datetime.fromtimestamp(when or now, VN).strftime("%H:%M %d/%m")
     logging.info("Truyện bé: %s %s lên Fanpage, %s %s", kind, fb_id, "hẹn" if when else "đăng ngay", at)
     await notify_admin(f"🧸 Đã {'hẹn đăng' if when else 'đăng'} truyện #{job.id} lên Fanpage truyện bé lúc {at}: {title[:80]}")
@@ -446,6 +466,7 @@ async def _tick(now: float, rnd: random.Random | None, force: bool) -> str:
     if why:
         return why
     if st["paused"]:
+        _keep_others(st, now)
         return "đang dừng vì lỗi: " + st["paused"]
     try:
         if st["pending"]:

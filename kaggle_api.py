@@ -373,9 +373,15 @@ def outputs(slug: str) -> dict:
 
 
 DL_STALLS = 6              # tải output: số lần đứt liên tiếp KHÔNG tải thêm được byte nào thì bỏ cuộc
-DL_TRIES = 60              # trần tổng số lần nối lại (mỗi lần có tiến triển thì không tính vào DL_STALLS)
+# Không còn trần số lần nối lại khi lần nào cũng tải thêm được (26/11, job 10: video 80 MB đứt 53 lần, mỗi lần chỉ được
+# 0,5-4 MB, xong ở lần thứ 54 — trần cũ 60 lần suýt làm hỏng cả phiên Kaggle 1 giờ); thay bằng trần thời gian.
+DL_DEADLINE = 3 * 3600.0   # giây: tổng thời gian tải một file tối đa
 DL_WAIT = (3.0, 10.0, 20.0, 30.0)
 DL_REPORT = 60.0           # giây: báo tiến độ tải (mỗi lần báo = một dòng log) tối đa mỗi chừng này
+# Tải song song nhiều đoạn (Range) cho file lớn: mạng Botkeep mỗi kết nối chỉ được ~20-60 KB/s rồi đứt sau 30-60 giây
+# (job 10: 80 MB mất 48 phút); nhiều kết nối cùng lúc thì cộng dồn tốc độ.
+DL_PARTS = 4
+DL_PARALLEL_MIN = 8 << 20  # file nhỏ hơn: một kết nối là đủ
 _EXPIRED = (400, 401, 403, 404, 410)
 
 
@@ -388,15 +394,22 @@ def _total(r, start: int) -> int | None:
     return start + int(cl) if cl.isdigit() else None
 
 
-def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_progress=None) -> int:
-    """Link output là link ký sẵn của Google Storage (không cần token). Mạng Botkeep chậm (~80-100 KB/s) và hay đứt
+def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_progress=None, parts: int = 1) -> int:
+    """Link output là link ký sẵn của Google Storage (không cần token). Mạng Botkeep chậm (~20-100 KB/s) và hay đứt
     giữa chừng (job 1 ngày 24/11: video 80 MB đứt ở 7,7 MB sau 96 giây, mất trắng 1 giờ Kaggle): đứt thì nối lại, tải
-    TIẾP phần còn thiếu bằng Range; link hết hạn (400/403/404) thì gọi refresh() lấy link mới. on_progress(n, tổng)."""
+    TIẾP phần còn thiếu bằng Range; link hết hạn (400/403/404) thì gọi refresh() lấy link mới. on_progress(n, tổng).
+    parts > 1: file lớn (≥ DL_PARALLEL_MIN) tải song song chừng ấy đoạn; máy chủ không cho Range thì tải một luồng."""
+    if parts > 1:
+        got = _download_parts(url, dst, max_bytes, refresh, on_progress, parts)
+        if got is not None:
+            return got
     tmp = dst + ".part"
-    n, total, stalls, last_rep = 0, None, 0, 0.0
+    n, total, stalls, last_rep, k = 0, None, 0, 0.0, 0
+    t0 = time.time()
     try:
         open(tmp, "wb").close()
-        for k in range(DL_TRIES):
+        while True:
+            k += 1
             before = n
             try:
                 hdr = {"User-Agent": UA}
@@ -431,9 +444,9 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_prog
             except (requests.RequestException, OSError) as e:
                 code = getattr(getattr(e, "response", None), "status_code", None)
                 stalls = 0 if n > before else stalls + 1
-                if stalls >= DL_STALLS or k == DL_TRIES - 1:
+                if stalls >= DL_STALLS or time.time() - t0 > DL_DEADLINE:
                     got = f"{n / 1e6:.1f}/{total / 1e6:.1f} MB" if total else f"{n / 1e6:.1f} MB"
-                    raise KaggleError(f"tải output Kaggle đứt sau {k + 1} lần thử ({got}): {str(e)[:200]}") from e
+                    raise KaggleError(f"tải output Kaggle đứt sau {k} lần thử ({got}): {str(e)[:200]}") from e
                 if code in _EXPIRED and refresh is not None:
                     try:
                         url = refresh() or url
@@ -446,6 +459,131 @@ def download(url: str, dst: str, max_bytes: int = 1 << 31, refresh=None, on_prog
         if os.path.exists(tmp):
             os.remove(tmp)
     return n
+
+
+class _NoRange(Exception):
+    """Máy chủ không trả 206 cho yêu cầu Range: không tải song song được."""
+
+
+class _Link:
+    """Link tải dùng chung giữa các luồng: một luồng thấy link hết hạn thì lấy link mới cho tất cả (một lần)."""
+
+    def __init__(self, url: str, refresh):
+        self.url, self._refresh, self._lock = url, refresh, threading.Lock()
+
+    def renew(self, seen: str) -> None:
+        with self._lock:
+            if self.url != seen or self._refresh is None:
+                return                                   # luồng khác vừa lấy link mới
+            try:
+                self.url = self._refresh() or self.url
+            except Exception as e:                       # hỏi link mới lỗi: thử lại link cũ
+                logging.warning("Kaggle: không lấy được link tải mới (%s)", str(e)[:120])
+
+
+def _probe(link: _Link) -> int | None:
+    """Tổng dung lượng nếu máy chủ cho tải theo đoạn (206 + Content-Range, không nén); không thì None."""
+    for _ in range(3):
+        url = link.url
+        try:
+            with requests.get(url, stream=True, timeout=(30, 60), headers={"User-Agent": UA, "Range": "bytes=0-0"}) as r:
+                if r.status_code in _EXPIRED:
+                    link.renew(url)
+                    continue
+                if r.status_code != 206 or (r.headers.get("Content-Encoding") or "identity").lower() not in ("identity", ""):
+                    return None
+                return _total(r, 0)
+        except (requests.RequestException, OSError):
+            _sleep(1.0)
+    return None
+
+
+def _download_parts(url: str, dst: str, max_bytes: int, refresh, on_progress, parts: int) -> int | None:
+    """Tải song song `parts` đoạn vào cùng một file (mỗi đoạn tự nối lại khi đứt). None: không tải song song được
+    (file nhỏ, máy chủ không cho Range) -> người gọi tải một luồng như cũ."""
+    link = _Link(url, refresh)
+    total = _probe(link)
+    if total is None or total < DL_PARALLEL_MIN:
+        return None
+    if total > max_bytes:
+        raise KaggleError("file output Kaggle quá lớn")
+    tmp = dst + ".part"
+    size = -(-total // parts)
+    spans = [(a, min(a + size, total) - 1) for a in range(0, total, size)]
+    stop = threading.Event()
+    lock = threading.Lock()
+    done = {"n": 0, "cuts": 0, "rep": 0.0}
+    t0 = time.time()
+
+    def add(k: int) -> None:
+        with lock:
+            done["n"] += k
+            if on_progress and time.time() - done["rep"] >= DL_REPORT:
+                done["rep"] = time.time()
+                on_progress(done["n"], total)
+
+    def part(a: int, b: int) -> None:
+        pos, stalls = a, 0
+        while pos <= b and not stop.is_set():
+            before, url = pos, link.url
+            try:
+                hdr = {"User-Agent": UA, "Range": f"bytes={pos}-{b}"}
+                with requests.get(url, stream=True, timeout=(30, 120), headers=hdr) as r:
+                    r.raise_for_status()
+                    if r.status_code != 206:
+                        raise _NoRange()
+                    with open(tmp, "r+b") as f:
+                        f.seek(pos)
+                        for chunk in r.iter_content(1 << 16):
+                            if stop.is_set():
+                                return
+                            chunk = chunk[:b + 1 - pos]
+                            f.write(chunk)
+                            pos += len(chunk)
+                            add(len(chunk))
+                            if pos > b:
+                                break
+                if pos <= b:
+                    raise requests.ConnectionError(f"kết nối đóng sớm ({pos - a}/{b + 1 - a} byte của đoạn)")
+            except (requests.RequestException, OSError) as e:
+                code = getattr(getattr(e, "response", None), "status_code", None)
+                stalls = 0 if pos > before else stalls + 1
+                if stalls >= DL_STALLS or time.time() - t0 > DL_DEADLINE:
+                    raise KaggleError(f"tải output Kaggle đứt ({done['n'] / 1e6:.1f}/{total / 1e6:.1f} MB, đoạn "
+                                      f"{a / 1e6:.0f}-{b / 1e6:.0f} MB): {str(e)[:200]}") from e
+                if code in _EXPIRED:
+                    link.renew(url)
+                with lock:
+                    done["cuts"] += 1
+                logging.debug("Kaggle: đoạn %d-%d đứt ở %d (%s), nối lại", a, b, pos, str(e)[:120])
+                _sleep(DL_WAIT[min(stalls - 1, len(DL_WAIT) - 1)] if stalls else 1.0)
+
+    from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait as wait_all
+    try:
+        with open(tmp, "wb") as f:
+            f.truncate(total)
+        with ThreadPoolExecutor(max_workers=len(spans), thread_name_prefix="kaggle-dl") as ex:
+            futs = [ex.submit(part, a, b) for a, b in spans]
+            wait_all(futs, return_when=FIRST_EXCEPTION)
+            if any(f.done() and f.exception() for f in futs):
+                stop.set()
+            errs = [f.exception() for f in futs if f.exception()]
+        if errs:
+            if all(isinstance(e, _NoRange) for e in errs):
+                logging.info("Kaggle: máy chủ không cho tải theo đoạn, tải một luồng")
+                return None
+            raise next(e for e in errs if not isinstance(e, _NoRange))
+        if done["n"] != total or os.path.getsize(tmp) != total:
+            raise KaggleError(f"tải output Kaggle thiếu ({done['n']}/{total} byte)")
+        os.replace(tmp, dst)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    secs = time.time() - t0
+    (logging.warning if secs > 600 else logging.info)(
+        "Kaggle: tải xong %.1f MB trong %.0f phút (%d luồng, nối lại %d lần)", total / 1e6, secs / 60, len(spans),
+        done["cuts"])
+    return total
 
 
 WAIT_NET_RETRIES = 6       # ~2 phút mạng hỏng liên tục (every=20s) mới coi là lỗi

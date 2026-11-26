@@ -13,6 +13,25 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.4.15 — Tải video Kaggle song song; Facebook lỗi không kéo YouTube theo (26/11/2026)
+
+Log 26/11, truyện #10 (lần đầu sau khi kết nối YouTube kênh Kể Bé Nghe): Kaggle vẽ + dựng 15 phút, nhưng tải video
+80 MB về Botkeep mất 48 phút — mỗi kết nối chỉ được 0,5-4 MB rồi đứt, nối lại 53 lần; rồi Fanpage truyện bé từ chối
+«(#200) Subject does not have permission to post videos on this target», truyện tự động dừng và video 19:00 không lên
+YouTube.
+- **Tải video từ Kaggle bằng 4 kết nối song song** (mỗi kết nối một đoạn, đứt đoạn nào nối lại đoạn đó): mạng Botkeep
+  giới hạn từng kết nối nên nhiều kết nối cộng dồn tốc độ. File nhỏ (< 8 MB) hay máy chủ không cho tải theo đoạn thì
+  tải một luồng như cũ. Log gọn: thay ~50 dòng «tải output đứt…» bằng một dòng «tải xong N MB trong M phút (4 luồng,
+  nối lại K lần)».
+- **Bỏ trần 60 lần nối lại** khi lần nào cũng tải thêm được (truyện #10 xong ở lần thứ 54 — chậm thêm chút là hỏng cả
+  phiên Kaggle 1 giờ); vẫn bỏ cuộc khi 6 lần liền không thêm được byte nào, hoặc quá 3 giờ.
+- **Facebook dừng vì lỗi cấu hình (token / quyền / id Page) thì YouTube và gói TikTok vẫn theo lịch** — cả kênh bếp lẫn
+  truyện bé; tin báo admin ghi «YouTube vẫn theo lịch (19:00 26/11)». Truyện đã dừng từ bản cũ (như #10) được xếp
+  YouTube ngay lượt kế sau khi cài bản này. Sửa token xong gõ `kids_resume` thì chỉ đăng Fanpage, không đăng YouTube trùng.
+- **«Thử token» kiểm thật quyền đăng**: trước chỉ đọc tên Page nên token người dùng / token thiếu quyền vẫn báo ✅. Giờ
+  báo rõ khi token không phải của chính Page đó, hoặc thiếu `pages_show_list`, `pages_read_engagement`,
+  `pages_manage_posts` (Facebook không cho tự kiểm quyền thì không chặn).
+
 ## 1.4.14 — Trang chính sách quyền riêng tư công khai để kết nối YouTube (26/11/2026)
 
 - **Trang `/privacy` và `/terms` công khai** (không cần đăng nhập): Google Auth Platform giờ khoá nút «Publish app» tới
