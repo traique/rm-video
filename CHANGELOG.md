@@ -13,6 +13,15 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.5.1 — Gộp hai bản sửa chưa từng vào nhánh chính: 1.4.16 (Gemini quá giờ) và 1.0.2 (soát video mực) (26/11/2026)
+
+Hai nhánh làm việc được đẩy thêm commit SAU khi PR của chúng đã gộp (1.4.16 trên nhánh PR #27 ngày 26/11, 1.0.2 trên nhánh
+PR #12 ngày 18/11), nên các sửa này chưa bao giờ vào nhánh chính và không có trong zip Botkeep nào từ 18/11 tới 1.5.0.
+- **1.4.16 — Gemini quá giờ cũng dừng job thay vì dựng kịch bản mẫu** (góp ý Codex PR #27): lỗi quá giờ của Gemini
+  (TimeoutError) có lời lỗi rỗng nên không được coi là lỗi tạm thời — mọi nhà cung cấp quá giờ thì video «đọc một mạch»
+  vẫn dựng kịch bản mẫu (như job 9 ngày 25/11 với 503), và log in cả traceback. Giờ quá giờ đi cùng đường với 503 / hết
+  lượt: job dừng, báo «gửi lại link sau vài phút», log một dòng.
+
 ## 1.5.0 — Tiếng gốc không lọt khi không tách giọng; truyện bé: từ khoá, CTA, giờ YouTube riêng (26/11/2026)
 
 Video 13 (trứng kho quẹt, 26/11): Kaggle không cấp GPU trong 8 phút, máy Botkeep quá chậm nên không tách giọng; cổng tắt

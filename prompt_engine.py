@@ -277,10 +277,16 @@ def _temporary(err: str) -> bool:
                           or "DEADLINE" in err or "Timeout" in err or "timed out" in err.lower())
 
 
+def err_text(e: BaseException) -> str:
+    """Lời lỗi để xét / ghi log: lỗi quá giờ của asyncio.wait_for (TimeoutError) có str() rỗng -> dùng tên loại lỗi,
+    để _temporary nhận ra «Timeout» (góp ý Codex PR #27: mọi nhà cung cấp quá giờ vẫn dựng video kịch bản mẫu)."""
+    return str(e) or type(e).__name__
+
+
 def provider_error(what: str, p: Any, e: BaseException) -> None:
     """Ghi log khi một nhà cung cấp AI lỗi. Quá tải / hết lượt (đã thử lại, hiểu rõ): một dòng cảnh báo — trước đây in cả
     chuỗi traceback dài hàng trăm dòng (job 9 ngày 25/11). Lỗi lạ mới kèm traceback để dò."""
-    err = str(e)
+    err = err_text(e)
     if _temporary(err):
         logging.warning("%s: %s %s (%s), thử nhà cung cấp kế", what, p.name,
                         "hết lượt" if is_quota_error(err) else "quá tải / quá giờ", err[:160])
@@ -540,7 +546,7 @@ async def generate(title: str, desc: str, mode: str, transcript: str = "", durat
     errors: list[str] = []
 
     def on_error(p, e):
-        errors.append(str(e))
+        errors.append(err_text(e))
         provider_error("Viết kịch bản", p, e)
     pack = await llm.first_success(_chain(lambda pr: _call_gemini(pr, schema=ScriptOut)), attempt,
                                    record=metrics.record, on_error=on_error)
