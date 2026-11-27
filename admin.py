@@ -30,7 +30,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
                 "kaggle_test (thử token Kaggle + giờ GPU còn lại) | kaggle_check (kiểm model / LoRA / kho nhạc trên Kaggle, tự đẩy lại kho nhạc "
                 "bị mất) | kids (trạng thái truyện bé) | kids_now (làm 1 truyện ngay) | "
                 "kids_setup (chuẩn bị model trên Kaggle, một lần) | kids_setup_status | kids_bgm (làm đủ kho nhạc Lyria) | "
-                "kids_fb_test | kids_resume | kids_tick (chạy một lượt tự động ngay) | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy "
+                "kids_fb_test | kids_resume | kids_tick (chạy một lượt tự động ngay) | kids_weekly (trạng thái video tổng hợp "
+                "tuần) | kids_weekly_now (ghép ngay các truyện đã đăng thành video tổng hợp, đăng YouTube luôn) | cook_bgm (tạo đủ kho nhạc Lyria cho bếp, chạy "
                 "nền) | bgm_kaggle (tạo kho nhạc bé + bếp bằng Lyria trên Kaggle CPU, chạy nền — mạng Botkeep quá chậm cho Lyria; "
                 "kids_bgm / cook_bgm tự chuyển sang đây khi Kaggle đã tạo được nhạc)")
 
@@ -38,7 +39,8 @@ CONSOLE_HELP = ("Lệnh console: help | status | health (kiểm tra dịch vụ 
 COMMANDS = ("help", "status", "health", "update_ytdlp", "setup_offline", "remove_offline", "setup_youtube",
             "remove_youtube", "setup_potoken", "remove_potoken", "clean", "yt_test", "cancel", "golden", "auto",
             "auto_now", "auto_resume", "fb_test", "kaggle_test", "kaggle_check", "kids", "kids_now", "kids_setup",
-            "kids_setup_status", "kids_bgm", "kids_fb_test", "kids_resume", "kids_tick", "cook_bgm", "bgm_kaggle")
+            "kids_setup_status", "kids_bgm", "kids_fb_test", "kids_resume", "kids_tick", "kids_weekly", "kids_weekly_now",
+            "cook_bgm", "bgm_kaggle")
 
 
 def normalize(cmd: str) -> str:
@@ -182,6 +184,12 @@ async def console():
             elif low == "kids_tick":
                 import kids_auto
                 logging.info("Truyện bé: %s", await kids_auto.tick(force=True))
+            elif low == "kids_weekly":
+                from rmvideo.app import kids_weekly
+                logging.info("\n".join(kids_weekly.status_lines()))
+            elif low == "kids_weekly_now":
+                from rmvideo.app import kids_weekly
+                logging.info("📼 %s", await kids_weekly.build_now())
             elif low == "kids_resume":
                 import kids_auto
                 logging.info("Truyện bé: %s", await kids_auto.resume())

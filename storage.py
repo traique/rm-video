@@ -35,7 +35,7 @@ def disk_report() -> str:
     """Ổ bot + /tmp còn trống bao nhiêu, thư mục nào chiếm chỗ (in lúc khởi động và lệnh status)."""
     tmp = tempfile.gettempdir()
     parts = [f"ổ bot trống {_free_mb(BASE_DIR)}MB", f"{tmp} trống {_free_mb(tmp)}MB"]
-    for name in ("outputs", "uploads_in", "work", "cache", "models", "potoken", "tools", ".cache", ".local"):
+    for name in ("outputs", "kids_library", "uploads_in", "work", "cache", "models", "potoken", "tools", ".cache", ".local"):
         p = os.path.join(BASE_DIR, name)
         if os.path.exists(p):
             parts.append(f"{name} {_size_mb(p)}MB")

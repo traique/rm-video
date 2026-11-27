@@ -42,6 +42,7 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 API = "https://www.googleapis.com/youtube/v3"
 UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos"
+THUMB_URL = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set"
 SCOPES = ("https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly")
 CALLBACK = "/youtube/callback"
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -408,6 +409,27 @@ async def upload(ch: str, path: str, title: str, desc: str, when: float | None,
             await s.close()
 
 
+async def set_thumbnail(ch: str, vid: str, path: str, session: aiohttp.ClientSession) -> None:
+    """Ảnh bìa riêng (thumbnails.set, 1.6.0: video tổng hợp tuần). YouTube chỉ nhận khi kênh đã xác minh số điện thoại;
+    lỗi gì cũng ném YTError để người gọi ghi chú — KHÔNG được coi là lỗi dừng kênh (video đã lên rồi)."""
+    tok = await access_token(ch, session)
+    with open(path, "rb") as f:
+        data = f.read()
+    async with session.post(THUMB_URL, params={"videoId": vid, "uploadType": "media"}, data=data,
+                            headers={**_auth(tok), "Content-Type": "image/jpeg"}) as r:
+        await _json(r)
+
+
+async def long_uploads(ch: str, session: aiohttp.ClientSession) -> str:
+    """status.longUploadsStatus của kênh (1.6.0): «allowed» = tải được video dài hơn 15 phút (kênh đã xác minh số điện
+    thoại); khác đi thì YouTube từ chối video dài (rejectionReason «length»)."""
+    tok = await access_token(ch, session)
+    async with session.get(f"{API}/channels", params={"part": "status", "mine": "true"}, headers=_auth(tok)) as r:
+        d = await _json(r)
+    items = d.get("items") or []
+    return str(((items[0].get("status") or {}) if items else {}).get("longUploadsStatus") or "")
+
+
 async def views(ch: str, vid: str, session: aiohttp.ClientSession) -> int | None:
     tok = await access_token(ch, session)
     async with session.get(f"{API}/videos", params={"part": "statistics", "id": vid}, headers=_auth(tok)) as r:
@@ -545,19 +567,28 @@ async def disconnect(ch: str, session: aiohttp.ClientSession | None = None) -> N
 # ---------------- hàng chờ ----------------
 
 def enqueue(ch: str, job: int, path: str, title: str, desc: str, when: float | None, now: float | None = None,
-            tags: list | None = None) -> bool:
-    """Thêm video vào hàng chờ tải lên kênh `ch` (một lần mỗi job). False: kênh chưa kết nối hoặc đã có."""
+            tags: list | None = None, key: str = "", label: str = "", thumb: str = "", long: bool = False) -> bool:
+    """Thêm video vào hàng chờ tải lên kênh `ch` (một lần mỗi job). False: kênh chưa kết nối hoặc đã có.
+    1.6.0 (video tổng hợp tuần): key riêng (không theo job), label cho tin báo («tuyển tập 3» thay «video #0»), thumb =
+    ảnh bìa riêng đặt sau khi tải lên, long = video dài (link youtu.be, không phải Shorts)."""
     if ch not in CHANNELS or missing(ch):
         return False
     st = load_state()
-    key = f"{ch}:{job}"
+    key = key or f"{ch}:{job}"
     if any(it.get("key") == key for it in st["items"]):
         return False
-    st["items"].append({"key": key, "ch": ch, "job": job, "path": path, "title": clean_title(title),
-                        "desc": clean_desc(desc), "when": when, "status": "pending", "tries": 0, "next_try": 0,
-                        "created": time.time() if now is None else now, "tags": list(tags or [])})
+    it: dict[str, Any] = {"key": key, "ch": ch, "job": job, "path": path, "title": clean_title(title),
+                          "desc": clean_desc(desc), "when": when, "status": "pending", "tries": 0, "next_try": 0,
+                          "created": time.time() if now is None else now, "tags": list(tags or [])}
+    it.update({k: v for k, v in (("label", label), ("thumb", thumb), ("long", long)) if v})
+    st["items"].append(it)
     save_state(st)
     return True
+
+
+def _name(it: dict) -> str:
+    """Tên mục trong tin báo / trạng thái: «video #12», hay nhãn riêng (video tổng hợp tuần)."""
+    return str(it.get("label") or f"video #{it.get('job')}")
 
 
 def after_facebook(ch: str, job: Any, path: str, title: str, desc: str, when: float | None) -> bool:
@@ -626,10 +657,11 @@ async def _tick(now: float, session: aiohttp.ClientSession | None) -> str:
 async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
     from state import notify_admin
     ch, key, vi = it["ch"], it["key"], CHANNELS[it["ch"]]["vi"]
+    name = _name(it)
     if not os.path.isfile(str(it.get("path") or "")):
         _patch(key, status="failed", why="file video không còn trên máy")
-        await notify_admin(f"⚠️ YouTube ({vi}): video #{it['job']} không còn file trên máy, bỏ qua.")
-        return f"{vi}: video #{it['job']} không còn file"
+        await notify_admin(f"⚠️ YouTube ({vi}): {name} không còn file trên máy, bỏ qua.")
+        return f"{vi}: {name} không còn file"
     _patch(key, status="uploading", started=now)
     fp = key_fp(ch)                                 # trước khi await: kết nối lại giữa lúc tải không bị dừng nhầm
     info: dict = {}
@@ -651,24 +683,24 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
             st["paused"][ch] = {"why": why, "fp": fp, "at": t}
             save_state(st)
             await notify_admin(f"⛔ YouTube ({vi}) đã dừng: {why}. Bấm «▶️ Kết nối YouTube» trên web để kết nối lại, hoặc "
-                               f"sửa xong cài đặt thì bấm «Thử YouTube» (video #{it['job']} vẫn giữ để đăng).")
+                               f"sửa xong cài đặt thì bấm «Thử YouTube» ({name} vẫn giữ để đăng).")
             return f"{vi}: dừng ({why})"
         if err is not None and err.later:
             _patch(key, status="pending", why=why, next_try=t + LATER)
-            return f"{vi}: video #{it['job']} hết hạn mức, thử lại lúc {_at(t + LATER)}"
+            return f"{vi}: {name} hết hạn mức, thử lại lúc {_at(t + LATER)}"
         if err is not None and err.soon:
             n = int(it.get("soon") or 0) + 1
             nxt = t + min(LATER, 600 * 2 ** (n - 1))
             _patch(key, status="pending", why=why, soon=n, next_try=nxt)
-            return f"{vi}: video #{it['job']} bị giới hạn tốc độ, thử lại lúc {_at(nxt)}"
+            return f"{vi}: {name} bị giới hạn tốc độ, thử lại lúc {_at(nxt)}"
         tries = int(it.get("tries") or 0) + 1
         if tries >= MAX_TRIES:
             _patch(key, status="failed", why=why, tries=tries)
-            await notify_admin(f"⚠️ YouTube ({vi}): tải video #{it['job']} lỗi {tries} lần, bỏ qua: {why}")
-            return f"{vi}: video #{it['job']} bỏ sau {tries} lần lỗi"
+            await notify_admin(f"⚠️ YouTube ({vi}): tải {name} lỗi {tries} lần, bỏ qua: {why}")
+            return f"{vi}: {name} bỏ sau {tries} lần lỗi"
         nxt = t + min(3600, 300 * 2 ** (tries - 1))
         _patch(key, status="pending", why=why, tries=tries, next_try=nxt)
-        return f"{vi}: video #{it['job']} lỗi ({why}), thử lại lúc {_at(nxt)}"
+        return f"{vi}: {name} lỗi ({why}), thử lại lúc {_at(nxt)}"
     sched = scheduled(it.get("when"), now)
     publish = float(it["when"]) if sched else max(now, time.time())
     _patch(key, status="done", yt_id=vid, at=now, publish=publish, why="", desc="", yt_status=info, session_url="")
@@ -680,10 +712,20 @@ async def _upload_one(it: dict, now: float, s: aiohttp.ClientSession) -> str:
     elif info.get("privacyStatus") and info["privacyStatus"] != want:
         warn = (f"\n⚠️ YouTube để video ở chế độ «{info['privacyStatus']}» (bot yêu cầu «{want}»): mở YouTube Studio "
                 "kiểm tra (dự án Google Cloud có thể đang bị giới hạn).")
+    thumb = str(it.get("thumb") or "")
+    if thumb and os.path.isfile(thumb):              # ảnh bìa riêng (video tổng hợp tuần): lỗi không làm hỏng video đã lên
+        try:
+            await set_thumbnail(ch, vid, thumb, s)
+        except Exception as e:
+            why = (str(e) or type(e).__name__)[:160]
+            logging.info("YouTube: chưa đặt được ảnh bìa riêng cho %s (%s)", vid, why)
+            warn += (f"\nℹ️ Chưa đặt được ảnh bìa riêng ({why}): YouTube chỉ nhận ảnh bìa riêng khi kênh đã xác minh số "
+                     "điện thoại (youtube.com/verify); tạm dùng khung YouTube tự chọn.")
     at = _at(publish)
-    await notify_admin(f"▶️ Đã {'hẹn đăng' if sched else 'đăng'} video #{it['job']} lên YouTube ({vi}) lúc {at}: "
-                       f"{it['title'][:80]}\nhttps://youtube.com/shorts/{vid}{warn}")
-    return f"{vi}: {'hẹn' if sched else 'đăng'} {vid} lúc {at}" + (" (cần kiểm tra)" if warn else "")
+    link = f"https://youtu.be/{vid}" if it.get("long") else f"https://youtube.com/shorts/{vid}"
+    await notify_admin(f"▶️ Đã {'hẹn đăng' if sched else 'đăng'} {name} lên YouTube ({vi}) lúc {at}: "
+                       f"{it['title'][:80]}\n{link}{warn}")
+    return f"{vi}: {'hẹn' if sched else 'đăng'} {vid} lúc {at}" + (" (cần kiểm tra)" if "⚠️" in warn else "")
 
 
 async def _update_views(it: dict, now: float, s: aiohttp.ClientSession) -> None:
@@ -721,9 +763,10 @@ def status_lines(ch: str, now: float | None = None) -> list[str]:
         lines.append("YouTube đã hẹn: " + ", ".join(_at(float(i["publish"])) for i in fut[-6:]))
     seen = [i for i in done if i.get("views") is not None][-5:]
     if seen:
-        lines.append("Lượt xem YouTube sau 24h: " + ", ".join(f"#{i['job']} {i['views']}" for i in seen))
+        lines.append("Lượt xem YouTube sau 24h: " + ", ".join(f"{i.get('label') or '#' + str(i['job'])} {i['views']}"
+                                                           for i in seen))
     if wait and wait[0].get("why"):
-        lines.append(f"YouTube lỗi gần nhất (video #{wait[0]['job']}): {wait[0]['why']}")
+        lines.append(f"YouTube lỗi gần nhất ({_name(wait[0])}): {wait[0]['why']}")
     return lines
 
 
