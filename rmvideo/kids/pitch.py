@@ -21,7 +21,7 @@ from rmvideo.kids import story as story_mod
 from rmvideo.kids import writer
 
 N_PITCHES = 4
-RECENT = 6                      # số truyện gần nhất đưa vào lời nhắc «đừng lặp ý»
+RECENT = story_mod.RECENT_IDEAS     # số truyện gần nhất đưa vào lời nhắc «đừng lặp ý» (1.5.3: 14 = một tuần, trước 6)
 TIMEOUT = 60.0
 KINDS = ("bí ẩn", "giải cứu", "hài", "đua giờ", "hiểu lầm", "phiêu lưu nhỏ", "tưởng tượng", "tình bạn", "khám phá")
 MOODS = tuple(__import__("rmvideo.kids.bgm", fromlist=["MOODS"]).MOODS)     # màu nhạc = kho nhạc bé (một nguồn)
@@ -78,15 +78,8 @@ except Exception:                                        # pragma: no cover
 
 
 def recent_lines(stories: Sequence[dict], n: int = RECENT) -> list[str]:
-    """«Tiêu đề — ý» của n truyện gần nhất đã làm xong (bộ nhớ kids_auto)."""
-    done = [s for s in sorted(stories, key=lambda s: float(s.get("created_at") or 0)) if s.get("title")][-n:]
-    out = []
-    for s in done:
-        line = str(s["title"])
-        if s.get("premise"):
-            line += f" — {s['premise']}"
-        out.append(line[:240])
-    return out
+    """«Tiêu đề — ý» của n truyện gần nhất đã làm xong (bộ nhớ kids_auto) — story.recent_lines, lời nhắc viết cũng dùng."""
+    return story_mod.recent_lines(stories, n)
 
 
 def seed_text(brief: dict, data: dict) -> str:
@@ -136,7 +129,7 @@ async def _ask(prompt: str, schema: Any, models: Sequence[str]) -> str:
     """Gọi Gemini lần lượt theo danh sách model (model viết truyện trước, model dự phòng sau)."""
     import prompt_engine
     last: Exception | None = None
-    order = [m for m in models if not writer.is_down(m)] or list(models)   # model vừa quá tải: bỏ qua (writer.DOWN_SECS)
+    order = [m for m in models if not writer.is_down(m)] or list(models)   # model vừa quá tải: bỏ qua (prompt_engine.BUSY_SECS)
     for m in order:
         try:
             return await prompt_engine.call_gemini(prompt, schema=schema, label="Ý truyện", timeout=TIMEOUT, model=m)
@@ -171,10 +164,11 @@ async def choose(brief: dict, data: dict, stories: Sequence[dict], models: Seque
     except Exception as e:
         log(f"Ý truyện: AI nghĩ ý lỗi ({writer.err_text(e)}), viết theo ý gợi ý của khung")
         return None
-    titles = [x.split(" — ")[0] for x in recent]
+    titles = [x.split(" — ")[0] for x in recent]                              # cho lượt chấm «khác các truyện gần đây»
+    known = [str(s["title"]) for s in stories if s.get("title")] or titles      # trùng tiêu đề: so với CẢ bộ nhớ (1.5.3)
     ok, soft = [], []
     for p in pool:
-        why = problems(p, titles)
+        why = problems(p, known)
         log(f"Ý truyện ({p['kind']}){' LOẠI: ' + '; '.join(why) if why else ''}: {p['title']} — {p['premise'][:160]}")
         if not why:
             ok.append(p)

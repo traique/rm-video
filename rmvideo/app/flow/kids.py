@@ -46,6 +46,8 @@ async def write_on_botkeep(job: Job, brief: dict, data: dict) -> tuple[dict | No
                                  log=_log)
         if got:
             brief["pitch"] = {k: got[k] for k in ("kind", "title", "premise", "mood")}
+            if got.get("things"):           # 1.5.3: 3 đồ vật ý đã chọn tới người viết (1.4.2 định vậy nhưng flow bỏ rơi)
+                brief["pitch"]["things"] = list(got["things"])
             job.note(f"ℹ️ Ý truyện ({got['kind']}, chọn trong {got['n']} ý): «{got['title']}». ")
     job.step = "Truyện bé: Gemini viết truyện — " + story_mod.describe(brief, data)
     be = writer.GeminiBackend(config.KIDS_GEMINI_MODEL, log=_log,

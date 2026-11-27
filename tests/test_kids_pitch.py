@@ -87,6 +87,6 @@ def test_prompt_follows_pitch_not_scene_beats():
 def test_recent_lines_and_premises():
     stories = [{"created_at": k, "title": f"Truyện {k}", "premise": "ý " * 3} for k in range(10)] + [{"created_at": 99}]
     lines = pitch.recent_lines(stories)
-    assert len(lines) == pitch.RECENT and lines[-1].startswith("Truyện 9 — ")
+    assert len(lines) == 10 and pitch.RECENT == 14 and lines[-1].startswith("Truyện 9 — ")   # 1.5.3: 14 truyện (một tuần)
     assert all(p.get("premise") and "{main}" in p["premise"] or "{friend}" in p["premise"] for p in DATA["plots"])
     assert config.KIDS_GEMINI_MODEL is not None

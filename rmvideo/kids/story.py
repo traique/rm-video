@@ -115,6 +115,38 @@ def avoid_list(stories: Sequence[dict], n: int = AVOID_LAST) -> list[str]:
     return list(dict.fromkeys(m for s in done for m in s.get("motifs") or []))
 
 
+RECENT_IDEAS = 14       # truyện gần nhất đưa vào lời nhắc «đừng lặp ý»: một tuần với 2 truyện/ngày (1.5.3; trước 6 = 3 ngày)
+LINE_MAX = 240          # chữ mỗi dòng «tiêu đề — ý»
+
+
+def recent_lines(stories: Sequence[dict], n: int = RECENT_IDEAS) -> list[str]:
+    """«Tiêu đề — ý» của n truyện gần nhất đã làm xong (bộ nhớ kids_auto), cho lượt nghĩ ý và lời nhắc viết."""
+    done = [s for s in sorted(stories, key=_created) if s.get("title")][-n:]
+    out = []
+    for s in done:
+        line = str(s["title"])
+        if s.get("premise"):
+            line += f" — {s['premise']}"
+        out.append(line[:LINE_MAX])
+    return out
+
+
+def premise_of(story: dict, limit: int = LINE_MAX) -> str:
+    """Cốt truyện tóm từ chính lời kể (cảnh mở đầu … cảnh kết) cho bộ nhớ «đừng lặp ý» khi truyện viết KHÔNG qua bước nghĩ
+    ý (Gemini quá tải, Qwen viết trên Kaggle) — trước 1.5.3 các truyện ấy chỉ còn tiêu đề trong bộ nhớ."""
+    scenes = [re.sub(r"\s+", " ", str(sc.get("text") or "")).strip() for sc in story.get("scenes") or []]
+    scenes = [s for s in scenes if s]
+    if not scenes:
+        return ""
+
+    def cut(s: str, n: int) -> str:
+        return s if len(s) <= n else s[:n].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    head = cut(scenes[0], limit // 2)
+    if len(scenes) < 2:
+        return head
+    return head + " … " + cut(scenes[-1], limit - len(head) - 3)
+
+
 def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, now: float | None = None) -> dict:
     """Đề cho một truyện mới: bài học ít dùng nhất, bộ ba (bài học, bối cảnh, xung đột) chưa dùng 30 ngày, bối cảnh và
     xung đột khác vài truyện gần nhất, 3-5 từ tiếng Anh (ưu tiên từ gắn với bài học) chưa dùng 30 ngày, nhân vật chính
@@ -174,7 +206,7 @@ def pick(data: dict, stories: Sequence[dict], rnd: random.Random | None = None, 
     main = min(mains, key=last_main)
     recent_en = sorted(w for w, k in last_use.items() if k >= cutoff)          # choose_words xếp các từ này sau
     return {"lesson": lesson_id, "setting": setting_id, "conflict": conflict_id, "plot": plot_id, "recent_en": recent_en,
-            "avoid": avoid_list(stories),
+            "avoid": avoid_list(stories), "recent": recent_lines(stories),      # recent: lời nhắc viết khi không có ý (1.5.3)
             "words": [{"en": w, "vi": word_info(data, w)["vi"]} for w in words],
             "word_pool": [{"en": w, "vi": word_info(data, w)["vi"]} for w in pool],
             "main": main, "seed": rnd.randrange(1, 2 ** 31)}

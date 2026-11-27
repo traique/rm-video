@@ -13,26 +13,25 @@ import asyncio
 import copy
 import json
 import logging
-import time
 from typing import Any
 
 import config
 
 TIMEOUT = 120.0       # giây cho một lượt (truyện ngắn, flash-lite ~5-15 giây)
 _DROP = {"minLength", "maxLength", "additionalProperties"}
-# model vừa quá tải / quá giờ: bỏ qua chừng này giây (22/11 tối, job 12-13: Gemini 4 Hydrogen 503 / quá giờ ở MỌI lượt —
-# ý truyện 2 lượt x 60 giây + bản nháp 120 giây chờ vô ích trước khi đổi sang flash-lite, mỗi truyện mất ~4 phút)
-DOWN_SECS = 900
-_DOWN: dict[str, float] = {}
 
 
+# Model vừa quá tải / quá giờ: bỏ qua 15 phút (22/11 tối, job 12-13: Gemini 4 Hydrogen 503 / quá giờ ở MỌI lượt — ý truyện
+# 2 lượt x 60 giây + bản nháp 120 giây chờ vô ích trước khi đổi sang flash-lite, mỗi truyện mất ~4 phút). 1.5.2: sổ này là
+# prompt_engine._BUSY dùng chung với kênh bếp (prompt_engine.BUSY_SECS); _call_gemini tự ghi khi hết lượt thử lại.
 def mark_down(model: str) -> None:
-    if model:
-        _DOWN[model] = time.time() + DOWN_SECS
+    import prompt_engine
+    prompt_engine.note_busy(model)
 
 
 def is_down(model: str) -> bool:
-    return bool(model) and _DOWN.get(model, 0.0) > time.time()
+    import prompt_engine
+    return prompt_engine.is_busy(model)
 
 
 def err_text(e: BaseException, n: int = 100) -> str:

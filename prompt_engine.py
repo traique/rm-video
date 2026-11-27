@@ -264,8 +264,29 @@ def retry_delay(err: str, attempt: int) -> float | None:
 
 
 GEMINI_TRIES = 3
-OVERLOAD_TRIES = 5             # 503 quá tải: 5 lần, nghỉ 3+6+12+24 = 45s mỗi model (rồi mới sang model dự phòng)
+OVERLOAD_TRIES = 5             # 503 quá tải: tối đa 5 lần, nghỉ 3+6+12+24 = 45s mỗi model khi Google trả lỗi NGAY (1.4.11)
 MAX_QUOTA_WAIT = 45.0
+# 1.5.2 (job 15 sáng 27/11): Google GIỮ yêu cầu 28-48 giây rồi mới trả 503 «high demand», 5 lượt là ~4 phút chết trên một
+# model trước khi đổi. Một lượt lỗi mà Google giữ quá HELD_MAX giây = model đang xếp hàng, lượt sau cũng vậy -> thôi, sang
+# model khác ngay; cộng chung một model không thử lại quá RETRY_BUDGET giây (lượt sau dự kiến xong = đã mất + nghỉ + lâu
+# bằng lượt vừa lỗi). Lỗi trả ngay vẫn đủ 5 lượt / 45 giây như cũ.
+HELD_MAX = 20.0
+RETRY_BUDGET = 60.0
+# Sổ model vừa quá tải / hết lượt / quá giờ (sau khi đã hết lượt thử lại): BUSY_SECS tới, lượt gọi khác đi thẳng model dự
+# phòng thay vì lượt nào cũng chờ nó (kênh bếp gọi Gemini ~10 lượt mỗi job). Truyện bé có sổ riêng 15 phút từ 1.4.3
+# (writer.mark_down / is_down) — nay là sổ này, dùng chung cả bot.
+BUSY_SECS = 900.0
+_BUSY: dict[str, float] = {}
+_now = time.monotonic           # đồng hồ (test thay được)
+
+
+def note_busy(model: str) -> None:
+    if model:
+        _BUSY[model] = _now() + BUSY_SECS
+
+
+def is_busy(model: str) -> bool:
+    return bool(model) and _BUSY.get(model, 0.0) > _now()
 
 
 def _tries(err: str) -> int:
@@ -339,19 +360,28 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
 
     async def _gen(model: str, cfg):
         cfg = _with_thinking(cfg, model, thinking)
+        t0 = _now()
         for attempt in range(OVERLOAD_TRIES):
+            t1 = _now()
             try:
                 return await asyncio.wait_for(
                     client.aio.models.generate_content(model=model, contents=contents, config=cfg), timeout)
             except Exception as e1:
-                wait = retry_delay(str(e1), attempt)
-                if wait is None or attempt >= _tries(str(e1)) - 1:
+                err, held = str(e1), _now() - t1
+                wait = retry_delay(err, attempt)
+                if wait is None or attempt >= _tries(err) - 1:
                     raise
-                logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", str(e1)[:80], wait)
+                if held > HELD_MAX or _now() - t0 + wait + held > RETRY_BUDGET:
+                    logging.warning("Gemini %s lỗi tạm (%s) sau %.0fs chờ: không thử lại model này nữa", model, err[:80], held)
+                    raise
+                logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", err[:80], wait)
                 await asyncio.sleep(wait)
+
+    tried: list[str] = []          # model đã gọi trong lượt này, theo thứ tự (kể cả model thay thế sau 404)
 
     async def _one(model: str):
         nonlocal cfg
+        tried.append(model)
         try:
             try:
                 return await _gen(model, cfg)
@@ -369,32 +399,42 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
             new_model = m.group(1)
             logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt", model, new_model)
             config.save_settings({"GEMINI_MODEL": new_model})
+            tried.append(new_model)
             return await _gen(new_model, cfg)
 
-    try:
-        resp = await _one(main)
-    except Exception as e:
-        # model chính quá tải (503 "high demand", đã thử lại) / hết lượt: thử model dự phòng (hạn mức, tải riêng) thay
-        # vì bỏ cả bước (bản 43: cả job viết lời mù vì 3.5-flash-lite quá tải suốt 5 phút). Model riêng (truyện bé)
-        # tự lo dự phòng ở writer.GeminiBackend nên không dùng danh sách chung.
-        backups = [] if model else [m for m in fallback_models() if m != main]
-        if not backups or not _overloaded(str(e)):
-            raise
-        last: Exception = e
-        for model in backups:
-            logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", main, str(last)[:60], model)
-            try:
-                resp = await _one(model)
-                break
-            except Exception as e2:
-                if _gone(str(e2)):                                  # model dự phòng đã ngừng (24/11: gemini-2.5-flash-lite):
-                    _GONE.add(model)                               # bỏ khỏi danh sách, lỗi báo ra vẫn là «quá tải» của model chính
-                    logging.warning("Model dự phòng %s không còn (%s): bỏ qua từ giờ, sửa GEMINI_FALLBACK_MODELS trong Cài đặt",
-                                    model, str(e2)[:80])
-                    continue
-                last = e2
-                if not _overloaded(str(e2)):
-                    raise
+    # model chính quá tải (503 "high demand", đã thử lại) / hết lượt: thử model dự phòng (hạn mức, tải riêng) thay vì bỏ
+    # cả bước (bản 43: cả job viết lời mù vì 3.5-flash-lite quá tải suốt 5 phút). Model riêng (truyện bé) tự lo dự phòng ở
+    # writer.GeminiBackend / pitch nên không dùng danh sách chung. 1.5.2: model vừa quá tải (sổ _BUSY) thì lượt này bỏ qua
+    # nó, đi thẳng model còn tươi; mọi model đều trong sổ thì vẫn thử như cũ.
+    order = [main] + ([] if model else [m for m in fallback_models() if m != main])
+    fresh = [m for m in order if not is_busy(m)] or order
+    if fresh[0] != main:
+        logging.warning("Gemini %s vừa quá tải / hết lượt (bỏ qua %.0f phút), dùng model dự phòng %s",
+                        main, BUSY_SECS / 60, fresh[0])
+    last: Exception | None = None
+    prev = main
+    for m in fresh:
+        if m in tried:                         # model thay thế (404) trùng một model dự phòng: lượt này đã gọi rồi
+            continue
+        if last is not None:
+            logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", prev, err_text(last)[:60], m)
+        try:
+            resp = await _one(m)
+            break
+        except Exception as e:
+            err = str(e)
+            if m != main and _gone(err):                            # model dự phòng đã ngừng (24/11: gemini-2.5-flash-lite):
+                _GONE.add(m)                                       # bỏ khỏi danh sách, lỗi báo ra vẫn là «quá tải» của model trước
+                logging.warning("Model dự phòng %s không còn (%s): bỏ qua từ giờ, sửa GEMINI_FALLBACK_MODELS trong Cài đặt",
+                                m, err[:80])
+                continue
+            if not _overloaded(err):
+                raise
+            note_busy(tried[-1])               # model vừa gọi thật: sau 404 là model thay thế (góp ý Codex PR #30)
+            last, prev = e, tried[-1]
+    else:
+        if last is None:                       # model chính bị bỏ qua vì sổ bận, mọi model dự phòng đã ngừng: đành gọi nó
+            resp = await _one(main)
         else:
             raise last
     return resp.text or ""

@@ -32,8 +32,8 @@ def _kaggle(plate_end=None):
 
 def _slots(plan, segs):
     """Như remake.restyle (dựng mạnh): lời gốc theo trục mới + lời khúc phụ."""
-    mapped = [(round(oa, 2), round(ob, 2), t) for a, b, t in segs for oa, ob in [plan.seg_out(a, b)]
-              if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
+    from rmvideo.app.flow import remake
+    mapped = remake.strong_segments(plan, segs)
     side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts]
     return sorted(mapped + side)
 
