@@ -28,8 +28,18 @@ lại, bộ nhớ `kids_auto.json` giữ 400 truyện. Ba chỗ hở sửa trong
 - **Một tuần truyện gần nhất**: lời nhắc nghĩ ý và chấm thấy 14 truyện (`story.RECENT_IDEAS`; trước 6 = 3 ngày với 2
   truyện/ngày); trùng tiêu đề so với CẢ bộ nhớ thay vì 6 truyện. Không có ý (viết thẳng) thì lời nhắc viết cũng kèm 14 dòng
   «tiêu đề — ý» này (`brief["recent"]`, sang cả Kaggle cho Qwen); có ý rồi thì không kèm (ý đã chọn khác các truyện cũ).
+- **Soát lại toàn bộ 1.5.0 → 1.5.2** (reviewer độc lập đọc hết diff + tự soát; bộ test 1055 xanh): ba chỗ sửa thêm.
+  - *Bản ngắn tắt tiếng gốc sai chỗ khi không tách giọng* (lỗi có từ trước 1.5.0, đúng trường hợp Botkeep: máy chậm nên
+    tách giọng bị bỏ qua, bot dùng cổng tắt tiếng): `_enter_short` giữ nguyên việc tiếng nền của bản đầy đủ, mà cổng tính
+    theo TRỤC RA của bản đầy đủ nên áp lên bản ngắn là lệch — tiếng người gốc có thể lọt ở bản ngắn. Giờ bản ngắn tính lại
+    cổng theo kế hoạch của nó (file tiếng nền đã tách, trục gốc, vẫn dùng chung).
+  - *Tải model VAD có hạn chờ*: 30 giây mỗi lần đọc mạng (trước `urlretrieve` không hạn: mạng treo là job treo), tải hỏng
+    thì một giờ sau mới thử lại (trước: mỗi job bếp không tách giọng tải lại cả hai địa chỉ); cổng vẫn theo mốc lời máy nghe.
+  - *Đoạn lời ngắn ở đúng ranh giới khối chèn bị bỏ oan* ở mức dựng mạnh: `seg_out` (1.5.0) lùi mốc 0,02-0,04s để đoạn
+    không phủ lên khối, bộ lọc «đoạn còn nguyên» đòi đủ 95% độ dài nên đoạn dưới 0,4-0,8s («Rồi.») mất lời; giờ trừ hao
+    (`remake.strong_segments`).
 - Test: `tests/test_v153.py` (ý tới người viết qua flow, tóm cốt truyện, bộ nhớ không ý, 14 truyện + trùng tiêu đề cả bộ
-  nhớ, lời nhắc viết).
+  nhớ, lời nhắc viết; bản ngắn tính lại cổng, tải model VAD có hạn + nhớ lỗi, đoạn ngắn ở ranh giới khối).
 
 ## 1.5.2 — Gemini 503 «high demand»: đổi model ngay khi Google giữ yêu cầu lâu, sổ model quá tải dùng chung (27/11/2026)
 

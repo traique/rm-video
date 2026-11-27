@@ -2,6 +2,7 @@
 vẫn nhớ cốt truyện; 14 truyện gần nhất (một tuần) trong lời nhắc nghĩ ý + lời nhắc viết; trùng tiêu đề so với cả bộ nhớ."""
 import asyncio
 import json
+import os
 import random
 
 import config
@@ -109,3 +110,91 @@ def test_writer_prompt_lists_recent_stories_when_no_pitch():
     assert "Ý gợi ý (có thể đổi cho hay hơn)" in u
     assert "Các truyện gần đây" not in prompts.user_prompt({**brief, "pitch": GOOD[2]}, DATA)
     assert "Các truyện gần đây" not in prompts.user_prompt(story.pick(DATA, [], random.Random(2)), DATA)   # chưa có truyện
+
+
+# ---------------- soát lại 1.5.0 → 1.5.2 (reviewer độc lập + tự soát) ----------------
+
+def test_strong_segments_keep_short_segment_at_block_boundary():
+    """seg_out lùi mốc 0,02-0,04s để đoạn liền kề không phủ lên khối chèn (1.5.0); bộ lọc «đoạn còn nguyên» cũ đòi đủ 95%
+    độ dài nên đoạn ngắn («Rồi.» 0,3s) ở đúng ranh giới khối bị bỏ. Đoạn bị kế hoạch cắt thật vẫn bị bỏ."""
+    from rmvideo.app.flow import remake
+    from rmvideo.media import edl
+    plan = edl.EditPlan(pieces=[edl.Piece(0.0, 10.0), edl.Piece(0.0, 3.0, role="side", tag="montage"),
+                                edl.Piece(10.0, 20.0)], level="strong")       # khối chèn 3s đúng ranh giới 10s
+    assert plan.seg_out(10.0, 10.3) == (13.02, 13.3)                           # đầu đoạn lùi 0,02s để nằm sau khối
+    out = remake.strong_segments(plan, [(9.0, 10.0, "trước"), (10.0, 10.3, "Rồi."), (10.3, 12.0, "sau")])
+    assert out == [(9.0, 10.0, "trước"), (13.02, 13.3, "Rồi."), (13.3, 15.0, "sau")]
+    cut = edl.EditPlan(pieces=[edl.Piece(0.0, 10.0), edl.Piece(11.0, 20.0)], level="strong")    # bỏ 10-11s
+    assert remake.strong_segments(cut, [(10.5, 12.0, "bị cắt mất nửa"), (12.0, 14.0, "nguyên")]) == [(11.0, 13.0, "nguyên")]
+
+
+def test_short_pass_recomputes_gate_but_reuses_separated_audio(tmp_path):
+    """Bản ngắn: cổng tắt tiếng gốc (trục RA của bản đầy đủ) phải tính lại theo kế hoạch bản ngắn; file tiếng nền đã tách
+    (trục gốc) dùng chung được. Trước 1.5.3 _enter_short giữ nguyên việc của bản đầy đủ -> bản ngắn tắt tiếng sai chỗ."""
+    from types import SimpleNamespace
+    from rmvideo.app.flow import remake
+    from rmvideo.media import edl
+
+    async def main():
+        r = remake.Remake.__new__(remake.Remake)
+        for k in ("segs", "cuts", "speech", "cards", "tasks"):
+            setattr(r, k, [])
+        r.out_dur, r.render_dur, r.edit, r.tmp, r.ass, r.pre_cover, r.is_long, r.tail = 30.0, 30.0, None, str(tmp_path), "", None, True, 0.0
+        r.short_pass = False
+        r.job = SimpleNamespace(srt="", final_segments=[], script="", out_dur=30.0)
+        plan = edl.EditPlan(pieces=[edl.Piece(0.0, 20.0)])
+
+        async def gate():
+            return None, [(1.0, 2.0)]
+        r.amb_task = asyncio.create_task(gate())
+        await r.amb_task
+        saved = r._enter_short(plan, [], [], [(0.5, 1.0)], 0.0)
+        assert r.amb_task is None and r.short_pass                            # cổng theo trục ra: bản ngắn tính lại
+        await r._exit_short(saved)
+        assert r.amb_task is not None and r.amb_task.result() == (None, [(1.0, 2.0)]) and not r.short_pass
+
+        async def sep():
+            return str(tmp_path / "amb.wav"), None
+        r.amb_task = asyncio.create_task(sep())
+        await r.amb_task
+        saved = r._enter_short(plan, [], [], [], 0.0)
+        assert r.amb_task is not None and r.amb_task.result()[0].endswith("amb.wav")   # đã tách: dùng chung
+        await r._exit_short(saved)
+    asyncio.run(main())
+
+
+def test_vad_download_timeout_and_failure_memory(monkeypatch, tmp_path):
+    """Tải model Silero: có hạn chờ mỗi lần đọc mạng (urlretrieve cũ không có: mạng treo là job treo), tải hỏng thì một giờ
+    sau mới thử lại (mỗi job bếp không tách giọng đều gọi; cổng vẫn theo mốc lời máy nghe)."""
+    import io
+    import pytest
+    from rmvideo.media import vad
+    monkeypatch.setattr(vad, "_DIR", str(tmp_path))
+    monkeypatch.setattr(vad, "_verified", set())
+    monkeypatch.setattr(vad, "_failed", {})
+    seen = []
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def urlopen(url, timeout=None):
+        seen.append((url, timeout))
+        raise OSError("mạng treo")
+    monkeypatch.setattr(vad.urllib.request, "urlopen", urlopen)
+    with pytest.raises(RuntimeError, match="không tải được model"):
+        vad.model_path()
+    assert [u for u, _ in seen] == list(vad.MODEL_URLS) and all(t == vad.DL_TIMEOUT for _, t in seen)
+    with pytest.raises(RuntimeError, match="một giờ sau thử lại"):
+        vad.model_path()
+    assert len(seen) == len(vad.MODEL_URLS)                                   # trong một giờ: không tải lại
+    monkeypatch.setattr(vad, "RETRY_SECS", 0.0)
+    monkeypatch.setattr(vad.urllib.request, "urlopen", lambda url, timeout=None: _Resp(b"model gia"))
+    with pytest.raises(RuntimeError, match="sai checksum"):                   # hết hạn nhớ: tải lại, file sai bị từ chối
+        vad.model_path()
+    assert not os.path.exists(os.path.join(str(tmp_path), vad.MODEL_NAME)) and vad._failed["why"].startswith("sai checksum")
+    vad._fetch("u", str(tmp_path / "f.bin"))
+    assert open(tmp_path / "f.bin", "rb").read() == b"model gia"

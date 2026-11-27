@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import shutil
 import subprocess
 import time
 import urllib.request
@@ -41,6 +42,14 @@ MERGE = 0.3                 # hai quãng cách nhau dưới chừng này thì g�
 MAX_SEC = 600.0             # nghe tối đa chừng này giây (video dài nhất bot nhận)
 _verified: set = set()
 _SESSION: dict[str, Any] = {}
+DL_TIMEOUT = 30.0           # giây chờ mỗi lần đọc mạng khi tải model (soát 1.5.3: urlretrieve không có hạn, mạng treo là job treo)
+RETRY_SECS = 3600.0         # tải hỏng thì một giờ sau mới thử lại (mỗi job bếp không tách giọng đều cần model; cổng theo mốc lời)
+_failed: dict[str, Any] = {}
+
+
+def _fetch(url: str, dst: str, timeout: float = DL_TIMEOUT) -> None:
+    with urllib.request.urlopen(url, timeout=timeout) as r, open(dst, "wb") as f:
+        shutil.copyfileobj(r, f, 1 << 16)
 
 
 def sha256_file(path: str) -> str:
@@ -61,12 +70,15 @@ def model_path() -> str:
         logging.warning("Model %s sai checksum (hỏng hoặc bị thay), tải lại", MODEL_NAME)
         os.remove(p)
     if not os.path.exists(p):
+        if time.time() - _failed.get("at", 0.0) < RETRY_SECS:
+            raise RuntimeError(f"không tải được model {MODEL_NAME} lúc {time.strftime('%H:%M', time.localtime(_failed['at']))} "
+                               f"({_failed['why']}), một giờ sau thử lại")
         tmp = p + ".part"
         last = ""
         for url in MODEL_URLS:
             try:
                 logging.info("Tải model dò tiếng người %s (~2MB, chỉ lần đầu)...", MODEL_NAME)
-                urllib.request.urlretrieve(url, tmp)
+                _fetch(url, tmp)
                 got = sha256_file(tmp)
                 if got == MODEL_SHA256:
                     os.replace(tmp, p)
@@ -78,6 +90,7 @@ def model_path() -> str:
                 if os.path.exists(tmp):
                     os.remove(tmp)
         if not os.path.exists(p):
+            _failed.update(at=time.time(), why=last)
             raise RuntimeError(f"không tải được model {MODEL_NAME}: {last}")
     _verified.add(p)
     return p

@@ -58,6 +58,14 @@ NO_SPEECH_WORDS = 6      # bóc lời ra dưới 6 chữ (không ai nói, hoặc
 PLATE_SKIP = 3.0         # mốc món lên dĩa: bỏ mấy giây đầu (câu hook khoe món đã bày xong)
 PLATE_TOL = 3.0          # ... câu «trút ra dĩa» nói sớm hơn lúc bước «bày món» bắt đầu chừng này vẫn tính
 FULL_GATE = [(0.0, 99999.0)]   # không có mốc lời: tắt tiếng nền cả bài
+SEG_NUDGE = 0.05               # seg_out lùi mốc tối đa 0,04s để đoạn không phủ lên khối chèn (1.5.0): lọc độ dài trừ hao chừng này
+
+
+def strong_segments(plan: edl.EditPlan, segs_src: list) -> list:
+    """Lời gốc theo trục ra ở mức dựng mạnh: chỉ đoạn còn nguyên trong kế hoạch (đoạn bị cắt / tua thì bỏ). Trừ hao mốc lùi
+    của seg_out, kẻo đoạn ngắn («Rồi.» 0,3s) nằm đúng ranh giới khối chèn bị bỏ oan (soát 1.5.3)."""
+    return [(round(oa, 2), round(ob, 2), t) for a, b, t in segs_src for oa, ob in [plan.seg_out(a, b)]
+            if ob - oa >= max(0.05, (b - a - SEG_NUDGE) * plan.stretch * 0.95)]
 
 
 def src_windows_to_out(edit: edl.EditPlan | None, stretch: float, teaser_T: float, wins: list) -> list:
@@ -281,7 +289,7 @@ class Remake:
         """Chuyển Remake sang trạng thái bản ngắn (thư mục con, 1080p cho Reels, không làm lại ảnh bìa)."""
         job = self.job
         keep = {k: getattr(self, k) for k in ("segs", "cuts", "speech", "out_dur", "render_dur", "edit", "tmp", "cards",
-                                              "ass", "tasks", "pre_cover", "is_long", "tail")}
+                                              "ass", "tasks", "pre_cover", "is_long", "tail", "amb_task")}
         keep_job = (job.srt, job.final_segments, job.script, job.out_dur)
         sub = os.path.join(keep["tmp"], "short")
         os.makedirs(sub, exist_ok=True)
@@ -292,6 +300,12 @@ class Remake:
         self.out_dur = round(self.out_dur + self.tail, 2)
         self.render_dur, self.ass, self.tasks, self.pre_cover = 0, os.path.join(sub, "subs.ass"), [], None
         self.is_long = False                             # bản ngắn ≤ 90s: 1080p (Reels) khi nguồn đủ nét
+        # Tiếng nền đã tách (file trục gốc) dùng chung được; cổng tắt tiếng gốc (không tách giọng) tính theo TRỤC RA của
+        # bản đầy đủ thì bản ngắn phải tính lại theo kế hoạch của nó — trước 1.5.3 bản ngắn tắt tiếng sai chỗ (_exit_short
+        # trả lại việc của bản đầy đủ).
+        t = self.amb_task
+        if not (t is not None and t.done() and not t.cancelled() and t.exception() is None and t.result()[0]):
+            self.amb_task = None
         return keep, keep_job
 
     async def _exit_short(self, saved: tuple):
@@ -577,9 +591,7 @@ class Remake:
         # lời cho nó), cộng lời "gốc" do mã viết cho khúc lặp / đảo chỗ (điểm danh nguyên liệu, tóm tắt...)
         mapped = plan.map_segments(segs_src)
         if plan.level == "strong":
-            mapped = [(round(oa, 2), round(ob, 2), t) for a, b, t in segs_src
-                      for oa, ob in [plan.seg_out(a, b)]
-                      if ob - oa >= max(0.05, (b - a) * plan.stretch * 0.95)]
+            mapped = strong_segments(plan, segs_src)
         side = [(x["t"], round(x["t"] + x["dur"], 2), x["text"]) for x in plan.texts if x.get("text")]
         self.segs = sorted(mapped + side)
         self.cuts = sorted(set(plan.cut_points()) | {round(plan.to_out(c), 2) for c in cuts_src if c < end})
