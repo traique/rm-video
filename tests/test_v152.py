@@ -165,3 +165,44 @@ def test_pitch_skips_model_in_shared_registry(monkeypatch):
     prompt_engine.note_busy("g4")
     asyncio.run(pitch._ask("p", None, ["g4", "lite", ""]))
     assert seen == ["lite"]
+
+
+def test_retired_main_model_marks_replacement_busy(monkeypatch):
+    """Góp ý Codex PR #30: Google gỡ model chính (404 kèm tên model thay thế), bot lưu model thay thế vào Cài đặt rồi gọi nó;
+    model thay thế quá tải thì sổ bận phải ghi MODEL THAY THẾ (lượt sau là model chính mới), không ghi model đã gỡ."""
+    calls: list = []
+    saved: list = []
+
+    def behaviour(m):
+        if m == "main-lite":
+            return 0.2, RuntimeError("404 NOT_FOUND: model retired, use models/main-new instead")
+        if m == "main-new":
+            return 28.0, RuntimeError(BUSY)
+        return 1.0, _Resp("ok")
+    _clocked_genai(monkeypatch, behaviour, calls)
+
+    def save(u):
+        saved.append(u)
+        monkeypatch.setattr(config, "GEMINI_MODEL", u["GEMINI_MODEL"])
+    monkeypatch.setattr(config, "save_settings", save)
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok"
+    assert calls == ["main-lite", "main-new", "backup-1"] and saved == [{"GEMINI_MODEL": "main-new"}]
+    assert prompt_engine.is_busy("main-new") and not prompt_engine.is_busy("main-lite")
+    calls.clear()
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok" and calls == ["backup-1"]   # không chờ model mới lần nữa
+
+
+def test_replacement_equal_to_backup_not_called_twice(monkeypatch):
+    """Model thay thế Google chỉ (404) trùng một model dự phòng: lượt này đã gọi nó rồi thì không gọi lại."""
+    calls: list = []
+
+    def behaviour(m):
+        if m == "main-lite":
+            return 0.2, RuntimeError("404 NOT_FOUND: use models/backup-1")
+        if m == "backup-1":
+            return 28.0, RuntimeError(BUSY)
+        return 1.0, _Resp("ok")
+    _clocked_genai(monkeypatch, behaviour, calls, fallback="backup-1,backup-2")
+    monkeypatch.setattr(config, "save_settings", lambda u: monkeypatch.setattr(config, "GEMINI_MODEL", u["GEMINI_MODEL"]))
+    assert asyncio.run(prompt_engine.call_gemini("viết")) == "ok"
+    assert calls == ["main-lite", "backup-1", "backup-2"] and prompt_engine.is_busy("backup-1")

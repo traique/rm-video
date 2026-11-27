@@ -40,6 +40,9 @@ lại, bộ nhớ `kids_auto.json` giữ 400 truyện. Ba chỗ hở sửa trong
   - *Đoạn lời ngắn ở đúng ranh giới khối chèn bị bỏ oan* ở mức dựng mạnh: `seg_out` (1.5.0) lùi mốc 0,02-0,04s để đoạn
     không phủ lên khối, bộ lọc «đoạn còn nguyên» đòi đủ 95% độ dài nên đoạn dưới 0,4-0,8s («Rồi.») mất lời; giờ trừ hao
     (`remake.strong_segments`).
+  - *Góp ý Codex trên PR #30*: Google gỡ model chính (404 kèm tên model thay thế) mà model thay thế quá tải thì sổ bận
+    (1.5.2) ghi nhầm model đã gỡ, lượt sau lại chờ model mới. Giờ ghi đúng model vừa gọi; model thay thế trùng một model
+    dự phòng thì lượt đó không gọi lại (`tests/test_v152.py`).
 - Test: `tests/test_v153.py` (ý tới người viết qua flow, tóm cốt truyện, bộ nhớ không ý, 14 truyện + trùng tiêu đề cả bộ
   nhớ, lời nhắc viết; bản ngắn tính lại cổng, tải model VAD có hạn + nhớ lỗi, đoạn ngắn ở ranh giới khối).
 

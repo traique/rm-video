@@ -377,8 +377,11 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
                 logging.warning("Gemini lỗi tạm (%s), thử lại sau %.0fs", err[:80], wait)
                 await asyncio.sleep(wait)
 
+    tried: list[str] = []          # model đã gọi trong lượt này, theo thứ tự (kể cả model thay thế sau 404)
+
     async def _one(model: str):
         nonlocal cfg
+        tried.append(model)
         try:
             try:
                 return await _gen(model, cfg)
@@ -396,6 +399,7 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
             new_model = m.group(1)
             logging.warning("Model %s đã ngừng, tự chuyển sang %s và lưu vào Cài đặt", model, new_model)
             config.save_settings({"GEMINI_MODEL": new_model})
+            tried.append(new_model)
             return await _gen(new_model, cfg)
 
     # model chính quá tải (503 "high demand", đã thử lại) / hết lượt: thử model dự phòng (hạn mức, tải riêng) thay vì bỏ
@@ -410,6 +414,8 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
     last: Exception | None = None
     prev = main
     for m in fresh:
+        if m in tried:                         # model thay thế (404) trùng một model dự phòng: lượt này đã gọi rồi
+            continue
         if last is not None:
             logging.warning("Gemini %s lỗi (%s), thử model dự phòng %s", prev, err_text(last)[:60], m)
         try:
@@ -424,8 +430,8 @@ async def _call_gemini(prompt: str, images=None, schema=None, label: str = "Ản
                 continue
             if not _overloaded(err):
                 raise
-            note_busy(m)
-            last, prev = e, m
+            note_busy(tried[-1])               # model vừa gọi thật: sau 404 là model thay thế (góp ý Codex PR #30)
+            last, prev = e, tried[-1]
     else:
         if last is None:                       # model chính bị bỏ qua vì sổ bận, mọi model dự phòng đã ngừng: đành gọi nó
             resp = await _one(main)
