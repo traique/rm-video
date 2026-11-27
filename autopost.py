@@ -661,6 +661,9 @@ def other_platforms(ch: str, job, video: str, title: str, desc: str, when: float
     token Fanpage truyện bé thiếu quyền, video 19:00 không lên YouTube dù vừa kết nối kênh). Mỗi job chỉ xếp một lần
     (Facebook sửa xong đăng lại thì không xếp trùng). Trả câu ghi thêm vào tin báo admin («» nếu không xếp gì mới)."""
     from rmvideo.app import tiktok_kit, youtube
+    if ch == "kids":                              # 📼 giữ truyện cho video tổng hợp tuần (1.6.0); lỗi không ảnh hưởng bài đăng
+        from rmvideo.app import kids_weekly
+        kids_weekly.add(job, video, when)
     yt = youtube.after_facebook(ch, job, video, title, desc, when)
     tk = tiktok_kit.after_facebook(ch, job, video, desc, when)
     got = [x for x, ok in (("YouTube", yt), ("gói TikTok", tk)) if ok]

@@ -14,6 +14,8 @@ os.environ.setdefault("RECENT_LOOKS", os.path.join(_TMP, "recent_looks.json"))  
 os.environ.setdefault("RENDER_SPEED_FILE", os.path.join(_TMP, "render_speed.json"))   # tốc độ dựng đo được
 os.environ.setdefault("AUTOPOST_STATE", os.path.join(_TMP, "autopost.json"))   # trạng thái tự động đăng
 os.environ.setdefault("KIDS_STATE", os.path.join(_TMP, "kids_auto.json"))      # 🧸 truyện bé: truyện đã làm, lịch (1.1.0)
+os.environ.setdefault("KIDS_WEEKLY_STATE", os.path.join(_TMP, "kids_weekly.json"))   # 📼 video tổng hợp tuần (1.6.0)
+os.environ.setdefault("KIDS_LIBRARY_DIR", os.path.join(_TMP, "kids_library"))
 os.environ.setdefault("YT_STATE", os.path.join(_TMP, "youtube.json"))         # ▶️ YouTube: hàng chờ tải lên (1.2.0)
 os.environ.setdefault("TIKTOK_STATE", os.path.join(_TMP, "tiktok_kit.json"))  # 🎵 gói đăng TikTok (1.2.0)
 os.environ.setdefault("HOOK_STATE", os.path.join(_TMP, "hooks.json"))          # kiểu câu hook đã dùng (1.4.0)

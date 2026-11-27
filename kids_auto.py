@@ -464,6 +464,13 @@ async def tick(now: float | None = None, rnd: random.Random | None = None, force
         except Exception as e:
             logging.warning("Truyện bé: theo dõi phiên Kaggle giữ chỗ lỗi: %s", str(e)[:160])
             notes = []
+        try:                                       # 📼 video tổng hợp tuần (1.6.0): chạy cả khi tự động đăng đang dừng
+            from rmvideo.app import kids_weekly
+            w = await kids_weekly.tick(now)
+            if w:
+                notes.append("tổng hợp tuần: " + w)
+        except Exception as e:
+            logging.warning("Truyện bé: video tổng hợp tuần lỗi: %s", str(e)[:160])
         msg = await _tick(now, rnd, force)
         return "; ".join(notes + [msg]) if notes else msg
 
@@ -540,8 +547,9 @@ def status_text(now: float | None = None) -> str:
     d = data()
     rec = story_mod.recent(st["stories"], now)
     lines.append(f"Đã làm {len(st['stories'])} truyện ({len(rec)} trong 30 ngày), đã đăng {len(st['posts'])} bài.")
-    from rmvideo.app import youtube
+    from rmvideo.app import kids_weekly, youtube
     lines += youtube.status_lines("kids", now)
+    lines += kids_weekly.status_lines(now)
     from rmvideo.app import tiktok_kit
     lines += tiktok_kit.status_lines("kids", now)
     for s in st["stories"][-5:][::-1]:

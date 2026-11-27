@@ -13,6 +13,50 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.6.1 — Hashtag và từ khoá truyện bé: thẻ ba mẹ và bé hay tìm, Facebook 6 thẻ, YouTube 12 thẻ (27/11/2026)
+
+Yêu cầu 27/11: thêm hashtag bé và người lớn hay tìm («cho bé», «bé học», «thiếu nhi», «hoạt hình») để Facebook và YouTube
+hiển thị bài cho đúng người xem hơn.
+- **Thẻ rộng lên đầu** (`KIDS_HASHTAGS` mặc định mới): #truyenchobe #hoathinh {truyen} #thieunhi #chobe #behoc
+  #hoctienganhchobe #phimhoathinh #kebenghe {nhanvat} #mevabe #hoathinhthieunhi #truyenthieunhi #truyenkechobe #kidsstory
+  #doiconon. Chỗ giữ {truyen} là thẻ theo nội dung truyện (AI gợi ý), {nhanvat} là tên nhân vật chính không dấu (#gaunau,
+  #thotrang, #meocam, #socnho) để bé tìm theo nhân vật quen (`prompts.hashtags`).
+- **Facebook 6 thẻ, YouTube 12** (trước 3 / 8; TikTok giữ 6, kênh bếp giữ 3 / 8). YouTube bỏ qua HẾT hashtag khi một video
+  có hơn 15, nên bot luôn giữ tổng (kể cả #Shorts và thẻ có sẵn trong mô tả) trong 15 (`prompt_engine.YT_HASHTAG_MAX`).
+- **Từ khoá cho ba mẹ** (`KIDS_KEYWORDS` mặc định mới): thêm «phim hoạt hình cho bé», «bé học tiếng Anh», «truyện cho bé ngủ
+  ngon», «truyện kỹ năng sống cho bé», «video cho bé», «mẹ và bé». Dòng 🔎 cuối mô tả Facebook / YouTube lấy từ đây; thẻ (tags)
+  YouTube xếp cụm có dấu này trước hashtag không dấu.
+- Video tổng hợp tuần (1.6.0) dùng 12 hashtag đầu.
+- Ô «Hashtag cố định» / «Từ khoá tìm kiếm» đã sửa trên web thì bot giữ giá trị của bạn; muốn dùng mặc định mới thì gõ «-»
+  vào ô đó rồi Lưu. Danh sách tự đặt không có chỗ giữ vẫn xếp như 1.5.0.
+- Test: `tests/test_v161.py`; cập nhật test thứ tự thẻ cũ ở `test_kids.py`, `test_v150.py`.
+
+## 1.6.0 — Video tổng hợp truyện bé hằng tuần cho YouTube (27/11/2026)
+
+Kênh YouTube truyện bé chỉ có Shorts từng truyện, mà kênh thiếu nhi lớn lên nhờ video dài bé xem liền mạch (TV, máy tính bảng,
+điện thoại của ba mẹ). Video vẫn khai «dành cho trẻ em» như chính sách YouTube yêu cầu với nội dung cho bé 3-6 tuổi.
+- **Mỗi tuần một video tổng hợp** (`rmvideo/app/kids_weekly.py`, cài đặt `KIDS_WEEKLY`, mặc định `CN 08:00`): bot ghép các
+  truyện đã lên YouTube trong tuần thành một video dài, ghép lúc 02:00 và hẹn YouTube công khai 08:00 Chủ nhật. Tối đa
+  `KIDS_WEEKLY_MAX` = 14 truyện (cả tuần với 2 truyện mỗi ngày, khoảng 18 phút); dưới 3 truyện thì dồn sang tuần sau.
+- **Nối thẳng, không mã hoá lại**: vài giây trên Botkeep, không tốn giờ GPU. Chỉ nối các file cùng khuôn kể cả extradata
+  H.264 / AAC (ffprobe `-show_data_hash`): file khác khuôn nối thẳng sẽ lỗi hình, nên bị để lại.
+- **Mục lục, từ khoá, ảnh bìa**: mô tả có dòng «0:00 Tên truyện» cho từng truyện (YouTube tự chia chương), các từ tiếng Anh
+  bé học, câu giới thiệu, CTA, từ khoá và hashtag của kênh; tiêu đề «Tuyển tập 3: 14 truyện hoạt hình cho bé | <đuôi từ
+  khoá>». Ảnh bìa 1280x720 ghép thẻ tiêu đề của 3 truyện đầu (`youtube.set_thumbnail`).
+- **Kênh chưa xác minh số điện thoại**: YouTube từ chối video dài hơn 15 phút và không nhận ảnh bìa riêng. Bot hỏi
+  `channels.status.longUploadsStatus` trước khi ghép: chưa được phép thì cắt còn dưới 15 phút (truyện mới nhất dời sang tuần
+  sau) và báo admin cách xác minh (youtube.com/verify); ảnh bìa lỗi thì ghi chú, YouTube tự chọn khung.
+- **Giữ file tới lúc ghép**: bộ dọn ổ chỉ giữ ~`OUT_MAX_MB` video mới nhất trong outputs/, truyện đầu tuần bị xoá trước Chủ
+  nhật. Mỗi truyện vừa xếp lên YouTube được liên kết cứng vào `kids_library/` (không tốn thêm chỗ khi file gốc còn); ghép
+  xong thì xoá, video tổng hợp xoá khi YouTube đã nhận. Lúc cao nhất kho chiếm khoảng 1 GB (14 truyện + video tổng hợp
+  chờ tải lên); truyện chờ quá 3 tuần bị bỏ. Lần chạy đầu sau khi cập nhật: truyện đã đăng trong 8 ngày qua mà file còn
+  được đưa vào kho luôn, khỏi chờ thêm một tuần.
+- Lệnh console `kids_weekly` (trạng thái, cũng hiện ở mục 🧸 Truyện bé) và `kids_weekly_now` (ghép ngay các truyện đã lên
+  YouTube và đăng luôn, để thử). Hàng chờ YouTube nhận mục có khoá, nhãn, ảnh bìa riêng và link video dài (youtu.be).
+- Test: `tests/test_v160.py` (lịch + cài đặt, kho liên kết cứng, ghép thật bằng ffmpeg cùng khuôn / khác khuôn / Shorts lên
+  sau, mục lục, ảnh bìa 1280x720, khai dành cho trẻ em, tuần thiếu truyện, ghép lỗi, giới hạn 15 phút, số tuyển tập, đưa
+  truyện cũ vào kho, dọn file, tải video dài + ảnh bìa với máy chủ Google giả).
+
 ## 1.5.3 — Bộ nhớ truyện bé: đồ vật của ý tới người viết, nhớ cốt truyện mọi truyện, một tuần truyện gần nhất (27/11/2026)
 
 Soát lại cách bot nhớ truyện đã làm (câu hỏi 27/11: «các bài kênh bé đã làm và từ vựng có được lưu để tránh lặp ý không»).

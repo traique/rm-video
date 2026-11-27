@@ -126,6 +126,29 @@ def _per_day(v: str) -> str:
     return v
 
 
+WEEKDAYS_VI = ("T2", "T3", "T4", "T5", "T6", "T7", "CN")      # thứ Hai = 0 … Chủ nhật = 6 (datetime.weekday)
+
+
+def _weekly(v: str) -> str:
+    """«CN 08:00» / «t7 19:30» -> «CN 08:00»; 0 / off / tắt / trống -> «0» (1.6.0, video tổng hợp tuần)."""
+    s = " ".join(v.split()).upper()
+    if s in ("", "0", "OFF", "TẮT"):
+        return "0"
+    m = re.fullmatch(r"(T[2-7]|CN) ?([01]?\d|2[0-3]):([0-5]\d)", s)
+    if not m:
+        raise ValueError("KIDS_WEEKLY dạng thứ + giờ Việt Nam: CN 08:00, T7 19:30 (T2…T7, CN); 0 = tắt")
+    return f"{m.group(1)} {int(m.group(2)):02d}:{m.group(3)}"
+
+
+def _int_range(key: str, lo: int, hi: int) -> Validator:
+    def check(v: str) -> str:
+        v = v.strip()
+        if not (v.isdigit() and lo <= int(v) <= hi):
+            raise ValueError(f"{key} là số {lo}-{hi}")
+        return str(int(v))
+    return check
+
+
 def _each(norm: Callable[[str], str]) -> Validator:
     """Kiểm từng mục của danh sách (ném ValueError ở mục sai), lưu nguyên chuỗi người dùng nhập."""
     def check(v: str) -> str:
@@ -510,6 +533,18 @@ SCHEMA: tuple[Setting, ...] = (
            "mắt» riêng và so lượt xem được; Shorts bé xem lúc ăn sáng (07:30) và sau bữa tối (20:30). Trống = cùng giờ "
            "Facebook. Giờ YouTube đã qua lúc video xong thì đăng ngay.",
       validate=_times_opt("KIDS_YT_TIMES"), live=True),
+    S("KIDS_WEEKLY", "CN 08:00", "kids", "Video tổng hợp tuần (YouTube)",
+      help="1.6.0: mỗi tuần bot ghép các truyện đã lên YouTube trong tuần thành MỘT video dài trên kênh YouTube truyện bé — "
+           "mục lục theo tên truyện (YouTube tự chia chương), ảnh bìa ghép 3 truyện, vẫn khai «dành cho trẻ em». Kênh thiếu "
+           "nhi lớn lên nhờ video dài bé xem liền mạch (TV, máy tính bảng, điện thoại ba mẹ). Nối thẳng các video có sẵn, "
+           "không mã hoá lại: vài giây trên Botkeep, không tốn giờ GPU. Dạng thứ + giờ đăng (giờ Việt Nam): CN 08:00, "
+           "T7 19:30 (T2…T7, CN); bot ghép trước 6 giờ và hẹn YouTube công khai đúng giờ. 0 = tắt. Thử ngay: lệnh console "
+           "kids_weekly_now (ghép các truyện đã đăng, đăng YouTube luôn).",
+      validate=_weekly, live=True),
+    S("KIDS_WEEKLY_MAX", "14", "kids", "Số truyện tối đa mỗi video tổng hợp",
+      help="3-30. Mặc định 14 = cả tuần với 2 truyện mỗi ngày (khoảng 18 phút); 10 = khoảng 13 phút, truyện dư dồn sang "
+           "tuần sau. Dưới 3 truyện (YouTube cần ít nhất 3 chương) thì tuần đó không ghép, dồn sang tuần sau.",
+      validate=_int_range("KIDS_WEEKLY_MAX", 3, 30), live=True),
     S("KIDS_FB_PAGE_ID", "", "api", "ID Fanpage truyện bé",
       help="Fanpage RIÊNG của kênh truyện bé (khác Fanpage kênh bếp). Lấy id + token như FB_PAGE_TOKEN: me/accounts liệt "
            "kê cả hai Page.", validate=_digits("KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_ID là dãy số id của Fanpage"),
@@ -585,14 +620,20 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_max_len("KIDS_WORLD_NAME", 60)),
     S("KIDS_TAGLINE", "Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh", "kids",
       "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
-    S("KIDS_HASHTAGS", "#truyenchobe,#hoctienganhchobe,#kebenghe,#truyenthieunhi,#truyenkechobe,#hoathinhthieunhi,#doiconon,#kidsstory",
+    S("KIDS_HASHTAGS", "#truyenchobe,#hoathinh,{truyen},#thieunhi,#chobe,#behoc,#hoctienganhchobe,#phimhoathinh,"
+      "#kebenghe,{nhanvat},#mevabe,#hoathinhthieunhi,#truyenthieunhi,#truyenkechobe,#kidsstory,#doiconon",
       "kids", "Hashtag cố định",
-      help="Cách nhau dấu phẩy, quan trọng xếp trước: Facebook lấy 3 thẻ đầu (2 thẻ cố định + 1 thẻ theo truyện), YouTube 8, "
-           "TikTok 6.", validate=_max_len("KIDS_HASHTAGS", 400), live=True),
-    S("KIDS_KEYWORDS", "truyện cho bé, truyện kể bé nghe, truyện thiếu nhi, học tiếng Anh cho bé, hoạt hình thiếu nhi, "
-      "truyện ngủ ngon, kể chuyện bé nghe", "kids", "Từ khoá tìm kiếm",
+      help="Cách nhau dấu phẩy, quan trọng xếp trước: Facebook lấy 6 thẻ đầu, YouTube 12 (YouTube bỏ qua HẾT hashtag khi một "
+           "video có hơn 15), TikTok 6. {truyen} = chỗ đặt thẻ theo nội dung truyện (AI gợi ý, vd #giuloihua), {nhanvat} = "
+           "tên nhân vật chính không dấu (vd #gaunau). 1.6.1: thẻ rộng ba mẹ và bé hay tìm lên đầu (#hoathinh, #thieunhi, "
+           "#chobe, #behoc, #phimhoathinh, #mevabe); trước là 3 thẻ Facebook / 8 thẻ YouTube.",
+      validate=_max_len("KIDS_HASHTAGS", 400), live=True),
+    S("KIDS_KEYWORDS", "truyện cho bé, truyện kể bé nghe, phim hoạt hình cho bé, hoạt hình thiếu nhi, truyện thiếu nhi, "
+      "bé học tiếng Anh, học tiếng Anh cho bé, truyện cho bé ngủ ngon, kể chuyện bé nghe, truyện kỹ năng sống cho bé, "
+      "video cho bé, mẹ và bé", "kids", "Từ khoá tìm kiếm",
       help="Cách nhau dấu phẩy: thành dòng từ khoá cuối mô tả bài đăng (Facebook / YouTube tìm theo chữ trong mô tả) và thẻ "
-           "(tags) YouTube. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
+           "(tags) YouTube, xếp trước hashtag. Cụm có dấu như ba mẹ gõ tìm; vừa đủ thôi, nhồi nhiều cụm không liên quan bị "
+           "YouTube coi là spam. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
     S("KIDS_TITLE_TAG", "Truyện kể bé nghe, học tiếng Anh", "kids", "Đuôi tiêu đề (từ khoá)",
       help="Nối sau tiêu đề truyện khi còn chỗ: «Thỏ Trắng và chiếc mền nảy tưng tưng | Truyện kể bé nghe, học tiếng Anh» (tiêu đề "
            "YouTube tối đa 100 ký tự kể cả #Shorts). 0 = không nối.", validate=_max_len("KIDS_TITLE_TAG", 60), live=True),
@@ -657,7 +698,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT", "TIKTOK_KIT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_YT_TIMES", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_YT_TIMES", "KIDS_WEEKLY", "KIDS_WEEKLY_MAX", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
     "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",

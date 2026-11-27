@@ -2159,22 +2159,28 @@ def same_sentence(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, w(a), w(b)).ratio()
 
 
+YT_HASHTAG_MAX = 15            # YouTube: video có hơn 15 hashtag (tiêu đề + mô tả) thì BỎ QUA hết hashtag
+
+
 def platform_post(title: str, caption: str, hashtags: str, credit: str = "", recipe: str = "",
-                  recipe_line: str = "") -> str:
+                  recipe_line: str = "", fb_tags: int = 3, yt_tags: int = 8) -> str:
     """Nội dung đăng sẵn cho 3 nền tảng từ 1 bộ tiêu đề/caption/hashtag. credit: dòng ghi nguồn + nhãn giọng AI
-    (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại)."""
+    (YouTube, TikTok bắt khai báo nội dung AI trông như thật; ghi nguồn giúp xử lý khiếu nại).
+    fb_tags / yt_tags: số hashtag cho Facebook / YouTube (kênh bếp 3 / 8; truyện bé 1.6.1: 6 / 12). YouTube luôn giữ tổng
+    hashtag (kể cả #Shorts và thẻ có sẵn trong caption) trong YT_HASHTAG_MAX."""
     tags = ["#" + t.lstrip("#") for t in hashtags.replace(",", " ").split() if t.strip("#")]   # AI đôi khi quên dấu #
+    yt_n = max(0, min(yt_tags, YT_HASHTAG_MAX - 1 - len(re.findall(r"#\w+", f"{title} {caption} {recipe} {credit}"))))
     tiktok = (caption.strip() + " " + " ".join(tags[:6])).strip()
     if len(tiktok) > 150:                      # TikTok hiển thị tốt dưới ~150 ký tự
         cap = caption.strip()
         if len(cap) > 110:                     # caption ngắn thì giữ nguyên, chỉ bớt hashtag (trước đây mất chữ cuối)
             cap = cap[:110].rsplit(" ", 1)[0] + "…"
         tiktok = (cap + " " + " ".join(tags[:4])).strip()
-    facebook = f"{caption.strip()}\n\n{' '.join(tags[:3])}"
-    youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:8])}"
+    facebook = f"{caption.strip()}\n\n{' '.join(tags[:fb_tags])}"
+    youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{' '.join(tags[:yt_n])}"
     if recipe:                                 # công thức đã đối chiếu (POST_RECIPE / TIPS): nằm giữa caption và hashtag
-        facebook = f"{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:3])}"
-        youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:8])}"
+        facebook = f"{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:fb_tags])}"
+        youtube = f"{title.strip()} #Shorts\n\n{caption.strip()}\n\n{recipe.strip()}\n\n{' '.join(tags[:yt_n])}"
     if recipe_line:
         tiktok = f"{tiktok}\n{recipe_line.strip()}"
     if credit:
