@@ -13,6 +13,24 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.6.1 — Hashtag và từ khoá truyện bé: thẻ ba mẹ và bé hay tìm, Facebook 6 thẻ, YouTube 12 thẻ (27/11/2026)
+
+Yêu cầu 27/11: thêm hashtag bé và người lớn hay tìm («cho bé», «bé học», «thiếu nhi», «hoạt hình») để Facebook và YouTube
+hiển thị bài cho đúng người xem hơn.
+- **Thẻ rộng lên đầu** (`KIDS_HASHTAGS` mặc định mới): #truyenchobe #hoathinh {truyen} #thieunhi #chobe #behoc
+  #hoctienganhchobe #phimhoathinh #kebenghe {nhanvat} #mevabe #hoathinhthieunhi #truyenthieunhi #truyenkechobe #kidsstory
+  #doiconon. Chỗ giữ {truyen} là thẻ theo nội dung truyện (AI gợi ý), {nhanvat} là tên nhân vật chính không dấu (#gaunau,
+  #thotrang, #meocam, #socnho) để bé tìm theo nhân vật quen (`prompts.hashtags`).
+- **Facebook 6 thẻ, YouTube 12** (trước 3 / 8; TikTok giữ 6, kênh bếp giữ 3 / 8). YouTube bỏ qua HẾT hashtag khi một video
+  có hơn 15, nên bot luôn giữ tổng (kể cả #Shorts và thẻ có sẵn trong mô tả) trong 15 (`prompt_engine.YT_HASHTAG_MAX`).
+- **Từ khoá cho ba mẹ** (`KIDS_KEYWORDS` mặc định mới): thêm «phim hoạt hình cho bé», «bé học tiếng Anh», «truyện cho bé ngủ
+  ngon», «truyện kỹ năng sống cho bé», «video cho bé», «mẹ và bé». Dòng 🔎 cuối mô tả Facebook / YouTube lấy từ đây; thẻ (tags)
+  YouTube xếp cụm có dấu này trước hashtag không dấu.
+- Video tổng hợp tuần (1.6.0) dùng 12 hashtag đầu.
+- Ô «Hashtag cố định» / «Từ khoá tìm kiếm» đã sửa trên web thì bot giữ giá trị của bạn; muốn dùng mặc định mới thì gõ «-»
+  vào ô đó rồi Lưu. Danh sách tự đặt không có chỗ giữ vẫn xếp như 1.5.0.
+- Test: `tests/test_v161.py`; cập nhật test thứ tự thẻ cũ ở `test_kids.py`, `test_v150.py`.
+
 ## 1.6.0 — Video tổng hợp truyện bé hằng tuần cho YouTube (27/11/2026)
 
 Kênh YouTube truyện bé chỉ có Shorts từng truyện, mà kênh thiếu nhi lớn lên nhờ video dài bé xem liền mạch (TV, máy tính bảng,

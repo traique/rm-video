@@ -216,9 +216,9 @@ def video_tags(ch: str, desc: str) -> list[str]:
     """Thẻ (snippet.tags, 1.5.0) cho tìm kiếm: hashtag trong mô tả (bỏ #) + từ khoá kênh (kênh bé: KIDS_KEYWORDS, tên kênh).
     Trước đây không gửi thẻ nên YouTube chỉ có tiêu đề / mô tả để hiểu video."""
     raw: list[str] = [t[1:] for t in re.findall(r"#[\w]+", desc or "") if len(t) > 2]
-    if ch == "kids":
-        raw += [k.strip() for k in str(getattr(config, "KIDS_KEYWORDS", "") or "").split(",") if k.strip()]
-        raw += [str(getattr(config, "KIDS_CHANNEL_NAME", "") or "").strip()]
+    if ch == "kids":                  # 1.6.1: cụm từ khoá có dấu (ba mẹ gõ tìm) trước hashtag không dấu — hết chỗ thì bỏ thẻ cuối
+        kw = [k.strip() for k in str(getattr(config, "KIDS_KEYWORDS", "") or "").split(",") if k.strip()]
+        raw = kw + raw + [str(getattr(config, "KIDS_CHANNEL_NAME", "") or "").strip()]
     out: list[str] = []
     total = 0
     for t in raw:

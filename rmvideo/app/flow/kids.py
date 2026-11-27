@@ -140,7 +140,7 @@ async def _finish_kids(job: Job, brief: dict, res: dict, col: dict | None, st0: 
         if files.get(name) and os.path.exists(files[name]):
             shutil.move(files[name], os.path.join(os.path.dirname(video), name))
     title, desc, tags = prompts.post_pack(st, brief, kids_auto.channel(), data)   # tiêu đề bài đăng có đuôi từ khoá (1.5.0)
-    job.post = prompt_engine.platform_post(title, desc, tags)
+    job.post = prompt_engine.platform_post(title, desc, tags, fb_tags=prompts.FB_TAGS, yt_tags=prompts.YT_TAGS)   # 1.6.1
     title = str(st.get("title") or title).strip() or title               # tên truyện trần cho hook / kịch bản / log
     job.hook = title
     job.srt = res.get("srt") or ""

@@ -849,8 +849,8 @@ def test_prompts_and_schema():
     spam["scenes"][0]["text"] += " Ai đó? Ai đây? Ai nữa?"
     assert any("hỏi dồn dập" in q for q in story.validate(spam, brief, DATA))
     title, desc, tags = prompts.post_pack(story.normalize(_good_story(brief), DATA), brief, kids_auto.channel(), DATA)
-    # 1.5.0: 2 thẻ cố định đầu, rồi thẻ theo truyện, rồi các thẻ cố định còn lại; tiêu đề nối đuôi từ khoá
-    assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#truyenchobe #hoctienganhchobe #")
+    # 1.6.1: 2 thẻ cố định đầu, thẻ theo truyện ({truyen}), các thẻ rộng ba mẹ / bé hay tìm; tiêu đề nối đuôi từ khoá
+    assert title.startswith("Thỏ Trắng") and "🔤" in desc and tags.startswith("#truyenchobe #hoathinh #")
     assert tags.split()[2] == "#bexinloi" and "#kebenghe" in tags and title.endswith("| Truyện kể bé nghe, học tiếng Anh")
 
 

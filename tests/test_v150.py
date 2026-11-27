@@ -239,7 +239,8 @@ def test_youtube_tags_and_kids_slot(monkeypatch):
     monkeypatch.setattr(config, "KIDS_KEYWORDS", "truyện cho bé, học tiếng Anh cho bé", raising=False)
     monkeypatch.setattr(config, "KIDS_CHANNEL_NAME", "Kể Bé Nghe")
     desc = "Mô tả\n\n#truyenchobe #kebenghe #<x>"
-    assert youtube.video_tags("kids", desc) == ["truyenchobe", "kebenghe", "truyện cho bé", "học tiếng Anh cho bé", "Kể Bé Nghe"]
+    # 1.6.1: kênh bé xếp cụm từ khoá có dấu trước hashtag không dấu
+    assert youtube.video_tags("kids", desc) == ["truyện cho bé", "học tiếng Anh cho bé", "truyenchobe", "kebenghe", "Kể Bé Nghe"]
     assert youtube.video_tags("cook", "#bokho #bokho #Shorts") == ["bokho", "Shorts"]
     many = youtube.video_tags("kids", " ".join(f"#tag{i}" for i in range(200)))
     assert 0 < len(many) < 200 and sum(len(t) + 1 for t in many) <= youtube.TAGS_MAX_CHARS
@@ -273,8 +274,8 @@ def test_after_facebook_uses_kids_slot_and_tags(monkeypatch, tmp_path):
     assert youtube.after_facebook("kids", job, str(vid), "T", "D", when)
     it = youtube.load_state()["items"][0]
     assert it["when"] == datetime(2026, 11, 28, 20, 30, tzinfo=VN).timestamp()
-    assert it["title"].startswith("Thỏ Trắng và chiếc mền") and it["tags"][:2] == ["truyenchobe", "kebenghe"]
-    assert "Kể Bé Nghe" in it["tags"]
+    assert it["title"].startswith("Thỏ Trắng và chiếc mền") and {"truyenchobe", "kebenghe"} <= set(it["tags"])
+    assert "Kể Bé Nghe" in it["tags"] and it["tags"][0] == config.KIDS_KEYWORDS.split(",")[0].strip()   # 1.6.1: từ khoá trước
 
 
 def test_settings_new_keys_validate():

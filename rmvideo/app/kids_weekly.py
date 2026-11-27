@@ -304,7 +304,7 @@ def texts(clips: list[dict], durs: list[float], k: int) -> tuple[str, str]:
     if len(title) > youtube.TITLE_MAX:
         title = f"Tuyển tập {k}: {n} truyện hoạt hình cho bé | {ch.get('name') or ''}".rstrip(" |")
     words = list(dict.fromkeys(w for c in clips for w in c.get("words") or []))[:40]
-    fixed = [t for t in re.split(r"[,\s]+", str(ch.get("hashtags") or "")) if t.startswith("#")][:8]
+    fixed = [t for t in re.split(r"[,\s]+", str(ch.get("hashtags") or "")) if t.startswith("#")][:12]
     lines = [f"🧸 {n} truyện hoạt hình cho bé ở {ch.get('world') or 'Đồi Cỏ Non'} trong một video dài {int(total // 60)} phút: "
              "bé nghe kể chuyện liền mạch và học từ tiếng Anh qua từng truyện.", "", "📖 Mục lục", *chapters(clips, durs)]
     if words:

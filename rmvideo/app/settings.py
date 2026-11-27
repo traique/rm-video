@@ -620,14 +620,20 @@ SCHEMA: tuple[Setting, ...] = (
       validate=_max_len("KIDS_WORLD_NAME", 60)),
     S("KIDS_TAGLINE", "Mỗi ngày một chuyện nhỏ ở Đồi Cỏ Non, học vài từ tiếng Anh", "kids",
       "Câu giới thiệu (màn kết + bài đăng)", validate=_max_len("KIDS_TAGLINE", 160)),
-    S("KIDS_HASHTAGS", "#truyenchobe,#hoctienganhchobe,#kebenghe,#truyenthieunhi,#truyenkechobe,#hoathinhthieunhi,#doiconon,#kidsstory",
+    S("KIDS_HASHTAGS", "#truyenchobe,#hoathinh,{truyen},#thieunhi,#chobe,#behoc,#hoctienganhchobe,#phimhoathinh,"
+      "#kebenghe,{nhanvat},#mevabe,#hoathinhthieunhi,#truyenthieunhi,#truyenkechobe,#kidsstory,#doiconon",
       "kids", "Hashtag cố định",
-      help="Cách nhau dấu phẩy, quan trọng xếp trước: Facebook lấy 3 thẻ đầu (2 thẻ cố định + 1 thẻ theo truyện), YouTube 8, "
-           "TikTok 6.", validate=_max_len("KIDS_HASHTAGS", 400), live=True),
-    S("KIDS_KEYWORDS", "truyện cho bé, truyện kể bé nghe, truyện thiếu nhi, học tiếng Anh cho bé, hoạt hình thiếu nhi, "
-      "truyện ngủ ngon, kể chuyện bé nghe", "kids", "Từ khoá tìm kiếm",
+      help="Cách nhau dấu phẩy, quan trọng xếp trước: Facebook lấy 6 thẻ đầu, YouTube 12 (YouTube bỏ qua HẾT hashtag khi một "
+           "video có hơn 15), TikTok 6. {truyen} = chỗ đặt thẻ theo nội dung truyện (AI gợi ý, vd #giuloihua), {nhanvat} = "
+           "tên nhân vật chính không dấu (vd #gaunau). 1.6.1: thẻ rộng ba mẹ và bé hay tìm lên đầu (#hoathinh, #thieunhi, "
+           "#chobe, #behoc, #phimhoathinh, #mevabe); trước là 3 thẻ Facebook / 8 thẻ YouTube.",
+      validate=_max_len("KIDS_HASHTAGS", 400), live=True),
+    S("KIDS_KEYWORDS", "truyện cho bé, truyện kể bé nghe, phim hoạt hình cho bé, hoạt hình thiếu nhi, truyện thiếu nhi, "
+      "bé học tiếng Anh, học tiếng Anh cho bé, truyện cho bé ngủ ngon, kể chuyện bé nghe, truyện kỹ năng sống cho bé, "
+      "video cho bé, mẹ và bé", "kids", "Từ khoá tìm kiếm",
       help="Cách nhau dấu phẩy: thành dòng từ khoá cuối mô tả bài đăng (Facebook / YouTube tìm theo chữ trong mô tả) và thẻ "
-           "(tags) YouTube. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
+           "(tags) YouTube, xếp trước hashtag. Cụm có dấu như ba mẹ gõ tìm; vừa đủ thôi, nhồi nhiều cụm không liên quan bị "
+           "YouTube coi là spam. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
     S("KIDS_TITLE_TAG", "Truyện kể bé nghe, học tiếng Anh", "kids", "Đuôi tiêu đề (từ khoá)",
       help="Nối sau tiêu đề truyện khi còn chỗ: «Thỏ Trắng và chiếc mền nảy tưng tưng | Truyện kể bé nghe, học tiếng Anh» (tiêu đề "
            "YouTube tối đa 100 ký tự kể cả #Shorts). 0 = không nối.", validate=_max_len("KIDS_TITLE_TAG", 60), live=True),
