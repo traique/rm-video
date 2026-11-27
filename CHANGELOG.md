@@ -13,6 +13,24 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.5.3 — Bộ nhớ truyện bé: đồ vật của ý tới người viết, nhớ cốt truyện mọi truyện, một tuần truyện gần nhất (27/11/2026)
+
+Soát lại cách bot nhớ truyện đã làm (câu hỏi 27/11: «các bài kênh bé đã làm và từ vựng có được lưu để tránh lặp ý không»).
+Vẫn như cũ: bộ ba bài học / bối cảnh / xung đột không lặp 30 ngày, khung truyện và nhân vật chính xoay vòng, 3 từ tiếng Anh
+xếp theo lần dạy gần nhất (kho 102 từ, một từ quay lại sau ~2 tuần), mô típ và đồ vật chính của 4 truyện gần nhất cấm dùng
+lại, bộ nhớ `kids_auto.json` giữ 400 truyện. Ba chỗ hở sửa trong bản này:
+- **Đồ vật của ý truyện tới người viết**: bước nghĩ ý chọn ĐÚNG 3 đồ vật (1.4.2) nhưng flow chỉ giữ kiểu / tiêu đề / ý /
+  màu nhạc, nên câu «Ý này dùng: …» chưa bao giờ xuất hiện trong lời nhắc viết (job 12-15). Giờ `brief["pitch"]["things"]`
+  đi theo ý.
+- **Truyện viết không qua bước nghĩ ý vẫn nhớ cốt truyện**: nghĩ ý lỗi (Gemini quá tải) hay Qwen viết trên Kaggle thì bộ
+  nhớ chỉ còn tiêu đề, lượt nghĩ ý sau không biết chuyện gì đã kể. Giờ `story.premise_of` tóm cảnh mở đầu … cảnh kết
+  (≤ 240 chữ) ghi vào `premise` như ý đã chọn.
+- **Một tuần truyện gần nhất**: lời nhắc nghĩ ý và chấm thấy 14 truyện (`story.RECENT_IDEAS`; trước 6 = 3 ngày với 2
+  truyện/ngày); trùng tiêu đề so với CẢ bộ nhớ thay vì 6 truyện. Không có ý (viết thẳng) thì lời nhắc viết cũng kèm 14 dòng
+  «tiêu đề — ý» này (`brief["recent"]`, sang cả Kaggle cho Qwen); có ý rồi thì không kèm (ý đã chọn khác các truyện cũ).
+- Test: `tests/test_v153.py` (ý tới người viết qua flow, tóm cốt truyện, bộ nhớ không ý, 14 truyện + trùng tiêu đề cả bộ
+  nhớ, lời nhắc viết).
+
 ## 1.5.2 — Gemini 503 «high demand»: đổi model ngay khi Google giữ yêu cầu lâu, sổ model quá tải dùng chung (27/11/2026)
 
 Log sáng 27/11 (job 15 truyện bé, bước nghĩ ý truyện): Gemini 4 Hydrogen trả 503 «This model is currently experiencing

@@ -151,6 +151,10 @@ def user_prompt(brief: dict, data: dict, feedback: list[str] | None = None, prev
         idea = story_mod.plot_premise(brief, data)
         text += (f"Chuyện xảy ra: {main['name_vi']} {conflict['vi']}."
                  + (f" Ý gợi ý (có thể đổi cho hay hơn): {idea}" if idea else "") + "\n")
+        recent = [str(x) for x in brief.get("recent") or [] if str(x).strip()]
+        if recent:      # 1.5.3: không qua bước nghĩ ý (Gemini quá tải / Qwen trên Kaggle) thì người viết tự nghĩ cốt truyện
+            text += ("Các truyện gần đây (KHÔNG lặp ý, rắc rối, đồ vật chính hay cách giải quyết của chúng):\n"
+                     + "\n".join(f"- {x}" for x in recent) + "\n")
     text += (f"Giá trị nhẹ nhàng truyện gửi gắm: {lesson['vi']} — thể hiện qua việc nhân vật LÀM; nếu nói ra thì chỉ MỘT câu "
              f"ngắn tự nhiên như bạn bè nói với nhau (có một chữ trong: {', '.join(lesson.get('keywords', []))}), không giảng.\n")
     if must:

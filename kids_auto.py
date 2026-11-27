@@ -154,8 +154,10 @@ def remember_done(job, brief: dict, story: dict):
     if brief.get("plot"):
         hit["plot"] = brief["plot"]
     p = brief.get("pitch") or {}
-    if p.get("premise"):                    # ý truyện đã dùng: lượt nghĩ ý sau tránh lặp (pitch.recent_lines)
+    if p.get("premise"):                    # ý truyện đã dùng: lượt nghĩ ý sau tránh lặp (story.recent_lines)
         hit["premise"], hit["kind"] = str(p["premise"])[:300], str(p.get("kind") or "")
+    elif story_mod.premise_of(story):       # 1.5.3: viết không qua bước nghĩ ý (Gemini quá tải / Qwen) -> tóm từ lời kể
+        hit["premise"], hit["kind"] = story_mod.premise_of(story), ""
     save_state(st)
 
 

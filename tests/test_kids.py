@@ -1298,7 +1298,8 @@ def test_kaggle_job_skips_llm_when_story_given(tmp_path, monkeypatch):
     out_dir = tmp_path / "out2"
     out_dir.mkdir()
     res = kaggle_job.main(spec, str(out_dir))[0]
-    assert res["ok"] and res["story"]["title"] == st["title"] and res["timings"]["llm"] < 1 and res["attempts"][0]["beats"]
+    # timings["llm"] gồm cả prefetch model ảnh: máy bận (pytest -n auto) có lúc quá 1 giây dù không gọi model chữ (1.5.3)
+    assert res["ok"] and res["story"]["title"] == st["title"] and res["timings"]["llm"] < 5 and res["attempts"][0]["beats"]
 
 
 def test_english_words_native_voice(tmp_path, monkeypatch):
