@@ -37,6 +37,13 @@ os.environ.setdefault("RM_BRAND_DIR", os.path.join(_TMP, "no_brand_kit"))   # kh
 
 
 @pytest.fixture(autouse=True)
+def _fresh_gemini_busy(monkeypatch):
+    """1.5.2: sổ model Gemini vừa quá tải (prompt_engine._BUSY) không lây giữa các test (test giả 503 ghi vào sổ)."""
+    import prompt_engine
+    monkeypatch.setattr(prompt_engine, "_BUSY", {})
+
+
+@pytest.fixture(autouse=True)
 def _no_kaggle_resource_calls(monkeypatch, tmp_path):
     """1.4.9: kids_ready / lyria.remote_ok hỏi Kaggle model, dataset còn không. Test không gọi mạng thật: coi như còn;
     test nào cần trường hợp mất thì tự đặt lại (tests/test_v149.py)."""

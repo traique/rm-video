@@ -13,6 +13,28 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.5.2 — Gemini 503 «high demand»: đổi model ngay khi Google giữ yêu cầu lâu, sổ model quá tải dùng chung (27/11/2026)
+
+Log sáng 27/11 (job 15 truyện bé, bước nghĩ ý truyện): Gemini 4 Hydrogen trả 503 «This model is currently experiencing
+high demand» lúc 08:03:56 rồi 08:04:47 — Google GIỮ mỗi yêu cầu 28-48 giây rồi mới từ chối, không phải lỗi trả ngay như cơn
+quá tải 25/11. Với 5 lượt thử lại (1.4.11) mỗi model mất ~4 phút chết trước khi đổi sang flash-lite; ý truyện 2 lượt, rồi
+bản nháp lại chờ tiếp. Lỗi ở phía Google (model preview thiếu máy, cắt bớt yêu cầu — Google nói 503 không theo gói trả phí),
+bot không sửa được nguồn, chỉ sửa cách chờ:
+- **Không thử lại model đang xếp hàng**: một lượt lỗi mà Google giữ quá `HELD_MAX` = 20 giây là sang model dự phòng ngay
+  (log «Gemini … lỗi tạm (503 …) sau 28s chờ: không thử lại model này nữa»); cộng chung một model không thử lại quá
+  `RETRY_BUDGET` = 60 giây (lượt kế dự kiến xong = đã mất + nghỉ + lâu bằng lượt vừa lỗi). Lỗi trả ngay vẫn đủ 5 lượt /
+  45 giây như 1.4.11. Job 15 theo luật mới: Hydrogen 28 giây rồi sang flash-lite, thay vì ~4 phút.
+- **Sổ model quá tải dùng chung** (`prompt_engine.note_busy / is_busy`, 15 phút): model nào hết lượt thử lại vì quá tải /
+  hết lượt / quá giờ thì mọi lượt gọi Gemini sau đó (kênh bếp gọi ~10 lượt mỗi job: kịch bản, lời theo đoạn, soát, hook,
+  bài đăng) đi thẳng model dự phòng (`GEMINI_FALLBACK_MODELS`) thay vì lượt nào cũng chờ model chính; mọi model đều bận
+  thì vẫn thử như cũ; model dự phòng đã bị Google gỡ (404) vẫn bị bỏ qua như 1.4.6. Sổ 15 phút của truyện bé (1.4.3,
+  `writer.mark_down / is_down`) nay là sổ này: flash-lite quá tải ở kênh bếp thì truyện bé biết và ngược lại.
+- Không đổi cấu hình. Nếu Hydrogen quá tải liên miên cả ngày: Cài đặt → truyện bé → **KIDS_GEMINI_MODEL** đặt
+  `gemini-3.6-flash` (hoặc để trống = `GEMINI_MODEL`); để nguyên thì bot vẫn ưu tiên Hydrogen và tự lùi về flash-lite.
+- Test: `tests/test_v152.py` (đồng hồ giả: giữ 28 giây -> 1 lượt rồi đổi model; trả ngay -> 5 lượt; giữ 10 giây -> 3 lượt;
+  429 / 400 giữ luật cũ; sổ bận bỏ qua model chính tới hết 15 phút; mọi model bận vẫn thử; model gỡ 404 khi model chính
+  bận; model riêng truyện bé vào sổ chung; ý truyện bỏ qua model trong sổ).
+
 ## 1.5.1 — Gộp hai bản sửa chưa từng vào nhánh chính: 1.4.16 (Gemini quá giờ) và 1.0.2 (soát video mực) (26/11/2026)
 
 Hai nhánh làm việc được đẩy thêm commit SAU khi PR của chúng đã gộp (1.4.16 trên nhánh PR #27 ngày 26/11, 1.0.2 trên nhánh

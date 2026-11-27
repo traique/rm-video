@@ -177,8 +177,9 @@ def test_kaggle_read_calls_retry(monkeypatch):
 def test_kids_model_cooldown(monkeypatch):
     """Gemini 4 quá tải / quá giờ: nhớ 15 phút, lượt sau đổi ngay sang model kia (job 12-13: ~4 phút chờ mỗi truyện)."""
     import asyncio
+    import prompt_engine
     from rmvideo.kids import writer
-    monkeypatch.setattr(writer, "_DOWN", {})
+    monkeypatch.setattr(prompt_engine, "_BUSY", {})                 # 1.5.2: sổ chung prompt_engine (trước là writer._DOWN)
     assert writer.err_text(asyncio.TimeoutError()) == "TimeoutError" and writer.model_busy(asyncio.TimeoutError())
     asked = []
 

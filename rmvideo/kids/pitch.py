@@ -136,7 +136,7 @@ async def _ask(prompt: str, schema: Any, models: Sequence[str]) -> str:
     """Gọi Gemini lần lượt theo danh sách model (model viết truyện trước, model dự phòng sau)."""
     import prompt_engine
     last: Exception | None = None
-    order = [m for m in models if not writer.is_down(m)] or list(models)   # model vừa quá tải: bỏ qua (writer.DOWN_SECS)
+    order = [m for m in models if not writer.is_down(m)] or list(models)   # model vừa quá tải: bỏ qua (prompt_engine.BUSY_SECS)
     for m in order:
         try:
             return await prompt_engine.call_gemini(prompt, schema=schema, label="Ý truyện", timeout=TIMEOUT, model=m)
