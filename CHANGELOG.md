@@ -32,7 +32,9 @@ lại, bộ nhớ `kids_auto.json` giữ 400 truyện. Ba chỗ hở sửa trong
   - *Bản ngắn tắt tiếng gốc sai chỗ khi không tách giọng* (lỗi có từ trước 1.5.0, đúng trường hợp Botkeep: máy chậm nên
     tách giọng bị bỏ qua, bot dùng cổng tắt tiếng): `_enter_short` giữ nguyên việc tiếng nền của bản đầy đủ, mà cổng tính
     theo TRỤC RA của bản đầy đủ nên áp lên bản ngắn là lệch — tiếng người gốc có thể lọt ở bản ngắn. Giờ bản ngắn tính lại
-    cổng theo kế hoạch của nó (file tiếng nền đã tách, trục gốc, vẫn dùng chung).
+    cổng theo kế hoạch của nó (file tiếng nền đã tách, trục gốc, vẫn dùng chung). Ảnh chụp pipeline
+    `short_version_after_full` cho thấy rõ: cổng của bản ngắn trước là các mốc 1-117s của bản đầy đủ, nay là 0-63s của
+    chính nó.
   - *Tải model VAD có hạn chờ*: 30 giây mỗi lần đọc mạng (trước `urlretrieve` không hạn: mạng treo là job treo), tải hỏng
     thì một giờ sau mới thử lại (trước: mỗi job bếp không tách giọng tải lại cả hai địa chỉ); cổng vẫn theo mốc lời máy nghe.
   - *Đoạn lời ngắn ở đúng ranh giới khối chèn bị bỏ oan* ở mức dựng mạnh: `seg_out` (1.5.0) lùi mốc 0,02-0,04s để đoạn
