@@ -222,8 +222,11 @@ bạn có quyền dùng lại; bot đã viết lại lời, đổi giọng, đ�
 
 Video đã hẹn đăng Fanpage được tải lên YouTube cùng giờ hẹn (tải lên riêng tư + giờ công khai, YouTube tự mở đúng giờ;
 giờ sắp tới / đã qua thì công khai ngay). Kênh bếp và kênh truyện bé là **hai kênh YouTube riêng** (giống hai Fanpage).
-Tiêu đề, mô tả lấy phần «▶ YouTube Shorts» của gói nội dung. Video dọc ≤ 3 phút YouTube tự xếp vào Shorts. Kênh bé khai
-«dành cho trẻ em» (bắt buộc với nội dung cho trẻ: tắt bình luận, không quảng cáo cá nhân hoá).
+Tiêu đề, mô tả lấy phần «▶ YouTube Shorts» của gói nội dung; tiêu đề không gắn «#Shorts» (1.6.2) vì video dọc ≤ 3 phút
+YouTube tự xếp vào Shorts. Kênh bé khai «dành cho trẻ em» hay không theo cài đặt **YouTube: khai «dành cho trẻ em»**
+(`KIDS_YT_MADE_FOR_KIDS`, mục 🧸 Truyện bé, mặc định *Không* từ 1.6.2). Khai *Có* thì YouTube tắt bình luận, thông báo,
+quảng cáo cá nhân hoá và gần như không đề xuất video cho người xem mới; chính sách YouTube / luật COPPA yêu cầu khai *Có*
+khi nội dung hướng tới trẻ nhỏ, khai sai thì YouTube có thể tự đổi lại và xử lý kênh.
 
 Một tài khoản Google quản lý được nhiều kênh (kênh thương hiệu): youtube.com → ảnh đại diện → Cài đặt → **Thêm hoặc
 quản lý kênh** → Tạo kênh. Lúc kết nối Google hỏi chọn kênh nào.

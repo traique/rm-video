@@ -10,7 +10,7 @@ truyện đã lên YouTube trong tuần thành MỘT video dài trên kênh YouT
 - Mục lục «0:00 Tên truyện» trong mô tả -> YouTube tự chia chương; từ tiếng Anh bé học; câu giới thiệu, CTA, từ khoá kênh.
 - Ảnh bìa 1280x720: thẻ tiêu đề (giây 1,6, như rmvideo/kids/render.cover) của 3 truyện đầu + dòng chữ. YouTube chỉ nhận ảnh
   bìa riêng khi kênh đã xác minh số điện thoại: lỗi thì ghi chú, YouTube tự chọn khung.
-- Vẫn khai «dành cho trẻ em» như mọi video của kênh bé (youtube.CHANNELS["kids"]).
+- Khai «dành cho trẻ em» hay không như mọi video của kênh bé: theo KIDS_YT_MADE_FOR_KIDS (youtube.made_for_kids, 1.6.2).
 
 Giữ file: bộ dọn ổ (storage._cleanup_outputs) chỉ giữ ~OUT_MAX_MB video mới nhất trong outputs/, truyện đầu tuần bị xoá trước
 Chủ nhật. Mỗi truyện vừa xếp lên YouTube (autopost.other_platforms) được liên kết cứng (hard link: không tốn thêm chỗ khi file

@@ -110,7 +110,7 @@ def test_other_platforms_keeps_kids_story(wk, monkeypatch, tmp_path):
 # ---------------- ghép ----------------
 
 @needs_ffmpeg
-def test_weekly_build_joins_same_format_clips(wk, tmp_path):
+def test_weekly_build_joins_same_format_clips(wk, monkeypatch, tmp_path):
     sent = wk
     for k, color in enumerate(("red", "blue", "green", "yellow")):
         kw.add(_job(40 + k, words=("sun", f"w{k}")), _clip(tmp_path / f"c{k}.mp4", color), publish=T - 86400 * (4 - k))
@@ -133,7 +133,10 @@ def test_weekly_build_joins_same_format_clips(wk, tmp_path):
     d = it["desc"]
     assert "📖 Mục lục\n0:00 Truyện 40\n0:02 Truyện 41\n0:04 Truyện 42\n0:06 Truyện 43" in d
     assert "🔤 Từ tiếng Anh trong video: sun, w0, w1, w2, w3" in d and "#truyenchobe" in d
+    monkeypatch.setattr(config, "KIDS_YT_MADE_FOR_KIDS", "1")                          # khai theo cài đặt (1.6.2)
     assert youtube.video_body("kids", it["title"], d, T, T - 3 * 3600)["status"]["selfDeclaredMadeForKids"] is True
+    monkeypatch.setattr(config, "KIDS_YT_MADE_FOR_KIDS", "0")
+    assert youtube.video_body("kids", it["title"], d, T, T - 3 * 3600)["status"]["selfDeclaredMadeForKids"] is False
     size = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", m["thumb"]],
                           capture_output=True, text=True).stdout.strip()
     assert size == "1280,720"

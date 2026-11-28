@@ -225,7 +225,7 @@ def test_post_pack_keywords_cta_title_tag():
             "title_tag": "Truyện kể bé nghe, học tiếng Anh"}
     title, desc, tags = prompts.post_pack(st, brief, chan, DATA)
     assert title.startswith(st["title"]) and title.endswith(" | Truyện kể bé nghe, học tiếng Anh")
-    assert len(title + " #Shorts") <= prompts.YT_TITLE_MAX
+    assert len(title) <= prompts.YT_TITLE_MAX
     assert "👉 Theo dõi Kể Bé Nghe" in desc and desc.rstrip().endswith("🔎 truyện cho bé, học tiếng Anh cho bé.")
     tl = tags.split()
     assert tl[:2] == ["#truyenchobe", "#hoctienganhchobe"] and tl[2] == st["hashtags"][0] and tl[-1] == "#x"

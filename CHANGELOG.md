@@ -13,6 +13,22 @@ edge-tts, tách giọng, render) và các model offline thật.
    để biết chat id). Nếu trước đây đã sửa `OPENROUTER_BASE_URL` / `POT_SERVER` trên web: đặt lại bằng biến môi trường.
 4. Mở web, đăng nhập lại (mật khẩu cũ lưu trong trình duyệt được xoá).
 
+## 1.6.2 — YouTube truyện bé: tuỳ chọn khai «dành cho trẻ em» (mặc định tắt), tiêu đề bỏ #Shorts (28/11/2026)
+
+Yêu cầu 28/11: video kênh YouTube truyện bé khai «dành cho trẻ em» thì không có lượt xem nào; đổi sang «không dành cho trẻ
+em» trong YouTube Studio thì bắt đầu có view. Đưa lựa chọn này vào cài đặt, đồng thời bỏ «#Shorts» trên dòng tiêu đề.
+- **Cài đặt mới «YouTube: khai «dành cho trẻ em»»** (`KIDS_YT_MADE_FOR_KIDS`, mục 🧸 Truyện bé): `0` = video thường (mặc
+  định mới), `1` = khai dành cho trẻ em như trước. Áp dụng cho Shorts từng truyện và video tổng hợp tuần; bot đọc lúc tải
+  lên nên cả video đang chờ trong hàng YouTube cũng theo giá trị mới, không cần khởi động lại. Kênh bếp vẫn luôn khai
+  không. Video đã đăng thì đổi trong YouTube Studio (bot chỉ có quyền tải lên, không sửa được video cũ).
+- Lưu ý: chính sách YouTube / luật COPPA (Mỹ) yêu cầu khai «dành cho trẻ em» khi nội dung hướng tới trẻ nhỏ; YouTube có thể
+  tự đổi lại và xử lý kênh khai sai. Chủ kênh tự cân nhắc khi chọn `0`.
+- **Tiêu đề YouTube không còn «#Shorts»** (cả kênh bếp lẫn kênh bé): video dọc ≤ 3 phút YouTube tự xếp vào Shorts. Bài làm
+  từ bản cũ và video đang chờ tải lên cũng được bỏ thẻ lúc tải (`youtube.clean_title`). Không mất chỗ cho #Shorts nên
+  tiêu đề truyện bé nối đuôi từ khoá (`KIDS_TITLE_TAG`) được tới đủ 100 ký tự, và hashtag YouTube dùng đủ 15 chỗ.
+- Test: `tests/test_v162.py`; cập nhật test cũ ở `test_youtube.py`, `test_v150.py`, `test_v160.py`, `test_v161.py`,
+  `test_ban50.py` và ảnh chụp pipeline (dòng tiêu đề YouTube).
+
 ## 1.6.1 — Hashtag và từ khoá truyện bé: thẻ ba mẹ và bé hay tìm, Facebook 6 thẻ, YouTube 12 thẻ (27/11/2026)
 
 Yêu cầu 27/11: thêm hashtag bé và người lớn hay tìm («cho bé», «bé học», «thiếu nhi», «hoạt hình») để Facebook và YouTube

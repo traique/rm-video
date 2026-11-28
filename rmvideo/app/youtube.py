@@ -9,10 +9,11 @@ quản lý được tới 100 kênh (kênh thương hiệu): Google hỏi chọn
 
 Đăng: autopost / kids_auto hẹn xong bài Fanpage thì gọi after_facebook(); run_forever (mỗi 2 phút) tải video lên bằng
 giao thức resumable của YouTube Data API v3 (videos.insert: từ 1/6/2026 có hạn mức riêng 100 lần / ngày / dự án; từ
-2/11/2026 dự án chưa qua kiểm duyệt không còn bị ép video riêng tư). Video dọc ≤ 3 phút YouTube tự xếp vào Shorts. Giờ
-hẹn Facebook còn ở tương lai: tải lên riêng tư + publishAt (YouTube tự công khai đúng giờ); sắp tới / đã qua thì công khai
-ngay. Kênh bé khai «dành cho trẻ em» (selfDeclaredMadeForKids — bắt buộc với nội dung cho trẻ theo chính sách YouTube).
-Tiêu đề / mô tả: phần «▶ YouTube Shorts» của gói nội dung (prompt_engine.platform_post).
+2/11/2026 dự án chưa qua kiểm duyệt không còn bị ép video riêng tư). Video dọc ≤ 3 phút YouTube tự xếp vào Shorts (1.6.2:
+tiêu đề không gắn «#Shorts»). Giờ hẹn Facebook còn ở tương lai: tải lên riêng tư + publishAt (YouTube tự công khai đúng giờ);
+sắp tới / đã qua thì công khai ngay. Khai «dành cho trẻ em» (selfDeclaredMadeForKids): kênh bếp không; kênh bé theo cài đặt
+KIDS_YT_MADE_FOR_KIDS (1.6.2, mặc định không — khai dành cho trẻ em thì YouTube gần như không đề xuất video, kênh không có
+lượt xem). Tiêu đề / mô tả: phần «▶ YouTube Shorts» của gói nội dung (prompt_engine.platform_post).
 
 Lỗi tách khỏi Facebook: mạng / lỗi tạm thử lại sau 5, 10, 20, 40 phút (tối đa MAX_TRIES lần); hết hạn mức / giới hạn tải
 lên của kênh: LATER giây sau; token bị thu hồi / thiếu quyền: dừng kênh đó, báo admin kết nối lại (kết nối lại là tự chạy
@@ -48,10 +49,10 @@ CALLBACK = "/youtube/callback"
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STATE_FILE = os.environ.get("YT_STATE") or os.path.join(_ROOT, "youtube.json")
 VN = timezone(timedelta(hours=7))
-# 26 = Howto & Style (nấu ăn), 1 = Film & Animation (truyện hoạt hình)
+# 26 = Howto & Style (nấu ăn), 1 = Film & Animation (truyện hoạt hình). mfk: khoá cài đặt «dành cho trẻ em» ("" = luôn không)
 CHANNELS: dict[str, dict[str, Any]] = {
-    "cook": {"key": "YT_REFRESH_TOKEN", "vi": "kênh bếp", "category": "26", "kids": False},
-    "kids": {"key": "KIDS_YT_REFRESH_TOKEN", "vi": "kênh truyện bé", "category": "1", "kids": True},
+    "cook": {"key": "YT_REFRESH_TOKEN", "vi": "kênh bếp", "category": "26", "mfk": ""},
+    "kids": {"key": "KIDS_YT_REFRESH_TOKEN", "vi": "kênh truyện bé", "category": "1", "mfk": "KIDS_YT_MADE_FOR_KIDS"},
 }
 TITLE_MAX = 100                # YouTube: tiêu đề ≤ 100 ký tự, không có < >
 DESC_MAX_BYTES = 4900          # YouTube: mô tả ≤ 5000 byte (tiếng Việt 2-3 byte / chữ có dấu)
@@ -105,6 +106,13 @@ def key_fp(ch: str) -> str:
     cid, sec = client()
     rt = refresh_token(ch)
     return _fp(f"{rt}|{cid}|{sec}") if rt else ""
+
+
+def made_for_kids(ch: str) -> bool:
+    """Khai «dành cho trẻ em» khi tải lên (1.6.2): kênh bé theo KIDS_YT_MADE_FOR_KIDS (đọc lúc tải nên video đang chờ cũng
+    theo cài đặt mới), kênh bếp luôn không. Trước 1.6.2 kênh bé luôn khai có -> YouTube không đề xuất, video không có view."""
+    key = CHANNELS[ch]["mfk"]
+    return bool(key) and str(getattr(config, key, "") or "").strip() == "1"
 
 
 def missing(ch: str) -> str:
@@ -168,16 +176,12 @@ def _safe(s: str) -> str:
 
 
 def clean_title(t: str) -> str:
-    """≤ TITLE_MAX ký tự, không < >; quá dài thì cắt ở ranh giới từ, giữ «#Shorts» ở cuối."""
-    t = " ".join(_safe(t).split())
-    if len(t) <= TITLE_MAX:
-        return t or "Video mới"
-    tag = " #Shorts" if re.search(r"#shorts\b", t, re.I) else ""
-    base = re.sub(r"\s*#shorts\b", "", t, flags=re.I).strip()
-    room = TITLE_MAX - len(tag)
-    if len(base) > room:
-        base = base[:room - 1].rsplit(" ", 1)[0].rstrip(" ,.;:-") + "…"
-    return base + tag
+    """≤ TITLE_MAX ký tự, không < >, không «#Shorts» (1.6.2: bỏ khỏi tiêu đề, kể cả bài / video chờ làm từ bản cũ — video
+    dọc ≤ 3 phút YouTube tự xếp vào Shorts); quá dài thì cắt ở ranh giới từ."""
+    t = " ".join(re.sub(r"#shorts\b", " ", _safe(t), flags=re.I).split())
+    if len(t) > TITLE_MAX:
+        t = t[:TITLE_MAX - 1].rsplit(" ", 1)[0].rstrip(" ,.;:-") + "…"
+    return t or "Video mới"
 
 
 def clean_desc(d: str) -> str:
@@ -186,8 +190,9 @@ def clean_desc(d: str) -> str:
 
 
 def texts(post: str, title: str = "", desc: str = "") -> tuple[str, str]:
-    """(tiêu đề, mô tả) cho YouTube: phần «▶ YouTube Shorts» của gói nội dung (dòng đầu «<tiêu đề> #Shorts», sau đó
-    caption + công thức + hashtag + dòng ghi nguồn). Không có phần đó: dùng chữ đăng Fanpage (title, desc)."""
+    """(tiêu đề, mô tả) cho YouTube: phần «▶ YouTube Shorts» của gói nội dung (dòng đầu là tiêu đề — bài làm trước 1.6.2
+    còn đuôi «#Shorts», clean_title bỏ —, sau đó caption + công thức + hashtag + dòng ghi nguồn). Không có phần đó: dùng chữ
+    đăng Fanpage (title, desc)."""
     post = (post or "").strip()
     sec = ""
     if "▶ YouTube Shorts:\n" in post:
@@ -196,8 +201,6 @@ def texts(post: str, title: str = "", desc: str = "") -> tuple[str, str]:
         head, _, body = sec.partition("\n")
         return clean_title(head), clean_desc(body)
     t = title or (post.split("\n", 1)[0].replace("📌", "").strip() if post else "")
-    if "#shorts" not in (t + " " + desc).lower():
-        t = f"{t} #Shorts" if t else t
     return clean_title(t), clean_desc(desc or post)
 
 
@@ -264,7 +267,7 @@ def video_body(ch: str, title: str, desc: str, when: float | None, now: float, t
     """Thân videos.insert (snippet + status). Hẹn giờ: riêng tư + publishAt (YouTube chỉ nhận publishAt với video riêng
     tư); không thì công khai ngay. tags: thẻ tìm kiếm (video_tags), không có thì bỏ trường."""
     c = CHANNELS[ch]
-    status: dict[str, Any] = {"privacyStatus": "public", "selfDeclaredMadeForKids": bool(c["kids"]), "embeddable": True}
+    status: dict[str, Any] = {"privacyStatus": "public", "selfDeclaredMadeForKids": made_for_kids(ch), "embeddable": True}
     if scheduled(when, now):
         status.update(privacyStatus="private", publishAt=_iso(float(when or 0)))
     snippet: dict[str, Any] = {"title": clean_title(title), "description": clean_desc(desc), "categoryId": c["category"],
