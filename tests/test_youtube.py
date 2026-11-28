@@ -129,20 +129,21 @@ def test_texts_from_platform_post_and_limits():
     post = prompt_engine.platform_post("Canh chua cá lóc miền Tây", "Chua chua ngọt ngọt, nấu 20 phút là xong.",
                                        "canhchua, monngon, bepdongdu", "Nguồn: @bepnha · giọng đọc AI")
     title, desc = youtube.texts(post, "FB", "fb desc")
-    assert title == "Canh chua cá lóc miền Tây #Shorts"
+    assert title == "Canh chua cá lóc miền Tây"                                       # 1.6.2: không gắn #Shorts
     assert desc.startswith("Chua chua ngọt ngọt") and "#canhchua" in desc and "Nguồn: @bepnha" in desc
     assert "▶" not in desc
-    # không có phần YouTube (job cũ / job ảnh): dùng chữ Fanpage, thêm #Shorts
-    assert youtube.texts("Món ngon", "Món ngon", "Mô tả") == ("Món ngon #Shorts", "Mô tả")
+    # không có phần YouTube (job cũ / job ảnh): dùng chữ Fanpage, không thêm #Shorts
+    assert youtube.texts("Món ngon", "Món ngon", "Mô tả") == ("Món ngon", "Mô tả")
     long = "Cách nấu " + "rất ngon " * 20 + "#Shorts"
     t = youtube.clean_title(long)
-    assert len(t) <= youtube.TITLE_MAX and t.endswith("… #Shorts")
+    assert len(t) <= youtube.TITLE_MAX and t.endswith("…") and "#Shorts" not in t
     assert youtube.clean_title("Bánh <ngon> 1 > 0") == "Bánh ‹ngon› 1 › 0"            # YouTube từ chối < >
     d = youtube.clean_desc("ạ" * 3000)                                                 # 3 byte / chữ
     assert len(d.encode()) <= youtube.DESC_MAX_BYTES and d == "ạ" * (youtube.DESC_MAX_BYTES // 3)
 
 
-def test_video_body_schedule_and_kids():
+def test_video_body_schedule_and_kids(monkeypatch):
+    monkeypatch.setattr(config, "KIDS_YT_MADE_FOR_KIDS", "1")                          # khai dành cho trẻ em (cài đặt)
     far = youtube.video_body("cook", "T", "D", NOW + 3600, NOW)
     assert far["status"] == {"privacyStatus": "private", "publishAt": "2027-01-15T09:00:00Z",
                              "selfDeclaredMadeForKids": False, "embeddable": True}
@@ -187,7 +188,7 @@ def test_upload_resumable_and_views(monkeypatch, yt, tmp_path):
     vid.write_bytes(os.urandom(200_000))
 
     async def go():
-        a = await youtube.upload("cook", str(vid), "Canh chua #Shorts", "Mô tả", NOW + 7200, now=NOW)
+        a = await youtube.upload("cook", str(vid), "Canh chua #Shorts", "Mô tả", NOW + 7200, now=NOW)   # chữ cũ còn #Shorts
         async with youtube._session() as s:
             v = await youtube.views("cook", "VID1", s)
         return a, v
@@ -195,7 +196,7 @@ def test_upload_resumable_and_views(monkeypatch, yt, tmp_path):
     assert a == "VID1" and v == 321
     init = next(c for c in calls if c[0] == "init")
     assert init[1:4] == ("resumable", "snippet,status", "200000")
-    assert init[4]["status"]["privacyStatus"] == "private" and init[4]["snippet"]["title"] == "Canh chua #Shorts"
+    assert init[4]["status"]["privacyStatus"] == "private" and init[4]["snippet"]["title"] == "Canh chua"
     assert ("put", "Bearer AT-RT1", "video/mp4", 200_000) in calls
     assert [c for c in calls if c[0] == "token"] == [("token", "refresh_token", "RT1")]      # access token dùng lại
 
@@ -214,7 +215,7 @@ def test_queue_tick_upload_errors_and_views(monkeypatch, yt, tmp_path):
     assert youtube.after_facebook("cook", Job, str(vid), "t", "d", W) is True
     assert youtube.after_facebook("cook", Job, str(vid), "t", "d", W) is False    # một lần mỗi job
     it = youtube.load_state()["items"][0]
-    assert it["title"] == "Gà chiên nước mắm #Shorts" and it["status"] == "pending"
+    assert it["title"] == "Gà chiên nước mắm" and it["status"] == "pending"
     youtube._patch("cook:7", created=NOW)                  # after_facebook ghi giờ thật; test chạy trên mốc NOW
 
     # hết hạn mức: thử lại sau 6 giờ, không tính là lỗi
@@ -385,7 +386,7 @@ def test_autopost_finish_queues_youtube(monkeypatch, yt, tmp_path):
     msg = asyncio.run(autopost._finish_pending(st, NOW, __import__("random").Random(1)))
     assert "FB1" in msg
     it = youtube.load_state()["items"][0]
-    assert (it["key"], it["when"], it["title"]) == ("cook:42", NOW + 7200, "Bò kho #Shorts")
+    assert (it["key"], it["when"], it["title"]) == ("cook:42", NOW + 7200, "Bò kho")
     assert json.dumps(it, ensure_ascii=False)
 
 

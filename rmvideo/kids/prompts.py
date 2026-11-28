@@ -413,7 +413,7 @@ def image_prompt(scene: dict, brief: dict, data: dict, idx: int = 0, use_lora: b
             world.pop()                        # cuối cùng mới bỏ câu tả thế giới chung (bối cảnh cảnh vẫn còn)
 
 
-YT_TITLE_MAX = 100          # tiêu đề YouTube tối đa (rmvideo/app/youtube.TITLE_MAX), kể cả « #Shorts» nối sau
+YT_TITLE_MAX = 100          # tiêu đề YouTube tối đa (rmvideo/app/youtube.TITLE_MAX); 1.6.2: không còn nối « #Shorts»
 
 
 FB_TAGS, YT_TAGS = 6, 12     # 1.6.1: số hashtag truyện bé trên Facebook / YouTube (kênh bếp 3 / 8)
@@ -458,6 +458,6 @@ def post_pack(story: dict, brief: dict, channel: dict, data: dict) -> tuple[str,
     tags = hashtags(story, brief, channel, data)
     title = str(story.get("title", "")).strip()
     tag = str(channel.get("title_tag") or "").strip()
-    if title and tag and len(f"{title} | {tag} #Shorts") <= YT_TITLE_MAX:
+    if title and tag and len(f"{title} | {tag}") <= YT_TITLE_MAX:
         title = f"{title} | {tag}"
     return title, desc.strip(), " ".join(tags)

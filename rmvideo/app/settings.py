@@ -533,9 +533,19 @@ SCHEMA: tuple[Setting, ...] = (
            "mắt» riêng và so lượt xem được; Shorts bé xem lúc ăn sáng (07:30) và sau bữa tối (20:30). Trống = cùng giờ "
            "Facebook. Giờ YouTube đã qua lúc video xong thì đăng ngay.",
       validate=_times_opt("KIDS_YT_TIMES"), live=True),
+    S("KIDS_YT_MADE_FOR_KIDS", "0", "kids", "YouTube: khai «dành cho trẻ em»",
+      help="1.6.2: cách khai đối tượng người xem khi bot tải video truyện bé (cả video tổng hợp tuần) lên YouTube. Khai «dành "
+           "cho trẻ em» thì YouTube tắt bình luận, chuông thông báo, quảng cáo cá nhân hoá và gần như không đề xuất video cho "
+           "người xem mới (kênh mới không có lượt xem). Lưu ý: chính sách YouTube / luật COPPA (Mỹ) yêu cầu khai «dành cho trẻ "
+           "em» khi nội dung hướng tới trẻ nhỏ; khai sai thì YouTube có thể tự đổi lại và xử lý kênh — bạn tự chịu trách nhiệm "
+           "với lựa chọn này. Áp dụng cho video tải lên từ lúc lưu; video đã đăng đổi trong YouTube Studio.",
+      options=(("0", "Không — video thường: có bình luận, thông báo, được đề xuất rộng (mặc định)"),
+               ("1", "Có — khai «dành cho trẻ em» (như bản 1.6.1 trở về trước)")),
+      choices=ON_OFF, live=True),
     S("KIDS_WEEKLY", "CN 08:00", "kids", "Video tổng hợp tuần (YouTube)",
       help="1.6.0: mỗi tuần bot ghép các truyện đã lên YouTube trong tuần thành MỘT video dài trên kênh YouTube truyện bé — "
-           "mục lục theo tên truyện (YouTube tự chia chương), ảnh bìa ghép 3 truyện, vẫn khai «dành cho trẻ em». Kênh thiếu "
+           "mục lục theo tên truyện (YouTube tự chia chương), ảnh bìa ghép 3 truyện, khai đối tượng người xem như ô "
+           "«dành cho trẻ em» ở trên. Kênh thiếu "
            "nhi lớn lên nhờ video dài bé xem liền mạch (TV, máy tính bảng, điện thoại ba mẹ). Nối thẳng các video có sẵn, "
            "không mã hoá lại: vài giây trên Botkeep, không tốn giờ GPU. Dạng thứ + giờ đăng (giờ Việt Nam): CN 08:00, "
            "T7 19:30 (T2…T7, CN); bot ghép trước 6 giờ và hẹn YouTube công khai đúng giờ. 0 = tắt. Thử ngay: lệnh console "
@@ -636,7 +646,7 @@ SCHEMA: tuple[Setting, ...] = (
            "YouTube coi là spam. 0 = không thêm.", validate=_max_len("KIDS_KEYWORDS", 400), live=True),
     S("KIDS_TITLE_TAG", "Truyện kể bé nghe, học tiếng Anh", "kids", "Đuôi tiêu đề (từ khoá)",
       help="Nối sau tiêu đề truyện khi còn chỗ: «Thỏ Trắng và chiếc mền nảy tưng tưng | Truyện kể bé nghe, học tiếng Anh» (tiêu đề "
-           "YouTube tối đa 100 ký tự kể cả #Shorts). 0 = không nối.", validate=_max_len("KIDS_TITLE_TAG", 60), live=True),
+           "YouTube tối đa 100 ký tự; 1.6.2: tiêu đề không còn gắn #Shorts). 0 = không nối.", validate=_max_len("KIDS_TITLE_TAG", 60), live=True),
     S("KIDS_CTA", "Theo dõi {name} để mai nghe truyện mới nha!", "kids", "Lời kêu gọi cuối video",
       help="Người kể đọc thay câu «Hẹn gặp lại bé ở chuyện sau» sau phần ôn từ, in dưới bảng «Hôm nay bé học» và vào mô tả bài "
            "đăng. {name} = tên kênh. Ngắn thôi: video tối đa 88 giây. 0 = tắt (đọc câu hẹn gặp như cũ).",
@@ -698,7 +708,7 @@ DISPLAY_ORDER: tuple[str, ...] = (
     "AUTO_POST_VERSION", "AUTO_SKIP_ADS", "AUTO_MIN_HEIGHT", "TIKTOK_KIT",
     "AUTO_PLATFORMS", "AUTO_SOURCES", "AUTO_TIKTOK_SOURCES", "ALLOWED_USERS", "ADMIN_CHAT_ID", "NOTIFY_JOBS",
     "ALLOWED_SOURCES", "ZOOM_APP_TYPE", "ZOOM_ALLOWED_USERS", "ZOOM_ADMIN",
-    "KIDS_AUTO", "KIDS_TIMES", "KIDS_YT_TIMES", "KIDS_WEEKLY", "KIDS_WEEKLY_MAX", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
+    "KIDS_AUTO", "KIDS_TIMES", "KIDS_YT_TIMES", "KIDS_YT_MADE_FOR_KIDS", "KIDS_WEEKLY", "KIDS_WEEKLY_MAX", "KIDS_FB_PAGE_ID", "KIDS_FB_PAGE_TOKEN", "KIDS_YT_REFRESH_TOKEN", "KIDS_TIKTOK_KIT",
     "KIDS_VOICE", "KIDS_MULTI_VOICE", "KIDS_EN_VOICE", "KIDS_IMAGE_MODEL", "KIDS_LORA", "KIDS_IMAGE_CHECK",
     "KIDS_LLM_PROVIDER", "KIDS_GEMINI_MODEL", "KIDS_GEMINI_REVISE_MODEL", "KIDS_GEMINI_THINKING",
     "KIDS_LLM_PATTERN", "KIDS_LLM_HF", "KIDS_LLM_THINK", "KIDS_KAGGLE_SOURCES", "KIDS_CHANNEL_NAME", "KIDS_WORLD_NAME",

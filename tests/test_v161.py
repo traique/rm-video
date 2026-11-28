@@ -33,7 +33,7 @@ def test_default_order_and_counts_per_platform():
     fb = _section(post, "Facebook")
     assert fb.rstrip().endswith(" ".join(tags[:6])) and len(re.findall(r"#\w+", fb)) == 6
     yt = _section(post, "YouTube Shorts")
-    assert len(re.findall(r"#\w+", yt)) == 13 <= prompt_engine.YT_HASHTAG_MAX          # #Shorts + 12 thẻ
+    assert len(re.findall(r"#\w+", yt)) == 12 <= prompt_engine.YT_HASHTAG_MAX          # 12 thẻ (1.6.2: bỏ #Shorts)
     assert "🔎 truyện cho bé, truyện kể bé nghe, phim hoạt hình cho bé" in fb and "mẹ và bé" in yt
     tt = _section(post, "TikTok")
     assert re.findall(r"#\w+", tt)[:4] == tags[:4]
@@ -43,7 +43,7 @@ def test_youtube_never_exceeds_15_hashtags():
     caption = "Mô tả có sẵn #a #b #c #d #e"
     tags = " ".join(f"#t{i}" for i in range(20))
     yt = _section(prompt_engine.platform_post("Tiêu đề", caption, tags, fb_tags=6, yt_tags=12), "YouTube Shorts")
-    assert len(re.findall(r"#\w+", yt)) == prompt_engine.YT_HASHTAG_MAX                 # 1 + 5 + 9
+    assert len(re.findall(r"#\w+", yt)) == prompt_engine.YT_HASHTAG_MAX                 # 5 + 10
     crowded = " ".join(f"#c{i}" for i in range(20))
     yt2 = _section(prompt_engine.platform_post("T", crowded, tags, yt_tags=12), "YouTube Shorts")
     assert "#t0" not in yt2                                                            # caption đã quá 15: không thêm
@@ -53,7 +53,7 @@ def test_cook_channel_keeps_3_and_8():
     tags = " ".join(f"#m{i}" for i in range(12))
     post = prompt_engine.platform_post("Gà rang", "Ngon lắm", tags)
     assert len(re.findall(r"#\w+", _section(post, "Facebook"))) == 3
-    assert len(re.findall(r"#\w+", _section(post, "YouTube Shorts"))) == 9                # #Shorts + 8
+    assert len(re.findall(r"#\w+", _section(post, "YouTube Shorts"))) == 8                # 8 (1.6.2: bỏ #Shorts)
 
 
 def test_custom_hashtags_without_placeholders_keep_old_order():

@@ -209,10 +209,12 @@ def test_end_card_keeps_the_dish_bright_and_logo_clears_app_buttons():
 def test_long_full_version_is_not_labelled_youtube_shorts():
     from rmvideo.app.flow import common
     post = prompt_engine.platform_post("Mực hấp gừng", "Ngon lắm", "#muc #monngon")
-    assert "▶ YouTube Shorts:" in post and "#Shorts" in post
+    assert "▶ YouTube Shorts:" in post and "#Shorts" not in post                    # 1.6.2: tiêu đề không gắn #Shorts
     long = common.post_for_length(post, 188.39)
     assert "YouTube Shorts" not in long and "#Shorts" not in long and "đăng bản ngắn" in long
     assert common.post_for_length(post, 89.0) == post and common.post_for_length("", 200.0) == ""
+    old = post.replace("▶ YouTube Shorts:\nMực hấp gừng", "▶ YouTube Shorts:\nMực hấp gừng #Shorts")   # bài làm trước 1.6.2
+    assert "#Shorts" not in common.post_for_length(old, 188.39)
 
 
 def test_low_ram_machine_renders_720p(monkeypatch, tmp_path):
