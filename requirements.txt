@@ -1,0 +1,21 @@
+# Phiên bản ghim theo khoảng đã kiểm ngày 10/11/2026 (xem CHANGELOG.md).
+# pip tự chọn bản mới nhất còn hỗ trợ phiên bản Python của máy.
+#
+# yt-dlp: extras default = yt-dlp-ejs (mã giải JS của YouTube), curl-cffi = giả lập trình duyệt cho TikTok.
+# KHÔNG kèm deno (bộ chạy JavaScript YouTube cần, ~96MB cài + 42MB tải): ổ Botkeep 2GB từng đầy ngay lúc pip tải
+# deno. Cần YouTube thì gõ lệnh console `setup_youtube` (cài deno vào tools/). Cập nhật yt-dlp hằng tuần bằng lệnh
+# console `update_ytdlp` (chỉ giữ bản mới nếu yt_test qua).
+yt-dlp[default,curl-cffi]
+aiogram>=3.20,<4
+aiohttp>=3.9,<4
+edge-tts>=7.2,<8
+# google-genai: đã kiểm với key thật trên 2.34 và 3.0.0 (3.0 đổi API mặc định sang v1, client HTTP sang httpx2;
+# riêng bóc lời gemini-3.5-transcribe vẫn gọi v1beta). Python 3.10 thì pip tự chọn bản 2.x.
+google-genai>=1.0,<4
+pydantic>=2,<3                  # schema JSON cho Gemini (prompt_engine, hooks, pitch); google-genai cũng kéo theo
+static-ffmpeg>=2.5,<4
+numpy>=1.26,<3
+requests>=2.31,<3
+onnxruntime>=1.17,<2
+# Plugin PO token cho yt-dlp. Bản server do lệnh `setup_potoken` build theo ĐÚNG phiên bản này.
+bgutil-ytdlp-pot-provider==2.0.2

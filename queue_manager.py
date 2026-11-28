@@ -1,0 +1,364 @@
+import asyncio
+import itertools
+import json
+import logging
+import os
+import re
+import secrets
+import sqlite3
+import time
+from dataclasses import asdict, dataclass, field
+
+import config
+from rmvideo.app import db, events
+from rmvideo.domain import job as job_vocab
+
+_ids = itertools.count(1)
+
+
+class QueueFull(Exception):
+    pass
+
+
+_MISSING = object()
+# trường hiện trên web/Telegram: đổi là báo bus sự kiện (SSE gửi ngay, không phải hỏi lại mỗi giây)
+_WATCHED = frozenset({"status", "step", "error", "script", "post", "hook", "output", "srt", "final_segments",
+                      "approved", "parts", "out_dur", "started_at", "finished_at"})
+
+
+@dataclass
+class Job:
+    url: str                  # "" nếu input là file đính kèm
+    mode: str                 # rmvideo.domain.job.Mode: cook | review | music | photo | download
+    duration: int             # 0 = giữ nguyên, hoặc 30/60/90 giây
+    voice: str
+    subs: bool = True
+    cover: bool = True
+    long_mode: str = ""       # rmvideo.domain.job.LongMode: "" | full | split60 | split90 | highlight
+    local: str = ""           # đường dẫn file upload qua web
+    tg_file_id: str = ""      # file_id video gửi kèm qua Telegram
+    music_url: str = ""       # chế độ music: link nhạc mới
+    music_local: str = ""     # chế độ music: file nhạc upload qua web
+    music_tg_file_id: str = ""  # chế độ music: file nhạc gửi qua Telegram
+    title_hint: str = ""      # tên file/caption gốc làm ngữ cảnh cho AI
+    source: str = "tg"        # rmvideo.domain.job.Source: tg | web | auto | zoom
+    chat_id: int = 0
+    zoom: dict = field(default_factory=dict)   # job từ Zoom: nơi trả lời {to, account, user} (bản 1.0.0)
+    id: int = field(default_factory=lambda: next(_ids))
+    status: str = "queued"    # rmvideo.domain.job.Status
+    step: str = ""
+    error: str = ""
+    script: str = ""
+    post: str = ""      # content đăng bài: tiêu đề + caption + hashtag
+    output: str = ""          # file kết quả giữ lại cho web tải về
+    created: float = field(default_factory=time.time)
+    dl_token: str = field(default_factory=lambda: secrets.token_urlsafe(16))
+    parts: list = field(default_factory=list)   # [{"label", "path", "token"}] các file kết quả cho web
+    quality: str = ""         # trình tải: mp3 | 2160..360 | "" (tốt nhất)
+    cancel: bool = False      # người dùng bấm hủy
+    review: bool = False      # dừng sau khi AI viết lời để người dùng duyệt/sửa rồi mới render
+    approved: list = field(default_factory=list)  # kịch bản đã duyệt [{i,start,slot,span,text}] -> bỏ qua bước AI
+    started_at: float = 0.0
+    finished_at: float = 0.0
+    out_dur: float = 0.0      # thời lượng video đang làm (để ước tính thời gian)
+    timeline: list = field(default_factory=list)  # [(bước, thời điểm)] đo thời gian từng bước
+    attempts: int = 0         # số lần đã chạy (bot khởi động lại giữa chừng thì chạy lại, tối đa MAX_ATTEMPTS)
+    source_meta: dict = field(default_factory=dict)   # kênh/uploader/link gốc để ghi nguồn + xử lý khiếu nại
+    final_segments: list = field(default_factory=list)   # timeline cuối (xuất timeline.json)
+    srt: str = ""             # phụ đề SRT của video ra (nhập vào CapCut/Premiere để sửa tay)
+    cut_at: float = 0.0       # mốc cắt đoạn quảng cáo cuối đã quyết ở lượt viết kịch bản (áp lại khi render bản duyệt)
+    pieces: list = field(default_factory=list)   # chế độ đoạn hay: các đoạn AI đã chọn (chạy lại thì giữ nguyên)
+    images: list = field(default_factory=list)   # chế độ 📸 ảnh + nhạc: ảnh tải lên qua web (đường dẫn)
+    tg_images: list = field(default_factory=list)   # ... hoặc file_id ảnh gửi qua Telegram
+    music_mix: str = ""       # chế độ 🎵: "" = thay nhạc + khớp beat; "bg" = làm nhạc nền, giữ tiếng gốc
+    no_autopost: str = ""     # lý do KHÔNG được tự đăng Fanpage (AI lỗi -> kịch bản mẫu, lời mới gần như chép lời gốc)
+    remote_src: dict = field(default_factory=dict)   # Kaggle: đầu vào dựng sẵn (phần cắt từ video dài: tải nguồn + cắt)
+    post_keep: str = ""       # nội dung đăng đã có trước khi làm lại một phần trên Botkeep
+    hook: str = ""            # chữ hook AI viết (3-7 chữ IN HOA), in lên màn hình 3 giây đầu + ảnh bìa
+    hook_kind: str = ""       # kiểu câu hook đã chọn (rmvideo/app/flow/hooks.py KINDS) để so với lượt xem
+    teaser: dict = field(default_factory=dict)   # đoạn mở đầu đã quyết {"a", "dur", "still", "t", "cover"} (bản duyệt dùng lại)
+    edit: dict = field(default_factory=dict)     # kế hoạch dựng đã quyết (REMAKE_STYLE, rmvideo/media/edl.py; bản duyệt dùng lại)
+    recipe: dict = field(default_factory=dict)   # món + định lượng đã đối chiếu với lời gốc (rmvideo/domain/recipe.py)
+    brief: dict = field(default_factory=dict)    # 🧸 truyện bé: đề đã chọn {lesson, setting, conflict, words, main, seed}
+
+    def __setattr__(self, name, value):
+        old = self.__dict__.get(name, _MISSING)
+        object.__setattr__(self, name, value)
+        if old is _MISSING or name not in _WATCHED or old == value:
+            return                                   # lúc khởi tạo / trường nội bộ / không đổi: im lặng
+        if name == "step":
+            events.step_changed(self, value)         # ghi timeline, chép tiến độ phần con lên job cha (tức thì)
+        events.changed()
+
+    def note(self, text: str):
+        """Thêm ghi chú cho người dùng (ℹ️/⚠️) vào cuối — KHÔNG bao giờ gán đè ghi chú đã có."""
+        if text:
+            self.error = (self.error or "") + text
+
+
+# Gom các bước (chữ hiển thị thay đổi theo số đoạn, phần trăm tải...) thành các GIAI ĐOẠN cố định để xem job
+# chậm ở đâu. Thứ tự: khớp mẫu đầu tiên. Bước chờ duyệt không tính (đó là thời gian của người dùng).
+PHASES = [
+    (re.compile(r"^(Tải|Nhận file|Dùng file)"), "Tải/nhận nguồn"),
+    (re.compile(r"^Tìm điểm cắt|^Chấm điểm đoạn hay|: cắt \d"), "Tìm & cắt phần"),
+    (re.compile(r"^Bóc lời|^Kéo dài|^Dò beat"), "Bóc lời + phân tích hình"),
+    (re.compile(r"^AI đọc công thức"), "AI hiểu món"),
+    (re.compile(r"^AI chọn cảnh"), "AI chọn cảnh mở đầu"),
+    (re.compile(r"^Lập kế hoạch dựng"), "Lập kế hoạch dựng"),
+    (re.compile(r"^(Viết|AI xem|Bản ngắn: AI viết)"), "AI viết kịch bản"),
+    (re.compile(r"^Rút gọn"), "AI rút gọn"),
+    (re.compile(r"^(Đọc giọng|Giọng \d)"), "Đọc giọng + phụ đề"),
+    (re.compile(r"^Chờ tách giọng"), "Chờ tách giọng gốc"),
+    (re.compile(r"^Render|^Dựng ảnh"), "Render"),
+    (re.compile(r"^Phân tích nhạc|^Chọn đoạn nhạc"), "Phân tích nhạc"),
+    (re.compile(r"^Tạo ảnh bìa"), "Ảnh bìa"),
+    (re.compile(r"^Gửi"), "Gửi kết quả"),
+    (re.compile(r"^Kaggle"), "Kaggle: đọc giọng + dựng"),
+]
+_PART = re.compile(r"^Phần \d+/\d+: |^Đoạn hay \d+/\d+: ")
+
+
+def phase_of(step: str) -> str | None:
+    if not step or step.startswith("Chờ bạn duyệt"):
+        return None
+    if _PART.match(step) and ": cắt " not in step:
+        step = _PART.sub("", step, count=1)
+    for rx, name in PHASES:
+        if rx.search(step):
+            return name
+    return "Khác"
+
+
+def phase_times(timeline: list, end: float) -> list:
+    """timeline [(bước, giây từ lúc bắt đầu)] + mốc kết thúc -> [{"name", "secs"}] theo thứ tự xuất hiện,
+    cộng dồn các bước cùng giai đoạn (video cắt nhiều phần: cộng mọi phần)."""
+    out: dict = {}
+    pts = [(s, float(t)) for s, t in timeline if s]
+    for k, (step, t) in enumerate(pts):
+        nxt = pts[k + 1][1] if k + 1 < len(pts) else max(end, t)
+        name = phase_of(step)
+        if name:
+            out[name] = out.get(name, 0.0) + max(0.0, nxt - t)
+    return [{"name": n, "secs": round(v, 1)} for n, v in out.items() if v >= 0.05]
+
+
+DB_PATH = db.jobs_db_path()
+MAX_ATTEMPTS = 2            # job đang chạy lúc bot chết: chạy lại 1 lần (lần nữa thì báo lỗi, tránh vòng lặp chết)
+KEEP_IN_MEMORY = 30         # số job đã XONG giữ trong bộ nhớ cho web; job đang chờ/chạy/chờ duyệt luôn được giữ
+ACTIVE = tuple(s.value for s in job_vocab.ACTIVE)
+REVIEW_TTL = 24 * 3600      # job chờ duyệt quá 24 giờ thì hết hạn, xoá file nguồn giữ lại
+
+
+def inputs_available(d: dict) -> bool:
+    """Job còn đủ đầu vào để chạy lại không (link, file Telegram, hoặc file tải lên còn trên đĩa)."""
+    if d.get("mode") == "kids":                   # không có đầu vào: model tự viết truyện (đề nằm trong job.brief)
+        return True
+    if d.get("mode") == "photo":
+        imgs_ok = bool(d.get("tg_images")) or (bool(d.get("images")) and all(os.path.exists(p) for p in d["images"]))
+        music_ok = bool(d.get("music_url") or d.get("music_tg_file_id")) or (
+            bool(d.get("music_local")) and os.path.exists(d["music_local"]))
+        return imgs_ok and music_ok
+    if d.get("local"):
+        return os.path.exists(d["local"])
+    return bool(d.get("url") or d.get("tg_file_id"))
+
+
+class JobQueue:
+    """Hàng đợi tuần tự: 1 worker duy nhất, không bao giờ render 2 video cùng lúc.
+    Lịch sử job lưu SQLite (jobs.db) nên sống qua restart: job đang chờ được chạy tiếp, job đang chạy dở
+    được chạy lại một lần, job chờ duyệt vẫn duyệt được. Bảng steps ghi thời gian từng bước của mỗi job."""
+
+    def __init__(self, db_path: str | None = None):
+        self._q = asyncio.Queue()
+        self.jobs: dict[int, Job] = {}   # lịch sử job cho web panel
+        self.pending = 0                 # số job đang chờ + đang chạy
+        self._db = db.connect(db_path or DB_PATH)          # WAL + busy_timeout (rmvideo/app/db.py)
+        self._db.execute("CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, data TEXT)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS steps (job_id INTEGER, step TEXT, start REAL, end REAL)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS sources (job_id INTEGER, created REAL, source_url TEXT, "
+                         "uploader TEXT, output TEXT, label TEXT)")
+        self._db.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v INTEGER)")
+        self._db.commit()
+        self.restored: list[Job] = []    # job được đưa lại vào hàng đợi lúc khởi động (để báo người dùng)
+        self._forgotten: set[int] = set()  # job đã xoá bằng nút Xóa trên web
+        self._load()
+
+    def _rows(self) -> list:
+        """50 job gần nhất + MỌI job còn dở (chờ/chạy/chờ duyệt) dù cũ hơn: không được bỏ rơi job nào."""
+        rows = dict(self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC LIMIT 50").fetchall())
+        try:
+            rows.update(self._db.execute(
+                "SELECT id, data FROM jobs WHERE json_extract(data, '$.status') IN ('queued', 'processing', 'review')"
+            ).fetchall())
+        except sqlite3.Error:                     # SQLite thiếu JSON1: chỉ còn 50 job gần nhất như cũ
+            pass
+        return sorted(rows.items(), reverse=True)
+
+    def _load(self):
+        global _ids
+        max_id, again = 0, []
+        for _jid, data in self._rows():
+            try:
+                d = json.loads(data)
+                st0 = st = d.get("status")
+                if st == "processing":                     # đang chạy dở lúc bot chết
+                    d["attempts"] = int(d.get("attempts", 0)) + 1
+                    st = "queued" if d["attempts"] < MAX_ATTEMPTS else "error"
+                    if st == "error":
+                        d["error"] = "Bot khởi động lại giữa chừng 2 lần ở job này, đã dừng để tránh lặp lỗi."
+                if st == "queued" and d.get("cancel"):           # đã bấm huỷ trước khi bot khởi động lại
+                    st, d["error"] = "cancelled", "Đã hủy trước khi chạy."
+                if st == "queued" and not inputs_available(d):
+                    st, d["error"] = "error", "Bot khởi động lại và file tải lên không còn, hãy gửi lại."
+                d["status"] = st
+                if st == "queued":
+                    d["step"] = "Chạy tiếp sau khi bot khởi động lại"
+                d["parts"] = [p for p in d.get("parts", []) if os.path.exists(p.get("path", ""))]
+                job = Job(**{k: v for k, v in d.items() if k in Job.__dataclass_fields__})
+                self.jobs[job.id] = job
+                max_id = max(max_id, job.id)
+                if st == "queued":
+                    again.append(job)
+                elif st != st0:
+                    self.save(job)                # trạng thái mới (lỗi) phải vào DB, không thì lần sau lại xét lại
+            except Exception:
+                continue
+        _ids = itertools.count(max(max_id, self._max_issued()) + 1)
+        for job in sorted(again, key=lambda j: j.id):
+            self.pending += 1
+            self._q.put_nowait(job)
+            self.save(job)
+        self.restored = again
+
+    def save(self, job: Job):
+        if job.id in self._forgotten:            # vừa bấm Xóa lúc job lỗi / huỷ đang gửi thông báo: không ghi lại dòng
+            return
+        try:
+            self._db.execute("INSERT OR REPLACE INTO jobs (id, data) VALUES (?, ?)",
+                             (job.id, json.dumps(asdict(job), ensure_ascii=False)))
+            self._db.commit()
+        except Exception:
+            logging.exception("Không lưu được job %s", job.id)
+        events.changed()                             # vd phần kết quả mới (job.parts.append không qua __setattr__)
+
+    def _evict(self):
+        """Giữ KEEP_IN_MEMORY job đã xong gần nhất; KHÔNG bao giờ bỏ job đang chờ/chạy/chờ duyệt
+        (trước đây job chờ duyệt bị đẩy khỏi bộ nhớ sau 30 job mới là không duyệt được nữa)."""
+        done = sorted(j for j, job in self.jobs.items() if job.status not in ACTIVE)
+        for old in done[:-KEEP_IN_MEMORY]:
+            self.jobs.pop(old, None)
+
+    def put(self, job: Job, force: bool = False) -> int:
+        """force=True: job đã duyệt kịch bản được vượt giới hạn hàng đợi (người dùng đã chờ, không được mất)."""
+        if self.pending >= config.MAX_QUEUE and not force:
+            raise QueueFull(f"Hàng đợi đã đầy ({config.MAX_QUEUE} video), thử lại sau.")
+        self.pending += 1
+        self.jobs[job.id] = job
+        self._evict()
+        self._q.put_nowait(job)
+        self.save(job)
+        return self.pending
+
+    async def get(self) -> Job:
+        return await self._q.get()
+
+    def done(self):
+        self.pending -= 1
+        self._q.task_done()
+
+    def review_job_for(self, chat_id: int) -> Job | None:
+        """Job Telegram mới nhất của chat đang chờ duyệt (lưu trong jobs nên sống qua restart)."""
+        js = [j for j in self.jobs.values() if j.status == "review" and j.source == "tg" and j.chat_id == chat_id]
+        return max(js, key=lambda j: j.id) if js else None
+
+    def expire_reviews(self, now: float | None = None) -> list:
+        """Job chờ duyệt quá REVIEW_TTL: hết hạn, xoá file nguồn đang giữ. Trả về các job vừa hết hạn."""
+        now = now or time.time()
+        out = []
+        for job in list(self.jobs.values()):
+            if job.status == "review" and now - (job.finished_at or job.created) > REVIEW_TTL:
+                job.status, job.step = "error", ""
+                job.error = "Hết hạn duyệt kịch bản (24 giờ), hãy gửi lại video."
+                if job.local and os.path.exists(job.local):
+                    os.remove(job.local)
+                self.save(job)
+                out.append(job)
+        return out
+
+    def _max_issued(self) -> int:
+        """Mã job lớn nhất từng cấp (kể cả job đã xoá bằng nút Xóa): mã mới không bao giờ trùng mã cũ — YouTube / TikTok
+        chống đăng trùng theo «kênh:mã job», nhật ký nguồn bản quyền ghi theo mã job (rà soát 25/11)."""
+        try:
+            got = [self._db.execute(q).fetchone()[0] or 0 for q in (
+                "SELECT v FROM meta WHERE k = 'max_id'", "SELECT MAX(id) FROM jobs", "SELECT MAX(job_id) FROM sources",
+                "SELECT MAX(job_id) FROM steps")]
+            return max(int(x) for x in got)
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _parse(jid: int, data) -> dict:
+        try:
+            d = json.loads(data) if data else None
+        except (TypeError, ValueError):
+            d = None
+        return d if isinstance(d, dict) else {"id": jid, "status": "error"}
+
+    def all_saved(self) -> list[dict]:
+        """Mọi job trong jobs.db (kể cả job cũ không còn trong bộ nhớ), mới nhất trước; dòng hỏng thành {id, error}."""
+        return [{**self._parse(jid, data), "id": jid}
+                for jid, data in self._db.execute("SELECT id, data FROM jobs ORDER BY id DESC").fetchall()]
+
+    def saved(self, jid: int) -> dict | None:
+        row = self._db.execute("SELECT id, data FROM jobs WHERE id = ?", (jid,)).fetchone()
+        return {**self._parse(row[0], row[1]), "id": row[0]} if row else None
+
+    def forget(self, ids: list[int]) -> None:
+        """Bỏ job khỏi danh sách web và jobs.db (bảng jobs + steps). Nhật ký nguồn (sources) giữ lại để xử lý khiếu nại
+        bản quyền. Không đụng job đang chờ / chạy / chờ duyệt (nơi gọi đã lọc)."""
+        if not ids:
+            return
+        for jid in ids:
+            self.jobs.pop(jid, None)
+        self._forgotten.update(ids)
+        try:
+            top = max(self._max_issued(), *ids)
+            self._db.execute("INSERT OR REPLACE INTO meta (k, v) VALUES ('max_id', ?)", (top,))
+            marks = ",".join("?" * len(ids))
+            self._db.execute(f"DELETE FROM jobs WHERE id IN ({marks})", ids)
+            self._db.execute(f"DELETE FROM steps WHERE job_id IN ({marks})", ids)
+            self._db.commit()
+        except Exception:
+            logging.exception("Không xoá được job %s khỏi jobs.db", ids)
+        events.changed()
+
+    def compact(self) -> None:
+        """Thu nhỏ jobs.db sau khi xoá nhiều (VACUUM); lỗi thì thôi."""
+        try:
+            self._db.execute("VACUUM")
+        except Exception as e:
+            logging.info("Không thu nhỏ được jobs.db: %s", str(e)[:120])
+
+    def log_steps(self, job: Job):
+        """timeline [(bước, giây từ lúc bắt đầu)] -> bảng steps (bước, bắt đầu, kết thúc)."""
+        tl = [(s, float(t)) for s, t in job.timeline if s]
+        if not tl:
+            return
+        ends = [t for _, t in tl[1:]] + [max(tl[-1][1], (job.finished_at or time.time()) - (job.started_at or 0))]
+        try:
+            self._db.executemany("INSERT INTO steps (job_id, step, start, end) VALUES (?, ?, ?, ?)",
+                                 [(job.id, s, t, e) for (s, t), e in zip(tl, ends)])
+            self._db.commit()
+        except Exception:
+            logging.exception("Không ghi được bảng steps")
+
+    def log_source(self, job: Job, output: str, label: str):
+        """Nhật ký link nguồn <-> video ra, để xử lý khiếu nại bản quyền."""
+        meta = job.source_meta or {}
+        try:
+            self._db.execute("INSERT INTO sources VALUES (?, ?, ?, ?, ?, ?)",
+                             (job.id, time.time(), meta.get("webpage_url") or job.url or job.title_hint,
+                              meta.get("uploader") or "", os.path.basename(output), label))
+            self._db.commit()
+        except Exception:
+            logging.exception("Không ghi được nhật ký nguồn")

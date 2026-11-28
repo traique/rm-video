@@ -1,0 +1,31 @@
+{
+  "about": "Sổ giọng Bếp Đong Đủ: cặp «lời gốc -> lời kênh» để AI học CÁCH VIẾT (độ dài, từ nối, nhịp, kết câu đổi qua lại). Mỗi lần viết lời lấy 6 cặp (xoay vòng theo video). Sửa / thêm cặp ở đây; kind: hook | action | wait | tip | plate | react | recap | close.",
+  "examples": [
+    {"kind": "hook", "orig": "Hôm nay mình sẽ hướng dẫn mọi người làm món cá kho tộ đậm đà đưa cơm nha",
+     "new": "Cá kho tộ keo lại sóng sánh vầy nè, ăn với chén cơm trắng là hết nồi luôn."},
+    {"kind": "hook", "orig": "Gà chiên nước mắm giòn rụm nè mọi người, nhìn là thèm luôn á",
+     "new": "Cánh gà chiên nước mắm giòn rụm, cắn một miếng là nghe rộp rộp liền."},
+    {"kind": "action", "orig": "rồi mọi người bỏ trong này là nửa muỗng bột ngọt, nửa muỗng đường, nửa muỗng hạt nêm",
+     "new": "Giờ mình nêm vô nồi nửa muỗng bột ngọt, nửa muỗng đường, thêm nửa muỗng hạt nêm nữa."},
+    {"kind": "action", "orig": "cho vào đây 2 muỗng nước mắm, 1 muỗng đường, rồi khuấy cho nó tan",
+     "new": "Rồi mình cho 2 muỗng nước mắm với 1 muỗng đường, khuấy đều tay cho tan hết."},
+    {"kind": "action", "orig": "bây giờ mình đổ cái phần thịt này vào chảo, đảo đều lên cho nó săn lại",
+     "new": "Tới đây mình trút thịt vô chảo, đảo đều tay cho thịt săn lại."},
+    {"kind": "wait", "orig": "rồi mình đậy nắp lại, để lửa nhỏ khoảng 15 phút",
+     "new": "Giờ đậy nắp lại, hạ lửa nhỏ, để yên chừng 15 phút là được."},
+    {"kind": "tip", "orig": "mực đông mà anh chị xả đá ra xong bỏ vô luộc lại là nó sẽ bị teo, nó không ngon, nó bị mắc nước",
+     "new": "Mực đông mà đem rã đá trước rồi mới luộc là thịt teo lại, ngậm nước, ăn mất ngon liền."},
+    {"kind": "tip", "orig": "mọi người nhớ là phải để dầu thật nóng rồi mới cho vào, không là nó ngấm dầu",
+     "new": "Nhớ chờ dầu nóng già rồi mới thả vô, dầu còn nguội là đồ chiên ngấm dầu, ăn ngán lắm."},
+    {"kind": "plate", "orig": "nè lúc này mọi người thấy không cái mực của mình nó rất là đẹp luôn nha các nhà",
+     "new": "Nhìn dĩa mực nè, con nào con nấy nguyên vẹn, bóng đẹp hết trơn."},
+    {"kind": "plate", "orig": "xong rồi mình múc ra tô, rắc thêm ít hành lá với tiêu lên",
+     "new": "Xong múc ra tô, rắc chút hành lá với tiêu lên, nhìn hấp dẫn ghê."},
+    {"kind": "react", "orig": "ôi ngon quá mọi người ơi, thịt mềm lắm luôn",
+     "new": "Thịt mềm rục luôn, gắp một miếng là muốn ăn thêm miếng nữa."},
+    {"kind": "recap", "orig": "Tóm lại: ướp thịt, chiên vàng, kho với nước dừa, rắc tiêu.",
+     "new": "Tóm lại là ướp thịt cho thấm, chiên vàng mặt, kho với nước dừa rồi rắc tiêu là xong."},
+    {"kind": "close", "orig": "Vậy là đã xong món cá kho rồi, chúc cả nhà thành công nha",
+     "new": "Vậy là xong nồi cá kho tộ rồi đó, chúc cả nhà vô bếp thành công."}
+  ]
+}

@@ -1,0 +1,258 @@
+"""Worker duy nhất chạy hàng đợi: hạn giờ co giãn, huỷ, dọn file, học tốc độ máy để ước tính thời gian."""
+import asyncio
+import logging
+import os
+import tempfile
+import time
+
+import cache
+import config
+import kaggle_worker
+from queue_manager import Job, phase_times
+from rmvideo.app import context, events, notifier
+from rmvideo.media import proc
+from pipeline import run_job
+from review import OST_TAG, REVIEW_HELP
+from state import current, notify, queue
+from storage import _size_mb, disk_report, pick_workdir
+
+JOB_TIMEOUT = {"": 25 * 60, "full": 3 * 3600, "split60": 3 * 3600, "split90": 3 * 3600, "highlight": 2 * 3600}
+
+
+async def worker():
+    """Worker duy nhất (concurrency = 1). Mỗi job có timeout toàn cục và hủy được;
+    hủy hoặc quá hạn thì giết mọi FFmpeg/tách giọng đang chạy, không để kẹt hàng đợi."""
+    while True:
+        job = await queue.get()
+        try:
+            await _run_one(job)
+        except Exception:                        # lưới cuối: lỗi gì cũng không được giết worker
+            logging.exception("Worker lỗi ngoài dự kiến ở job %s", job.id)
+            if job.status == "processing":
+                job.status, job.error = "error", "Lỗi nội bộ, xem log."
+                queue.save(job)
+            queue.done()
+
+
+def _drop_inputs(job: Job):
+    """Xoá file đầu vào job đang giữ (file tải lên, nguồn giữ lại để duyệt, nhạc tải lên)."""
+    for leftover in (job.local, job.music_local, *job.images):
+        if leftover and os.path.exists(leftover):
+            try:
+                os.remove(leftover)
+            except OSError:
+                logging.warning("Không xoá được %s", leftover)
+
+
+
+class _OverBudget(Exception):
+    """Job chạy quá ngân sách thời gian (jobs.job_budget): huỷ và báo người dùng."""
+
+async def _run_one(job: Job):
+    """Chạy một job. Cài đặt ảnh hưởng tới cách dựng không đổi giữa chừng job (config.hold): lưu từ web trong lúc này
+    thì áp dụng cho job kế tiếp."""
+    with config.hold():
+        await _run_one_held(job)
+
+
+async def _run_one_held(job: Job):
+    tg = job.source == "tg"
+    if job.cancel:
+        job.status, job.error = "cancelled", "Đã hủy trước khi chạy."
+        _drop_inputs(job)
+        queue.save(job)
+        queue.done()
+        return
+    # ước lượng chỗ cần: file nguồn x3 (nguồn + bản đang xử lý + kết quả) + 300MB cho tiếng, ảnh, phụ đề
+    src_mb = _size_mb(job.local) if job.local and os.path.exists(job.local) else 60
+    need = 300 + 3 * src_mb
+    workdir = pick_workdir(need)
+    if not workdir:
+        job.status, job.error = "error", f"Không đủ chỗ trống (cần ~{need}MB). {disk_report()}"
+        logging.error("Job %s: %s", job.id, job.error)
+        _drop_inputs(job)
+        queue.save(job)
+        queue.done()
+        # bản 1.0.0: trước đây job bị từ chối vì thiếu đĩa kết thúc im lặng (kể cả job Telegram)
+        await notifier.job_event(job, f"❌ Job #{job.id} lỗi: {job.error[:600]}")
+        return
+    job.status, job.started_at, job.timeline, job.error = "processing", time.time(), [], ""
+    queue.save(job)                                # trạng thái processing vào DB: chết giữa chừng thì chạy lại
+    current["job"] = job
+    shutting_down = False
+    keep_source = False                            # quyết NGAY khi job dừng ở bước duyệt, không đợi tới finally:
+    # người dùng có thể bấm duyệt trên web trong lúc còn đang gửi tin Telegram, lúc đó trạng thái đã thành
+    # "approved" mà job mới vẫn cần file nguồn
+    try:
+        if tg:
+            await notify(job.chat_id, f"⏳ Đang xử lý video #{job.id}... (gửi /cancel để hủy)")
+        elif job.source == "zoom":
+            await notifier.job_event(job, f"⏳ Đang xử lý video #{job.id}...", admin=False)
+        logging.info("Job %s: file tạm ở %s (cần ~%dMB) | %s", job.id, workdir, need, disk_report())
+        # mọi tiến trình con của job (kể cả trong luồng phụ) mang mã job: huỷ chỉ giết đúng chúng (proc.kill_owner)
+        # dữ liệu tạm theo job (ảnh thu nhỏ đã trích...) sống trong job_scope, bỏ khi job xong
+        def _record(step: str):                    # ghi từng bước + thời điểm để đo, ngay lúc bước đổi (bus sự kiện)
+            t = round(time.time() - job.started_at, 1)
+            job.timeline.append((step, t))
+            logging.info("Job %s [%4.0fs] %s", job.id, t, step)
+        if job.step:
+            _record(job.step)
+        with tempfile.TemporaryDirectory(prefix="rmv_", dir=workdir) as tmp, proc.owned_by(job.id), \
+                context.job_scope(), events.watch_steps(job, _record):      # rmv_: bị giết giữa chừng thì lần sau dọn
+            task = asyncio.create_task(run_job(job, tmp))
+            current["task"] = task
+            try:
+                while True:                       # hạn co giãn: biết độ dài video rồi thì nới ra cho đủ
+                    done, _ = await asyncio.wait({task}, timeout=5)
+                    if done:
+                        # dừng ở bước duyệt -> giữ file nguồn. Lấy từ kết quả task chứ không từ job.status: người
+                        # dùng có thể đã bấm duyệt trên web (status thành "approved") trước khi worker kịp xét
+                        keep_source = task.result() == "REVIEW"
+                        break
+                    if time.time() - job.started_at > job_budget(job):
+                        kaggle_worker.abort(park=True)  # phiên Kaggle đang chờ (nếu có) dừng theo, khỏi tốn giờ GPU (truyện bé: giữ chỗ)
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                        raise _OverBudget()
+            finally:
+                if not task.done():               # bot tắt giữa chừng: dừng hẳn job trước khi xoá thư mục tạm
+                    kaggle_worker.abort(park=True)  # truyện bé đang chờ GPU: giữ chỗ, chạy lại sau khởi động thì thu kết quả
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+        if keep_source:
+            if tg and job.status == "review":
+                lines = "\n".join(f"{s['i']}: {OST_TAG.get(s.get('ost', 'new'), '')}{s['text']}" for s in job.approved)
+                extra = "".join(f"\n{x}" for x in (f"🧾 {(job.recipe or {}).get('report', '')}",
+                                                    f"🎬 {(job.edit or {}).get('summary', '')}") if len(x) > 3)
+                await notify(job.chat_id, (f"📝 Kịch bản job #{job.id}:\n\n{lines[:3300]}\n{extra[:600]}\n\n"
+                                           + REVIEW_HELP))
+            elif job.status == "review":       # job web / Zoom / tự đăng: báo có kịch bản chờ duyệt trên web
+                where = notifier.web_link("/") or "web panel"
+                await notifier.job_event(job, f"📝 Kịch bản job #{job.id} đang chờ duyệt: mở {where} để sửa / duyệt.")
+        else:
+            job.status, job.step = "done", ""
+    except _OverBudget:            # KHÔNG bắt TimeoutError chung: lỗi mạng (tải file Telegram...) báo đúng nguyên nhân
+        proc.kill_owner(job.id)
+        if _parked_kids(job):      # truyện bé: Kaggle chưa xong trong hạn nhưng phiên giữ chỗ, kids_auto tự thu kết quả
+            job.status, job.error = "error", (f"Kaggle chưa xong sau {job_budget(job) // 60:.0f} phút ở bước «{job.step}»: "
+                                              "phiên vẫn giữ chỗ, bot theo dõi và tự thu kết quả khi xong")
+            logging.warning("Job %s quá hạn nhưng phiên Kaggle giữ chỗ: %s", job.id, job.step)
+            await notifier.job_event(job, f"⏳ Job #{job.id}: {job.error}")
+        else:
+            job.status, job.error = "error", (f"Quá thời gian cho phép ({job_budget(job) // 60:.0f} phút) ở bước "
+                                              f"«{job.step}», đã hủy. Thử chất lượng 'fast' hoặc video ngắn hơn.")
+            logging.error("Job %s quá hạn ở bước: %s | các bước: %s", job.id, job.step,
+                          " > ".join(f"{s}@{t:.0f}s" for s, t in job.timeline))
+            await notifier.job_event(job, f"❌ Job #{job.id} quá thời gian ở bước «{job.step}», đã hủy.")
+    except asyncio.CancelledError:
+        proc.kill_owner(job.id)
+        me = asyncio.current_task()
+        if me is not None and me.cancelling():
+            # Chính worker bị huỷ = bot đang tắt (SIGTERM khi Botkeep dừng/khởi động lại), KHÔNG phải người dùng bấm
+            # Hủy (nút Hủy chỉ huỷ task của job). Trước đây job bị ghi "Đã hủy theo yêu cầu" (không chạy lại được),
+            # file đầu vào bị xoá, còn worker nuốt tín hiệu huỷ rồi bốc tiếp job sau nên tiến trình không thoát.
+            # Giờ: giữ trạng thái "processing" + file đầu vào -> lần khởi động sau tự chạy lại (tối đa MAX_ATTEMPTS).
+            shutting_down = True
+            job.step = "Bot tắt giữa chừng, sẽ chạy lại khi khởi động"
+            logging.warning("Job %s dừng vì bot tắt, sẽ chạy lại khi khởi động", job.id)
+            raise
+        job.status, job.error = "cancelled", "Đã hủy theo yêu cầu."
+        await notifier.job_event(job, f"🛑 Đã hủy job #{job.id}.", admin=False)   # huỷ trên web: người huỷ đã biết
+    except Exception as e:
+        proc.kill_owner(job.id)
+        logging.exception("Job %s thất bại", job.id)
+        job.status, job.error, job.step = "error", str(e), ""
+        await notifier.job_event(job, f"❌ Job #{job.id} lỗi: {str(e)[:600]}")
+    finally:
+        job.finished_at = time.time()
+        current["job"], current["task"] = None, None
+        if not keep_source and not shutting_down:   # chờ duyệt / bot tắt giữa chừng: giữ file nguồn để chạy tiếp
+            _drop_inputs(job)
+        _learn_speed(job)
+        queue.log_steps(job)
+        if job.timeline and job.started_at and not shutting_down:
+            total = job.finished_at - job.started_at
+            logging.info("Job %s %s sau %.1f phút: %s", job.id, job.status, total / 60,
+                         " | ".join(f"{p['name']} {p['secs']:.0f}s" for p in phase_times(job.timeline, total)))
+        queue.save(job)
+        queue.done()
+
+
+def job_budget(job: Job) -> float:
+    """Hạn thời gian theo độ dài video và mức chất lượng (máy Botkeep 1.5 vCPU):
+    tối thiểu 25 phút; 95s balanced ≈ 41 phút; video dài tối đa 3 giờ."""
+    base = JOB_TIMEOUT.get(job.long_mode, 25 * 60)
+    if job.mode == "kids":                        # toàn bộ trên Kaggle: chờ máy + nạp 3 model + viết + vẽ + dựng
+        return kaggle_worker.KIDS_TIMEOUT + 10 * 60
+    if not job.out_dur:
+        return base
+    per_sec = {"fast": 14, "high": 40}.get(config.QUALITY, 22)
+    budget = min(3 * 3600, max(base, 600 + job.out_dur * per_sec * (1 if job.mode != "download" else 0.2)))
+    if kaggle_worker.is_enabled():                # chờ Kaggle (hàng chờ máy + chạy) rồi vẫn còn đủ giờ lùi về Botkeep
+        parts = max(1, int(job.out_dur // (90 if job.long_mode == "split90" else 60)) + 1) if job.long_mode else 1
+        budget += kaggle_worker.TIMEOUT + kaggle_worker.TIMEOUT_PER_EXTRA * (parts - 1)
+        if config.KAGGLE_ANALYZE != "0" and job.mode in ("cook", "review"):
+            budget += kaggle_worker.TIMEOUT_ANALYZE           # thêm phiên bóc lời + phân tích hình trên Kaggle
+    return budget
+
+
+def cancel_job(jid: int) -> str:
+    """Hủy job đang chờ hoặc đang chạy. Trả về thông báo."""
+    job = queue.jobs.get(jid)
+    if not job:
+        return "Không thấy job."
+    if job.status == "queued":
+        job.cancel = True
+        queue.save(job)                      # lưu ngay: khởi động lại không được chạy lại job đã huỷ
+        _unpark_kids(job)
+        return f"Job #{jid} sẽ bị bỏ qua khi tới lượt."
+    if job.status == "processing" and current["job"] is job and current["task"]:
+        current["task"].cancel()
+        kaggle_worker.abort()                  # phiên Kaggle đang chờ cho job này (nếu có) cũng bỏ, không giữ chỗ
+        _unpark_kids(job)
+        return f"Đang hủy job #{jid}..."
+    return f"Job #{jid} đã kết thúc ({job.status})."
+
+
+def _unpark_kids(job: Job) -> None:
+    """Huỷ job truyện bé: bỏ mục giữ chỗ Kaggle của nó (kể cả job thu kết quả), khỏi làm tiếp truyện đã huỷ."""
+    if job.mode != "kids":
+        return
+    try:
+        import kids_auto
+        kids_auto.unpark(int(((job.brief or {}).get("collect") or {}).get("job") or job.id))
+        kids_auto.unpark(job.id)
+    except Exception as e:
+        logging.warning("Không bỏ được mục giữ chỗ Kaggle của job %s (%s)", job.id, str(e)[:120])
+
+
+def _parked_kids(job: Job) -> bool:
+    try:
+        import kids_auto
+        return job.mode == "kids" and kids_auto.parked_info(job.id) is not None
+    except Exception:
+        return False
+
+
+SPEED_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "speed.json")
+
+
+def _learn_speed(job: Job):
+    """Học tốc độ máy: giây xử lý / giây video, để ước tính thời gian các job sau."""
+    if job.status != "done" or not job.out_dur or not job.started_at:
+        return
+    try:
+        d = cache.read_json_file(SPEED_FILE, {})       # tệp hỏng (chết giữa lúc ghi) -> {} rồi ghi đè, không kẹt mãi ở 6.0
+        key = "long" if job.long_mode else "normal"
+        ratio = (job.finished_at - job.started_at) / job.out_dur
+        d[key] = round(0.6 * d.get(key, ratio) + 0.4 * ratio, 1)
+        cache.write_json_file(SPEED_FILE, d)
+    except Exception:
+        pass
+
+
+def speed_ratio(long_mode: str) -> float:
+    try:
+        return cache.read_json_file(SPEED_FILE, {}).get("long" if long_mode else "normal", 6.0)
+    except Exception:
+        return 6.0

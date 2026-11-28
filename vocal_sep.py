@@ -1,0 +1,446 @@
+"""Tách giọng người khỏi tiếng nền bằng model MDX-Net (UVR, Kim_Vocal_2) chạy ONNX trên CPU.
+Không cần PyTorch: STFT/ISTFT viết bằng numpy. Model ~66MB tự tải lần đầu vào thư mục models/.
+Dùng cho chế độ nấu ăn: giữ tiếng xèo xèo, bỏ hẳn giọng người nói gốc.
+Phiên phân tích Kaggle (GPU): thử Mel-Band RoFormer trước (audio-separator, PyTorch), lỗi / quá giờ thì Kim_Vocal_2."""
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import subprocess
+import sys
+import urllib.request
+
+import numpy as np
+
+from rmvideo.media import proc
+
+_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+MODEL_NAME = "Kim_Vocal_2.onnx"
+MODEL_URL = ("https://github.com/TRvlvr/model_repo/releases/download/"
+             "all_public_uvr_models/" + MODEL_NAME)
+# SHA-256 của bản đã kiểm (66.759.214 byte, tải ngày 10/11/2026). File khác hash = bị thay/hỏng -> không chạy.
+MODEL_SHA256 = "ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b"
+_verified: set = set()
+N_FFT, HOP, DIM_F, DIM_T = 7680, 1024, 3072, 256
+FADE = 2048                                   # mẫu vuốt ở mép khúc (46ms ở 44.1kHz)
+SR = 44100
+_session = None
+# Mel-Band RoFormer giọng (Kimberley Jensen) cho phiên phân tích Kaggle GPU, qua audio-separator 0.48.0 (MIT). File 913MB,
+# SHA-256 87201f4d… = MelBandRoformer.ckpt ở huggingface.co/KimberleyJSN/melbandroformer, thẻ model ghi license MIT (kiểm
+# 20/11/2026); repo GitHub đi kèm không có file LICENSE, dữ liệu train (bộ cộng đồng) không công bố nguồn / giấy phép.
+# Đo 20/11 (giọng edge-tts + nền biết trước, 3 hỗn hợp 45s: nền thật / xèo tổng hợp / xèo nhỏ hơn giọng 25 dB; cửa sổ
+# 250ms như bản 32), so với Kim_Vocal_2 2 lượt + mặt nạ (Kaggle GPU trước đây): giọng gốc sót trong nền -46.5 / -56.6 /
+# -74.4 dB (Kim -46.6 / -57.3 / -69.2), tiếng xèo >3.5kHz lúc có lời mất 0.5 / 0.1 / 1.1 dB (Kim 0.8 / 0.5 / 1.8).
+# CPU ~145s máy cho 10s audio (một lượt Kim ~21s): chỉ chạy khi có GPU.
+ROF_MODEL = "vocals_mel_band_roformer.ckpt"
+ROF_OVERLAP = 2         # khúc 11s chồng nửa khúc (cấu hình model để 1: không chồng)
+ROF_MASK_K = 8.0        # mặt nạ mạnh hơn Kim (k=1): RoFormer k=1 sót hơn Kim 2 lượt 2-3 dB, k=8 ngang mà vẫn giữ xèo hơn
+ROF_TIMEOUT = 420.0     # tải + nạp + tách (T4 chưa đo, ước 1-2 phút cho 220s); phiên phân tích chỉ có 30 phút
+# 1.2.0: bỏ NHẠC gốc khỏi tiếng nền (rmvideo/media/stems.py, Bandit; trọng số CC BY-NC: SFX_SEP chỉ bật khi kênh chưa kiếm
+# tiền). Đo 21/11 trên CPU: 30s audio 96s (T4 nhanh hơn nhiều); video bếp có nhạc: điểm nhạc tiếng nền 0,258 -> phần
+# tiếng động 0,0 (phần nhạc 0,948), ba phần cộng lại khớp bản gốc -36 dB.
+SFX_TIMEOUT = 300.0
+SFX_KEEP_DB = 20.0      # nhạc thấp hơn tiếng động chừng này dB = gốc gần như không có nhạc: giữ nguyên, khỏi méo tiếng
+
+
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _model_path() -> str:
+    """Tải model (lần đầu) và kiểm SHA-256 mỗi lần khởi động: file bị tráo hay tải dở đều bị từ chối."""
+    os.makedirs(_DIR, exist_ok=True)
+    p = os.path.join(_DIR, MODEL_NAME)
+    if p in _verified:
+        return p
+    if os.path.exists(p) and sha256_file(p) != MODEL_SHA256:
+        logging.warning("Model %s sai checksum (hỏng hoặc bị thay), tải lại", MODEL_NAME)
+        os.remove(p)
+    if not os.path.exists(p):
+        logging.info("Tải model tách giọng %s (~66MB, chỉ lần đầu)...", MODEL_NAME)
+        tmp = p + ".part"
+        urllib.request.urlretrieve(MODEL_URL, tmp)
+        got = sha256_file(tmp)
+        if got != MODEL_SHA256:
+            os.remove(tmp)
+            raise RuntimeError(f"Model tải về sai checksum ({got[:12]}…), đã xoá; tách giọng tạm tắt.")
+        os.replace(tmp, p)
+    _verified.add(p)
+    return p
+
+
+def _cuda_providers(ort) -> list:
+    """SEP_DEVICE=cuda (Kaggle): chạy model trên GPU. onnxruntime-gpu cần thư viện CUDA/cuDNN: nạp sẵn qua PyTorch
+    (Kaggle có) rồi preload_dlls; không được thì về CPU (vẫn chạy, chỉ chậm hơn)."""
+    if os.environ.get("SEP_DEVICE") != "cuda":
+        return []
+    try:
+        import torch  # noqa: F401  (nạp libcudnn/libcublas của PyTorch vào tiến trình để onnxruntime thấy)
+    except Exception:
+        pass
+    try:
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls()
+    except Exception as e:
+        print(f"preload_dlls lỗi: {e}", file=sys.stderr)
+    if "CUDAExecutionProvider" in ort.get_available_providers():
+        return ["CUDAExecutionProvider"]
+    print("GPU: onnxruntime không có CUDAExecutionProvider, tách giọng bằng CPU", file=sys.stderr)
+    return []
+
+
+def gpu_active() -> bool:
+    """Phiên tách giọng đang chạy bằng CUDA (sau khi _get_session đã mở)."""
+    try:
+        return _session is not None and "CUDAExecutionProvider" in _session.get_providers()
+    except Exception:
+        return False
+
+
+def _get_session():
+    global _session
+    if _session is None:
+        import onnxruntime as ort
+        cuda = _cuda_providers(ort)
+        if cuda:
+            try:
+                _session = ort.InferenceSession(_model_path(), providers=cuda + ["CPUExecutionProvider"])
+                if "CUDAExecutionProvider" in _session.get_providers():
+                    print("GPU: tách giọng bằng CUDA", file=sys.stderr)
+                    return _session
+            except Exception as e:
+                print(f"GPU lỗi ({str(e)[:200]}), tách giọng bằng CPU", file=sys.stderr)
+            _session = None
+        opt = ort.SessionOptions()
+        opt.intra_op_num_threads = int(os.environ.get("SEP_THREADS", "2"))   # Botkeep 1.5 vCPU
+        opt.inter_op_num_threads = 1
+        # Botkeep chỉ 2GB RAM: tắt arena + mem pattern (mặc định ORT giữ ~2.5GB bộ nhớ đệm)
+        opt.enable_cpu_mem_arena = False
+        opt.enable_mem_pattern = False
+        opt.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        opt.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC   # ~1.3GB đỉnh
+        _session = ort.InferenceSession(_model_path(), opt, providers=["CPUExecutionProvider"])
+    return _session
+
+
+_WIN = np.hanning(N_FFT + 1)[:-1].astype(np.float32)   # hann tuần hoàn (giống torch.hann_window)
+
+
+def _stft(x: np.ndarray) -> np.ndarray:
+    """x: (2, n) -> (2, bins, frames) complex, center=True, pad reflect."""
+    pad = N_FFT // 2
+    xp = np.pad(x, ((0, 0), (pad, pad)), mode="reflect")
+    n_frames = 1 + (xp.shape[1] - N_FFT) // HOP
+    idx = np.arange(N_FFT)[None, :] + HOP * np.arange(n_frames)[:, None]
+    frames = xp[:, idx] * _WIN                          # (2, frames, n_fft)
+    return np.fft.rfft(frames, axis=-1).transpose(0, 2, 1)
+
+
+def _istft(spec: np.ndarray, length: int) -> np.ndarray:
+    """spec: (2, bins, frames) -> (2, length)."""
+    frames = np.fft.irfft(spec.transpose(0, 2, 1), n=N_FFT, axis=-1) * _WIN
+    n_frames = frames.shape[1]
+    total = N_FFT + HOP * (n_frames - 1)
+    out = np.zeros((2, total), np.float32)
+    norm = np.zeros(total, np.float32)
+    for f in range(n_frames):
+        s = f * HOP
+        out[:, s:s + N_FFT] += frames[:, f]
+        norm[s:s + N_FFT] += _WIN ** 2
+    out /= np.maximum(norm, 1e-8)
+    pad = N_FFT // 2
+    return out[:, pad:pad + length]
+
+
+def chunks_needed(n: int, gen: int, windows, sr: int = SR) -> list:
+    """Chỉ số các khúc (mỗi khúc `gen` mẫu) có chạm vào khoảng người gốc nói. windows=None: mọi khúc."""
+    starts = list(range(0, n + (gen - n % gen), gen))
+    if windows is None:
+        return [True] * len(starts)
+    return [any(a * sr < i + gen and b * sr > i for a, b in windows) for i in starts]
+
+
+def _separate(mix: np.ndarray, windows=None) -> np.ndarray:
+    """mix: (2, n) float32 -> vocals (2, n). windows=[(giây đầu, giây cuối)] lúc người gốc nói: các khúc ~5.7s
+    không chạm khoảng nào thì bỏ qua (giọng = 0), vì chỗ đó không có lời để tách — nhanh hơn hẳn với video
+    nấu ăn nhiều đoạn chỉ có tiếng xèo."""
+    sess = _get_session()
+    chunk = HOP * (DIM_T - 1)
+    trim = N_FFT // 2
+    gen = chunk - 2 * trim
+    n = mix.shape[1]
+    pad = gen - n % gen
+    mp = np.concatenate([np.zeros((2, trim), np.float32), mix, np.zeros((2, pad + trim), np.float32)], 1)
+    outs = []
+    starts = list(range(0, n + pad, gen))
+    need = chunks_needed(n, gen, windows)
+    todo = sum(need)
+    budget = float(os.environ.get("SEP_BUDGET", "180"))
+    import time
+    t0, done = time.time(), 0
+    for idx, i in enumerate(starts):
+        if not need[idx]:
+            outs.append(np.zeros((2, gen), np.float32))
+            continue
+        tc = time.time()
+        w = mp[:, i:i + chunk]
+        sp = _stft(w)[:, :DIM_F]                        # (2, 3072, 256)
+        x = np.stack([sp[0].real, sp[0].imag, sp[1].real, sp[1].imag])[None].astype(np.float32)
+        y = sess.run(None, {sess.get_inputs()[0].name: x})[0][0]
+        full = np.zeros((2, N_FFT // 2 + 1, DIM_T), np.complex64)
+        full[0, :DIM_F] = y[0] + 1j * y[1]
+        full[1, :DIM_F] = y[2] + 1j * y[3]
+        outs.append(_istft(full, chunk)[:, trim:-trim])
+        dt = time.time() - tc
+        done += 1
+        print(f"khúc {idx + 1}/{len(starts)}: {dt:.1f}s", file=sys.stderr, flush=True)
+        if done == 1 and dt * todo > budget:     # đo khúc đầu: quá chậm thì dừng ngay, không chờ vô ích
+            raise RuntimeError(f"máy quá chậm: {dt:.0f}s/khúc x {todo} khúc > ngân sách {budget:.0f}s")
+    print(f"xong {todo}/{len(starts)} khúc có lời trong {time.time() - t0:.0f}s", file=sys.stderr, flush=True)
+    # khúc tách giọng nằm cạnh khúc bỏ qua (giọng = 0): vuốt về 0 trong ~46ms ở mép để không có tiếng "tách"
+    ramp = np.linspace(0.0, 1.0, FADE, dtype=np.float32)
+    for idx, out in enumerate(outs):
+        if not need[idx]:
+            continue
+        if idx > 0 and not need[idx - 1]:
+            out[:, :FADE] *= ramp
+        if idx + 1 < len(outs) and not need[idx + 1]:
+            out[:, -FADE:] *= ramp[::-1]
+    return np.concatenate(outs, 1)[:, :n]
+
+
+def _separate_roformer(mix: np.ndarray) -> np.ndarray:
+    """mix: (2, n) float32 44.1kHz -> giọng (2, n) bằng Mel-Band RoFormer (audio-separator, PyTorch). Model tải lần đầu
+    vào models/ (audio-separator tự kiểm SHA-256 theo danh sách đi kèm bản đã ghim; nạp weights_only). Chạy fp32 như lúc
+    đo (fp16 chưa đo chất lượng)."""
+    import tempfile
+
+    from audio_separator.separator import Separator
+    sep = Separator(log_level=logging.WARNING, model_file_dir=_DIR, output_dir=tempfile.gettempdir(),
+                    mdxc_params={"segment_size": 256, "override_model_segment_size": False, "batch_size": 1,
+                                 "overlap": ROF_OVERLAP, "pitch_shift": 0})
+    sep.load_model(ROF_MODEL)
+    m = sep.model_instance
+    out = m.demix(np.ascontiguousarray(mix, np.float32))   # {"vocals", "other"}, chưa chuẩn hoá biên độ như khi ghi file
+    voc = np.asarray(out[m.primary_stem_name], np.float32)
+    if voc.shape != mix.shape:
+        raise RuntimeError(f"RoFormer trả {voc.shape}, cần {mix.shape}")
+    return voc
+
+
+def _decode(path: str, max_sec: float) -> np.ndarray:
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-t", f"{max_sec:.2f}", "-vn", "-ac", "2",
+                          "-ar", str(SR), "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.float32).reshape(-1, 2).T.copy()
+
+
+def _write_wav(path: str, x: np.ndarray):
+    pcm = (np.clip(x.T, -1, 1) * 32767).astype("<i2").tobytes()
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", str(SR), "-ac", "2", "-i", "-", path],
+                   input=pcm, check=True)
+
+
+MASK_K = 1.0            # độ mạnh mặt nạ lọc giọng sót (đo: 0.5-4 đều giảm sót ~-52 dB; 1.0 mất tiếng xèo ít)
+MASK_FLOOR = 0.05       # một ô tần số-thời gian bị hạ tối đa 26 dB
+MASK_BLOCK = 20 * SR    # lọc từng khối 20 giây (Botkeep 2GB RAM: STFT cả bài 220s tốn ~700MB)
+MASK_PAD = 2 * N_FFT
+
+
+def suppress_residual(amb: np.ndarray, voc: np.ndarray, k: float = MASK_K, floor: float = MASK_FLOOR) -> np.ndarray:
+    """Lọc GIỌNG SÓT trong tiếng nền đã tách bằng mặt nạ phổ (Wiener): ở mỗi ô tần số-thời gian, giọng tách được càng
+    trội hơn nền thì nền càng bị hạ (A' = A·A²/(A² + k·V²)); ô không có giọng giữ nguyên. Đo trên video cá kèo
+    (13/11/2026): giọng gốc còn trong nền -25 dB -> -52 dB (phần giọng lượt 1 bỏ sót hẳn còn 6%), tiếng xèo >3.5kHz
+    lúc người gốc nói chỉ giảm 2.5 dB; tách lượt 2 kém hơn (-41 dB, p90 -26 dB) mà tốn gấp đôi thời gian."""
+    n = amb.shape[1]
+    out = np.empty_like(amb)
+    for s0 in range(0, n, MASK_BLOCK):
+        s1 = min(n, s0 + MASK_BLOCK)
+        a0, a1 = max(0, s0 - MASK_PAD), min(n, s1 + MASK_PAD)
+        if not np.any(voc[:, a0:a1]):                   # khúc không tách giọng (ngoài cửa sổ lời): giữ nguyên
+            out[:, s0:s1] = amb[:, s0:s1]
+            continue
+        A, V = _stft(amb[:, a0:a1]), _stft(voc[:, a0:a1])
+        a2, v2 = np.abs(A) ** 2, np.abs(V) ** 2
+        y = _istft(A * np.maximum(floor, a2 / (a2 + k * v2 + 1e-12)), a1 - a0)
+        out[:, s0:s1] = y[:, s0 - a0:s0 - a0 + (s1 - s0)]
+    return out
+
+
+def _split_sync(src: str, ambient_wav: str, max_sec: float = 320.0, windows=None, vocals_wav: str = "",
+                engine: str = "kim"):
+    mix = _decode(src, max_sec)
+    if mix.shape[1] < SR:
+        raise RuntimeError("audio quá ngắn")
+    if engine == "roformer":
+        import torch
+        if not torch.cuda.is_available():               # CPU: chậm gấp ~7 lần một lượt Kim_Vocal_2 (đo 20/11)
+            raise RuntimeError("RoFormer cần GPU (không có CUDA)")
+        vocals = _separate_roformer(mix)
+        print("GPU: tách giọng bằng RoFormer", file=sys.stderr)
+    else:
+        vocals = _separate(mix, windows) * 1.035       # hệ số bù chuẩn của Kim_Vocal_2
+    amb = mix - vocals
+    # lượt 2 chỉ khi GPU thật sự chạy (Kaggle T4: +34s); trên CPU tốn gấp đôi (Kaggle CPU 418s, đo 13/11/2026) mà mặt nạ
+    # phổ bên dưới đã lọc được phần lớn giọng sót
+    if engine != "roformer" and os.environ.get("SEP_PASSES", "1") == "2" and gpu_active():
+        v2 = _separate(amb, windows) * 1.035
+        amb, vocals = amb - v2, vocals + v2
+    if os.environ.get("SEP_MASK", "1") != "0":
+        amb = suppress_residual(amb, vocals, k=ROF_MASK_K if engine == "roformer" else MASK_K)
+    _write_wav(ambient_wav, amb)
+    if vocals_wav:                                      # giọng đã tách (mono 16kHz) cho Whisper bóc lời trên Kaggle
+        pcm = (np.clip(vocals.mean(0), -1, 1) * 32767).astype("<i2").tobytes()
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "s16le", "-ar", str(SR), "-ac", "1", "-i", "-",
+                        "-ar", "16000", vocals_wav], input=pcm, check=True)
+
+
+NEED_MB = 1450
+
+
+def free_mb() -> int:
+    """RAM còn trống thật sự của container (đọc giới hạn cgroup, không phải RAM máy chủ)."""
+    try:
+        for base in ("/sys/fs/cgroup", "/sys/fs/cgroup/memory"):
+            for lim_f, cur_f in (("memory.max", "memory.current"),
+                                 ("memory.limit_in_bytes", "memory.usage_in_bytes")):
+                lim_p, cur_p = os.path.join(base, lim_f), os.path.join(base, cur_f)
+                if os.path.exists(lim_p) and os.path.exists(cur_p):
+                    lim = open(lim_p).read().strip()
+                    if lim != "max" and int(lim) < 1 << 50:
+                        return (int(lim) - int(open(cur_p).read())) // (1 << 20)
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable"):
+                return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return 99999
+
+
+def sfx_wanted() -> bool:
+    """Bỏ nhạc gốc bằng Bandit? Chỉ trên Kaggle GPU (SEP_DEVICE=cuda) và cài đặt SFX_SEP=1."""
+    if os.environ.get("SEP_DEVICE") != "cuda":
+        return False
+    import config
+    return str(config.SFX_SEP) == "1"
+
+
+def _strip_music(ambient_wav: str) -> str:
+    """(tiến trình con, GPU) Ghi đè ambient_wav bằng phần TIẾNG ĐỘNG (bỏ nhạc gốc). Trả dòng log."""
+    import torch
+    if not torch.cuda.is_available():               # CPU: 30s audio ~96s, cả bài quá chậm
+        raise RuntimeError("Bandit cần GPU (không có CUDA)")
+    from rmvideo.media import stems
+    amb = _decode(ambient_wav, 900.0)
+    fx, lv = stems.effects_only(amb, _DIR, "cuda")
+    if lv["music"] < lv["effects"] - SFX_KEEP_DB:
+        return f"Bandit: gốc gần như không có nhạc ({lv}), giữ tiếng nền"
+    _write_wav(ambient_wav, fx)
+    return f"Bandit: đã bỏ nhạc gốc, giữ tiếng động ({lv})"
+
+
+async def strip_music(ambient_wav: str) -> bool:
+    """Bỏ nhạc gốc khỏi tiếng nền đã tách (Kaggle GPU, SFX_SEP=1) trong tiến trình riêng; lỗi / quá giờ thì giữ nguyên
+    tiếng nền cũ (còn nhạc gốc như trước 1.2.0). True khi đã bỏ nhạc."""
+    if not sfx_wanted() or not os.path.exists(ambient_wav):
+        return False
+    bak = ambient_wav + ".bak.wav"
+    try:
+        import shutil
+        shutil.copyfile(ambient_wav, bak)
+        code, log = await _child(["--sfx", ambient_wav], SFX_TIMEOUT)
+        msg = (log[-1] if log else "")[-300:]
+        if code == 0:
+            logging.info("Tách âm: %s", msg)
+            return "đã bỏ nhạc" in msg
+        logging.warning("Bỏ nhạc gốc lỗi (mã %s: %s): giữ tiếng nền cũ", code, msg)
+    except asyncio.TimeoutError:
+        logging.warning("Bỏ nhạc gốc quá %.0fs: giữ tiếng nền cũ", SFX_TIMEOUT)
+    except Exception as e:
+        logging.warning("Bỏ nhạc gốc lỗi (%s): giữ tiếng nền cũ", str(e)[:200])
+    try:
+        if os.path.exists(bak):
+            os.replace(bak, ambient_wav)                # file dở / hỏng của lượt lỗi không được dùng
+    except OSError:
+        pass
+    return False
+
+
+def roformer_wanted() -> bool:
+    """Thử RoFormer trước Kim_Vocal_2? Chỉ trên Kaggle (kaggle_job đặt SEP_DEVICE=cuda) ở notebook đã cài audio-separator
+    (phiên phân tích, PIP_ANALYZE) và cài đặt VOICE_SEP_MODEL cho phép. Botkeep giữ nguyên Kim_Vocal_2."""
+    if os.environ.get("SEP_DEVICE") != "cuda":
+        return False
+    import importlib.util
+
+    import config
+    return config.VOICE_SEP_MODEL == "auto" and importlib.util.find_spec("audio_separator") is not None
+
+
+async def _child(args: list, timeout: float) -> tuple:
+    """`python vocal_sep.py args...` trong tiến trình riêng (RAM model trả lại ngay khi xong), giết CẢ NHÓM khi huỷ /
+    quá giờ (ffmpeg do tiến trình con gọi cũng chết theo). Trả (mã thoát, các dòng stderr)."""
+    async with proc.spawn([sys.executable, os.path.abspath(__file__), *args], stdout=asyncio.subprocess.DEVNULL,
+                          stderr=asyncio.subprocess.PIPE) as p:
+        _, err = await asyncio.wait_for(p.communicate(), timeout)
+    return p.returncode, err.decode(errors="ignore").strip().splitlines()
+
+
+async def remove_voice(src: str, ambient_wav: str, timeout: float = 0, windows=None, vocals_wav: str = "",
+                       strip: bool = True) -> bool:
+    """Ghi tiếng nền ĐÃ BỎ GIỌNG NGƯỜI ra ambient_wav. Chạy trong TIẾN TRÌNH RIÊNG để ~1.3GB RAM
+    của model được trả lại ngay khi xong. False nếu thiếu RAM/lỗi -> caller dùng cách dự phòng.
+    Kaggle GPU + VOICE_SEP_MODEL=auto: thử RoFormer trước, lỗi / quá ROF_TIMEOUT thì tách lại bằng Kim_Vocal_2.
+    strip: bỏ nhạc gốc sau đó (strip_music); False khi tiếng nền không được dùng (phân tích video review chỉ cần giọng
+    sạch cho bóc lời — góp ý Codex PR #17)."""
+    free = free_mb()
+    if free < NEED_MB:
+        logging.warning("RAM trống %dMB < %dMB, bỏ qua tách giọng AI", free, NEED_MB)
+        return False
+    args = [src, ambient_wav, json.dumps(windows), vocals_wav]
+    try:
+        if roformer_wanted():
+            try:
+                code, log = await _child(args + ["roformer"], ROF_TIMEOUT)
+                if code == 0 and os.path.exists(ambient_wav):
+                    logging.info("Tách giọng AI (RoFormer): %s", log[-1] if log else "xong")
+                    if strip:
+                        await strip_music(ambient_wav)
+                    return True
+                why = f"mã {code}: {(log[-1] if log else '')[-200:]}"
+            except asyncio.TimeoutError:
+                why = f"quá {ROF_TIMEOUT:.0f}s"
+            except Exception as e:
+                why = str(e)[:200]
+            logging.warning("RoFormer lỗi (%s): tách giọng bằng Kim_Vocal_2", why)
+            for f in (ambient_wav, vocals_wav):         # file dở của lượt hỏng không được coi là kết quả
+                if f and os.path.exists(f):
+                    os.remove(f)
+        await asyncio.to_thread(_model_path)            # tải model (lần đầu) ngoài tiến trình con
+        timeout = timeout or float(os.environ.get("SEP_BUDGET", "180")) + 90
+        code, log = await _child(args, timeout)
+        if code == 0 and os.path.exists(ambient_wav):
+            gpu = [x for x in log if x.startswith("GPU")]
+            logging.info("Tách giọng AI: %s%s", log[-1] if log else "xong", f" ({gpu[-1]})" if gpu else "")
+            if strip:
+                await strip_music(ambient_wav)
+            return True
+        logging.warning("Tách giọng bỏ qua (mã %s): %s", code, (log[-1] if log else "")[-200:])
+        return False
+    except asyncio.TimeoutError:
+        logging.warning("Tách giọng quá %ss, bỏ qua", timeout)
+    except Exception:
+        logging.exception("Tách giọng lỗi")
+    return False
+
+
+if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--sfx":
+        print(_strip_music(sys.argv[2]), file=sys.stderr)
+        sys.exit(0)
+    _split_sync(sys.argv[1], sys.argv[2], windows=json.loads(sys.argv[3]) if len(sys.argv) > 3 else None,
+                vocals_wav=sys.argv[4] if len(sys.argv) > 4 else "", engine=sys.argv[5] if len(sys.argv) > 5 else "kim")
